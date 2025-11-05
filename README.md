@@ -55,6 +55,38 @@ Captain's Log provides IT teams with a structured way to maintain daily logs of 
 - **⚡ Real-time Updates**: Instant updates without page refreshes
 - **🔍 Entry Management**: Create, read, update, and delete log entries
 
+### Advanced Features
+
+- **📥 Data Export**: Export entries in multiple formats
+  - **CSV**: Open in Excel or Google Sheets
+  - **JSON**: For backup and data portability
+  - **Markdown**: Human-readable formatted document
+- **📤 Data Import**: Import entries from previously exported JSON files
+  - Automatic duplicate detection
+  - Batch import support
+  - Drag-and-drop file upload
+- **🔍 Search**: Full-text search across all entry fields
+  - Search through all sections
+  - Instant results with highlighting
+  - Jump directly to matching entries
+- **📊 Analytics Dashboard**: Comprehensive insights
+  - Total entries and activity tracking
+  - Current and longest streak tracking
+  - Completion rate metrics
+  - Section usage visualization
+  - Logging habits analysis
+  - Quick insights and recommendations
+- **📝 Entry Templates**: 8 pre-built templates for quick logging
+  - Productive Day
+  - Challenging Day
+  - Learning Day
+  - Meeting Heavy
+  - Bug Fixing Day
+  - Code Review Day
+  - Planning Day
+  - Deployment Day
+- **🔔 Toast Notifications**: Real-time feedback for all actions
+
 ### User Experience
 
 - **Zero Configuration**: No setup required, works immediately
