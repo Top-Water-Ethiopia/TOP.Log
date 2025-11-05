@@ -6,6 +6,9 @@ import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
 import { useCaptainLog } from "@/contexts/captain-log-context"
 import { ArrowLeft, Save } from "lucide-react"
+import { TemplateDialog } from "@/components/template-dialog"
+import type { EntryTemplate } from "@/lib/templates"
+import { toast } from "sonner"
 
 interface EntryFormProps {
   date: string
@@ -45,6 +48,11 @@ export function EntryForm({ date, onSave, onCancel }: EntryFormProps) {
       ...prev,
       [field]: value,
     }))
+  }
+
+  const handleApplyTemplate = (template: EntryTemplate) => {
+    setFormData(template.fields)
+    toast.success(`Applied "${template.name}" template`)
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -126,10 +134,13 @@ export function EntryForm({ date, onSave, onCancel }: EntryFormProps) {
           <h2 className="text-2xl font-semibold text-foreground">Log Entry</h2>
           <p className="text-sm text-muted-foreground mt-1">{formatDate(date)}</p>
         </div>
-        <Button variant="outline" size="sm" onClick={onCancel} className="gap-2 bg-transparent">
-          <ArrowLeft className="h-4 w-4" />
-          Back
-        </Button>
+        <div className="flex gap-2">
+          <TemplateDialog onSelectTemplate={handleApplyTemplate} />
+          <Button variant="outline" size="sm" onClick={onCancel} className="gap-2 bg-transparent">
+            <ArrowLeft className="h-4 w-4" />
+            Back
+          </Button>
+        </div>
       </div>
 
       {/* Form */}
