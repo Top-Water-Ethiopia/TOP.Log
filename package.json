@@ -19,10 +19,16 @@
   "license": "MIT",
   "private": true,
   "scripts": {
-    "build": "next build",
     "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
     "lint": "eslint .",
-    "start": "next start"
+    "lint:fix": "eslint . --fix",
+    "format": "prettier --write \"**/*.{js,jsx,ts,tsx,json,css,md}\"",
+    "format:check": "prettier --check \"**/*.{js,jsx,ts,tsx,json,css,md}\"",
+    "type-check": "tsc --noEmit",
+    "clean": "rm -rf .next out node_modules",
+    "prepare": "husky install || true"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
