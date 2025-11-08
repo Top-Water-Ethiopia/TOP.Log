@@ -1,11 +1,11 @@
-# Captain's Log 🚀
+# TOP Captain's Log 🚀
 
 [![Next.js](https://img.shields.io/badge/Next.js-16.0-black?logo=next.js)](https://nextjs.org/)
 [![React](https://img.shields.io/badge/React-19.2-blue?logo=react)](https://reactjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue?logo=typescript)](https://www.typescriptlang.org/)
 [![TailwindCSS](https://img.shields.io/badge/TailwindCSS-4.1-38bdf8?logo=tailwind-css)](https://tailwindcss.com/)
 
-**Captain's Log** is a modern, intuitive IT Department Daily Tracker designed to help IT professionals document their daily activities, track progress, and maintain a comprehensive record of development work, challenges, and achievements.
+**TOP Captain's Log** is a modern, intuitive IT Department Daily Tracker designed to help IT professionals document their daily activities, track progress, and maintain a comprehensive record of development work, challenges, and achievements.
 
 ## 📋 Table of Contents
 
@@ -26,7 +26,7 @@
 
 ## 🎯 Overview
 
-Captain's Log provides IT teams with a structured way to maintain daily logs of their work activities. The application features an interactive calendar interface for easy navigation between dates and comprehensive forms for documenting various aspects of daily IT work.
+TOP Captain's Log provides IT teams with a structured way to maintain daily logs of their work activities. The application features an interactive calendar interface for easy navigation between dates and comprehensive forms for documenting various aspects of daily IT work.
 
 ### Key Use Cases
 
@@ -257,7 +257,7 @@ Entries can be deleted from the entry details view using the delete functionalit
 
 ## 💾 Data Storage
 
-Captain's Log uses **browser Local Storage** for data persistence:
+TOP Captain's Log uses **browser Local Storage** for data persistence:
 
 - **Storage Key**: `captain-log-entries`
 - **Format**: JSON array of entry objects
@@ -347,7 +347,7 @@ The production build includes:
 
 ### Deployment Options
 
-Captain's Log can be deployed to:
+TOP Captain's Log can be deployed to:
 
 - **[Vercel](https://vercel.com/)** (Recommended - Zero configuration)
   ```bash
@@ -372,6 +372,37 @@ Currently, the application doesn't require environment variables as it uses loca
 # Example for future API integration
 # NEXT_PUBLIC_API_URL=https://api.example.com
 ```
+
+## 📦 Version Management
+
+TOP Captain's Log implements a comprehensive version management system for tracking releases and handling data migrations.
+
+### Features
+
+- **Semantic Versioning**: Follows [SemVer 2.0.0](https://semver.org/) specification
+- **Version History**: Complete changelog with release dates and codenames
+- **Data Migrations**: Automatic schema migrations between versions
+- **Backward Compatibility**: Version compatibility checking
+- **UI Integration**: Version display badge and info dialog in the header
+
+### Quick Access
+
+- **View Version**: Click the version button in the header to see detailed version information
+- **Version History**: View all releases and their features in the version dialog
+- **Technical Details**: See app version, schema version, and framework versions
+
+### For Developers
+
+- 📖 **[Version Management Guide](VERSION_MANAGEMENT.md)**: Complete documentation
+- 🚀 **[Quick Start Guide](VERSIONING_QUICK_START.md)**: Developer quick reference
+- 📝 **[Changelog](CHANGELOG.md)**: Detailed version history
+
+Version management files:
+- `version.config.ts` - Version configuration
+- `lib/version.ts` - Version utilities
+- `lib/migrations.ts` - Data migration system
+- `components/version-badge.tsx` - Version badge component
+- `components/version-info.tsx` - Version info dialog
 
 ## 📚 Additional Resources
 

@@ -11,8 +11,9 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { FileText } from "lucide-react"
+import { FileText, Rocket, AlertTriangle, BookOpen, Calendar, Bug, Eye, File } from "lucide-react"
 import { templates, type EntryTemplate } from "@/lib/templates"
+import * as LucideIcons from "lucide-react"
 
 interface TemplateDialogProps {
   onSelectTemplate: (template: EntryTemplate) => void
@@ -24,6 +25,12 @@ export function TemplateDialog({ onSelectTemplate }: TemplateDialogProps) {
   const handleSelectTemplate = (template: EntryTemplate) => {
     onSelectTemplate(template)
     setIsOpen(false)
+  }
+
+  // Get icon component from icon name string
+  const getIconComponent = (iconName: string) => {
+    const Icon = (LucideIcons as any)[iconName]
+    return Icon || FileText // Fallback to FileText if icon not found
   }
 
   return (
@@ -49,7 +56,10 @@ export function TemplateDialog({ onSelectTemplate }: TemplateDialogProps) {
                 className="p-4 rounded-lg border-2 border-border hover:border-primary hover:bg-accent transition-all text-left"
               >
                 <div className="flex items-start gap-3">
-                  <span className="text-3xl">{template.icon}</span>
+                  {(() => {
+                    const IconComponent = getIconComponent(template.icon)
+                    return <IconComponent className="h-8 w-8 flex-shrink-0" />
+                  })()}
                   <div className="flex-1 min-w-0">
                     <h3 className="font-semibold text-foreground mb-1">{template.name}</h3>
                     <p className="text-sm text-muted-foreground line-clamp-2">{template.description}</p>

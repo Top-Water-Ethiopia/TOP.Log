@@ -2,7 +2,7 @@
 
 ## 📐 System Architecture
 
-Captain's Log is a client-side single-page application (SPA) built with modern web technologies. This document provides a comprehensive overview of the system architecture, design decisions, and technical implementation.
+TOP Captain's Log is a client-side single-page application (SPA) built with modern web technologies. This document provides a comprehensive overview of the system architecture, design decisions, and technical implementation.
 
 ## 🏗 High-Level Architecture
 
@@ -10,7 +10,7 @@ Captain's Log is a client-side single-page application (SPA) built with modern w
 ┌─────────────────────────────────────────────────────────────┐
 │                         Browser                              │
 │  ┌───────────────────────────────────────────────────────┐  │
-│  │              Captain's Log Application                 │  │
+│  │              TOP Captain's Log Application                 │  │
 │  │                                                         │  │
 │  │  ┌──────────────┐  ┌──────────────┐  ┌─────────────┐ │  │
 │  │  │   Next.js    │  │    React     │  │  TypeScript │ │  │
@@ -700,6 +700,6 @@ class APIRepository implements DataRepository {
 
 **Last Updated**: 2024
 **Version**: 1.0.0
-**Maintainers**: Captain's Log Team
+**Maintainers**: TOP Captain's Log Team
 
 For questions or suggestions regarding the architecture, please open an issue or discussion on GitHub.

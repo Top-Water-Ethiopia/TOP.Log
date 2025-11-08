@@ -3,7 +3,7 @@
 import { useMemo } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { useCaptainLog } from "@/contexts/captain-log-context"
-import { Calendar, TrendingUp, CheckCircle, AlertCircle, Code, Zap } from "lucide-react"
+import { Calendar, TrendingUp, CheckCircle, AlertCircle, Code, Zap, Monitor, Award, Construction, Search, Wrench, Megaphone, PartyPopper } from "lucide-react"
 import { Progress } from "@/components/ui/progress"
 
 export function AnalyticsDashboard() {
@@ -202,7 +202,7 @@ export function AnalyticsDashboard() {
           <div className="space-y-3">
             <div>
               <div className="flex justify-between mb-2">
-                <span className="text-sm font-medium">💻 Development Tasks</span>
+                <span className="text-sm font-medium flex items-center gap-2"><Monitor className="h-4 w-4" /> Development Tasks</span>
                 <span className="text-sm text-muted-foreground">
                   {analytics.sectionStats.developmentTasks}/{analytics.totalEntries}
                 </span>
@@ -215,7 +215,7 @@ export function AnalyticsDashboard() {
 
             <div>
               <div className="flex justify-between mb-2">
-                <span className="text-sm font-medium">✅ Features Completed</span>
+                <span className="text-sm font-medium flex items-center gap-2"><Award className="h-4 w-4" /> Features Completed</span>
                 <span className="text-sm text-muted-foreground">
                   {analytics.sectionStats.featuresCompleted}/{analytics.totalEntries}
                 </span>
@@ -228,7 +228,7 @@ export function AnalyticsDashboard() {
 
             <div>
               <div className="flex justify-between mb-2">
-                <span className="text-sm font-medium">🚧 Challenges & Blockers</span>
+                <span className="text-sm font-medium flex items-center gap-2"><Construction className="h-4 w-4" /> Challenges & Blockers</span>
                 <span className="text-sm text-muted-foreground">
                   {analytics.sectionStats.challengesAndBlockers}/{analytics.totalEntries}
                 </span>
@@ -241,7 +241,7 @@ export function AnalyticsDashboard() {
 
             <div>
               <div className="flex justify-between mb-2">
-                <span className="text-sm font-medium">🔍 Code Review & Priorities</span>
+                <span className="text-sm font-medium flex items-center gap-2"><Search className="h-4 w-4" /> Code Review & Priorities</span>
                 <span className="text-sm text-muted-foreground">
                   {analytics.sectionStats.codeAndPriorities}/{analytics.totalEntries}
                 </span>
@@ -254,7 +254,7 @@ export function AnalyticsDashboard() {
 
             <div>
               <div className="flex justify-between mb-2">
-                <span className="text-sm font-medium">🔧 System Improvements</span>
+                <span className="text-sm font-medium flex items-center gap-2"><Wrench className="h-4 w-4" /> System Improvements</span>
                 <span className="text-sm text-muted-foreground">
                   {analytics.sectionStats.systemImprovements}/{analytics.totalEntries}
                 </span>
@@ -267,7 +267,7 @@ export function AnalyticsDashboard() {
 
             <div>
               <div className="flex justify-between mb-2">
-                <span className="text-sm font-medium">📢 Project Updates</span>
+                <span className="text-sm font-medium flex items-center gap-2"><Megaphone className="h-4 w-4" /> Project Updates</span>
                 <span className="text-sm text-muted-foreground">
                   {analytics.sectionStats.projectUpdates}/{analytics.totalEntries}
                 </span>
@@ -311,7 +311,7 @@ export function AnalyticsDashboard() {
             {analytics.currentStreak >= 7 && (
               <div className="flex items-start gap-2 text-sm">
                 <Zap className="h-4 w-4 text-orange-500 mt-0.5" />
-                <span>Great job! You're on a {analytics.currentStreak}-day streak! 🎉</span>
+                <span className="flex items-center gap-1">Great job! You're on a {analytics.currentStreak}-day streak! <PartyPopper className="h-4 w-4" /></span>
               </div>
             )}
             {analytics.completionRate >= 80 && (

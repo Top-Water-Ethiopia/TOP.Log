@@ -17,7 +17,7 @@ interface EntryFormProps {
 }
 
 export function EntryForm({ date, onSave, onCancel }: EntryFormProps) {
-  const { getEntryByDate, addEntry, updateEntry } = useCaptainLog()
+  const { entries, addEntry, updateEntry } = useCaptainLog()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [formData, setFormData] = useState({
     developmentTasks: "",
@@ -28,9 +28,19 @@ export function EntryForm({ date, onSave, onCancel }: EntryFormProps) {
     projectUpdates: "",
   })
 
+  // Character limits for legacy form fields
+  const CHARACTER_LIMITS = {
+    developmentTasks: 800,
+    featuresCompleted: 1000,
+    challengesAndBlockers: 750,
+    codeAndPriorities: 600,
+    systemImprovements: 500,
+    projectUpdates: 400,
+  } as const
+
   // Load existing entry if it exists
   useEffect(() => {
-    const existingEntry = getEntryByDate(date)
+    const existingEntry = entries.find(entry => entry.date === date)
     if (existingEntry) {
       setFormData({
         developmentTasks: existingEntry.developmentTasks || "",
@@ -41,9 +51,13 @@ export function EntryForm({ date, onSave, onCancel }: EntryFormProps) {
         projectUpdates: existingEntry.projectUpdates || "",
       })
     }
-  }, [date, getEntryByDate])
+  }, [date, entries])
 
   const handleChange = (field: string, value: string) => {
+    const limit = CHARACTER_LIMITS[field as keyof typeof CHARACTER_LIMITS]
+    if (limit && value.length > limit) {
+      return // Prevent input beyond limit
+    }
     setFormData((prev) => ({
       ...prev,
       [field]: value,
@@ -60,19 +74,23 @@ export function EntryForm({ date, onSave, onCancel }: EntryFormProps) {
     setIsSubmitting(true)
 
     try {
-      const existingEntry = getEntryByDate(date)
+      const existingEntry = entries.find(entry => entry.date === date)
 
       if (existingEntry) {
         // Update existing entry
-        updateEntry(existingEntry.id, {
+        await updateEntry(existingEntry.id, {
           ...formData,
           date,
         })
       } else {
         // Create new entry
-        addEntry({
+        await addEntry({
           date,
           ...formData,
+          // Provide defaults for new fields (backward compatibility)
+          objectives: "",
+          keyResults: "",
+          challenges: "",
         })
       }
 
@@ -158,6 +176,12 @@ export function EntryForm({ date, onSave, onCancel }: EntryFormProps) {
               placeholder={field.placeholder}
               className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 min-h-24 resize-none"
             />
+            <div className="flex justify-end mt-1">
+              <span className={`text-xs ${formData[field.id as keyof typeof formData].length > CHARACTER_LIMITS[field.id as keyof typeof CHARACTER_LIMITS] * 0.9 ? 'text-destructive' : formData[field.id as keyof typeof formData].length > CHARACTER_LIMITS[field.id as keyof typeof CHARACTER_LIMITS] * 0.8 ? 'text-orange-500' : 'text-muted-foreground'}
+              `}>
+                {formData[field.id as keyof typeof formData].length}/{CHARACTER_LIMITS[field.id as keyof typeof CHARACTER_LIMITS]}
+              </span>
+            </div>
           </div>
         ))}
 

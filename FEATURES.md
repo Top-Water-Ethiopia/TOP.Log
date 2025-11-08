@@ -1,8 +1,8 @@
-# Captain's Log Features Guide
+# TOP Captain's Log Features Guide
 
 ## 🎯 Overview
 
-Captain's Log v1.1.0 is a comprehensive IT Department Daily Tracker with advanced features for managing, analyzing, and exporting your daily work logs.
+TOP Captain's Log v1.1.0 is a comprehensive IT Department Daily Tracker with advanced features for managing, analyzing, and exporting your daily work logs.
 
 ## 📊 Feature Breakdown
 
@@ -261,4 +261,4 @@ Features planned for future releases:
 
 **Need Help?** Check the documentation or open an issue on GitHub!
 
-**Enjoying Captain's Log?** Consider starring the repository and sharing with your team! ⭐
+**Enjoying TOP Captain's Log?** Consider starring the repository and sharing with your team! ⭐

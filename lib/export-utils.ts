@@ -141,27 +141,27 @@ export function exportToMarkdown(entries: CaptainLogEntry[]): string {
     markdown += `## ${formattedDate}\n\n`
 
     if (entry.developmentTasks) {
-      markdown += `### 💻 Development Tasks\n${entry.developmentTasks}\n\n`
+      markdown += `### Development Tasks\n${entry.developmentTasks}\n\n`
     }
 
     if (entry.featuresCompleted) {
-      markdown += `### ✅ Features Completed\n${entry.featuresCompleted}\n\n`
+      markdown += `### Features Completed\n${entry.featuresCompleted}\n\n`
     }
 
     if (entry.challengesAndBlockers) {
-      markdown += `### 🚧 Challenges & Blockers\n${entry.challengesAndBlockers}\n\n`
+      markdown += `### Challenges & Blockers\n${entry.challengesAndBlockers}\n\n`
     }
 
     if (entry.codeAndPriorities) {
-      markdown += `### 🔍 Code Review & Priorities\n${entry.codeAndPriorities}\n\n`
+      markdown += `### Code Review & Priorities\n${entry.codeAndPriorities}\n\n`
     }
 
     if (entry.systemImprovements) {
-      markdown += `### 🔧 System Improvements\n${entry.systemImprovements}\n\n`
+      markdown += `### System Improvements\n${entry.systemImprovements}\n\n`
     }
 
     if (entry.projectUpdates) {
-      markdown += `### 📢 Project Updates\n${entry.projectUpdates}\n\n`
+      markdown += `### Project Updates\n${entry.projectUpdates}\n\n`
     }
 
     markdown += "---\n\n"

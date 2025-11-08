@@ -74,8 +74,14 @@ export function ImportDialog() {
 
       // Add new entries
       newEntries.forEach((entry) => {
+        const entryData = entry as any
         addEntry({
           date: entry.date,
+          // New fields (v2.4.0)
+          objectives: entryData.objectives || "",
+          keyResults: entryData.keyResults || "",
+          challenges: entryData.challenges || "",
+          // Legacy fields
           developmentTasks: entry.developmentTasks,
           featuresCompleted: entry.featuresCompleted,
           challengesAndBlockers: entry.challengesAndBlockers,

@@ -1,6 +1,6 @@
-# Contributing to Captain's Log
+# Contributing to TOP Captain's Log
 
-First off, thank you for considering contributing to Captain's Log! It's people like you that make this tool better for everyone in the IT community.
+First off, thank you for considering contributing to TOP Captain's Log! It's people like you that make this tool better for everyone in the IT community.
 
 ## 📋 Table of Contents
 
@@ -581,6 +581,6 @@ Contributors will be:
 
 ---
 
-**Thank you for contributing to Captain's Log! Your efforts help make this tool better for IT professionals everywhere.** 🚀
+**Thank you for contributing to TOP Captain's Log! Your efforts help make this tool better for IT professionals everywhere.** 🚀
 
 For questions about contributing, please open a discussion or reach out to the maintainers.

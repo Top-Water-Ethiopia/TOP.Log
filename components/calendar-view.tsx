@@ -61,8 +61,8 @@ export function CalendarView({ selectedDate, onDateSelect }: CalendarViewProps) 
   const weekDays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
   return (
-    <div className="bg-card rounded-lg border border-border p-6">
-      <div className="space-y-4">
+    <div className="bg-card rounded-lg border border-border shadow-sm p-6 h-full flex flex-col">
+      <div className="space-y-4 flex-1 flex flex-col">
         {/* Month Navigation */}
         <div className="flex items-center justify-between mb-6">
           <h2 className="text-lg font-semibold text-foreground">{monthName}</h2>
@@ -95,25 +95,33 @@ export function CalendarView({ selectedDate, onDateSelect }: CalendarViewProps) 
             const dateString = formatDateString(day)
             const hasEntry = datesWithEntries.has(dateString)
             const isSelected = dateString === selectedDate
-            const isToday = dateString === new Date().toISOString().split("T")[0]
+            const today = new Date().toISOString().split("T")[0]
+            const isToday = dateString === today
+            const isFuture = dateString > today
 
             return (
               <button
                 key={day}
-                onClick={() => onDateSelect(dateString)}
+                onClick={() => !isFuture && onDateSelect(dateString)}
+                disabled={isFuture}
                 className={`aspect-square rounded-lg text-sm font-medium transition-all flex items-center justify-center relative
                   ${
-                    isSelected
-                      ? "bg-primary text-primary-foreground ring-2 ring-primary ring-offset-1"
-                      : isToday
-                        ? "bg-accent text-accent-foreground"
-                        : "bg-secondary text-secondary-foreground hover:bg-muted"
+                    isFuture
+                      ? "bg-secondary/30 text-muted-foreground cursor-not-allowed opacity-40"
+                      : isSelected
+                        ? "bg-primary text-primary-foreground ring-2 ring-primary ring-offset-1"
+                        : isToday
+                          ? "bg-accent text-accent-foreground ring-2 ring-accent"
+                          : "bg-secondary text-secondary-foreground hover:bg-muted"
                   }
                 `}
+                title={isFuture ? "Cannot log future dates" : hasEntry ? "View entry" : "Create entry"}
               >
                 {day}
                 {/* Entry Indicator Dot */}
-                {hasEntry && <div className="absolute bottom-1 right-1 h-1.5 w-1.5 rounded-full bg-accent" />}
+                {hasEntry && !isFuture && (
+                  <div className="absolute bottom-1 right-1 h-1.5 w-1.5 rounded-full bg-green-500" />
+                )}
               </button>
             )
           })}
@@ -122,12 +130,16 @@ export function CalendarView({ selectedDate, onDateSelect }: CalendarViewProps) 
         {/* Legend */}
         <div className="pt-4 mt-4 border-t border-border space-y-2">
           <div className="flex items-center gap-2">
-            <div className="h-3 w-3 rounded-full bg-accent" />
-            <span className="text-xs text-muted-foreground">Entry exists</span>
+            <div className="h-3 w-3 rounded bg-accent ring-2 ring-accent" />
+            <span className="text-xs text-muted-foreground font-medium">Today</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="h-3 w-3 rounded-full bg-accent opacity-0" />
-            <span className="text-xs text-muted-foreground">Today</span>
+            <div className="h-1.5 w-1.5 rounded-full bg-green-500" />
+            <span className="text-xs text-muted-foreground">Has entry</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <div className="h-3 w-3 rounded bg-secondary/30 opacity-40" />
+            <span className="text-xs text-muted-foreground">Future (disabled)</span>
           </div>
         </div>
       </div>

@@ -6,7 +6,7 @@ export interface EntryTemplate {
   id: string
   name: string
   description: string
-  icon: string
+  icon: string // Lucide icon name
   fields: {
     developmentTasks: string
     featuresCompleted: string
@@ -22,7 +22,7 @@ export const templates: EntryTemplate[] = [
     id: "productive-day",
     name: "Productive Day",
     description: "For days with lots of completed work",
-    icon: "🚀",
+    icon: "Rocket",
     fields: {
       developmentTasks: "• Implemented new feature\n• Fixed critical bugs\n• Refactored legacy code",
       featuresCompleted: "• Feature X completed and merged\n• Bug fix for issue #123\n• Performance optimization",
@@ -36,7 +36,7 @@ export const templates: EntryTemplate[] = [
     id: "challenging-day",
     name: "Challenging Day",
     description: "For days with blockers and issues",
-    icon: "🚧",
+    icon: "AlertTriangle",
     fields: {
       developmentTasks: "• Investigated production issue\n• Attempted multiple fixes\n• Debugging complex problem",
       featuresCompleted: "Limited progress due to blockers",
@@ -51,7 +51,7 @@ export const templates: EntryTemplate[] = [
     id: "learning-day",
     name: "Learning Day",
     description: "For days focused on learning and research",
-    icon: "📚",
+    icon: "BookOpen",
     fields: {
       developmentTasks: "• Explored new technology\n• Read documentation\n• Built proof of concept",
       featuresCompleted: "• POC for new architecture completed\n• Research findings documented",
@@ -65,7 +65,7 @@ export const templates: EntryTemplate[] = [
     id: "meeting-heavy",
     name: "Meeting Heavy",
     description: "For days with many meetings",
-    icon: "📅",
+    icon: "Calendar",
     fields: {
       developmentTasks: "• Limited coding time due to meetings\n• Quick bug fixes between sessions",
       featuresCompleted: "Minor updates only",
@@ -81,7 +81,7 @@ export const templates: EntryTemplate[] = [
     id: "bug-fixing",
     name: "Bug Fixing Day",
     description: "Focused on fixing bugs and issues",
-    icon: "🐛",
+    icon: "Bug",
     fields: {
       developmentTasks: "• Bug triage and prioritization\n• Fixed multiple reported issues\n• Regression testing",
       featuresCompleted:
@@ -96,7 +96,7 @@ export const templates: EntryTemplate[] = [
     id: "code-review",
     name: "Code Review Day",
     description: "Heavy focus on reviewing code",
-    icon: "👀",
+    icon: "Eye",
     fields: {
       developmentTasks: "• Limited new development\n• Small refactoring tasks",
       featuresCompleted: "Code cleanup and minor improvements",
@@ -111,7 +111,7 @@ export const templates: EntryTemplate[] = [
     id: "planning-day",
     name: "Planning Day",
     description: "Sprint/project planning and documentation",
-    icon: "📝",
+    icon: "FileText",
     fields: {
       developmentTasks: "• Technical spec writing\n• Architecture planning\n• Task breakdown",
       featuresCompleted: "Planning documents completed",
@@ -127,21 +127,21 @@ export const templates: EntryTemplate[] = [
     id: "deployment-day",
     name: "Deployment Day",
     description: "Release and deployment activities",
-    icon: "🚀",
+    icon: "Rocket",
     fields: {
       developmentTasks: "• Final testing and verification\n• Deployment preparation\n• Post-deploy monitoring",
       featuresCompleted: "• Successfully deployed v1.2.0\n• All smoke tests passing\n• Production verified",
       challengesAndBlockers: "Minor deployment hiccup resolved quickly",
       codeAndPriorities: "• Monitored production metrics\n• Priority: Monitor for any issues",
       systemImprovements: "• Improved deployment process\n• Updated runbooks",
-      projectUpdates: "🎉 Version 1.2.0 live in production!\n• New features available to users\n• Monitoring closely",
+      projectUpdates: "Version 1.2.0 live in production!\n• New features available to users\n• Monitoring closely",
     },
   },
   {
     id: "blank",
     name: "Blank Template",
     description: "Start from scratch",
-    icon: "📄",
+    icon: "File",
     fields: {
       developmentTasks: "",
       featuresCompleted: "",
