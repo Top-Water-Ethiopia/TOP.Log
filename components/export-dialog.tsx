@@ -105,7 +105,7 @@ export function ExportDialog() {
               <div className="flex items-center space-x-2 rounded-lg border p-3 hover:bg-accent cursor-pointer">
                 <RadioGroupItem value="csv" id="csv" />
                 <Label htmlFor="csv" className="flex items-center gap-2 flex-1 cursor-pointer">
-                  <FileSpreadsheet className="h-4 w-4 text-green-500" />
+                  <FileSpreadsheet className="h-4 w-4" style={{ color: '#099748' }} />
                   <div>
                     <div className="font-medium">CSV</div>
                     <div className="text-xs text-muted-foreground">Open in Excel or Google Sheets</div>

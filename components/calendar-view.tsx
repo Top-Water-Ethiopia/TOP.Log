@@ -120,7 +120,7 @@ export function CalendarView({ selectedDate, onDateSelect }: CalendarViewProps) 
                 {day}
                 {/* Entry Indicator Dot */}
                 {hasEntry && !isFuture && (
-                  <div className="absolute bottom-1 right-1 h-1.5 w-1.5 rounded-full bg-green-500" />
+                  <div className="absolute bottom-1 right-1 h-1.5 w-1.5 rounded-full" style={{ backgroundColor: '#099748' }} />
                 )}
               </button>
             )
@@ -134,7 +134,7 @@ export function CalendarView({ selectedDate, onDateSelect }: CalendarViewProps) 
             <span className="text-xs text-muted-foreground font-medium">Today</span>
           </div>
           <div className="flex items-center gap-2">
-            <div className="h-1.5 w-1.5 rounded-full bg-green-500" />
+            <div className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: '#099748' }} />
             <span className="text-xs text-muted-foreground">Has entry</span>
           </div>
           <div className="flex items-center gap-2">

@@ -172,7 +172,7 @@ export function AnalyticsDashboard() {
           </CardHeader>
           <CardContent>
             <div className="flex items-center gap-2">
-              <CheckCircle className="h-5 w-5 text-green-500" />
+              <CheckCircle className="h-5 w-5" style={{ color: '#099748' }} />
               <span className="text-3xl font-bold">{analytics.completionRate.toFixed(0)}%</span>
             </div>
           </CardContent>
@@ -316,7 +316,7 @@ export function AnalyticsDashboard() {
             )}
             {analytics.completionRate >= 80 && (
               <div className="flex items-start gap-2 text-sm">
-                <CheckCircle className="h-4 w-4 text-green-500 mt-0.5" />
+                <CheckCircle className="h-4 w-4 mt-0.5" style={{ color: '#099748' }} />
                 <span>Excellent! You're filling out most sections consistently.</span>
               </div>
             )}

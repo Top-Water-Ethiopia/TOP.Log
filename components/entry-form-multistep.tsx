@@ -153,9 +153,10 @@ export function EntryFormMultistep({ date, onSave, onCancel }: EntryFormMultiste
                   currentStep === step.number
                     ? "bg-primary text-primary-foreground"
                     : currentStep > step.number
-                      ? "bg-green-500 text-white"
+                      ? "text-white"
                       : "bg-muted text-muted-foreground"
                 }`}
+                style={currentStep > step.number ? { backgroundColor: '#099748' } : undefined}
               >
                 {currentStep > step.number ? <CheckCircle2 className="h-5 w-5" /> : <step.icon className="h-5 w-5" />}
               </div>
@@ -164,8 +165,9 @@ export function EntryFormMultistep({ date, onSave, onCancel }: EntryFormMultiste
             {index < steps.length - 1 && (
               <div
                 className={`flex-1 h-1 mx-2 rounded transition-colors ${
-                  currentStep > step.number ? "bg-green-500" : "bg-muted"
+                  currentStep > step.number ? "bg-muted" : "bg-muted"
                 }`}
+                style={currentStep > step.number ? { backgroundColor: '#099748' } : undefined}
               />
             )}
           </div>
@@ -198,7 +200,7 @@ export function EntryFormMultistep({ date, onSave, onCancel }: EntryFormMultiste
                 value={formData.objectives}
                 onChange={(e) => handleChange("objectives", e.target.value)}
                 className="w-full min-h-[150px] max-h-[300px] p-4 rounded-md border border-input bg-background text-foreground resize-y text-base"
-                placeholder="Example:\n• Complete user authentication feature\n• Fix critical production bug\n• Review team pull requests\n• Improve database performance"
+                placeholder="What were your objectives today?"
                 required
                 autoFocus
               />
@@ -222,7 +224,7 @@ export function EntryFormMultistep({ date, onSave, onCancel }: EntryFormMultiste
                 value={formData.keyResults}
                 onChange={(e) => handleChange("keyResults", e.target.value)}
                 className="w-full min-h-[150px] max-h-[300px] p-4 rounded-md border border-input bg-background text-foreground resize-y text-base"
-                placeholder="Example:\n• Deployed authentication to staging environment\n• Reduced response time from 500ms to 200ms\n• Approved 3 team PRs\n• Fixed 5 high-priority bugs\n• Completed 80% of sprint tasks"
+                placeholder="What were your key results?"
                 required
                 autoFocus
               />
@@ -246,7 +248,7 @@ export function EntryFormMultistep({ date, onSave, onCancel }: EntryFormMultiste
                 value={formData.challenges}
                 onChange={(e) => handleChange("challenges", e.target.value)}
                 className="w-full min-h-[150px] max-h-[300px] p-4 rounded-md border border-input bg-background text-foreground resize-y text-base"
-                placeholder="Example:\n• API rate limiting slowed integration testing\n• Missing documentation for legacy code\n• Dependency version conflicts\n• Waiting on security review\n• Test environment was down for 2 hours"
+                placeholder="What challenges did you face?"
                 autoFocus
               />
               <div className="flex justify-end mt-2">

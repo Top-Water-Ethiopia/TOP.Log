@@ -109,37 +109,37 @@ export function EntryForm({ date, onSave, onCancel }: EntryFormProps) {
     {
       id: "developmentTasks",
       label: "Development Tasks",
-      placeholder: "What development tasks did you work on today?",
+      placeholder: "Development Tasks",
       description: "List all active development tasks and their current status",
     },
     {
       id: "featuresCompleted",
       label: "Features Completed",
-      placeholder: "Which features or tickets did you complete?",
+      placeholder: "Features Completed",
       description: "Document any completed features, bug fixes, or merged pull requests",
     },
     {
       id: "challengesAndBlockers",
       label: "Challenges & Blockers",
-      placeholder: "What challenges or blockers did you encounter?",
+      placeholder: "Challenges & Blockers",
       description: "Note any issues, dependencies, or blockers that are impacting progress",
     },
     {
       id: "codeAndPriorities",
       label: "Code Review & Priorities",
-      placeholder: "What code reviews did you perform? What are your priorities?",
+      placeholder: "Code Review & Priorities",
       description: "Summarize code review activities and set priorities for tomorrow",
     },
     {
       id: "systemImprovements",
       label: "System Improvements",
-      placeholder: "What improvements or optimizations did you make?",
+      placeholder: "System Improvements",
       description: "Document infrastructure improvements, refactoring, or performance enhancements",
     },
     {
       id: "projectUpdates",
       label: "Project Updates",
-      placeholder: "Any important project updates or announcements?",
+      placeholder: "Project Updates",
       description: "Record significant project changes, milestones, or team updates",
     },
   ]

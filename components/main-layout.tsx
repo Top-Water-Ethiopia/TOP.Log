@@ -42,7 +42,9 @@ export function MainLayout() {
         <div className="max-w-[1300px] mx-auto px-6 py-6">
           <div className="flex items-center justify-between">
             <div>
-              <h1 className="text-3xl font-semibold text-foreground">TOP Captain's Log</h1>
+              <h1 className="text-3xl font-semibold text-foreground">
+                <span className="text-primary">TOP</span> Captain's Log
+              </h1>
               <p className="text-sm text-muted-foreground mt-1">IT Department Daily Tracker</p>
             </div>
             <div className="flex gap-2">

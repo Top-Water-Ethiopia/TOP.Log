@@ -1,9 +1,9 @@
 # TOP Captain's Log 🚀
 
 [![Next.js](https://img.shields.io/badge/Next.js-16.0-black?logo=next.js)](https://nextjs.org/)
-[![React](https://img.shields.io/badge/React-19.2-blue?logo=react)](https://reactjs.org/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue?logo=typescript)](https://www.typescriptlang.org/)
-[![TailwindCSS](https://img.shields.io/badge/TailwindCSS-4.1-38bdf8?logo=tailwind-css)](https://tailwindcss.com/)
+[![React](https://img.shields.io/badge/React-19.2-0b72b5?logo=react)](https://reactjs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.x-0b72b5?logo=typescript)](https://www.typescriptlang.org/)
+[![TailwindCSS](https://img.shields.io/badge/TailwindCSS-4.1-1b99d3?logo=tailwind-css)](https://tailwindcss.com/)
 
 **TOP Captain's Log** is a modern, intuitive IT Department Daily Tracker designed to help IT professionals document their daily activities, track progress, and maintain a comprehensive record of development work, challenges, and achievements.
 

@@ -272,7 +272,7 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
                       {error ? (
                         <AlertCircle className="h-5 w-5 text-destructive" />
                       ) : (
-                        <CheckCircle2 className="h-5 w-5 text-green-500" />
+                        <CheckCircle2 className="h-5 w-5" style={{ color: '#099748' }} />
                       )}
                       <div>
                         <p className="font-medium">Error Status</p>
@@ -297,15 +297,15 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
                       </div>
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Backup Enabled:</span>
-                        <CheckCircle2 className="h-4 w-4 text-green-500" />
+                        <CheckCircle2 className="h-4 w-4" style={{ color: '#099748' }} />
                       </div>
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Audit Logging:</span>
-                        <CheckCircle2 className="h-4 w-4 text-green-500" />
+                        <CheckCircle2 className="h-4 w-4" style={{ color: '#099748' }} />
                       </div>
                       <div className="flex justify-between">
                         <span className="text-muted-foreground">Validation:</span>
-                        <CheckCircle2 className="h-4 w-4 text-green-500" />
+                        <CheckCircle2 className="h-4 w-4" style={{ color: '#099748' }} />
                       </div>
                     </div>
                   </div>
