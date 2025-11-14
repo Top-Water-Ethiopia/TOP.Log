@@ -1,23 +1,28 @@
 "use client"
 
 import type React from "react"
-import { useState, useEffect } from "react"
+import { useState, useEffect, useMemo, useCallback } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { useCaptainLog } from "@/contexts/captain-log-context"
-import { ArrowLeft, ArrowRight, Save, Eye, CheckCircle2, Target, CheckCircle, AlertTriangle, AlertCircle, Sparkles } from "lucide-react"
+import { useRBAC } from "@/hooks/use-rbac"
+import { RoleBasedQuestionFields } from "@/components/role-based-question-fields"
+import type { QuestionResponse } from "@/lib/rbac/types"
+import { ArrowLeft, ArrowRight, Save, Eye, CheckCircle2, Target, CheckCircle, AlertTriangle, AlertCircle, Sparkles, Calendar, ListChecks } from "lucide-react"
 import { toast } from "sonner"
 
 interface EntryFormMultistepProps {
-  date: string
+  date?: string
   onSave: () => void
   onCancel: () => void
 }
 
-export function EntryFormMultistep({ date, onSave, onCancel }: EntryFormMultistepProps) {
+export function EntryFormMultistep({ date: initialDate, onSave, onCancel }: EntryFormMultistepProps) {
   const { entries, addEntry, updateEntry } = useCaptainLog()
+  const { questions: roleQuestions, validateResponse, processResponses } = useRBAC()
   const [currentStep, setCurrentStep] = useState(1)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [selectedDate, setSelectedDate] = useState<string>(initialDate || new Date().toISOString().split("T")[0])
   
   const [formData, setFormData] = useState({
     // Step 1: Objectives
@@ -37,10 +42,35 @@ export function EntryFormMultistep({ date, onSave, onCancel }: EntryFormMultiste
     systemImprovements: "",
     projectUpdates: "",
   })
+  const [customResponses, setCustomResponses] = useState<Record<string, any>>({})
+  const [customErrors, setCustomErrors] = useState<Record<string, string>>({})
 
-  // Load existing entry if it exists
+  const buildInitialCustomResponses = useCallback((existingResponses?: QuestionResponse[]) => {
+    const responseMap: Record<string, any> = {}
+
+    roleQuestions.forEach((question) => {
+      const existing = existingResponses?.find((response) => response.questionKey === question.key)
+
+      if (existing) {
+        responseMap[question.key] = existing.value
+      } else if (question.defaultValue !== undefined) {
+        responseMap[question.key] = question.defaultValue
+      } else if (question.type === "multiselect") {
+        responseMap[question.key] = []
+      } else if (question.type === "checkbox") {
+        responseMap[question.key] = false
+      } else {
+        responseMap[question.key] = ""
+      }
+    })
+
+    return responseMap
+  }, [roleQuestions])
+
+  // Load existing entry if it exists, otherwise reset form
   useEffect(() => {
-    const existingEntry = entries.find(entry => entry.date === date)
+    const existingEntry = entries.find(entry => entry.date === selectedDate)
+
     if (existingEntry) {
       setFormData({
         objectives: (existingEntry as any).objectives || "",
@@ -53,8 +83,31 @@ export function EntryFormMultistep({ date, onSave, onCancel }: EntryFormMultiste
         systemImprovements: existingEntry.systemImprovements || "",
         projectUpdates: existingEntry.projectUpdates || "",
       })
+      setCustomResponses(buildInitialCustomResponses(existingEntry.customResponses))
+    } else {
+      setFormData({
+        objectives: "",
+        keyResults: "",
+        challenges: "",
+        developmentTasks: "",
+        featuresCompleted: "",
+        challengesAndBlockers: "",
+        codeAndPriorities: "",
+        systemImprovements: "",
+        projectUpdates: "",
+      })
+      setCustomResponses(buildInitialCustomResponses())
+      setCurrentStep(1)
     }
-  }, [date, entries])
+
+    setCustomErrors({})
+  }, [selectedDate, entries, buildInitialCustomResponses])
+
+  useEffect(() => {
+    if (currentStep > steps.length) {
+      setCurrentStep(steps.length)
+    }
+  }, [steps, currentStep])
 
   // Character limits for form fields
   const CHARACTER_LIMITS = {
@@ -62,6 +115,26 @@ export function EntryFormMultistep({ date, onSave, onCancel }: EntryFormMultiste
     keyResults: 1000,
     challenges: 750,
   } as const
+
+  const steps = useMemo(() => {
+    const baseSteps = [
+      { key: "date", title: "Select Date", icon: Calendar },
+      { key: "objectives", title: "Objectives", icon: Target },
+      { key: "keyResults", title: "Key Results", icon: CheckCircle },
+    ]
+
+    if (roleQuestions.length > 0) {
+      baseSteps.push({ key: "custom", title: "Role Questions", icon: ListChecks })
+    }
+
+    baseSteps.push({ key: "challenges", title: "Challenges", icon: AlertTriangle })
+    baseSteps.push({ key: "preview", title: "Preview & Submit", icon: Eye })
+
+    return baseSteps.map((step, index) => ({
+      ...step,
+      number: index + 1,
+    }))
+  }, [roleQuestions.length])
 
   const handleChange = (field: string, value: string) => {
     const limit = CHARACTER_LIMITS[field as keyof typeof CHARACTER_LIMITS]
@@ -74,8 +147,43 @@ export function EntryFormMultistep({ date, onSave, onCancel }: EntryFormMultiste
     }))
   }
 
+  const handleCustomResponseChange = useCallback((questionKey: string, value: any) => {
+    setCustomResponses((prev) => ({ ...prev, [questionKey]: value }))
+    setCustomErrors((prev) => {
+      if (!prev[questionKey]) {
+        return prev
+      }
+      return { ...prev, [questionKey]: "" }
+    })
+  }, [])
+
+  const validateCustomResponses = useCallback(() => {
+    if (roleQuestions.length === 0) {
+      return true
+    }
+
+    const newErrors: Record<string, string> = {}
+
+    roleQuestions.forEach((question) => {
+      const error = validateResponse(question, customResponses[question.key])
+      if (error) {
+        newErrors[question.key] = error
+      }
+    })
+
+    setCustomErrors(newErrors)
+    return Object.keys(newErrors).length === 0
+  }, [roleQuestions, customResponses, validateResponse])
+
   const handleNext = () => {
-    if (currentStep < 4) {
+    const currentStepData = steps[currentStep - 1]
+
+    if (currentStepData?.key === "custom" && !validateCustomResponses()) {
+      toast.error("Please resolve the highlighted role-specific questions before continuing.")
+      return
+    }
+
+    if (currentStep < steps.length) {
       setCurrentStep(currentStep + 1)
     }
   }
@@ -90,20 +198,37 @@ export function EntryFormMultistep({ date, onSave, onCancel }: EntryFormMultiste
     setIsSubmitting(true)
 
     try {
-      const existingEntry = entries.find(entry => entry.date === date)
+      const processedCustom = roleQuestions.length > 0
+        ? processResponses(roleQuestions, customResponses)
+        : { valid: true, errors: {}, processedResponses: [] }
+
+      if (!processedCustom.valid) {
+        setCustomErrors(processedCustom.errors)
+        const customStepPosition = steps.findIndex((step) => step.key === "custom")
+        if (customStepPosition >= 0) {
+          setCurrentStep(customStepPosition + 1)
+        }
+        toast.error("Please resolve the role-specific questions before submitting.")
+        setIsSubmitting(false)
+        return
+      }
+
+      const existingEntry = entries.find(entry => entry.date === selectedDate)
 
       if (existingEntry) {
         // Update existing entry
         await updateEntry(existingEntry.id, {
           ...formData,
-          date,
+          date: selectedDate,
+          customResponses: processedCustom.processedResponses,
         })
         toast.success("Entry updated successfully!")
       } else {
         // Create new entry
         await addEntry({
-          date,
+          date: selectedDate,
           ...formData,
+          customResponses: processedCustom.processedResponses,
         })
         toast.success("Entry created successfully!")
       }
@@ -122,12 +247,19 @@ export function EntryFormMultistep({ date, onSave, onCancel }: EntryFormMultiste
     return date.toLocaleDateString("default", { weekday: "long", year: "numeric", month: "long", day: "numeric" })
   }
 
-  const steps = [
-    { number: 1, title: "Objectives", icon: Target },
-    { number: 2, title: "Key Results", icon: CheckCircle },
-    { number: 3, title: "Challenges", icon: AlertTriangle },
-    { number: 4, title: "Preview & Submit", icon: Eye },
-  ]
+  const currentStepConfig = steps[currentStep - 1]
+
+  const challengesStepNumber = useMemo(() => {
+    const found = steps.find((step) => step.key === "challenges")
+    return found ? found.number : -1
+  }, [steps])
+
+  const customStepNumber = useMemo(() => {
+    const found = steps.find((step) => step.key === "custom")
+    return found ? found.number : -1
+  }, [steps])
+
+  const hasCustomErrors = useMemo(() => Object.values(customErrors).some(Boolean), [customErrors])
 
   return (
     <div className="flex flex-col h-full space-y-4">
@@ -135,7 +267,7 @@ export function EntryFormMultistep({ date, onSave, onCancel }: EntryFormMultiste
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-semibold text-foreground">Daily Log Entry</h2>
-          <p className="text-sm text-muted-foreground mt-1">{formatDate(date)}</p>
+          <p className="text-sm text-muted-foreground mt-1">{formatDate(selectedDate)}</p>
         </div>
         <Button variant="outline" size="sm" onClick={onCancel} className="gap-2">
           <ArrowLeft className="h-4 w-4" />
@@ -146,7 +278,7 @@ export function EntryFormMultistep({ date, onSave, onCancel }: EntryFormMultiste
       {/* Progress Steps */}
       <div className="flex items-center justify-between">
         {steps.map((step, index) => (
-          <div key={step.number} className="flex items-center flex-1">
+          <div key={step.key} className="flex items-center flex-1">
             <div className="flex flex-col items-center">
               <div
                 className={`w-10 h-10 rounded-full flex items-center justify-center text-lg font-medium transition-colors ${
@@ -178,19 +310,60 @@ export function EntryFormMultistep({ date, onSave, onCancel }: EntryFormMultiste
       <Card className="flex-1 flex flex-col overflow-hidden shadow-sm">
         <CardHeader className="flex-shrink-0">
           <CardTitle className="flex items-center gap-2">
-            {(() => {
-              const StepIcon = steps[currentStep - 1].icon
-              return <StepIcon className="h-6 w-6" />
-            })()}
-            {steps[currentStep - 1].title}
+            {currentStepConfig ? (
+              <>
+                <currentStepConfig.icon className="h-6 w-6" />
+                {currentStepConfig.title}
+              </>
+            ) : null}
           </CardTitle>
           <CardDescription>
             Step {currentStep} of {steps.length}
           </CardDescription>
         </CardHeader>
         <CardContent className="flex-1 overflow-y-auto space-y-6">
-          {/* Step 1: Objectives */}
-          {currentStep === 1 && (
+          {/* Step 1: Select Date */}
+          {currentStepConfig?.key === "date" && (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label htmlFor="date" className="text-sm font-medium text-foreground text-lg">
+                  Select Report Date <span className="text-destructive">*</span>
+                </label>
+                <p className="text-sm text-muted-foreground">Choose the date for this daily log entry</p>
+                <input
+                  type="date"
+                  id="date"
+                  value={selectedDate}
+                  onChange={(e) => setSelectedDate(e.target.value)}
+                  max={new Date().toISOString().split("T")[0]}
+                  className="w-full px-4 py-3 text-lg rounded-md border border-input bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                  required
+                  autoFocus
+                />
+                <p className="text-xs text-muted-foreground mt-2">
+                  Selected: <span className="font-medium">{formatDate(selectedDate)}</span>
+                </p>
+              </div>
+              
+              {/* Check if entry exists for selected date */}
+              {entries.find(entry => entry.date === selectedDate) && (
+                <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-4">
+                  <div className="flex items-start gap-3">
+                    <AlertCircle className="h-5 w-5 text-amber-500 mt-0.5" />
+                    <div>
+                      <p className="text-sm font-medium text-foreground">Entry Already Exists</p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        An entry for this date already exists. Continuing will update the existing entry.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Step 2: Objectives */}
+          {currentStepConfig?.key === "objectives" && (
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground text-lg">
                 What were your objectives today? <span className="text-destructive">*</span>
@@ -213,8 +386,8 @@ export function EntryFormMultistep({ date, onSave, onCancel }: EntryFormMultiste
             </div>
           )}
 
-          {/* Step 2: Key Results */}
-          {currentStep === 2 && (
+          {/* Step 3: Key Results */}
+          {currentStepConfig?.key === "keyResults" && (
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground text-lg">
                 What were your key results? <span className="text-destructive">*</span>
@@ -237,8 +410,28 @@ export function EntryFormMultistep({ date, onSave, onCancel }: EntryFormMultiste
             </div>
           )}
 
-          {/* Step 3: Challenges */}
-          {currentStep === 3 && (
+          {/* Role-Based Questions */}
+          {currentStepConfig?.key === "custom" && (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-sm font-medium text-foreground text-lg">
+                  Role-Specific Questions
+                </label>
+                <p className="text-sm text-muted-foreground">
+                  Answer the questions tailored to your role to capture relevant metrics.
+                </p>
+              </div>
+              <RoleBasedQuestionFields
+                questions={roleQuestions}
+                responses={customResponses}
+                errors={customErrors}
+                onChange={handleCustomResponseChange}
+              />
+            </div>
+          )}
+
+          {/* Challenges */}
+          {currentStepConfig?.key === "challenges" && (
             <div className="space-y-2">
               <label className="text-sm font-medium text-foreground text-lg">
                 What challenges did you face?
@@ -261,8 +454,8 @@ export function EntryFormMultistep({ date, onSave, onCancel }: EntryFormMultiste
             </div>
           )}
 
-          {/* Step 4: Preview */}
-          {currentStep === 4 && (
+          {/* Preview */}
+          {currentStepConfig?.key === "preview" && (
             <div className="space-y-6">
               <div className="rounded-lg bg-accent/10 p-4 border border-accent/20">
                 <p className="text-sm font-medium text-accent flex items-center gap-2">
@@ -299,6 +492,33 @@ export function EntryFormMultistep({ date, onSave, onCancel }: EntryFormMultiste
                 </div>
               </div>
 
+              {/* Role-Based Questions */}
+              {roleQuestions.length > 0 && (
+                <div className="space-y-4 pt-4 border-t">
+                  <h3 className="text-xl font-semibold text-foreground flex items-center gap-2">
+                    <ListChecks className="h-5 w-5" /> Role-Specific Responses
+                  </h3>
+                  <div className="space-y-3">
+                    {roleQuestions.map((question) => {
+                      const value = customResponses[question.key]
+                      const displayValue = Array.isArray(value)
+                        ? (value.length ? value.join(", ") : "Not provided")
+                        : value === "" || value === undefined || value === null
+                          ? "Not provided"
+                          : String(value)
+                      return (
+                        <div key={question.id} className="bg-muted/30 p-4 rounded-lg border border-border/40">
+                          <p className="text-sm font-medium text-foreground">{question.label}</p>
+                          <p className="text-sm text-muted-foreground whitespace-pre-wrap mt-1">
+                            {displayValue}
+                          </p>
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
               {/* 3. Challenges */}
               <div className="space-y-4 pt-4 border-t">
                 <h3 className="text-xl font-semibold text-foreground flex items-center gap-2">
@@ -333,7 +553,7 @@ export function EntryFormMultistep({ date, onSave, onCancel }: EntryFormMultiste
           Step {currentStep} of {steps.length}
         </div>
 
-        {currentStep < 4 ? (
+        {currentStep < steps.length ? (
           <Button onClick={handleNext} className="gap-2">
             Next
             <ArrowRight className="h-4 w-4" />
@@ -351,7 +571,15 @@ export function EntryFormMultistep({ date, onSave, onCancel }: EntryFormMultiste
       </div>
 
       {/* Required Fields Notice */}
-      {currentStep === 4 && (!formData.objectives || !formData.keyResults) && (
+      {customStepNumber > -1 && currentStep === customStepNumber && hasCustomErrors && (
+        <div className="rounded-lg bg-destructive/10 p-4 border border-destructive/20 flex-shrink-0">
+          <p className="text-sm font-medium text-destructive flex items-center gap-2">
+            <AlertCircle className="h-4 w-4" /> Please complete the required role-specific questions before continuing.
+          </p>
+        </div>
+      )}
+
+      {currentStep === challengesStepNumber && (!formData.objectives || !formData.keyResults) && (
         <div className="rounded-lg bg-destructive/10 p-4 border border-destructive/20 flex-shrink-0">
           <p className="text-sm font-medium text-destructive flex items-center gap-2">
             <AlertCircle className="h-4 w-4" /> Required fields missing: {!formData.objectives && "Objectives"}{!formData.objectives && !formData.keyResults && ", "}{!formData.keyResults && "Key Results"}

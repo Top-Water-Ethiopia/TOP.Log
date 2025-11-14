@@ -2,6 +2,10 @@
 
 import { useState } from "react"
 import { useCaptainLog } from "@/contexts/captain-log-context"
+import { useAuth } from "@/contexts/auth-context"
+import { useRBAC } from "@/hooks/use-rbac"
+import { UserManagementDialog } from "./user-management-dialog"
+import { CustomQuestionsManager } from "./custom-questions-manager"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -17,6 +21,9 @@ import {
   AlertCircle,
   CheckCircle2,
   TrendingUp,
+  Users,
+  Shield,
+  Settings,
 } from "lucide-react"
 import { toast } from "sonner"
 
@@ -26,7 +33,11 @@ import { toast } from "sonner"
  */
 export function AdminDashboard({ onClose }: { onClose: () => void }) {
   const { entries, auditLogs, exportData, importData, batchDelete, clearError, error } = useCaptainLog()
+  const { user } = useAuth()
+  const { canManageUsers, canImportData, canExportData, isAdmin } = useRBAC()
+  
   const [selectedTab, setSelectedTab] = useState("overview")
+  const [showUserManagement, setShowUserManagement] = useState(false)
 
   const handleExport = () => {
     try {
@@ -104,23 +115,25 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
 
         <div className="p-6">
           <Tabs value={selectedTab} onValueChange={setSelectedTab}>
-            <TabsList className="grid w-full grid-cols-4">
-              <TabsTrigger value="overview">
-                <Activity className="mr-2 h-4 w-4" />
-                Overview
-              </TabsTrigger>
-              <TabsTrigger value="audit">
-                <FileText className="mr-2 h-4 w-4" />
-                Audit Logs
-              </TabsTrigger>
+            <TabsList className="grid w-full grid-cols-5">
+              <TabsTrigger value="overview">Overview</TabsTrigger>
               <TabsTrigger value="data">
                 <Database className="mr-2 h-4 w-4" />
                 Data Management
               </TabsTrigger>
-              <TabsTrigger value="health">
-                <TrendingUp className="mr-2 h-4 w-4" />
-                System Health
-              </TabsTrigger>
+              <TabsTrigger value="audit">Audit Log</TabsTrigger>
+              {canManageUsers && (
+                <TabsTrigger value="users">
+                  <Users className="mr-2 h-4 w-4" />
+                  Users
+                </TabsTrigger>
+              )}
+              {canManageUsers && (
+                <TabsTrigger value="questions">
+                  <Settings className="mr-2 h-4 w-4" />
+                  Questions
+                </TabsTrigger>
+              )}
             </TabsList>
 
             <TabsContent value="overview" className="space-y-4">
@@ -233,88 +246,119 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="flex gap-3">
-                    <Button onClick={handleExport} className="flex-1">
-                      <Download className="mr-2 h-4 w-4" />
-                      Export Data
-                    </Button>
-                    <Button onClick={handleImport} variant="outline" className="flex-1">
-                      <Upload className="mr-2 h-4 w-4" />
-                      Import Data
-                    </Button>
-                  </div>
-
-                  <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4">
-                    <h4 className="mb-2 flex items-center font-semibold text-destructive">
-                      <AlertCircle className="mr-2 h-4 w-4" />
-                      Danger Zone
-                    </h4>
-                    <p className="mb-4 text-sm text-muted-foreground">
-                      Permanently delete all entries. This action cannot be undone.
-                    </p>
-                    <Button onClick={handleClearAll} variant="destructive">
-                      <Trash2 className="mr-2 h-4 w-4" />
-                      Clear All Data
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            </TabsContent>
-
-            <TabsContent value="health" className="space-y-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle>System Health</CardTitle>
-                  <CardDescription>Current system status and diagnostics</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  <div className="flex items-center justify-between rounded-lg border p-4">
-                    <div className="flex items-center gap-3">
-                      {error ? (
-                        <AlertCircle className="h-5 w-5 text-destructive" />
-                      ) : (
-                        <CheckCircle2 className="h-5 w-5" style={{ color: '#099748' }} />
-                      )}
-                      <div>
-                        <p className="font-medium">Error Status</p>
-                        <p className="text-sm text-muted-foreground">
-                          {error ? error.message : "No errors detected"}
-                        </p>
-                      </div>
-                    </div>
-                    {error && (
-                      <Button onClick={clearError} variant="outline" size="sm">
-                        Clear
+                    {canExportData && (
+                      <Button onClick={handleExport} className="flex-1">
+                        <Download className="mr-2 h-4 w-4" />
+                        Export Data
+                      </Button>
+                    )}
+                    {canImportData && (
+                      <Button onClick={handleImport} variant="outline" className="flex-1">
+                        <Upload className="mr-2 h-4 w-4" />
+                        Import Data
                       </Button>
                     )}
                   </div>
 
-                  <div className="rounded-lg border p-4">
-                    <h4 className="mb-2 font-semibold">Storage Information</h4>
-                    <div className="space-y-2 text-sm">
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Primary Storage:</span>
-                        <span className="font-mono">localStorage</span>
+                  {isAdmin && (
+                    <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4">
+                      <h4 className="mb-2 flex items-center font-semibold text-destructive">
+                        <AlertCircle className="mr-2 h-4 w-4" />
+                        Danger Zone
+                      </h4>
+                      <p className="mb-4 text-sm text-muted-foreground">
+                        Permanently delete all entries. This action cannot be undone.
+                      </p>
+                      <Button onClick={handleClearAll} variant="destructive">
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Clear All Data
+                      </Button>
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+            </TabsContent>
+
+            {canManageUsers && (
+            <TabsContent value="users" className="space-y-4">
+              <Card>
+                <CardHeader>
+                  <CardTitle>User Management</CardTitle>
+                  <CardDescription>Manage user accounts, roles, and permissions</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm text-muted-foreground">
+                        Manage system users and their access levels
+                      </p>
+                      <Button onClick={() => setShowUserManagement(true)}>
+                        <Users className="mr-2 h-4 w-4" />
+                        Manage Users
+                      </Button>
+                    </div>
+                    
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div className="rounded-lg border p-4">
+                        <h4 className="mb-2 font-semibold">User Roles</h4>
+                        <div className="space-y-2 text-sm">
+                          <div className="flex items-center justify-between">
+                            <Badge variant="destructive">Admin</Badge>
+                            <span className="text-muted-foreground">Full access</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <Badge variant="default">Manager</Badge>
+                            <span className="text-muted-foreground">Team management</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <Badge variant="secondary">User</Badge>
+                            <span className="text-muted-foreground">Standard access</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <Badge variant="outline">Viewer</Badge>
+                            <span className="text-muted-foreground">Read-only</span>
+                          </div>
+                        </div>
                       </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Backup Enabled:</span>
-                        <CheckCircle2 className="h-4 w-4" style={{ color: '#099748' }} />
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Audit Logging:</span>
-                        <CheckCircle2 className="h-4 w-4" style={{ color: '#099748' }} />
-                      </div>
-                      <div className="flex justify-between">
-                        <span className="text-muted-foreground">Validation:</span>
-                        <CheckCircle2 className="h-4 w-4" style={{ color: '#099748' }} />
+                      
+                      <div className="rounded-lg border p-4">
+                        <h4 className="mb-2 font-semibold">Current Session</h4>
+                        <div className="space-y-2 text-sm">
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Logged in as:</span>
+                            <span className="font-medium">{user?.name}</span>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Role:</span>
+                            <Badge variant={user?.role === "admin" ? "destructive" : "secondary"}>
+                              {user?.role}
+                            </Badge>
+                          </div>
+                          <div className="flex justify-between">
+                            <span className="text-muted-foreground">Can manage users:</span>
+                            <span>{canManageUsers ? "Yes" : "No"}</span>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>
                 </CardContent>
               </Card>
             </TabsContent>
+          )}
+          {canManageUsers && (
+            <TabsContent value="questions" className="space-y-4">
+              <CustomQuestionsManager />
+            </TabsContent>
+          )}
           </Tabs>
         </div>
       </div>
+      
+      {/* User Management Dialog */}
+      {showUserManagement && (
+        <UserManagementDialog onClose={() => setShowUserManagement(false)} />
+      )}
     </div>
   )
 }

@@ -2,9 +2,11 @@
 
 import { useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
 import { useCaptainLog, type CaptainLogEntry } from "@/contexts/captain-log-context"
-import { ArrowLeft, Edit, Trash2, Target, CheckCircle, AlertTriangle } from "lucide-react"
+import { ArrowLeft, Edit, Trash2, Target, CheckCircle, AlertTriangle, ListChecks } from "lucide-react"
+import type { QuestionResponse } from "@/lib/rbac/types"
 
 interface EntryDetailsProps {
   date: string
@@ -19,6 +21,30 @@ export function EntryDetails({ date, onEdit, onBack }: EntryDetailsProps) {
 
   // Use useMemo to avoid re-creating on every render and prevent audit log spam
   const currentEntry = useMemo(() => entries.find(entry => entry.date === date), [entries, date])
+
+  const formatCustomResponseValue = (response: QuestionResponse) => {
+    const questionType = response.questionType ?? "text"
+    const { value } = response
+
+    if (value === null || value === undefined || value === "") {
+      return "Not provided"
+    }
+
+    if (Array.isArray(value)) {
+      return value.length ? value.join(", ") : "Not provided"
+    }
+
+    if (questionType === "checkbox") {
+      return value ? "Yes" : "No"
+    }
+
+    if (questionType === "date" && typeof value === "string") {
+      const parsed = new Date(value)
+      return isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString()
+    }
+
+    return String(value)
+  }
 
   const handleDelete = () => {
     if (currentEntry) {
@@ -132,6 +158,48 @@ export function EntryDetails({ date, onEdit, onBack }: EntryDetailsProps) {
                 </div>
               )
             })}
+
+            {currentEntry.customResponses && currentEntry.customResponses.length > 0 && (
+              <div className="border-t border-border pt-8">
+                <div className="flex items-center gap-2 mb-4">
+                  <ListChecks className="h-5 w-5" />
+                  <h3 className="text-lg font-semibold text-foreground">
+                    Role-Specific Responses
+                  </h3>
+                </div>
+                <div className="space-y-4">
+                  {currentEntry.customResponses.map((response) => {
+                    const questionType = response.questionType ?? "text"
+
+                    return (
+                      <div
+                        key={`${response.questionId}-${response.timestamp}`}
+                        className="bg-muted/30 p-4 rounded-lg border border-border/50 space-y-2"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <p className="text-sm font-medium text-foreground">
+                            {response.questionLabel ?? response.questionKey}
+                          </p>
+                          <div className="flex items-center gap-2">
+                            <Badge variant="outline" className="text-xs capitalize">
+                              {questionType}
+                            </Badge>
+                            {response.questionCategory && (
+                              <Badge variant="secondary" className="text-xs capitalize">
+                                {response.questionCategory}
+                              </Badge>
+                            )}
+                          </div>
+                        </div>
+                        <p className="text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed">
+                          {formatCustomResponseValue(response)}
+                        </p>
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Footer Metadata */}

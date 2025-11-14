@@ -4,6 +4,9 @@ import type React from "react"
 import { createContext, useContext, useState, useEffect, useCallback } from "react"
 import { toast } from "sonner"
 import { z } from "zod"
+import { useAuth } from "./auth-context"
+import { useRBAC } from "@/hooks/use-rbac"
+import type { QuestionResponse } from "@/lib/rbac/types"
 
 // ==================== ENTERPRISE SCHEMAS ====================
 
@@ -11,10 +14,16 @@ const EntryMetadataSchema = z.object({
   source: z.enum(["web", "api", "import"]).default("web"),
   tags: z.array(z.string()).default([]),
   userAgent: z.string().optional(),
+  createdBy: z.string().optional(),
+  updatedBy: z.string().optional(),
+  roleChangedAt: z.string().optional(),
+  previousRole: z.string().optional(),
+  statusChangedAt: z.string().optional(),
 })
 
 export const CaptainLogEntrySchema = z.object({
   id: z.string(),
+  userId: z.string().optional(), // Optional for backward compatibility
   date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format"),
   // New simplified fields (v2.4.0)
   objectives: z.string().max(5000).default(""),
@@ -27,6 +36,16 @@ export const CaptainLogEntrySchema = z.object({
   codeAndPriorities: z.string().max(5000).default(""),
   systemImprovements: z.string().max(5000).default(""),
   projectUpdates: z.string().max(5000).default(""),
+  // Custom question responses (v2.5.0)
+  customResponses: z.array(z.object({
+    questionId: z.string(),
+    questionKey: z.string(),
+    questionLabel: z.string().optional(),
+    questionType: z.enum(["text", "textarea", "select", "multiselect", "checkbox", "number", "date"]).optional(),
+    questionCategory: z.string().optional(),
+    value: z.any(),
+    timestamp: z.string(),
+  })).default([]),
   createdAt: z.string(),
   updatedAt: z.string(),
   version: z.number().int().positive().default(1),
@@ -46,7 +65,7 @@ export type CaptainLogEntry = z.infer<typeof CaptainLogEntrySchema>
 
 // ==================== AUDIT LOG ====================
 
-interface AuditLog {
+export interface AuditLog {
   id: string
   timestamp: string
   operation: "CREATE" | "READ" | "UPDATE" | "DELETE"
@@ -145,6 +164,9 @@ interface CaptainLogContextType {
 const CaptainLogContext = createContext<CaptainLogContextType | undefined>(undefined)
 
 export function CaptainLogProvider({ children }: { children: React.ReactNode }) {
+  const { isAuthenticated, user } = useAuth()
+  const { canPerformAction } = useRBAC()
+  
   const [entries, setEntries] = useState<CaptainLogEntry[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<Error | null>(null)
@@ -188,12 +210,20 @@ export function CaptainLogProvider({ children }: { children: React.ReactNode }) 
 
       const parsed = JSON.parse(stored)
       const validated = Array.isArray(parsed) ? parsed.map((e) => CaptainLogEntrySchema.parse(e)) : []
+      const normalized = validated.map((entry) => ({
+        ...entry,
+        customResponses: (entry.customResponses || []).map((response) => ({
+          ...response,
+          questionLabel: response.questionLabel || response.questionKey,
+          questionType: response.questionType || "text",
+        })),
+      }))
 
       const duration = performance.now() - timer
       metrics.timing("storage.load", duration, { entries: validated.length })
-      logger.info("Data loaded from storage", { entries: validated.length, duration })
+      logger.info("Data loaded from storage", { entries: normalized.length, duration })
 
-      return validated
+      return normalized
     } catch (err) {
       logger.error("Storage load failed, attempting backup restore", err)
 
@@ -279,6 +309,15 @@ export function CaptainLogProvider({ children }: { children: React.ReactNode }) 
 
   const addEntry = useCallback(
     async (entry: Omit<CaptainLogEntry, "id" | "createdAt" | "updatedAt" | "version" | "metadata">) => {
+      // Check authentication and permissions
+      if (!isAuthenticated || !user) {
+        throw new CaptainLogError("Authentication required", "AUTH_ERROR", "HIGH")
+      }
+
+      if (!canPerformAction({ resource: "entries", action: "create" })) {
+        throw new CaptainLogError("Insufficient permissions to create entries", "PERMISSION_ERROR", "HIGH")
+      }
+
       const timer = performance.now()
       setIsLoading(true)
       setError(null)
@@ -312,8 +351,10 @@ export function CaptainLogProvider({ children }: { children: React.ReactNode }) 
           codeAndPriorities: entryData.codeAndPriorities ?? "",
           systemImprovements: entryData.systemImprovements ?? "",
           projectUpdates: entryData.projectUpdates ?? "",
+          customResponses: entryData.customResponses ?? [],
           // System fields
           id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          userId: user.id, // Add user ownership
           createdAt: now,
           updatedAt: now,
           version: 1,
@@ -321,6 +362,7 @@ export function CaptainLogProvider({ children }: { children: React.ReactNode }) 
             source: "web",
             tags: [],
             userAgent: typeof navigator !== "undefined" ? navigator.userAgent : undefined,
+            createdBy: user.id,
           },
         }
 
@@ -331,12 +373,12 @@ export function CaptainLogProvider({ children }: { children: React.ReactNode }) 
         setEntries((prev) => [...prev, validated])
 
         // Audit log
-        createAuditLog("CREATE", validated.id, { date: validated.date })
+        createAuditLog("CREATE", validated.id, { date: validated.date, userId: user.id })
 
         const duration = performance.now() - timer
         metrics.timing("entry.create", duration)
         metrics.increment("entry.create.success")
-        logger.info("Entry created", { id: validated.id, date: validated.date, duration })
+        logger.info("Entry created", { id: validated.id, date: validated.date, userId: user.id, duration })
 
         toast.success("Entry saved successfully")
 
@@ -353,11 +395,16 @@ export function CaptainLogProvider({ children }: { children: React.ReactNode }) 
         setIsLoading(false)
       }
     },
-    [entries, createAuditLog],
+    [entries, createAuditLog, isAuthenticated, user, canPerformAction],
   )
 
   const updateEntry = useCallback(
     async (id: string, updates: Partial<CaptainLogEntry>) => {
+      // Check authentication and permissions
+      if (!isAuthenticated || !user) {
+        throw new CaptainLogError("Authentication required", "AUTH_ERROR", "HIGH")
+      }
+
       const timer = performance.now()
       setIsLoading(true)
       setError(null)
@@ -366,6 +413,16 @@ export function CaptainLogProvider({ children }: { children: React.ReactNode }) 
         const existing = entries.find((e) => e.id === id)
         if (!existing) {
           throw new CaptainLogError(`Entry ${id} not found`, "NOT_FOUND", "LOW")
+        }
+
+        // Check ownership or admin permissions
+        const canUpdate = canPerformAction(
+          { resource: "entries", action: "update", ownResource: true },
+          existing.userId
+        )
+
+        if (!canUpdate) {
+          throw new CaptainLogError("Insufficient permissions to update this entry", "PERMISSION_ERROR", "HIGH")
         }
 
         // Validation: Prevent future dates
@@ -381,9 +438,15 @@ export function CaptainLogProvider({ children }: { children: React.ReactNode }) 
           ...existing,
           ...updates,
           id: existing.id, // Prevent ID change
+          userId: existing.userId, // Prevent userId change
           createdAt: existing.createdAt, // Prevent createdAt change
           version: (existing.version || 1) + 1,
           updatedAt: new Date().toISOString(),
+          metadata: {
+            ...existing.metadata,
+            ...updates.metadata,
+            updatedBy: user.id,
+          },
         }
 
         // Validate
@@ -405,12 +468,12 @@ export function CaptainLogProvider({ children }: { children: React.ReactNode }) 
           },
           {} as Record<string, unknown>,
         )
-        createAuditLog("UPDATE", id, changes)
+        createAuditLog("UPDATE", id, { ...changes, userId: user.id })
 
         const duration = performance.now() - timer
         metrics.timing("entry.update", duration)
         metrics.increment("entry.update.success")
-        logger.info("Entry updated", { id, version: validated.version, duration })
+        logger.info("Entry updated", { id, version: validated.version, userId: user.id, duration })
 
         toast.success("Entry updated successfully")
 
@@ -427,11 +490,16 @@ export function CaptainLogProvider({ children }: { children: React.ReactNode }) 
         setIsLoading(false)
       }
     },
-    [entries, createAuditLog],
+    [entries, createAuditLog, isAuthenticated, user, canPerformAction],
   )
 
   const deleteEntry = useCallback(
     async (id: string) => {
+      // Check authentication and permissions
+      if (!isAuthenticated || !user) {
+        throw new CaptainLogError("Authentication required", "AUTH_ERROR", "HIGH")
+      }
+
       const timer = performance.now()
       setIsLoading(true)
       setError(null)
@@ -442,16 +510,26 @@ export function CaptainLogProvider({ children }: { children: React.ReactNode }) 
           throw new CaptainLogError(`Entry ${id} not found`, "NOT_FOUND", "LOW")
         }
 
+        // Check ownership or admin permissions
+        const canDelete = canPerformAction(
+          { resource: "entries", action: "delete", ownResource: true },
+          existing.userId
+        )
+
+        if (!canDelete) {
+          throw new CaptainLogError("Insufficient permissions to delete this entry", "PERMISSION_ERROR", "HIGH")
+        }
+
         // Optimistic delete
         setEntries((prev) => prev.filter((e) => e.id !== id))
 
         // Audit log
-        createAuditLog("DELETE", id, { date: existing.date })
+        createAuditLog("DELETE", id, { date: existing.date, userId: user.id })
 
         const duration = performance.now() - timer
         metrics.timing("entry.delete", duration)
         metrics.increment("entry.delete.success")
-        logger.info("Entry deleted", { id, duration })
+        logger.info("Entry deleted", { id, userId: user.id, duration })
 
         toast.success("Entry deleted successfully")
       } catch (err) {
@@ -466,7 +544,7 @@ export function CaptainLogProvider({ children }: { children: React.ReactNode }) 
         setIsLoading(false)
       }
     },
-    [entries, createAuditLog],
+    [entries, createAuditLog, isAuthenticated, user, canPerformAction],
   )
 
   const getEntryByDate = useCallback(
@@ -539,31 +617,50 @@ export function CaptainLogProvider({ children }: { children: React.ReactNode }) 
   // ==================== UTILITY ====================
 
   const exportData = useCallback(() => {
+    // Check authentication and permissions
+    if (!isAuthenticated || !user) {
+      throw new CaptainLogError("Authentication required", "AUTH_ERROR", "HIGH")
+    }
+
+    if (!canPerformAction({ resource: "entries", action: "export" })) {
+      throw new CaptainLogError("Insufficient permissions to export data", "PERMISSION_ERROR", "HIGH")
+    }
+
     const data = {
       entries,
       auditLogs: auditLogs.slice(-100), // Last 100 audit logs
       exportedAt: new Date().toISOString(),
+      exportedBy: user.id,
       version: "2.0",
     }
-    logger.info("Data exported", { entries: entries.length })
+    logger.info("Data exported", { entries: entries.length, userId: user.id })
     return JSON.stringify(data, null, 2)
-  }, [entries, auditLogs])
+  }, [entries, auditLogs, isAuthenticated, user, canPerformAction])
 
   const importData = useCallback(async (data: string) => {
+    // Check authentication and permissions
+    if (!isAuthenticated || !user) {
+      throw new CaptainLogError("Authentication required", "AUTH_ERROR", "HIGH")
+    }
+
+    if (!canPerformAction({ resource: "entries", action: "import" })) {
+      throw new CaptainLogError("Insufficient permissions to import data", "PERMISSION_ERROR", "HIGH")
+    }
+
     try {
       const parsed = JSON.parse(data)
       const imported = Array.isArray(parsed.entries) ? parsed.entries : parsed
       const validated = imported.map((e: unknown) => CaptainLogEntrySchema.parse(e))
 
       setEntries(validated)
-      logger.info("Data imported", { entries: validated.length })
+      logger.info("Data imported", { entries: validated.length, userId: user.id })
       toast.success(`Imported ${validated.length} entries`)
     } catch (err) {
       logger.error("Import failed", err)
       toast.error("Failed to import data")
       throw err
     }
-  }, [])
+  }, [isAuthenticated, user, canPerformAction])
 
   const clearError = useCallback(() => {
     setError(null)
