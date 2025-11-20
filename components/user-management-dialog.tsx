@@ -68,12 +68,14 @@ export function UserManagementDialog({ onClose }: { onClose: () => void }) {
     name: "",
     email: "",
     password: "",
+    confirmPassword: "",
     role: "user" as const,
     department: "",
     isActive: true,
   })
   
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
 
   // Load data
   useEffect(() => {
@@ -127,6 +129,12 @@ export function UserManagementDialog({ onClose }: { onClose: () => void }) {
       }
     }
 
+    if (!createUserForm.confirmPassword) {
+      errors.confirmPassword = "Please confirm your password"
+    } else if (createUserForm.password !== createUserForm.confirmPassword) {
+      errors.confirmPassword = "Passwords do not match"
+    }
+
     setFormErrors(errors)
     return Object.keys(errors).length === 0
   }
@@ -161,11 +169,14 @@ export function UserManagementDialog({ onClose }: { onClose: () => void }) {
         name: "",
         email: "",
         password: "",
+        confirmPassword: "",
         role: "user",
         department: "",
         isActive: true,
       })
       setFormErrors({})
+      setShowPassword(false)
+      setShowConfirmPassword(false)
       setShowCreateUser(false)
 
       toast.success("User created successfully")
@@ -544,6 +555,35 @@ export function UserManagementDialog({ onClose }: { onClose: () => void }) {
                 </div>
                 {formErrors.password && (
                   <p className="text-sm text-destructive">{formErrors.password}</p>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="confirmPassword">Confirm Password</Label>
+                <div className="relative">
+                  <Input
+                    id="confirmPassword"
+                    type={showConfirmPassword ? "text" : "password"}
+                    value={createUserForm.confirmPassword}
+                    onChange={(e) => setCreateUserForm(prev => ({ ...prev, confirmPassword: e.target.value }))}
+                    placeholder="Confirm password"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="absolute right-1 top-1 h-8 w-8 p-0"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                  >
+                    {showConfirmPassword ? (
+                      <EyeOff className="h-4 w-4" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
+                  </Button>
+                </div>
+                {formErrors.confirmPassword && (
+                  <p className="text-sm text-destructive">{formErrors.confirmPassword}</p>
                 )}
               </div>
             </div>
