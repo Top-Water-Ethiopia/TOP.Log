@@ -51,7 +51,7 @@ import {
   Plus, Pencil, Trash2, HelpCircle, Settings, Shield, Eye, Copy, Save, Sparkles, 
   RefreshCw, Search, Filter, Download, Upload, MoreVertical, ArrowUpDown, 
   ArrowUp, ArrowDown, CheckSquare, Square, X, BarChart3, FileText, 
-  ChevronLeft, ChevronRight, GripVertical
+  ChevronLeft, ChevronRight, GripVertical, LayoutGrid, List, ChevronDown, ChevronUp
 } from "lucide-react"
 import { QuestionTemplates, type QuestionTemplate } from "@/components/question-templates"
 import Link from "next/link"
@@ -133,6 +133,8 @@ export function RoleQuestionsManager() {
   const [currentPage, setCurrentPage] = useState(1)
   const [itemsPerPage, setItemsPerPage] = useState(25)
   const [showBulkActions, setShowBulkActions] = useState(false)
+  const [viewMode, setViewMode] = useState<"table" | "grouped">("grouped")
+  const [expandedRoles, setExpandedRoles] = useState<Set<string>>(new Set())
 
   // Cache tracking to prevent unnecessary refetches
   const dataLoadedRef = useRef(false)
@@ -429,6 +431,13 @@ export function RoleQuestionsManager() {
     }
   }, [currentUser, currentProfile, isAdmin, isSuperAdmin, loadData])
 
+  // Initialize all roles as expanded when switching to grouped view
+  useEffect(() => {
+    if (viewMode === "grouped" && expandedRoles.size === 0 && questionsByRole.sortedRoles.length > 0) {
+      setExpandedRoles(new Set(questionsByRole.sortedRoles.map(r => r.id)))
+    }
+  }, [viewMode])
+
   // Enhanced filtering, sorting, and pagination
   const filteredAndSortedQuestions = useMemo(() => {
     let filtered = questions
@@ -486,6 +495,35 @@ export function RoleQuestionsManager() {
 
     return filtered
   }, [questions, selectedRole, searchQuery, filterType, filterStatus, sortField, sortDirection])
+
+  // Group questions by role for grouped view
+  const questionsByRole = useMemo(() => {
+    const grouped: Record<string, RoleQuestionWithRole[]> = {}
+    
+    filteredAndSortedQuestions.forEach(question => {
+      const roleId = question.role_id
+      const roleName = question.role?.name || "Unknown Role"
+      
+      if (!grouped[roleId]) {
+        grouped[roleId] = []
+      }
+      
+      // Sort questions within each role by display_order
+      grouped[roleId].push(question)
+    })
+    
+    // Sort questions within each role by display_order
+    Object.keys(grouped).forEach(roleId => {
+      grouped[roleId].sort((a, b) => (a.display_order || 0) - (b.display_order || 0))
+    })
+    
+    // Sort roles by name
+    const sortedRoles = roles
+      .filter(role => grouped[role.id] && grouped[role.id].length > 0)
+      .sort((a, b) => a.name.localeCompare(b.name))
+    
+    return { grouped, sortedRoles }
+  }, [filteredAndSortedQuestions, roles])
 
   // Pagination
   const paginatedQuestions = useMemo(() => {
@@ -1236,6 +1274,26 @@ export function RoleQuestionsManager() {
           </p>
         </div>
         <div className="flex gap-2">
+          <div className="flex items-center gap-1 border rounded-md p-1">
+            <Button
+              variant={viewMode === "grouped" ? "default" : "ghost"}
+              size="sm"
+              onClick={() => setViewMode("grouped")}
+              className="h-8"
+            >
+              <LayoutGrid className="h-4 w-4 mr-1" />
+              Grouped by Role
+            </Button>
+            <Button
+              variant={viewMode === "table" ? "default" : "ghost"}
+              size="sm"
+              onClick={() => setViewMode("table")}
+              className="h-8"
+            >
+              <List className="h-4 w-4 mr-1" />
+              Table View
+            </Button>
+          </div>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="outline">
@@ -1463,7 +1521,178 @@ export function RoleQuestionsManager() {
         </Card>
       )}
 
-      {/* Enhanced Table with Sorting and Bulk Selection */}
+      {/* View Mode: Grouped by Role */}
+      {viewMode === "grouped" ? (
+        <div className="space-y-4">
+          {questionsByRole.sortedRoles.length === 0 ? (
+            <Card>
+              <CardContent className="py-12 text-center text-muted-foreground">
+                {filteredAndSortedQuestions.length === 0 && statistics.total === 0
+                  ? "No questions found. Create your first question."
+                  : "No questions match your filters. Try adjusting your search criteria."}
+              </CardContent>
+            </Card>
+          ) : (
+            questionsByRole.sortedRoles.map((role) => {
+              const roleQuestions = questionsByRole.grouped[role.id] || []
+              // If no roles are explicitly expanded/collapsed, show all expanded
+              const isExpanded = expandedRoles.size === 0 || expandedRoles.has(role.id)
+              
+              return (
+                <Card key={role.id} className="overflow-hidden">
+                  <CardHeader 
+                    className="cursor-pointer hover:bg-muted/50 transition-colors"
+                    onClick={() => {
+                      const newExpanded = new Set(expandedRoles)
+                      if (newExpanded.has(role.id)) {
+                        newExpanded.delete(role.id)
+                      } else {
+                        newExpanded.add(role.id)
+                      }
+                      setExpandedRoles(newExpanded)
+                    }}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        {isExpanded ? (
+                          <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                        ) : (
+                          <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                        )}
+                        <div>
+                          <CardTitle className="text-lg">{role.name}</CardTitle>
+                          <CardDescription>
+                            {role.description || `${roleQuestions.length} question${roleQuestions.length !== 1 ? "s" : ""}`}
+                          </CardDescription>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="secondary">
+                          {roleQuestions.length} question{roleQuestions.length !== 1 ? "s" : ""}
+                        </Badge>
+                        <Badge variant="outline">
+                          {roleQuestions.filter(q => q.is_active).length} active
+                        </Badge>
+                      </div>
+                    </div>
+                  </CardHeader>
+                  {isExpanded && (
+                    <CardContent className="pt-0">
+                      <div className="space-y-3">
+                        {roleQuestions.map((question) => (
+                          <Card key={question.id} className="border-l-4 border-l-primary/20">
+                            <CardContent className="pt-4">
+                              <div className="flex items-start justify-between">
+                                <div className="flex-1 space-y-2">
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <Badge variant="outline" className="text-xs">
+                                      #{question.display_order}
+                                    </Badge>
+                                    <span className="font-semibold text-base">
+                                      {question.question_label}
+                                    </span>
+                                    {question.is_required && (
+                                      <Badge variant="destructive" className="text-xs">Required</Badge>
+                                    )}
+                                    {!question.is_active && (
+                                      <Badge variant="secondary" className="text-xs">Inactive</Badge>
+                                    )}
+                                  </div>
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <code className="text-xs bg-muted px-2 py-1 rounded font-mono">
+                                      {question.question_key}
+                                    </code>
+                                    <Badge variant="secondary" className="text-xs">
+                                      {question.question_type}
+                                    </Badge>
+                                  </div>
+                                  {question.question_description && (
+                                    <p className="text-sm text-muted-foreground">
+                                      {question.question_description}
+                                    </p>
+                                  )}
+                                  {question.options && question.options.length > 0 && (
+                                    <div className="flex flex-wrap gap-1 mt-2">
+                                      {question.options.slice(0, 5).map((opt, idx) => (
+                                        <Badge key={idx} variant="outline" className="text-xs">
+                                          {opt}
+                                        </Badge>
+                                      ))}
+                                      {question.options.length > 5 && (
+                                        <Badge variant="outline" className="text-xs">
+                                          +{question.options.length - 5} more
+                                        </Badge>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="flex items-center gap-1 ml-4">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => {
+                                      setPreviewQuestion(question)
+                                      setShowPreviewModal(true)
+                                    }}
+                                    title="Preview"
+                                  >
+                                    <Eye className="h-4 w-4" />
+                                  </Button>
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    onClick={() => handleDuplicate(question)}
+                                    title="Duplicate"
+                                  >
+                                    <Copy className="h-4 w-4" />
+                                  </Button>
+                                  <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                      <Button variant="ghost" size="sm">
+                                        <MoreVertical className="h-4 w-4" />
+                                      </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end">
+                                      <DropdownMenuItem onClick={() => openEditDialog(question)}>
+                                        <Pencil className="mr-2 h-4 w-4" />
+                                        Edit
+                                      </DropdownMenuItem>
+                                      <DropdownMenuItem onClick={() => {
+                                        setPreviewQuestion(question)
+                                        setShowPreviewModal(true)
+                                      }}>
+                                        <Eye className="mr-2 h-4 w-4" />
+                                        Preview
+                                      </DropdownMenuItem>
+                                      <DropdownMenuItem onClick={() => handleDuplicate(question)}>
+                                        <Copy className="mr-2 h-4 w-4" />
+                                        Duplicate
+                                      </DropdownMenuItem>
+                                      <DropdownMenuSeparator />
+                                      <DropdownMenuItem 
+                                        onClick={() => openDeleteDialog(question)}
+                                        className="text-destructive"
+                                      >
+                                        <Trash2 className="mr-2 h-4 w-4" />
+                                        Delete
+                                      </DropdownMenuItem>
+                                    </DropdownMenuContent>
+                                  </DropdownMenu>
+                                </div>
+                              </div>
+                            </CardContent>
+                          </Card>
+                        ))}
+                      </div>
+                    </CardContent>
+                  )}
+                </Card>
+              )
+            })
+          )}
+        </div>
+      ) : (
+        /* Enhanced Table with Sorting and Bulk Selection */
       <Card>
         <CardContent className="p-0">
           <div className="border rounded-lg overflow-hidden">
@@ -1626,9 +1855,10 @@ export function RoleQuestionsManager() {
       </div>
         </CardContent>
       </Card>
+      )}
 
-      {/* Pagination */}
-      {totalPages > 1 && (
+      {/* Pagination - Only for Table View */}
+      {viewMode === "table" && totalPages > 1 && (
         <Card>
           <CardContent className="py-4">
             <div className="flex items-center justify-between">
