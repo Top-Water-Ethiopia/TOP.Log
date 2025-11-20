@@ -1,7 +1,7 @@
 "use client"
 
 import { useContext, useCallback, useMemo } from "react"
-import { useAuth } from "@/contexts/auth-context"
+import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import type { User, Role, Permission, PermissionCheck, CustomQuestion, RoleQuestionSet, QuestionResponse, Department, AccessScope } from "@/lib/rbac/types"
 import { ROLE_HIERARCHY } from "@/lib/rbac/types"
 import {
@@ -30,8 +30,11 @@ import { loadFromStorage } from "@/lib/rbac/utils"
 
 // ==================== RBAC HOOK ====================
 
+import { mapSupabaseUserToRbacUser } from "@/lib/supabase/user-mapping"
+
 export function useRBAC() {
-  const { user } = useAuth()
+  const { user: supabaseUser, profile } = useSupabaseAuth()
+  const user = useMemo(() => mapSupabaseUserToRbacUser(supabaseUser, profile), [supabaseUser, profile])
   
   // Load roles from storage (normalize missing access scopes)
   const roles: Role[] = useMemo(() => {

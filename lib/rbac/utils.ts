@@ -251,21 +251,25 @@ const STORAGE_KEYS = {
 
 /**
  * Save data to localStorage with error handling
+ * Only works on client-side; returns silently on server
  */
 export function saveToStorage<T>(key: keyof typeof STORAGE_KEYS, data: T): void {
   try {
+    if (typeof window === "undefined") return // Server-side, skip
     localStorage.setItem(STORAGE_KEYS[key], JSON.stringify(data))
   } catch (error) {
     console.error(`Failed to save ${key} to storage:`, error)
-    throw new Error(`Storage error: Unable to save ${key}`)
+    // Don't throw on server-side or when localStorage is unavailable
   }
 }
 
 /**
  * Load data from localStorage with error handling
+ * Only works on client-side; returns default value on server
  */
 export function loadFromStorage<T>(key: keyof typeof STORAGE_KEYS, defaultValue: T): T {
   try {
+    if (typeof window === "undefined") return defaultValue // Server-side, return default
     const stored = localStorage.getItem(STORAGE_KEYS[key])
     if (!stored) return defaultValue
 
