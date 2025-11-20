@@ -28,9 +28,15 @@
     "format:check": "prettier --check \"**/*.{js,jsx,ts,tsx,json,css,md}\"",
     "type-check": "tsc --noEmit",
     "clean": "rm -rf .next out node_modules",
-    "prepare": "husky install || true"
+    "prepare": "husky install || true",
+    "test:is-admin": "node scripts/test-is-admin-function.js",
+    "seed:test-users": "ts-node scripts/seed-and-test-users.ts",
+    "test:is-admin-as-user": "ts-node scripts/test-is-admin-as-user.ts",
+    "check:account": "ts-node scripts/check-my-account.ts",
+    "check:account:simple": "node scripts/check-account-simple.js"
   },
   "dependencies": {
+    "@faker-js/faker": "^10.1.0",
     "@hookform/resolvers": "^3.10.0",
     "@radix-ui/react-accordion": "1.2.2",
     "@radix-ui/react-alert-dialog": "1.1.4",
@@ -88,16 +94,18 @@
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4.1.9",
-    "@types/node": "^22",
+    "@types/node": "^24.10.1",
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "@types/uuid": "^11.0.0",
+    "dotenv": "^17.2.3",
     "postcss": "^8.5",
     "prettier": "^3.6.2",
     "prettier-plugin-tailwindcss": "^0.7.1",
     "tailwindcss": "^4.1.9",
+    "ts-node": "^10.9.2",
     "tw-animate-css": "1.3.3",
-    "typescript": "^5"
+    "typescript": "^5.9.3"
   },
   "packageManager": "yarn@1.22.22+sha512.a6b2f7906b721bba3d67d4aff083df04dad64c399707841b7acf00f6b133b7ac24255f2652fa22ae3534329dc6180534e98d17432037ff6fd140556e2bb3137e"
 }

@@ -34,10 +34,15 @@ export async function middleware(req: NextRequest) {
   const isApiRoute = req.nextUrl.pathname.startsWith('/api');
   
   // If accessing a protected route without a session, redirect to login
-  if (!session && !isAuthRoute && !isApiRoute && req.nextUrl.pathname !== '/') {
-    const redirectUrl = new URL('/login', req.url);
-    redirectUrl.searchParams.set('redirect', req.nextUrl.pathname);
-    return NextResponse.redirect(redirectUrl);
+  const isProtectedRoute = !isAuthRoute && !isApiRoute && !req.nextUrl.pathname.startsWith('/_next') && !req.nextUrl.pathname.endsWith('.ico');
+  
+  if (!session && isProtectedRoute) {
+    const loginUrl = new URL('/login', req.url);
+    // Only set redirect for non-root paths to avoid redirect loops
+    if (req.nextUrl.pathname !== '/') {
+      loginUrl.searchParams.set('redirect', req.nextUrl.pathname);
+    }
+    return NextResponse.redirect(loginUrl);
   }
   
   // If accessing auth routes with a valid session, redirect to dashboard
