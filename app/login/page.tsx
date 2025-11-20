@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context";
 import { Button } from "@/components/ui/button";
@@ -11,18 +11,27 @@ import { Label } from "@/components/ui/label";
 
 export default function LoginPage() {
   const router = useRouter();
-  const { login, isLoading, error } = useSupabaseAuth();
+  const { login, isLoading, error, session } = useSupabaseAuth();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const searchParams = useSearchParams();
+  const redirectTo = searchParams.get('redirect') || '/';
+
+  // Redirect if already logged in
+  useEffect(() => {
+    if (session) {
+      router.push(redirectTo);
+    }
+  }, [session, router, redirectTo]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      await login(email, password);
+      await login(email, password, redirectTo);
       // Redirect happens in the auth context after successful login
     } catch (error) {
-      // Error handling is done in the auth context
-      console.error("Login error:", error);
+      // Error handling is done in the auth context via the error state
+      // No need to log here as it's already displayed in the UI
     }
   };
 

@@ -14,6 +14,7 @@ import { AdminDashboard } from "./admin-dashboard"
 import { RoleBasedQuestionsDemo } from "./role-based-questions-demo"
 import { AuthDialog } from "./auth-dialog"
 import { UserProfileDialog } from "./user-profile-dialog"
+import { SupabaseNav } from "./supabase-nav"
 import { Button } from "./ui/button"
 import { Badge } from "./ui/badge"
 import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar"
@@ -21,11 +22,9 @@ import {
   BarChart3, 
   Shield, 
   ArrowLeft, 
-  LogIn, 
   LogOut, 
   User, 
-  Settings,
-  Lock
+  Settings
 } from "lucide-react"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs"
 import { useCaptainLog } from "@/contexts/captain-log-context"
@@ -40,11 +39,18 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "./ui/dropdown-menu"
+import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 
+/**
+ * MainLayout - Supabase-first enterprise layout
+ * Provides cloud-native authentication and data management
+ */
 export function MainLayout() {
   const { entries } = useCaptainLog()
   const { isAuthenticated, user, logout } = useAuth()
+  const { user: supabaseUser } = useSupabaseAuth()
   const { canViewAnalytics, canAccessAdmin, canExportData, canImportData } = useRBAC()
+  const isSupabaseLoggedIn = Boolean(supabaseUser)
   
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split("T")[0])
   const [viewMode, setViewMode] = useState<"landing" | "calendar" | "form" | "details" | "analytics" | "thankYou">("landing")
@@ -137,7 +143,9 @@ export function MainLayout() {
               )}
               
               {/* Authentication */}
-              {isAuthenticated && user ? (
+              {isSupabaseLoggedIn ? (
+                <SupabaseNav />
+              ) : isAuthenticated && user ? (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button variant="outline" size="sm" className="gap-2">
@@ -183,15 +191,10 @@ export function MainLayout() {
                   </DropdownMenuContent>
                 </DropdownMenu>
               ) : (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowAuthDialog(true)}
-                  className="gap-2"
-                >
-                  <LogIn className="h-4 w-4" />
-                  Login
-                </Button>
+                <>
+                  {/* Supabase Auth Nav */}
+                  <SupabaseNav />
+                </>
               )}
               
               <VersionInfo />
@@ -307,6 +310,13 @@ export function MainLayout() {
         ) : null}
         </div>
       </main>
+
+      {/* Supabase Integration Banner */}
+      <div className="border-t border-border bg-card p-2 flex items-center justify-center">
+        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+          <span>Supabase Cloud Storage</span>
+        </div>
+      </div>
     </div>
   )
 }

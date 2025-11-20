@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge"
 import type { CustomQuestion } from "@/lib/rbac/types"
 
 interface RoleBasedQuestionFieldsProps {
-  questions: CustomQuestion[]
+  questions: (CustomQuestion | { key: string; label: string; type: string; description?: string; placeholder?: string; options?: any; required: boolean; order: number; validation?: any; defaultValue?: any })[]
   responses: Record<string, any>
   errors?: Record<string, string>
   onChange: (questionKey: string, value: any) => void
@@ -153,7 +153,7 @@ export function RoleBasedQuestionFields({
         const error = errors[question.key]
 
         return (
-          <Card key={question.id}>
+          <Card key={question.key || (question as any).id}>
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between gap-3">
                 <div className="flex flex-col gap-1">

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context";
@@ -9,16 +9,62 @@ import { Input } from "@/components/ui/input";
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Moon, Sun } from "lucide-react";
+import { useTheme } from "next-themes";
+import { supabase } from "@/lib/supabase/client";
+
+interface Department {
+  id: string;
+  name: string;
+  code: string | null;
+}
 
 export default function RegisterPage() {
   const router = useRouter();
   const { register, isLoading, error } = useSupabaseAuth();
+  const { theme, setTheme } = useTheme();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [name, setName] = useState("");
   const [department, setDepartment] = useState("");
   const [validationError, setValidationError] = useState("");
+  const [departments, setDepartments] = useState<Department[]>([]);
+  const [loadingDepartments, setLoadingDepartments] = useState(true);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Fetch departments from database
+  useEffect(() => {
+    const fetchDepartments = async () => {
+      try {
+        setLoadingDepartments(true);
+        const { data, error } = await supabase
+          .from('departments')
+          .select('id, name, code')
+          .eq('is_active', true)
+          .order('name', { ascending: true });
+
+        if (error) {
+          console.error('Error fetching departments:', error);
+          // Fallback to empty array if fetch fails
+          setDepartments([]);
+        } else {
+          setDepartments(data || []);
+        }
+      } catch (err) {
+        console.error('Error fetching departments:', err);
+        setDepartments([]);
+      } finally {
+        setLoadingDepartments(false);
+      }
+    };
+
+    fetchDepartments();
+  }, []);
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -47,7 +93,31 @@ export default function RegisterPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-4">
+    <div className="flex min-h-screen items-center justify-center bg-background p-4 relative">
+      {/* Theme Toggle */}
+      <div className="absolute top-4 right-4">
+        <Button
+          variant="outline"
+          size="icon"
+          onClick={() => {
+            const newTheme = theme === "dark" ? "light" : "dark";
+            setTheme(newTheme);
+          }}
+          className="h-9 w-9"
+        >
+          {mounted ? (
+            theme === "dark" ? (
+              <Sun className="h-4 w-4" />
+            ) : (
+              <Moon className="h-4 w-4" />
+            )
+          ) : (
+            <Moon className="h-4 w-4" />
+          )}
+          <span className="sr-only">Toggle theme</span>
+        </Button>
+      </div>
+      
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-1">
           <CardTitle className="text-2xl font-bold">Create an account</CardTitle>
@@ -93,21 +163,22 @@ export default function RegisterPage() {
             
             <div className="space-y-2">
               <Label htmlFor="department">Department</Label>
-              <Select value={department} onValueChange={setDepartment}>
+              <Select value={department} onValueChange={setDepartment} disabled={loadingDepartments}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select department" />
+                  <SelectValue placeholder={loadingDepartments ? "Loading departments..." : "Select department"} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="engineering">Engineering</SelectItem>
-                  <SelectItem value="product">Product</SelectItem>
-                  <SelectItem value="design">Design</SelectItem>
-                  <SelectItem value="operations">Operations</SelectItem>
-                  <SelectItem value="support">Support</SelectItem>
-                  <SelectItem value="marketing">Marketing</SelectItem>
-                  <SelectItem value="sales">Sales</SelectItem>
-                  <SelectItem value="hr">HR</SelectItem>
-                  <SelectItem value="finance">Finance</SelectItem>
-                  <SelectItem value="other">Other</SelectItem>
+                  {departments.length > 0 ? (
+                    departments.map((dept) => (
+                      <SelectItem key={dept.id} value={dept.name}>
+                        {dept.name}
+                      </SelectItem>
+                    ))
+                  ) : (
+                    <SelectItem value="" disabled>
+                      No departments available
+                    </SelectItem>
+                  )}
                 </SelectContent>
               </Select>
             </div>

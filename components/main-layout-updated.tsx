@@ -1,7 +1,6 @@
 "use client"
 
-import { useState } from "react"
-import Link from "next/link"
+import { useState, useEffect } from "react"
 import { CalendarView } from "./calendar-view"
 import { EntryFormMultistep } from "./entry-form-multistep"
 import { EntryDetails } from "./entry-details"
@@ -12,49 +11,36 @@ import { ImportDialog } from "./import-dialog"
 import { SearchDialog } from "./search-dialog"
 import { AnalyticsDashboard } from "./analytics-dashboard"
 import { AdminDashboard } from "./admin-dashboard"
-import { RoleBasedQuestionsDemo } from "./role-based-questions-demo"
-import { AuthDialog } from "./auth-dialog"
-import { UserProfileDialog } from "./user-profile-dialog"
 import { SupabaseNav } from "./supabase-nav"
 import { Button } from "./ui/button"
-import { Badge } from "./ui/badge"
-import { Avatar, AvatarFallback, AvatarImage } from "./ui/avatar"
 import { 
   BarChart3, 
   Shield, 
-  ArrowLeft, 
-  LogIn, 
-  LogOut, 
-  User, 
-  Settings,
-  Lock,
-  Database
+  ArrowLeft,
+  FileText,
+  Moon,
+  Sun
 } from "lucide-react"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs"
+import { useTheme } from "next-themes"
+import Link from "next/link"
 import { useCaptainLog } from "@/contexts/captain-log-context"
-import { useAuth } from "@/contexts/auth-context"
 import { useRBAC } from "@/hooks/use-rbac"
 import { VersionInfo } from "./version-info"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "./ui/dropdown-menu"
 
 export function MainLayoutUpdated() {
   const { entries } = useCaptainLog()
-  const { isAuthenticated, user, logout } = useAuth()
   const { canViewAnalytics, canAccessAdmin, canExportData, canImportData } = useRBAC()
+  const { theme, setTheme } = useTheme()
+  const [mounted, setMounted] = useState(false)
   
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split("T")[0])
   const [viewMode, setViewMode] = useState<"landing" | "calendar" | "form" | "details" | "analytics" | "thankYou">("landing")
   const [showAdminDashboard, setShowAdminDashboard] = useState(false)
-  const [showAuthDialog, setShowAuthDialog] = useState(false)
-  const [showProfileDialog, setShowProfileDialog] = useState(false)
   const [editingDate, setEditingDate] = useState<string | undefined>(undefined)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   const handleDateSelect = (date: string) => {
     setSelectedDate(date)
@@ -72,16 +58,6 @@ export function MainLayoutUpdated() {
   const handleSearchSelect = (date: string) => {
     setSelectedDate(date)
     setViewMode("details")
-  }
-
-  const getRoleBadgeVariant = (roleName: string) => {
-    switch (roleName) {
-      case "admin": return "destructive"
-      case "manager": return "default"
-      case "user": return "secondary"
-      case "viewer": return "outline"
-      default: return "outline"
-    }
   }
 
   return (
@@ -106,8 +82,20 @@ export function MainLayoutUpdated() {
               </h1>
               <p className="text-sm text-muted-foreground mt-1">IT Department Daily Tracker</p>
             </div>
-            <div className="flex gap-2">
+            <div className="flex gap-2 items-center">
               <SearchDialog onSelectEntry={handleSearchSelect} />
+              
+              {/* Reports - All authenticated users can view */}
+              <Link href="/reports">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-2"
+                >
+                  <FileText className="h-4 w-4" />
+                  Reports
+                </Button>
+              </Link>
               
               {/* Export/Import - Permission based */}
               {canExportData && <ExportDialog />}
@@ -139,82 +127,27 @@ export function MainLayoutUpdated() {
                 </Button>
               )}
               
-              {/* Supabase Link */}
+              {/* Theme Toggle */}
               <Button
                 variant="outline"
                 size="sm"
-                asChild
+                onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
                 className="gap-2"
+                title={mounted && theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
               >
-                <Link href="/supabase-dashboard">
-                  <Database className="h-4 w-4" />
-                  Supabase
-                </Link>
+                {mounted ? (
+                  theme === "dark" ? (
+                    <Sun className="h-4 w-4" />
+                  ) : (
+                    <Moon className="h-4 w-4" />
+                  )
+                ) : (
+                  <Moon className="h-4 w-4" />
+                )}
               </Button>
               
               {/* Authentication */}
-              {isAuthenticated && user ? (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline" size="sm" className="gap-2">
-                      <Avatar className="h-6 w-6">
-                        <AvatarImage src={user.avatar} />
-                        <AvatarFallback className="text-xs">
-                          {user.name.split(" ").map(n => n[0]).join("").toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      {user.name.split(" ")[0]}
-                      <Badge variant={getRoleBadgeVariant(user.role)} className="text-xs">
-                        {user.role}
-                      </Badge>
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-56">
-                    <DropdownMenuLabel className="flex items-center gap-2">
-                      <Avatar className="h-8 w-8">
-                        <AvatarImage src={user.avatar} />
-                        <AvatarFallback>
-                          {user.name.split(" ").map(n => n[0]).join("").toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div>
-                        <div className="font-medium">{user.name}</div>
-                        <div className="text-sm text-muted-foreground">{user.email}</div>
-                      </div>
-                    </DropdownMenuLabel>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => setShowProfileDialog(true)}>
-                      <User className="mr-2 h-4 w-4" />
-                      Profile
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setShowProfileDialog(true)}>
-                      <Settings className="mr-2 h-4 w-4" />
-                      Settings
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={logout} className="text-red-600">
-                      <LogOut className="mr-2 h-4 w-4" />
-                      Logout
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              ) : (
-                <>
-                  {/* Regular auth button */}
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setShowAuthDialog(true)}
-                    className="gap-2"
-                  >
-                    <LogIn className="h-4 w-4" />
-                    Login
-                  </Button>
-                  
-                  {/* Supabase Auth Nav */}
-                  <SupabaseNav />
-                </>
-              )}
+              <SupabaseNav />
               
               <VersionInfo />
             </div>
@@ -224,12 +157,6 @@ export function MainLayoutUpdated() {
 
       {/* Admin Dashboard Modal */}
       {showAdminDashboard && <AdminDashboard onClose={() => setShowAdminDashboard(false)} />}
-      
-      {/* Auth Dialog */}
-      {showAuthDialog && <AuthDialog onClose={() => setShowAuthDialog(false)} />}
-      
-      {/* Profile Dialog */}
-      {showProfileDialog && <UserProfileDialog onClose={() => setShowProfileDialog(false)} />}
 
       {/* Main Content */}
       <main className="flex-1 w-full overflow-hidden">
@@ -330,16 +257,6 @@ export function MainLayoutUpdated() {
         </div>
       </main>
 
-      {/* Supabase Integration Banner */}
-      <div className="border-t border-border bg-card p-2 flex items-center justify-center">
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Database className="h-4 w-4" />
-          <span>Supabase Integration Available</span>
-          <Link href="/supabase-dashboard" className="text-primary hover:underline ml-2">
-            Configure Cloud Storage
-          </Link>
-        </div>
-      </div>
     </div>
   )
 }

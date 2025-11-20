@@ -1,10 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context";
 import { Button } from "@/components/ui/button";
+import { useRBAC } from "@/hooks/use-rbac";
+import { useTheme } from "next-themes";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -32,15 +34,24 @@ import {
   LockIcon,
   CheckCircleIcon,
   AlertCircleIcon,
-  InfoIcon
+  InfoIcon,
+  Moon,
+  Sun
 } from "lucide-react";
 
 export function SupabaseNav() {
   const pathname = usePathname();
   const { user, profile, logout, isLoading } = useSupabaseAuth();
+  const { canAccessAdmin } = useRBAC();
+  const { theme, setTheme } = useTheme();
+  const [mounted, setMounted] = useState(false);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
 
   const isSupabaseConfigured = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
   
   // Handle logout
   const handleLogout = async () => {
@@ -81,12 +92,14 @@ export function SupabaseNav() {
                   <span>Profile</span>
                 </Link>
               </DropdownMenuItem>
-              <DropdownMenuItem asChild>
-                <Link href="/supabase-dashboard">
-                  <DatabaseIcon className="h-4 w-4 mr-2" />
-                  <span>Supabase Dashboard</span>
-                </Link>
-              </DropdownMenuItem>
+              {canAccessAdmin && (
+                <DropdownMenuItem asChild>
+                  <Link href="/admin">
+                    <LockIcon className="h-4 w-4 mr-2" />
+                    <span>Admin Dashboard</span>
+                  </Link>
+                </DropdownMenuItem>
+              )}
               <DropdownMenuItem asChild>
                 <Link href="/supabase-test">
                   <SettingsIcon className="h-4 w-4 mr-2" />
@@ -94,6 +107,27 @@ export function SupabaseNav() {
                 </Link>
               </DropdownMenuItem>
             </DropdownMenuGroup>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
+              {mounted ? (
+                theme === "dark" ? (
+                  <>
+                    <Sun className="h-4 w-4 mr-2" />
+                    <span>Light Mode</span>
+                  </>
+                ) : (
+                  <>
+                    <Moon className="h-4 w-4 mr-2" />
+                    <span>Dark Mode</span>
+                  </>
+                )
+              ) : (
+                <>
+                  <Moon className="h-4 w-4 mr-2" />
+                  <span>Theme</span>
+                </>
+              )}
+            </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onClick={handleLogout}>
               <LogOutIcon className="h-4 w-4 mr-2" />

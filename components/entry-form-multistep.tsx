@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { useCaptainLog } from "@/contexts/captain-log-context"
 import { useRBAC } from "@/hooks/use-rbac"
+import { useRoleQuestions } from "@/hooks/use-role-questions"
 import { RoleBasedQuestionFields } from "@/components/role-based-question-fields"
 import type { QuestionResponse } from "@/lib/rbac/types"
 import { ArrowLeft, ArrowRight, Save, Eye, CheckCircle2, Target, CheckCircle, AlertTriangle, AlertCircle, Sparkles, Calendar, ListChecks } from "lucide-react"
@@ -19,7 +20,8 @@ interface EntryFormMultistepProps {
 
 export function EntryFormMultistep({ date: initialDate, onSave, onCancel }: EntryFormMultistepProps) {
   const { entries, addEntry, updateEntry } = useCaptainLog()
-  const { questions: roleQuestions, validateResponse, processResponses } = useRBAC()
+  const { validateResponse, processResponses } = useRBAC()
+  const { questions: roleQuestions } = useRoleQuestions()
   const [currentStep, setCurrentStep] = useState(1)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [selectedDate, setSelectedDate] = useState<string>(initialDate || new Date().toISOString().split("T")[0])
@@ -49,18 +51,19 @@ export function EntryFormMultistep({ date: initialDate, onSave, onCancel }: Entr
     const responseMap: Record<string, any> = {}
 
     roleQuestions.forEach((question) => {
-      const existing = existingResponses?.find((response) => response.questionKey === question.key)
+      const q = question as any
+      const existing = existingResponses?.find((response) => response.questionKey === q.key)
 
       if (existing) {
-        responseMap[question.key] = existing.value
-      } else if (question.defaultValue !== undefined) {
-        responseMap[question.key] = question.defaultValue
-      } else if (question.type === "multiselect") {
-        responseMap[question.key] = []
-      } else if (question.type === "checkbox") {
-        responseMap[question.key] = false
+        responseMap[q.key] = existing.value
+      } else if (q.defaultValue !== undefined) {
+        responseMap[q.key] = q.defaultValue
+      } else if (q.type === "multiselect") {
+        responseMap[q.key] = []
+      } else if (q.type === "checkbox") {
+        responseMap[q.key] = false
       } else {
-        responseMap[question.key] = ""
+        responseMap[q.key] = ""
       }
     })
 
@@ -103,19 +106,6 @@ export function EntryFormMultistep({ date: initialDate, onSave, onCancel }: Entr
     setCustomErrors({})
   }, [selectedDate, entries, buildInitialCustomResponses])
 
-  useEffect(() => {
-    if (currentStep > steps.length) {
-      setCurrentStep(steps.length)
-    }
-  }, [steps, currentStep])
-
-  // Character limits for form fields
-  const CHARACTER_LIMITS = {
-    objectives: 500,
-    keyResults: 1000,
-    challenges: 750,
-  } as const
-
   const steps = useMemo(() => {
     const baseSteps = [
       { key: "date", title: "Select Date", icon: Calendar },
@@ -135,6 +125,21 @@ export function EntryFormMultistep({ date: initialDate, onSave, onCancel }: Entr
       number: index + 1,
     }))
   }, [roleQuestions.length])
+
+  useEffect(() => {
+    if (currentStep > steps.length) {
+      setCurrentStep(steps.length)
+    }
+  }, [steps, currentStep])
+
+  // Character limits for form fields
+  const CHARACTER_LIMITS = {
+    objectives: 500,
+    keyResults: 1000,
+    challenges: 750,
+  } as const
+
+  
 
   const handleChange = (field: string, value: string) => {
     const limit = CHARACTER_LIMITS[field as keyof typeof CHARACTER_LIMITS]
@@ -165,9 +170,21 @@ export function EntryFormMultistep({ date: initialDate, onSave, onCancel }: Entr
     const newErrors: Record<string, string> = {}
 
     roleQuestions.forEach((question) => {
-      const error = validateResponse(question, customResponses[question.key])
-      if (error) {
-        newErrors[question.key] = error
+      const q = question as any
+      // Simple validation for required fields
+      if (q.required && (!customResponses[q.key] || 
+          (Array.isArray(customResponses[q.key]) && customResponses[q.key].length === 0))) {
+        newErrors[q.key] = `${q.label} is required`
+      } else {
+        // Try to use validateResponse if available
+        try {
+          const error = validateResponse(q, customResponses[q.key])
+          if (error) {
+            newErrors[q.key] = error
+          }
+        } catch {
+          // If validation fails, just check required
+        }
       }
     })
 
