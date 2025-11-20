@@ -278,7 +278,21 @@ export interface Database {
       [_ in never]: never;
     };
     Functions: {
-      [_ in never]: never;
+      get_users_with_emails: {
+        Args: Record<PropertyKey, never>;
+        Returns: {
+          user_id: string;
+          email: string;
+          created_at: string;
+          name: string;
+          department: string | null;
+          role_id: string;
+          role_name: string | null;
+          is_active: boolean;
+          profile_created_at: string;
+          last_login: string | null;
+        }[];
+      };
     };
     Enums: {
       [_ in never]: never;

@@ -9,8 +9,8 @@ export async function signIn(email: string, password: string) {
     email,
     password,
   });
-  
-  if (error) throw error;
+
+  // Do not throw here so UI can handle expected invalid-credentials gracefully
   return data;
 }
 

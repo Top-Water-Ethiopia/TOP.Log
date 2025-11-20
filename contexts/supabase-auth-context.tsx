@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import type { User, Session } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabase-client";
-import { onAuthStateChange, getCurrentUser, signIn, signOut, signUp, createUserProfile } from "@/lib/auth-utils";
+import { signIn, signOut, signUp, onAuthStateChange, getCurrentUser, createUserProfile } from "@/lib/auth-utils";
 
 // Define types for our auth context
 interface UserProfile {
@@ -28,7 +28,7 @@ interface AuthState {
 }
 
 interface AuthContextType extends AuthState {
-  login: (email: string, password: string) => Promise<void>;
+  login: (email: string, password: string, redirectTo?: string) => Promise<void>;
   logout: () => Promise<void>;
   register: (email: string, password: string, name: string, department?: string) => Promise<void>;
   updateProfile: (data: Partial<UserProfile>) => Promise<void>;
@@ -59,15 +59,37 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
         const user = await getCurrentUser();
         if (user) {
           const { data: session } = await supabase.auth.getSession();
-          const { data: profile } = await supabase
+          
+          // Try to get profile, or create one if it doesn't exist
+          let { data: profile, error: profileError } = await supabase
             .from('user_profiles')
             .select('*')
             .eq('user_id', user.id)
-            .single();
+            .maybeSingle();
+
+          // If profile doesn't exist, create a default one
+          if (!profile && !profileError) {
+            const { data: newProfile, error: createError } = await supabase
+              .from('user_profiles')
+              .insert({
+                user_id: user.id,
+                name: user.email?.split('@')[0] || 'User',
+                role_id: '00000000-0000-0000-0000-000000000002', // Default user role
+                is_active: true,
+              })
+              .select('*')
+              .single();
+            
+            if (createError) {
+              console.error("Failed to create user profile:", createError);
+            } else {
+              profile = newProfile;
+            }
+          }
 
           setAuthState({
             user,
-            profile,
+            profile: profile || null,
             session: session.session,
             isLoading: false,
             error: null,
@@ -96,18 +118,35 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
     initializeAuth();
 
     // Set up auth state change listener
-    const { data: { subscription } } = onAuthStateChange(async (user) => {
+    const { data: { subscription } } = onAuthStateChange(async (user: User | null) => {
       if (user) {
-        const { data: profile } = await supabase
+        // Try to get profile, or create one if it doesn't exist
+        let { data: profile } = await supabase
           .from('user_profiles')
           .select('*')
           .eq('user_id', user.id)
-          .single();
+          .maybeSingle();
+
+        // If profile doesn't exist, create a default one
+        if (!profile) {
+          const { data: newProfile } = await supabase
+            .from('user_profiles')
+            .insert({
+              user_id: user.id,
+              name: user.email?.split('@')[0] || 'User',
+              role_id: '00000000-0000-0000-0000-000000000002', // Default user role
+              is_active: true,
+            })
+            .select('*')
+            .single();
+          
+          profile = newProfile;
+        }
 
         setAuthState(prev => ({
           ...prev,
           user,
-          profile,
+          profile: profile || null,
           isLoading: false,
         }));
       } else {
@@ -128,22 +167,45 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
   }, []);
 
   // Login function
-  const login = async (email: string, password: string) => {
+  const login = async (email: string, password: string, redirectTo: string = '/') => {
     setAuthState(prev => ({ ...prev, isLoading: true, error: null }));
     
     try {
       const { session, user } = await signIn(email, password);
       
       if (!user || !session) {
-        throw new Error("Login failed");
+        // Invalid credentials: handle gracefully without throwing
+        setAuthState(prev => ({
+          ...prev,
+          isLoading: false,
+          error: 'Invalid email or password',
+        }));
+        toast.error('Invalid email or password');
+        return;
       }
       
-      // Get user profile
-      const { data: profile } = await supabase
+      // Get user profile, or create one if it doesn't exist
+      let { data: profile } = await supabase
         .from('user_profiles')
         .select('*')
         .eq('user_id', user.id)
-        .single();
+        .maybeSingle();
+
+      // If profile doesn't exist, create a default one
+      if (!profile) {
+        const { data: newProfile } = await supabase
+          .from('user_profiles')
+          .insert({
+            user_id: user.id,
+            name: user.email?.split('@')[0] || 'User',
+            role_id: '00000000-0000-0000-0000-000000000002', // Default user role
+            is_active: true,
+          })
+          .select('*')
+          .single();
+        
+        profile = newProfile;
+      }
       
       // Update last login time
       if (profile) {
@@ -162,16 +224,25 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
       });
       
       toast.success(`Welcome back, ${profile?.name || email}!`);
-      router.push('/'); // Redirect to dashboard
+      router.push(redirectTo); // Redirect to the requested URL or dashboard
       
     } catch (error: any) {
-      console.error("Login error:", error);
+      const message = typeof error?.message === 'string' ? error.message : 'Login failed';
+      const isInvalidCreds = message.toLowerCase().includes('invalid login credentials') || (typeof error?.status === 'number' && error.status === 400);
+
+      if (!isInvalidCreds) {
+        console.error('Login error:', error);
+      }
+
+      const uiMessage = isInvalidCreds ? 'Invalid email or password' : message;
+
       setAuthState(prev => ({
         ...prev,
         isLoading: false,
-        error: error.message || "Login failed",
+        error: uiMessage,
       }));
-      toast.error(error.message || "Login failed");
+
+      toast.error(uiMessage);
     }
   };
   
