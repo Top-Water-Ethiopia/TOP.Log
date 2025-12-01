@@ -27,6 +27,9 @@ export function RoleBasedQuestionFields({
   }
 
   const renderField = (question: CustomQuestion, value: any, error?: string) => {
+    // Type assertion for extended validation properties
+    const validation = question.validation as any
+    
     switch (question.type) {
       case "text":
         return (
@@ -49,6 +52,39 @@ export function RoleBasedQuestionFields({
           />
         )
 
+      case "email":
+        return (
+          <Input
+            type="email"
+            value={value ?? ""}
+            onChange={(event) => onChange(question.key, event.target.value)}
+            placeholder={question.placeholder || "example@email.com"}
+            className={error ? "border-destructive" : ""}
+          />
+        )
+
+      case "url":
+        return (
+          <Input
+            type="url"
+            value={value ?? ""}
+            onChange={(event) => onChange(question.key, event.target.value)}
+            placeholder={question.placeholder || "https://example.com"}
+            className={error ? "border-destructive" : ""}
+          />
+        )
+
+      case "phone":
+        return (
+          <Input
+            type="tel"
+            value={value ?? ""}
+            onChange={(event) => onChange(question.key, event.target.value)}
+            placeholder={question.placeholder || "+1 (555) 123-4567"}
+            className={error ? "border-destructive" : ""}
+          />
+        )
+
       case "number":
         return (
           <Input
@@ -58,8 +94,43 @@ export function RoleBasedQuestionFields({
             placeholder={question.placeholder}
             min={question.validation?.min}
             max={question.validation?.max}
+            step={question.validation?.step}
             className={error ? "border-destructive" : ""}
           />
+        )
+
+      case "currency":
+        return (
+          <div className="relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+            <Input
+              type="number"
+              value={value ?? ""}
+              onChange={(event) => onChange(question.key, event.target.value)}
+              placeholder={question.placeholder || "0.00"}
+              min={question.validation?.min ?? 0}
+              max={question.validation?.max}
+              step={question.validation?.step ?? "0.01"}
+              className={`pl-7 ${error ? "border-destructive" : ""}`}
+            />
+          </div>
+        )
+
+      case "percentage":
+        return (
+          <div className="relative">
+            <Input
+              type="number"
+              value={value ?? ""}
+              onChange={(event) => onChange(question.key, event.target.value)}
+              placeholder={question.placeholder || "0"}
+              min={question.validation?.min ?? 0}
+              max={question.validation?.max ?? 100}
+              step={question.validation?.step ?? 1}
+              className={`pr-7 ${error ? "border-destructive" : ""}`}
+            />
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">%</span>
+          </div>
         )
 
       case "date":
@@ -68,11 +139,94 @@ export function RoleBasedQuestionFields({
             type="date"
             value={value ?? ""}
             onChange={(event) => onChange(question.key, event.target.value)}
+            min={question.validation?.min_date}
+            max={question.validation?.max_date}
             className={error ? "border-destructive" : ""}
           />
         )
 
+      case "time":
+        return (
+          <Input
+            type="time"
+            value={value ?? ""}
+            onChange={(event) => onChange(question.key, event.target.value)}
+            className={error ? "border-destructive" : ""}
+          />
+        )
+
+      case "datetime":
+        return (
+          <Input
+            type="datetime-local"
+            value={value ?? ""}
+            onChange={(event) => onChange(question.key, event.target.value)}
+            min={question.validation?.min_date}
+            max={question.validation?.max_date}
+            className={error ? "border-destructive" : ""}
+          />
+        )
+
+      case "daterange":
+        return (
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label className="text-xs text-muted-foreground">Start Date</Label>
+              <Input
+                type="date"
+                value={value?.start ?? ""}
+                onChange={(event) => onChange(question.key, { ...value, start: event.target.value })}
+                min={question.validation?.min_date}
+                max={value?.end || question.validation?.max_date}
+                className={error ? "border-destructive" : ""}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs text-muted-foreground">End Date</Label>
+              <Input
+                type="date"
+                value={value?.end ?? ""}
+                onChange={(event) => onChange(question.key, { ...value, end: event.target.value })}
+                min={value?.start || question.validation?.min_date}
+                max={question.validation?.max_date}
+                className={error ? "border-destructive" : ""}
+              />
+            </div>
+          </div>
+        )
+
+      case "duration":
+        return (
+          <div className="grid grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label className="text-xs text-muted-foreground">Hours</Label>
+              <Input
+                type="number"
+                value={value?.hours ?? ""}
+                onChange={(event) => onChange(question.key, { ...value, hours: event.target.value })}
+                placeholder="0"
+                min="0"
+                className={error ? "border-destructive" : ""}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label className="text-xs text-muted-foreground">Minutes</Label>
+              <Input
+                type="number"
+                value={value?.minutes ?? ""}
+                onChange={(event) => onChange(question.key, { ...value, minutes: event.target.value })}
+                placeholder="0"
+                min="0"
+                max="59"
+                className={error ? "border-destructive" : ""}
+              />
+            </div>
+          </div>
+        )
+
       case "select":
+      case "priority":
+      case "status":
         return (
           <Select
             value={value ?? ""}
@@ -91,7 +245,30 @@ export function RoleBasedQuestionFields({
           </Select>
         )
 
+      case "radio":
+        return (
+          <div className="space-y-2">
+            {question.options?.map((option) => (
+              <div key={option} className="flex items-center space-x-2">
+                <input
+                  type="radio"
+                  id={`${question.key}-${option}`}
+                  name={question.key}
+                  value={option}
+                  checked={value === option}
+                  onChange={(event) => onChange(question.key, event.target.value)}
+                  className="h-4 w-4 border-gray-300 text-primary focus:ring-2 focus:ring-primary"
+                />
+                <Label htmlFor={`${question.key}-${option}`} className="text-sm font-normal cursor-pointer">
+                  {option}
+                </Label>
+              </div>
+            ))}
+          </div>
+        )
+
       case "multiselect":
+      case "tags":
         return (
           <div className="space-y-2">
             {question.options?.map((option) => {
@@ -111,7 +288,7 @@ export function RoleBasedQuestionFields({
                       }
                     }}
                   />
-                  <Label htmlFor={checkboxId} className="text-sm">
+                  <Label htmlFor={checkboxId} className="text-sm font-normal cursor-pointer">
                     {option}
                   </Label>
                 </div>
@@ -128,10 +305,113 @@ export function RoleBasedQuestionFields({
               checked={!!value}
               onCheckedChange={(checked) => onChange(question.key, !!checked)}
             />
-            <Label htmlFor={question.key} className="text-sm">
+            <Label htmlFor={question.key} className="text-sm font-normal cursor-pointer">
               {question.placeholder || "Check this option"}
             </Label>
           </div>
+        )
+
+      case "rating":
+        return (
+          <Select
+            value={value ?? ""}
+            onValueChange={(newValue) => onChange(question.key, newValue)}
+          >
+            <SelectTrigger className={error ? "border-destructive" : ""}>
+              <SelectValue placeholder="Select rating" />
+            </SelectTrigger>
+            <SelectContent>
+              {question.options?.map((option) => (
+                <SelectItem key={option} value={option}>
+                  {option}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )
+
+      case "slider":
+        return (
+          <div className="space-y-4">
+            <input
+              type="range"
+              value={value ?? question.validation?.min ?? 0}
+              onChange={(event) => onChange(question.key, event.target.value)}
+              min={question.validation?.min ?? 0}
+              max={question.validation?.max ?? 100}
+              step={question.validation?.step ?? 1}
+              className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+            />
+            <div className="flex justify-between items-center">
+              <span className="text-sm text-muted-foreground">
+                {question.validation?.min ?? 0}
+              </span>
+              <span className="text-lg font-semibold text-primary">
+                {value ?? question.validation?.min ?? 0}
+              </span>
+              <span className="text-sm text-muted-foreground">
+                {question.validation?.max ?? 100}
+              </span>
+            </div>
+          </div>
+        )
+
+      case "nps":
+        return (
+          <div className="space-y-4">
+            <div className="grid grid-cols-11 gap-2">
+              {[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((score) => (
+                <button
+                  key={score}
+                  type="button"
+                  onClick={() => onChange(question.key, score)}
+                  className={`h-12 rounded-md border-2 font-semibold transition-all ${
+                    value === score
+                      ? "border-primary bg-primary text-primary-foreground"
+                      : "border-gray-300 hover:border-primary/50 hover:bg-primary/10"
+                  }`}
+                >
+                  {score}
+                </button>
+              ))}
+            </div>
+            <div className="flex justify-between text-xs text-muted-foreground">
+              <span>Not at all likely</span>
+              <span>Extremely likely</span>
+            </div>
+          </div>
+        )
+
+      case "file":
+      case "image":
+        return (
+          <div className="space-y-2">
+            <Input
+              type="file"
+              onChange={(event) => {
+                const file = event.target.files?.[0]
+                if (file) {
+                  onChange(question.key, file.name)
+                }
+              }}
+              accept={question.type === "image" ? "image/*" : undefined}
+              className={error ? "border-destructive" : ""}
+            />
+            {value && (
+              <p className="text-sm text-muted-foreground">Selected: {value}</p>
+            )}
+          </div>
+        )
+
+      case "rich-text":
+        return (
+          <Textarea
+            value={value ?? ""}
+            onChange={(event) => onChange(question.key, event.target.value)}
+            placeholder={question.placeholder || "Enter formatted text..."}
+            className={error ? "border-destructive" : ""}
+            rows={6}
+          />
         )
 
       default:
@@ -153,7 +433,10 @@ export function RoleBasedQuestionFields({
         const error = errors[question.key]
 
         return (
-          <Card key={question.key || (question as any).id}>
+          <Card
+            key={question.key || (question as any).id}
+            className="border-0 shadow-none bg-transparent p-0"
+          >
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between gap-3">
                 <div className="flex flex-col gap-1">
