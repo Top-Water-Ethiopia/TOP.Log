@@ -81,6 +81,7 @@ interface RoleQuestion {
   role_id: string
   question_key: string
   question_label: string
+  question_title?: string | null
   question_type: string
   question_description: string | null
   placeholder: string | null
@@ -114,9 +115,11 @@ export function RoleQuestionsManager() {
   const [questions, setQuestions] = useState<RoleQuestionWithRole[]>([])
   const [roles, setRoles] = useState<Role[]>([])
   const [isLoading, setIsLoading] = useState(true)
+  const [isCreating, setIsCreating] = useState(false)
+  const [isUpdating, setIsUpdating] = useState(false)
   const [selectedRole, setSelectedRole] = useState<string>("all")
   const [showCreateDialog, setShowCreateDialog] = useState(false)
-  const [editingQuestion, setEditingQuestion] = useState<RoleQuestion | null>(null)
+  const [editingQuestion, setEditingQuestion] = useState<RoleQuestionWithRole | null>(null)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [questionToDelete, setQuestionToDelete] = useState<RoleQuestion | null>(null)
   const [previewQuestion, setPreviewQuestion] = useState<RoleQuestionWithRole | null>(null)
@@ -135,6 +138,7 @@ export function RoleQuestionsManager() {
   const [showBulkActions, setShowBulkActions] = useState(false)
   const [viewMode, setViewMode] = useState<"table" | "grouped">("grouped")
   const [expandedRoles, setExpandedRoles] = useState<Set<string>>(new Set())
+  const [dragState, setDragState] = useState<{ roleId: string; questionId: string } | null>(null)
 
   // Cache tracking to prevent unnecessary refetches
   const dataLoadedRef = useRef(false)
@@ -148,6 +152,7 @@ export function RoleQuestionsManager() {
     role_id: "",
     question_key: "",
     question_label: "",
+    question_title: "",
     question_type: "text",
     question_description: "",
     placeholder: "",
@@ -194,57 +199,72 @@ export function RoleQuestionsManager() {
       console.log("👤 User ID:", currentUser?.id)
       console.log("🔑 Profile Role ID:", currentProfile?.role_id)
       
-      // Load roles - try API route first, then fallback to direct query
+      // Load roles using direct Supabase query
       console.log("📥 Loading roles...")
-      let roleData: Role[] = []
-      let roleError: any = null
-
-      try {
-        // Try API route first
-        const rolesResponse = await fetch('/api/admin/roles')
-        if (rolesResponse.ok) {
-          const rolesResult = await rolesResponse.json()
-          roleData = rolesResult.data || []
-          console.log("✅ Loaded roles from API:", roleData.length)
-        } else {
-          throw new Error("API route failed")
-        }
-      } catch (apiError) {
-        console.warn("⚠️ API route failed, trying direct query...", apiError)
-        // Fallback to direct Supabase query
-        const { data: directRoleData, error: directRoleError } = await supabase
+      const { data: roleData, error: roleError } = await supabase
         .from("roles")
         .select("*")
         .order("name", { ascending: true })
-          .limit(1000)
-
-        if (directRoleError) {
-          roleError = directRoleError
-        } else {
-          roleData = directRoleData || []
-          console.log("✅ Loaded roles from direct query:", roleData.length)
-        }
-      }
+        .limit(1000)
 
       if (roleError) {
-        console.error("❌ Error loading roles:", roleError)
-        console.error("Error details:", {
-          message: roleError.message,
-          code: roleError.code,
-          details: roleError.details,
-          hint: roleError.hint
-        })
+        const roleErrorObj: any = roleError
+        let extractedError: Record<string, any> = {}
+
+        extractedError.code = roleErrorObj?.code || roleErrorObj?.error_code || roleErrorObj?.statusCode
+        extractedError.message = roleErrorObj?.message || roleErrorObj?.error_description || roleErrorObj?.error_msg
+        extractedError.details = roleErrorObj?.details || roleErrorObj?.error_details
+        extractedError.hint = roleErrorObj?.hint || roleErrorObj?.error_hint
+        extractedError.name = roleErrorObj?.name
+
+        if (roleErrorObj?.error) {
+          extractedError.postgrest_error = roleErrorObj.error
+          extractedError.code = extractedError.code || roleErrorObj.error.code
+          extractedError.message = extractedError.message || roleErrorObj.error.message
+          extractedError.details = extractedError.details || roleErrorObj.error.details
+          extractedError.hint = extractedError.hint || roleErrorObj.error.hint
+        }
+
+        try {
+          const ownProps = Object.getOwnPropertyNames(roleErrorObj)
+          const ownPropValues: Record<string, any> = {}
+          ownProps.forEach(prop => {
+            try {
+              ownPropValues[prop] = roleErrorObj[prop]
+            } catch {
+              ownPropValues[prop] = "[cannot access]"
+            }
+          })
+          if (Object.keys(ownPropValues).length > 0) {
+            extractedError.ownProperties = ownPropValues
+          }
+        } catch {}
+
+        try {
+          extractedError.jsonString = JSON.stringify(roleErrorObj, (key, value) => {
+            if (key === "parent" || key === "original") return "[Circular]"
+            return value
+          }, 2)
+        } catch (e: any) {
+          extractedError.jsonStringError = e.message
+        }
+
+        extractedError.stringRepresentation = String(roleError)
+        extractedError.toString = roleError.toString?.()
+
+        console.error("❌ Error loading roles:", extractedError)
+      
         toast({
           title: "Error Loading Roles",
-          description: roleError.message || "Failed to load roles. Check console for details.",
+          description: extractedError.message || roleError.message || "Failed to load roles. Check console for details.",
           variant: "destructive",
         })
         // Don't throw - set empty array so UI can still render
         setRoles([])
       } else {
-        setRoles(roleData)
-        console.log("✅ Loaded roles:", roleData.length)
-        if (roleData.length > 0) {
+        setRoles(roleData || [])
+        console.log("✅ Loaded roles:", (roleData || []).length)
+        if (roleData && roleData.length > 0) {
           console.log("📋 Roles:", roleData.map(r => `${r.name} (${r.id})`).join(", "))
         } else {
           console.warn("⚠️ No roles found in database")
@@ -269,22 +289,60 @@ export function RoleQuestionsManager() {
         console.log("📥 API Response status:", response.status, response.statusText)
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({}))
-          throw new Error(errorData.error || `HTTP ${response.status}: ${response.statusText}`)
+          console.error("❌ API Error Response:", errorData)
+          const errorMessage = errorData.error || `HTTP ${response.status}: ${response.statusText}`
+          const errorDetails = errorData.details ? ` - ${errorData.details}` : ''
+          throw new Error(errorMessage + errorDetails)
         }
         
         const questionsFromAPI = await response.json()
         console.log("✅ Successfully loaded questions from API:", questionsFromAPI?.length || 0)
-        
-        // Manually join with roles data we already loaded
+
+        // Join with roles data - use existing role if present, otherwise find from loaded roles
         questionData = (questionsFromAPI || []).map((q: any) => ({
           ...q,
-          role: roleData?.find((r: any) => r.id === q.role_id) || null
+          role: q.role || roleData?.find((r: any) => r.id === q.role_id) || null
         }))
         
         console.log("📋 Questions with roles:", questionData)
       } catch (apiError: any) {
         console.error("❌ Error loading questions from API:", apiError)
+        console.error("API Error Details:", {
+          message: apiError.message,
+          stack: apiError.stack,
+          isAdmin,
+          isSuperAdmin,
+          currentUser: currentUser?.id,
+          currentProfile: currentProfile?.role_id
+        })
         questionError = apiError
+        
+        // Check if it's an authentication/authorization error
+        const isAuthError = apiError.message?.toLowerCase().includes('unauthorized') || 
+                           apiError.message?.toLowerCase().includes('401')
+        const isForbiddenError = apiError.message?.toLowerCase().includes('forbidden') || 
+                                apiError.message?.toLowerCase().includes('403') ||
+                                apiError.message?.toLowerCase().includes('user profile not found')
+        
+        if (isAuthError) {
+          toast({
+            title: "Authentication Required",
+            description: "Please sign in to access the admin panel.",
+            variant: "destructive",
+          })
+          setIsLoading(false)
+          return
+        }
+        
+        if (isForbiddenError) {
+          toast({
+            title: "Access Denied",
+            description: "You don't have permission to access role questions. Admin privileges required.",
+            variant: "destructive",
+          })
+          setIsLoading(false)
+          return
+        }
         
         // Fallback: Try direct Supabase query with explicit limit removal
         console.log("🔄 Trying fallback: direct Supabase query...")
@@ -320,7 +378,10 @@ export function RoleQuestionsManager() {
             }
           } else {
             console.log("✅ Fallback successful - loaded questions with role join")
-            questionData = questionsWithRoles || []
+            questionData = (questionsWithRoles || []).map((q: any) => ({
+              ...q,
+              role: q.role || roleData?.find((r: any) => r.id === q.role_id) || null
+            }))
           }
         } catch (fallbackError: any) {
           console.error("❌ Fallback also failed:", fallbackError)
@@ -363,7 +424,7 @@ export function RoleQuestionsManager() {
       
       console.log("✅ Loaded questions:", questionData?.length || 0)
       console.log("📋 Questions data:", questionData)
-      
+
       if (questionData && questionData.length === 0) {
         console.warn("⚠️ No questions found. Check if questions were created successfully.")
         console.log("💡 Debug info:", {
@@ -373,6 +434,16 @@ export function RoleQuestionsManager() {
           currentProfile: currentProfile?.role_id,
           rolesLoaded: roleData?.length || 0
         })
+      }
+
+      // Debug role assignment
+      if (questionData && questionData.length > 0) {
+        const questionsWithRoles = questionData.filter(q => q.role)
+        const questionsWithoutRoles = questionData.filter(q => !q.role)
+        console.log(`📊 Role assignment: ${questionsWithRoles.length} with roles, ${questionsWithoutRoles.length} without roles`)
+        if (questionsWithoutRoles.length > 0) {
+          console.log("❌ Questions without roles:", questionsWithoutRoles.map(q => ({ id: q.id, role_id: q.role_id, question_key: q.question_key })))
+        }
       }
       
       setQuestions(questionData || [])
@@ -424,19 +495,16 @@ export function RoleQuestionsManager() {
     // If user is admin, load data (only if not already loaded recently)
     if (isAdmin) {
       console.log("✅ Admin access confirmed, loading data...")
-      loadData(false) // Don't force refresh on mount if cache is fresh
+      // Call loadData directly without including it in dependencies
+      loadData(false).catch((error) => {
+        console.error("Error loading data:", error)
+      })
     } else {
       console.warn("❌ User is not an admin")
       setIsLoading(false)
     }
-  }, [currentUser, currentProfile, isAdmin, isSuperAdmin, loadData])
-
-  // Initialize all roles as expanded when switching to grouped view
-  useEffect(() => {
-    if (viewMode === "grouped" && expandedRoles.size === 0 && questionsByRole.sortedRoles.length > 0) {
-      setExpandedRoles(new Set(questionsByRole.sortedRoles.map(r => r.id)))
-    }
-  }, [viewMode])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.id, currentProfile?.role_id]) // Removed computed values to prevent unnecessary re-renders
 
   // Enhanced filtering, sorting, and pagination
   const filteredAndSortedQuestions = useMemo(() => {
@@ -499,37 +567,91 @@ export function RoleQuestionsManager() {
   // Group questions by role for grouped view
   const questionsByRole = useMemo(() => {
     const grouped: Record<string, RoleQuestionWithRole[]> = {}
-    
+
     filteredAndSortedQuestions.forEach(question => {
       const roleId = question.role_id
       const roleName = question.role?.name || "Unknown Role"
-      
+
       if (!grouped[roleId]) {
         grouped[roleId] = []
       }
-      
+
       // Sort questions within each role by display_order
       grouped[roleId].push(question)
     })
-    
+
     // Sort questions within each role by display_order
     Object.keys(grouped).forEach(roleId => {
       grouped[roleId].sort((a, b) => (a.display_order || 0) - (b.display_order || 0))
     })
-    
+
+    // Build the list of roles to display in the grouped view.
+    // Prefer the roles state when it has entries, but fall back to deriving
+    // role definitions directly from the grouped questions so the UI works
+    // even if the roles query is empty or restricted by RLS.
+    let rolesForGrouping: Role[]
+
+    if (roles && roles.length > 0) {
+      // Use roles from state, filtered to only those that have questions
+      rolesForGrouping = roles.filter(role => grouped[role.id] && grouped[role.id].length > 0)
+    } else {
+      // Derive roles from the questions themselves
+      const derivedRoleMap = new Map<string, Role>()
+
+      Object.entries(grouped).forEach(([roleId, roleQuestions]) => {
+        // Use the first question in the group to infer the role name
+        const sample = roleQuestions[0]
+        const inferredName = sample.role?.name || "Unknown Role"
+
+        if (!derivedRoleMap.has(roleId)) {
+          derivedRoleMap.set(roleId, {
+            id: roleId,
+            name: inferredName,
+            description: null,
+            department_id: null,
+          })
+        }
+      })
+
+      rolesForGrouping = Array.from(derivedRoleMap.values())
+    }
+
     // Sort roles by name
-    const sortedRoles = roles
-      .filter(role => grouped[role.id] && grouped[role.id].length > 0)
-      .sort((a, b) => a.name.localeCompare(b.name))
-    
+    const sortedRoles = rolesForGrouping.sort((a, b) => a.name.localeCompare(b.name))
+
     return { grouped, sortedRoles }
   }, [filteredAndSortedQuestions, roles])
+
+  // Ensure consistent sorting for both views
+  const sortedQuestionsForTable = useMemo(() => {
+    return [...filteredAndSortedQuestions].sort((a, b) => {
+      let comparison = 0
+      switch (sortField) {
+        case "role":
+          comparison = (a.role?.name || "").localeCompare(b.role?.name || "")
+          break
+        case "label":
+          comparison = a.question_label.localeCompare(b.question_label)
+          break
+        case "type":
+          comparison = a.question_type.localeCompare(b.question_type)
+          break
+        case "display_order":
+          comparison = (a.display_order || 0) - (b.display_order || 0)
+          break
+        case "created_at":
+          comparison = new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+          break
+      }
+      return sortDirection === "asc" ? comparison : -comparison
+    })
+  }, [filteredAndSortedQuestions, sortField, sortDirection])
 
   // Pagination
   const paginatedQuestions = useMemo(() => {
     const startIndex = (currentPage - 1) * itemsPerPage
-    return filteredAndSortedQuestions.slice(startIndex, startIndex + itemsPerPage)
-  }, [filteredAndSortedQuestions, currentPage, itemsPerPage])
+    return sortedQuestionsForTable.slice(startIndex, startIndex + itemsPerPage)
+  }, [sortedQuestionsForTable, currentPage, itemsPerPage])
 
   const totalPages = Math.ceil(filteredAndSortedQuestions.length / itemsPerPage)
 
@@ -558,6 +680,40 @@ export function RoleQuestionsManager() {
       optional: total - required
     }
   }, [questions, roles])
+
+  // Helper function to build validation_rules from individual validation fields
+  const buildValidationRules = (): Record<string, any> | null => {
+    const rules: Record<string, any> = {}
+    
+    // Add validation fields if they are set
+    if (formData.min_value !== null && formData.min_value !== undefined) {
+      rules.min_value = formData.min_value
+    }
+    if (formData.max_value !== null && formData.max_value !== undefined) {
+      rules.max_value = formData.max_value
+    }
+    if (formData.min_length !== null && formData.min_length !== undefined) {
+      rules.min_length = formData.min_length
+    }
+    if (formData.max_length !== null && formData.max_length !== undefined) {
+      rules.max_length = formData.max_length
+    }
+    if (formData.pattern) {
+      rules.pattern = formData.pattern
+    }
+    if (formData.step !== null && formData.step !== undefined) {
+      rules.step = formData.step
+    }
+    if (formData.min_date) {
+      rules.min_date = formData.min_date
+    }
+    if (formData.max_date) {
+      rules.max_date = formData.max_date
+    }
+    
+    // Return null if no validation rules are set, otherwise return the rules object
+    return Object.keys(rules).length > 0 ? rules : null
+  }
 
   const validateForm = (): boolean => {
     const errors: Record<string, string> = {}
@@ -610,7 +766,15 @@ export function RoleQuestionsManager() {
   }
 
   const handleCreate = async () => {
-    if (!validateForm()) return
+    console.log("🔵 handleCreate called", { formData, editingQuestion })
+    
+    const isValid = validateForm()
+    console.log("🔵 Validation result:", isValid, { formErrors })
+    
+    if (!isValid) {
+      console.warn("❌ Validation failed, not sending API request", formErrors)
+      return
+    }
 
     if (!currentUser) {
       toast({
@@ -621,68 +785,361 @@ export function RoleQuestionsManager() {
       return
     }
 
+    // Verify user has permission before attempting create
+    if (!currentProfile) {
+      toast({
+        title: "Error",
+        description: "Unable to verify your profile. Please try refreshing the page.",
+        variant: "destructive",
+      })
+      return
+    }
+    
+    // Check if profile is active
+    if (currentProfile.is_active === false) {
+      toast({
+        title: "Error",
+        description: "Your profile is inactive. Please contact an administrator to activate your account.",
+        variant: "destructive",
+      })
+      return
+    }
+    
+    // Verify user has admin or super admin role
+    if (!isAdmin && !isSuperAdmin) {
+      toast({
+        title: "Error",
+        description: "You do not have permission to create questions. Only admins and super admins can create questions.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsCreating(true)
     try {
-
       // Check if question_key already exists for this role
-      const { data: existingQuestions, error: checkError } = await supabase
-        .from("role_questions")
-        .select("id")
-        .eq("role_id", formData.role_id)
-        .eq("question_key", formData.question_key!.trim())
+      // Wrap in try-catch to handle timeout errors gracefully
+      let existingQuestions: any[] = []
+      try {
+        const { data, error: checkError } = await supabase
+          .from("role_questions")
+          .select("id")
+          .eq("role_id", formData.role_id)
+          .eq("question_key", formData.question_key!.trim())
+          .limit(1)
 
-      if (checkError) throw checkError
+        if (checkError) {
+          // Check if it's a timeout error
+          if (checkError.message?.includes('fetch failed') || 
+              checkError.message?.includes('timeout') ||
+              checkError.message?.includes('AbortError')) {
+            console.warn('Timeout checking for existing questions, proceeding with caution...')
+            // Continue without the check - database constraints will catch duplicates
+          } else {
+            throw checkError
+          }
+        }
+        existingQuestions = data || []
+      } catch (err: any) {
+        // Handle network/timeout errors gracefully
+        if (err.message?.includes('fetch failed') || 
+            err.message?.includes('timeout') ||
+            err.name === 'AbortError') {
+          console.warn('Network timeout while checking for duplicates, proceeding...')
+          // Continue - database unique constraint will catch duplicates
+        } else {
+          throw err
+        }
+      }
 
       if (existingQuestions && existingQuestions.length > 0) {
         throw new Error("A question with this key already exists for this role. Please use a different question key.")
       }
 
       // Get the next display_order for this role
-      const { data: lastQuestion, error: orderError } = await supabase
-        .from("role_questions")
-        .select("display_order")
-        .eq("role_id", formData.role_id)
-        .order("display_order", { ascending: false })
-        .limit(1)
+      let nextDisplayOrder = 0
+      try {
+        const { data: lastQuestion, error: orderError } = await supabase
+          .from("role_questions")
+          .select("display_order")
+          .eq("role_id", formData.role_id)
+          .order("display_order", { ascending: false })
+          .limit(1)
 
-      if (orderError) throw orderError
+        if (orderError) {
+          // Check if it's a timeout error
+          if (orderError.message?.includes('fetch failed') || 
+              orderError.message?.includes('timeout') ||
+              orderError.message?.includes('AbortError')) {
+            console.warn('Timeout getting display order, using default value 0')
+            // Use default display_order of 0
+          } else {
+            throw orderError
+          }
+        } else {
+          nextDisplayOrder = lastQuestion && lastQuestion.length > 0 
+            ? lastQuestion[0].display_order + 1 
+            : 0
+        }
+      } catch (err: any) {
+        // Handle network/timeout errors gracefully
+        if (err.message?.includes('fetch failed') || 
+            err.message?.includes('timeout') ||
+            err.name === 'AbortError') {
+          console.warn('Network timeout getting display order, using default 0')
+          nextDisplayOrder = 0
+        } else {
+          throw err
+        }
+      }
 
-      const nextDisplayOrder = lastQuestion && lastQuestion.length > 0 
-        ? lastQuestion[0].display_order + 1 
-        : 0
+      // Build validation_rules from individual validation fields
+      const validationRules = buildValidationRules()
 
-      const { error } = await supabase.from("role_questions").insert({
+      // Build insert data - only include columns that exist in the schema
+      // Valid columns: role_id, question_key, question_label, question_type, question_description,
+      // placeholder, options, is_required, display_order, validation_rules, is_active,
+      // created_by, updated_by, metadata
+      // Note: Advanced fields like conditional_logic, default_value, help_text, etc. are not in schema
+      // and could be stored in validation_rules or metadata JSONB fields if needed
+      const insertData: any = {
         role_id: formData.role_id!,
         question_key: formData.question_key!.trim(),
         question_label: formData.question_label!.trim(),
+        question_title: formData.question_title?.trim() || formData.question_label!.trim(),
         question_type: formData.question_type!,
         question_description: formData.question_description?.trim() || null,
         placeholder: formData.placeholder?.trim() || null,
         options: formData.options && formData.options.length > 0 ? formData.options : null,
         is_required: formData.is_required || false,
         display_order: nextDisplayOrder,
-        validation_rules: formData.validation_rules,
+        validation_rules: validationRules,
         is_active: formData.is_active !== false,
-        // Advanced features - TODO: Uncomment after migration 20251118020000_enhance_questions_advanced_features.sql is applied
-        // help_text: formData.help_text?.trim() || null,
-        // default_value: formData.default_value?.trim() || null,
-        // min_value: formData.min_value || null,
-        // max_value: formData.max_value || null,
-        // min_length: formData.min_length || null,
-        // max_length: formData.max_length || null,
-        // pattern: formData.pattern?.trim() || null,
-        // step: formData.step || null,
-        // min_date: formData.min_date || null,
-        // max_date: formData.max_date || null,
-        // conditional_logic: formData.conditional_logic || null,
         created_by: currentUser.id,
         updated_by: currentUser.id,
+      };
+
+      // Log the insert data for debugging
+      console.log("Creating question with data:", {
+        insertData,
+        currentUser: currentUser?.id,
+        currentProfile: currentProfile,
+        isAdmin,
+        isSuperAdmin,
+        profileRoleId: currentProfile?.role_id,
+        profileIsActive: currentProfile?.is_active,
+        expectedAdminRoleId: ADMIN_ROLE_ID,
+        expectedSuperAdminRoleId: SUPER_ADMIN_ROLE_ID,
       })
 
-      if (error) {
-        if (error.code === "23505") {
-          throw new Error("This role already has a question. Each role can only have one question.")
+      let { error } = await supabase.from("role_questions").insert(insertData);
+
+      // Handle PGRST204 (missing column) errors by retrying without the problematic column
+      if (error && (error as any)?.code === "PGRST204") {
+        const errorMessage = (error as any)?.message || "";
+        // Extract column name from error message: "Could not find the 'column_name' column..."
+        const columnMatch = errorMessage.match(/['"]([^'"]+)['"]/);
+        const missingColumn = columnMatch ? columnMatch[1] : null;
+        
+        if (missingColumn && insertData.hasOwnProperty(missingColumn)) {
+          console.warn(`Column '${missingColumn}' not found in schema. Retrying insert without it.`);
+          
+          // Create a new insert object without the missing column
+          const retryInsertData = { ...insertData };
+          delete retryInsertData[missingColumn];
+          
+          // Retry the insert without the problematic column
+          const retryResult = await supabase.from("role_questions").insert(retryInsertData);
+          
+          if (retryResult.error) {
+            // If retry also fails, use the original error
+            error = retryResult.error;
+          } else {
+            // Success on retry
+            error = null;
+            console.log(`Successfully created question after removing column '${missingColumn}'`);
+          }
         }
-        throw error
+      }
+
+      if (error) {
+        const errorObj = error as any;
+        
+        // Extract all possible error properties using multiple methods
+        let extractedError: Record<string, any> = {};
+        
+        // Method 1: Direct property access
+        extractedError.code = errorObj?.code || errorObj?.error_code || errorObj?.statusCode;
+        extractedError.message = errorObj?.message || errorObj?.error_description || errorObj?.error_msg;
+        extractedError.details = errorObj?.details || errorObj?.error_details;
+        extractedError.hint = errorObj?.hint || errorObj?.error_hint;
+        extractedError.name = errorObj?.name;
+        
+        // Method 2: Try to access PostgREST error structure
+        if (errorObj?.error) {
+          extractedError.postgrest_error = errorObj.error;
+          extractedError.code = extractedError.code || errorObj.error.code;
+          extractedError.message = extractedError.message || errorObj.error.message;
+          extractedError.details = extractedError.details || errorObj.error.details;
+          extractedError.hint = extractedError.hint || errorObj.error.hint;
+        }
+        
+        // Method 3: Get all own property names
+        try {
+          const ownProps = Object.getOwnPropertyNames(errorObj);
+          const ownPropValues: Record<string, any> = {};
+          ownProps.forEach(prop => {
+            try {
+              ownPropValues[prop] = errorObj[prop];
+            } catch (e) {
+              ownPropValues[prop] = '[cannot access]';
+            }
+          });
+          if (Object.keys(ownPropValues).length > 0) {
+            extractedError.ownProperties = ownPropValues;
+          }
+        } catch (e) {
+          // Ignore errors in property extraction
+        }
+        
+        // Method 4: Try JSON stringification with replacer
+        try {
+          extractedError.jsonString = JSON.stringify(errorObj, (key, value) => {
+            // Skip circular references
+            if (key === 'parent' || key === 'original') return '[Circular]';
+            return value;
+          }, 2);
+        } catch (e: any) {
+          extractedError.jsonStringError = e.message;
+        }
+        
+        // Convert error to string as fallback
+        extractedError.stringRepresentation = String(error);
+        extractedError.toString = error.toString?.();
+        
+        const errorInfo = {
+          ...extractedError,
+          // Context information
+          context: {
+            formData,
+            currentUser: currentUser?.id,
+            userRole: currentProfile?.role_id,
+            isAdmin,
+            isSuperAdmin,
+            timestamp: new Date().toISOString()
+          }
+        };
+        
+        console.error("Supabase create error:", errorInfo);
+        console.error("Raw error object:", error);
+        console.error("Error type:", typeof error);
+        console.error("Error constructor:", error?.constructor?.name);
+        
+        // Check for specific error codes
+        const errorCode = extractedError.code || errorObj?.code;
+        if (errorCode === "23505") {
+          throw new Error("A question with this key already exists for this role. Please use a different question key.")
+        }
+        
+        // Check for missing column errors (should have been handled above, but just in case)
+        if (errorCode === "PGRST204") {
+          const errorMessage = extractedError.message || "";
+          const columnMatch = errorMessage.match(/['"]([^'"]+)['"]/);
+          const missingColumn = columnMatch ? columnMatch[1] : "unknown column";
+          throw new Error(`Database schema mismatch: The column '${missingColumn}' doesn't exist in the role_questions table. Please run database migrations to add this column.`)
+        }
+        
+        // Check for RLS/permission errors (42501 is PostgreSQL permission denied)
+        if (errorCode === "42501" || 
+            errorCode === "PGRST301" || 
+            errorCode === "PGRST302" ||
+            extractedError.message?.toLowerCase().includes("permission") || 
+            extractedError.message?.toLowerCase().includes("policy") ||
+            extractedError.message?.toLowerCase().includes("row-level security")) {
+          
+          // Try to verify the user's profile via RLS to diagnose the issue
+          // IMPORTANT: Use select('*') first since specific column select might be blocked by RLS
+          // Then extract the needed fields from the result
+          const { data: profileCheckFull, error: profileCheckError } = await supabase
+            .from("user_profiles")
+            .select("*")
+            .eq("user_id", currentUser.id)
+            .maybeSingle()
+          
+          const profileCheck = profileCheckFull ? {
+            role_id: profileCheckFull.role_id,
+            is_active: profileCheckFull.is_active,
+            user_id: profileCheckFull.user_id
+          } : null
+          
+          // Also try to test if the RLS policy check would pass by simulating it
+          // This helps us understand if the issue is with the RLS policy itself
+          console.log("🔍 Testing RLS policy check simulation:", {
+            authUid: currentUser.id,
+            profileFromContext: {
+              user_id: currentProfile?.user_id || currentUser.id,
+              role_id: currentProfile?.role_id,
+              is_active: currentProfile?.is_active,
+            },
+            profileFromRLS: profileCheck,
+            profileCheckError: profileCheckError,
+            expectedCheck: `EXISTS (SELECT 1 FROM user_profiles WHERE user_id = auth.uid() AND (role_id = '${ADMIN_ROLE_ID}' OR role_id = '${SUPER_ADMIN_ROLE_ID}') AND is_active = true)`,
+            wouldPass: profileCheck && 
+              (profileCheck.role_id === ADMIN_ROLE_ID || profileCheck.role_id === SUPER_ADMIN_ROLE_ID) &&
+              profileCheck.is_active === true
+          })
+          
+          console.error("RLS INSERT blocked - diagnostic info:", {
+            errorCode,
+            errorMessage: extractedError.message,
+            currentUser: currentUser?.id,
+            currentProfile: currentProfile,
+            profileFromContext: {
+              role_id: currentProfile?.role_id,
+              is_active: currentProfile?.is_active,
+            },
+            profileFromRLS: profileCheck,
+            profileCheckError: profileCheckError,
+            isAdmin,
+            isSuperAdmin,
+            expectedAdminRoleId: ADMIN_ROLE_ID,
+            expectedSuperAdminRoleId: SUPER_ADMIN_ROLE_ID,
+            profileMatchesAdmin: currentProfile?.role_id === ADMIN_ROLE_ID,
+            profileMatchesSuperAdmin: currentProfile?.role_id === SUPER_ADMIN_ROLE_ID,
+            rlsPolicyCheck: {
+              // What the RLS policy is checking
+              checkUserProfile: "EXISTS (SELECT 1 FROM user_profiles WHERE user_id = auth.uid() AND (role_id = admin OR role_id = super_admin) AND is_active = true)",
+              userCanSeeOwnProfile: profileCheck ? "Yes" : "No (RLS on user_profiles may be blocking)",
+            }
+          })
+          
+          // Provide helpful error message with instructions to fix RLS
+          let rlsErrorMsg = "Permission denied: You don't have permission to create questions. "
+          
+          if (!currentProfile) {
+            rlsErrorMsg += "Your profile was not found in context. Please refresh the page or contact an administrator."
+          } else if (profileCheckError) {
+            rlsErrorMsg += `Unable to verify your profile via RLS: ${profileCheckError.message}. This suggests the RLS policy on user_profiles table may be blocking the check.`
+          } else if (!profileCheck) {
+            rlsErrorMsg += "Your profile was not found in the database. Please contact an administrator."
+          } else if (profileCheck.is_active === false) {
+            rlsErrorMsg += "Your profile is inactive (is_active = false). Please contact an administrator to activate your account."
+          } else if (profileCheck.role_id !== ADMIN_ROLE_ID && profileCheck.role_id !== SUPER_ADMIN_ROLE_ID) {
+            rlsErrorMsg += `Your profile has role ID ${profileCheck.role_id}, but you need admin (${ADMIN_ROLE_ID}) or super admin (${SUPER_ADMIN_ROLE_ID}) role to create questions.`
+          } else {
+            rlsErrorMsg += `The RLS policy check is failing even though your profile looks correct (role_id: ${profileCheck.role_id}, is_active: ${profileCheck.is_active}). This might be a timing issue or the RLS policy on user_profiles is blocking the check. Please verify the user_profiles RLS policies allow reading your own profile.`
+          }
+          
+          throw new Error(rlsErrorMsg)
+        }
+        
+        // Extract error message
+        const errorMessage = extractedError.message || 
+                            extractedError.details || 
+                            extractedError.hint ||
+                            (typeof error === 'string' ? error : errorCode ? `Database error (${errorCode})` : "Unknown error");
+        
+        throw new Error(errorMessage || "Failed to create question. Please check console for details.")
       }
 
       toast({
@@ -693,13 +1150,64 @@ export function RoleQuestionsManager() {
       setShowCreateDialog(false)
       resetForm()
       loadData(true) // Force refresh after create
+      setIsCreating(false)
     } catch (error: any) {
-      console.error("Error creating question:", error)
+      const errorObj = error as any;
+      
+      // Check if it's a timeout/network error
+      const isTimeoutError = errorObj?.message?.includes('fetch failed') || 
+                             errorObj?.message?.includes('timeout') ||
+                             errorObj?.message?.includes('AbortError') ||
+                             errorObj?.name === 'AbortError'
+      
+      const errorDetails = {
+        message: errorObj?.message || errorObj?.error_description || errorObj?.errorMessage,
+        code: errorObj?.code || errorObj?.error_code || errorObj?.statusCode,
+        details: errorObj?.details,
+        hint: errorObj?.hint,
+        isTimeout: isTimeoutError,
+        stringified: (() => {
+          try {
+            return JSON.stringify(error, Object.getOwnPropertyNames(error), 2);
+          } catch (e) {
+            try {
+              return JSON.stringify({
+                message: errorObj?.message,
+                code: errorObj?.code,
+                details: errorObj?.details,
+                hint: errorObj?.hint,
+              }, null, 2);
+            } catch {
+              return String(error);
+            }
+          }
+        })(),
+      };
+      
+      console.error("Error creating question:", errorDetails);
+      console.error("Raw error object:", error);
+      
+      let errorMessage: string;
+      let errorTitle = "Error";
+      
+      if (isTimeoutError) {
+        errorTitle = "Network Timeout";
+        errorMessage = "The request timed out while connecting to the database. This could be due to slow network connectivity or database performance issues. Please try again in a moment. If the problem persists, contact your system administrator.";
+      } else {
+        errorMessage = errorObj?.message || 
+                      errorObj?.details || 
+                      errorObj?.hint ||
+                      errorObj?.error_description ||
+                      "Failed to create question";
+      }
+      
       toast({
-        title: "Error",
-        description: error.message || "Failed to create question",
+        title: errorTitle,
+        description: errorMessage,
         variant: "destructive",
       })
+    } finally {
+      setIsCreating(false)
     }
   }
 
@@ -715,6 +1223,38 @@ export function RoleQuestionsManager() {
       return
     }
 
+    // Use profile from context instead of querying again
+    // Verify user has permission to update
+    if (!currentProfile) {
+      toast({
+        title: "Error",
+        description: "Unable to verify your profile. Please try refreshing the page.",
+        variant: "destructive",
+      })
+      return
+    }
+    
+    // Check if profile is active (if the field exists)
+    if (currentProfile.is_active === false) {
+      toast({
+        title: "Error",
+        description: "Your profile is inactive. Please contact an administrator to activate your account.",
+        variant: "destructive",
+      })
+      return
+    }
+    
+    // Verify user has admin or super admin role
+    if (!isAdmin && !isSuperAdmin) {
+      toast({
+        title: "Error",
+        description: "You do not have permission to update questions. Only admins and super admins can update questions.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsUpdating(true)
     try {
       let displayOrder = formData.display_order || editingQuestion.display_order || 0
       let roleIdToUpdate: string | undefined = undefined
@@ -751,29 +1291,27 @@ export function RoleQuestionsManager() {
         roleIdToUpdate = formData.role_id
       }
 
+      // Build validation_rules from individual validation fields
+      const validationRules = buildValidationRules()
+
+      // Build update data - only include columns that exist in the schema
+      // Valid columns: role_id, question_key, question_label, question_type, question_description,
+      // placeholder, options, is_required, display_order, validation_rules, is_active,
+      // created_by, updated_by, metadata
+      // Note: Advanced fields like conditional_logic, default_value, help_text, etc. are not in schema
+      // and could be stored in validation_rules or metadata JSONB fields if needed
       const updateData: any = {
           question_key: formData.question_key!.trim(),
           question_label: formData.question_label!.trim(),
+          question_title: formData.question_title?.trim() || formData.question_label!.trim(),
           question_type: formData.question_type!,
           question_description: formData.question_description?.trim() || null,
           placeholder: formData.placeholder?.trim() || null,
           options: formData.options && formData.options.length > 0 ? formData.options : null,
           is_required: formData.is_required || false,
         display_order: displayOrder,
-          validation_rules: formData.validation_rules,
+          validation_rules: validationRules,
           is_active: formData.is_active !== false,
-        // Advanced features - TODO: Uncomment after migration 20251118020000_enhance_questions_advanced_features.sql is applied
-        // help_text: formData.help_text?.trim() || null,
-        // default_value: formData.default_value?.trim() || null,
-        // min_value: formData.min_value || null,
-        // max_value: formData.max_value || null,
-        // min_length: formData.min_length || null,
-        // max_length: formData.max_length || null,
-        // pattern: formData.pattern?.trim() || null,
-        // step: formData.step || null,
-        // min_date: formData.min_date || null,
-        // max_date: formData.max_date || null,
-        // conditional_logic: formData.conditional_logic || null,
         updated_by: currentUser.id,
       }
 
@@ -782,15 +1320,201 @@ export function RoleQuestionsManager() {
         updateData.role_id = roleIdToUpdate
       }
 
-      const { error } = await supabase
+      // Clean up updateData - remove undefined values and ensure proper types
+      const cleanedUpdateData: any = {}
+      Object.keys(updateData).forEach(key => {
+        const value = updateData[key]
+        // Only include defined values (null is allowed, undefined is not)
+        if (value !== undefined) {
+          // Convert empty strings to null for optional fields
+          if (typeof value === 'string' && value.trim() === '' && 
+              (key === 'question_description' || key === 'placeholder' || key === 'help_text' || 
+               key === 'default_value' || key === 'pattern')) {
+            cleanedUpdateData[key] = null
+          } else {
+            cleanedUpdateData[key] = value
+          }
+        }
+      })
+
+      // Log the update data for debugging
+      console.log("Updating question with data:", {
+        questionId: editingQuestion.id,
+        originalUpdateData: updateData,
+        cleanedUpdateData,
+        formData,
+        currentUser: currentUser?.id,
+        currentProfile: currentProfile,
+        isAdmin,
+        isSuperAdmin,
+        editingQuestion,
+        // Verify what RLS will see
+        expectedRoleIds: {
+          admin: ADMIN_ROLE_ID,
+          superAdmin: SUPER_ADMIN_ROLE_ID
+        }
+      })
+
+      let { data, error } = await supabase
         .from("role_questions")
-        .update(updateData)
+        .update(cleanedUpdateData)
         .eq("id", editingQuestion.id)
+        .select()
+
+      // Handle PGRST204 (missing column) errors by retrying without the problematic column
+      if (error && (error as any)?.code === "PGRST204") {
+        const errorMessage = (error as any)?.message || "";
+        // Extract column name from error message: "Could not find the 'column_name' column..."
+        const columnMatch = errorMessage.match(/['"]([^'"]+)['"]/);
+        const missingColumn = columnMatch ? columnMatch[1] : null;
+        
+        if (missingColumn && cleanedUpdateData.hasOwnProperty(missingColumn)) {
+          console.warn(`Column '${missingColumn}' not found in schema. Retrying update without it.`);
+          
+          // Create a new update object without the missing column
+          const retryUpdateData = { ...cleanedUpdateData };
+          delete retryUpdateData[missingColumn];
+          
+          // Retry the update without the problematic column
+          const retryResult = await supabase
+            .from("role_questions")
+            .update(retryUpdateData)
+            .eq("id", editingQuestion.id)
+            .select();
+          
+          if (retryResult.error) {
+            // If retry also fails, use the original error
+            error = retryResult.error;
+            data = retryResult.data;
+          } else {
+            // Success on retry
+            error = null;
+            data = retryResult.data;
+            console.log(`Successfully updated question after removing column '${missingColumn}'`);
+          }
+        }
+      }
 
       if (error) {
-        if (error.code === "23505") {
+        // Properly extract error information (handles non-enumerable properties)
+        const errorObj = error as any;
+        
+        // Extract all possible error properties using multiple methods
+        let extractedError: Record<string, any> = {};
+        
+        // Method 1: Direct property access
+        extractedError.code = errorObj?.code || errorObj?.error_code || errorObj?.statusCode;
+        extractedError.message = errorObj?.message || errorObj?.error_description || errorObj?.error_msg;
+        extractedError.details = errorObj?.details || errorObj?.error_details;
+        extractedError.hint = errorObj?.hint || errorObj?.error_hint;
+        extractedError.name = errorObj?.name;
+        
+        // Method 2: Try to access PostgREST error structure
+        if (errorObj?.error) {
+          extractedError.postgrest_error = errorObj.error;
+          extractedError.code = extractedError.code || errorObj.error.code;
+          extractedError.message = extractedError.message || errorObj.error.message;
+          extractedError.details = extractedError.details || errorObj.error.details;
+          extractedError.hint = extractedError.hint || errorObj.error.hint;
+        }
+        
+        // Method 3: Get all own property names
+        try {
+          const ownProps = Object.getOwnPropertyNames(errorObj);
+          const ownPropValues: Record<string, any> = {};
+          ownProps.forEach(prop => {
+            try {
+              ownPropValues[prop] = errorObj[prop];
+            } catch (e) {
+              ownPropValues[prop] = '[cannot access]';
+            }
+          });
+          if (Object.keys(ownPropValues).length > 0) {
+            extractedError.ownProperties = ownPropValues;
+          }
+        } catch (e) {
+          // Ignore errors in property extraction
+        }
+        
+        // Method 4: Try JSON stringification with replacer
+        try {
+          extractedError.jsonString = JSON.stringify(errorObj, (key, value) => {
+            // Skip circular references
+            if (key === 'parent' || key === 'original') return '[Circular]';
+            return value;
+          }, 2);
+        } catch (e: any) {
+          extractedError.jsonStringError = e.message;
+        }
+        
+        // Convert error to string as fallback
+        extractedError.stringRepresentation = String(error);
+        extractedError.toString = error.toString?.();
+        
+        const errorInfo = {
+          ...extractedError,
+          // Context information
+          context: {
+            cleanedUpdateData,
+            originalUpdateData: updateData,
+            questionId: editingQuestion.id,
+            currentUser: currentUser?.id,
+            userRole: currentProfile?.role_id,
+            isAdmin,
+            isSuperAdmin,
+            timestamp: new Date().toISOString()
+          }
+        }
+        
+        // Log comprehensive error information
+        console.error("Supabase update error:", errorInfo)
+        
+        // Also log the raw error separately for inspection
+        console.error("Raw error object:", error)
+        console.error("Error type:", typeof error)
+        console.error("Error constructor:", error?.constructor?.name)
+        
+        // Check for specific error codes
+        const errorCode = extractedError.code || errorObj?.code;
+        if (errorCode === "23505") {
           throw new Error("A question with this key already exists for this role")
         }
+        
+        // Check for missing column errors (should have been handled above, but just in case)
+        if (errorCode === "PGRST204") {
+          const errorMessage = extractedError.message || "";
+          const columnMatch = errorMessage.match(/['"]([^'"]+)['"]/);
+          const missingColumn = columnMatch ? columnMatch[1] : "unknown column";
+          throw new Error(`Database schema mismatch: The column '${missingColumn}' doesn't exist in the role_questions table. Please run database migrations to add this column.`)
+        }
+        
+        // Check for RLS/permission errors (42501 is PostgreSQL permission denied)
+        if (errorCode === "42501" || 
+            errorCode === "PGRST301" || 
+            errorCode === "PGRST302" ||
+            extractedError.message?.toLowerCase().includes("permission") || 
+            extractedError.message?.toLowerCase().includes("policy") ||
+            extractedError.message?.toLowerCase().includes("row-level security")) {
+          throw new Error("Permission denied: You don't have permission to update this question. Please check your role permissions.")
+        }
+        
+        // Extract error message from various possible properties
+        const errorMessage = extractedError.message || 
+                            extractedError.details || 
+                            extractedError.hint ||
+                            (typeof error === 'string' ? error : errorCode ? `Database error (${errorCode})` : "Unknown error")
+        
+        throw new Error(errorMessage || "Failed to update question. Please check console for details.")
+      }
+
+      // Check if update succeeded but SELECT returned empty (RLS on SELECT may block it)
+      // When UPDATE succeeds but SELECT is blocked by RLS, we get: error = null, data = []
+      // This is expected behavior - the UPDATE worked, we just can't see the result immediately via SELECT
+      if (!error && (!data || data.length === 0)) {
+        console.log("✅ Update succeeded (200 OK) but SELECT returned empty - RLS blocked SELECT. This is expected. Reloading data to show updated question...")
+        // Treat as success - we'll reload the data below to get the updated question
+      } else if (error) {
+        // Error was already handled above, but this shouldn't execute
         throw error
       }
 
@@ -799,16 +1523,57 @@ export function RoleQuestionsManager() {
         description: "Question updated successfully",
       })
 
+      // After a successful update, close the dialog and clear edit state
+      setShowCreateDialog(false)
       setEditingQuestion(null)
       resetForm()
       loadData(true) // Force refresh after update
     } catch (error: any) {
-      console.error("Error updating question:", error)
+      // Extract comprehensive error information
+      const errorObj = error as any;
+      const errorDetails = {
+        // Try all possible error properties
+        message: errorObj?.message || errorObj?.error_description || errorObj?.errorMessage,
+        code: errorObj?.code || errorObj?.error_code || errorObj?.statusCode,
+        details: errorObj?.details,
+        hint: errorObj?.hint,
+        name: errorObj?.name,
+        // Safe serialization
+        stringified: (() => {
+          try {
+            return JSON.stringify(error, Object.getOwnPropertyNames(error), 2);
+          } catch (e) {
+            try {
+              return JSON.stringify({
+                message: errorObj?.message,
+                code: errorObj?.code,
+                details: errorObj?.details,
+                hint: errorObj?.hint,
+              }, null, 2);
+            } catch {
+              return String(error);
+            }
+          }
+        })(),
+      };
+      
+      console.error("Error updating question:", errorDetails);
+      console.error("Raw error object:", error);
+      
+      // Extract error message from various possible sources
+      const errorMessage = errorObj?.message || 
+                          errorObj?.details || 
+                          errorObj?.hint ||
+                          errorObj?.error_description ||
+                          (typeof error === 'string' ? error : "Failed to update question")
+      
       toast({
         title: "Error",
-        description: error.message || "Failed to update question",
+        description: errorMessage,
         variant: "destructive",
       })
+    } finally {
+      setIsUpdating(false)
     }
   }
 
@@ -847,6 +1612,7 @@ export function RoleQuestionsManager() {
       role_id: "",
       question_key: "",
       question_label: "",
+      question_title: "",
       question_type: "text",
       question_description: "",
       placeholder: "",
@@ -870,6 +1636,9 @@ export function RoleQuestionsManager() {
     })
     setFormErrors({})
     setOptionInput("")
+    setShowPreview(false)
+    setPreviewAnswers({})
+    setShowTemplates(false)
   }
 
   const applyTemplate = (template: QuestionTemplate) => {
@@ -877,6 +1646,7 @@ export function RoleQuestionsManager() {
       ...formData,
       question_type: template.question_type,
       question_label: template.question_label,
+      question_title: template.question_label,
       question_description: template.question_description || "",
       placeholder: template.placeholder || "",
       options: template.options || null,
@@ -898,38 +1668,38 @@ export function RoleQuestionsManager() {
     })
   }
 
-  const openEditDialog = async (question: RoleQuestion) => {
+  const openEditDialog = async (question: RoleQuestionWithRole) => {
     // Ensure roles are loaded before opening dialog
     if (roles.length === 0) {
       console.log("⚠️ No roles loaded, fetching roles before opening edit dialog...")
       try {
-        const rolesResponse = await fetch('/api/admin/roles')
-        if (rolesResponse.ok) {
-          const rolesResult = await rolesResponse.json()
-          setRoles(rolesResult.data || [])
-          console.log("✅ Loaded roles for edit dialog:", rolesResult.data?.length || 0)
+        const { data: directRoleData, error: roleError } = await supabase
+          .from("roles")
+          .select("*")
+          .order("name", { ascending: true })
+          .limit(1000)
+        if (roleError) {
+          console.error("❌ Error loading roles for edit dialog:", roleError)
+          setRoles([])
         } else {
-          // Fallback to direct query
-          const { data: directRoleData } = await supabase
-            .from("roles")
-            .select("*")
-            .order("name", { ascending: true })
-            .limit(1000)
-          if (directRoleData) {
-            setRoles(directRoleData)
-            console.log("✅ Loaded roles via direct query for edit dialog:", directRoleData.length)
-          }
+          setRoles(directRoleData || [])
+          console.log("✅ Loaded roles via direct query for edit dialog:", (directRoleData || []).length)
         }
       } catch (error) {
         console.error("❌ Error loading roles for edit dialog:", error)
+        setRoles([])
       }
     }
+
+    // Extract validation rules from the validation_rules JSONB field
+    const validationRules = question.validation_rules || {}
 
     setEditingQuestion(question)
     setFormData({
       role_id: question.role_id,
       question_key: question.question_key,
       question_label: question.question_label,
+      question_title: (question as any).question_title || "",
       question_type: question.question_type,
       question_description: question.question_description || "",
       placeholder: question.placeholder || "",
@@ -942,14 +1712,15 @@ export function RoleQuestionsManager() {
       conditional_logic: question.conditional_logic || null,
       default_value: question.default_value || null,
       help_text: question.help_text || null,
-      min_value: question.min_value || null,
-      max_value: question.max_value || null,
-      min_length: question.min_length || null,
-      max_length: question.max_length || null,
-      pattern: question.pattern || null,
-      step: question.step || null,
-      min_date: question.min_date || null,
-      max_date: question.max_date || null,
+      // Extract validation fields from validation_rules JSONB
+      min_value: validationRules.min_value ?? null,
+      max_value: validationRules.max_value ?? null,
+      min_length: validationRules.min_length ?? null,
+      max_length: validationRules.max_length ?? null,
+      pattern: validationRules.pattern || null,
+      step: validationRules.step ?? null,
+      min_date: validationRules.min_date || null,
+      max_date: validationRules.max_date || null,
     })
     setOptionInput(question.options?.join(", ") || "")
     setShowCreateDialog(true)
@@ -1085,6 +1856,7 @@ export function RoleQuestionsManager() {
       role: q.role?.name || "Unknown",
       question_key: q.question_key,
       question_label: q.question_label,
+      question_title: (q as any).question_title || "",
       question_type: q.question_type,
       is_required: q.is_required,
       is_active: q.is_active,
@@ -1122,6 +1894,129 @@ export function RoleQuestionsManager() {
     })
   }
 
+  const handleReorderQuestion = async (
+    roleId: string,
+    questionId: string,
+    direction: "up" | "down",
+  ) => {
+    if (!isSuperAdmin) {
+      toast({
+        title: "Insufficient Permissions",
+        description: "Only super admins can manage question ordering.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    try {
+      const roleQuestions = questions
+        .filter(q => q.role_id === roleId)
+        .sort((a, b) => (a.display_order || 0) - (b.display_order || 0))
+
+      const currentIndex = roleQuestions.findIndex(q => q.id === questionId)
+      if (currentIndex === -1) return
+
+      const targetIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1
+      if (targetIndex < 0 || targetIndex >= roleQuestions.length) return
+
+      const reordered = [...roleQuestions]
+      const [moved] = reordered.splice(currentIndex, 1)
+      reordered.splice(targetIndex, 0, moved)
+
+      const updatedForRole = reordered.map((q, index) => ({
+        ...q,
+        display_order: index,
+      }))
+
+      const updatedIds = new Set(updatedForRole.map(q => q.id))
+
+      // Optimistic local update
+      setQuestions(prev =>
+        prev.map(q => {
+          if (!updatedIds.has(q.id)) return q
+          const updated = updatedForRole.find(u => u.id === q.id)
+          return updated || q
+        }),
+      )
+
+      // Persist to Supabase
+      await Promise.all(
+        updatedForRole.map((q) =>
+          supabase
+            .from("role_questions")
+            .update({ display_order: q.display_order })
+            .eq("id", q.id),
+        ),
+      )
+
+      toast({
+        title: "Order Updated",
+        description: "Question order for this role has been updated.",
+      })
+    } catch (error: any) {
+      console.error("❌ Error updating question order:", error)
+      toast({
+        title: "Error Updating Order",
+        description: error?.message || "Failed to update question ordering.",
+        variant: "destructive",
+      })
+      // Reload from source of truth
+      loadData(true).catch((e) => console.error("Error reloading data after order failure:", e))
+    }
+  }
+
+  const handleDragReorderQuestion = async (
+    roleId: string,
+    sourceQuestionId: string,
+    targetQuestionId: string,
+  ) => {
+    if (!isSuperAdmin) return
+
+    try {
+      const roleQuestions = questions
+        .filter(q => q.role_id === roleId)
+        .sort((a, b) => (a.display_order || 0) - (b.display_order || 0))
+
+      const fromIndex = roleQuestions.findIndex(q => q.id === sourceQuestionId)
+      const toIndex = roleQuestions.findIndex(q => q.id === targetQuestionId)
+
+      if (fromIndex === -1 || toIndex === -1 || fromIndex === toIndex) return
+
+      const reordered = [...roleQuestions]
+      const [moved] = reordered.splice(fromIndex, 1)
+      reordered.splice(toIndex, 0, moved)
+
+      const updatedForRole = reordered.map((q, index) => ({
+        ...q,
+        display_order: index,
+      }))
+
+      const updatedIds = new Set(updatedForRole.map(q => q.id))
+
+      setQuestions(prev =>
+        prev.map(q => {
+          if (!updatedIds.has(q.id)) return q
+          const updated = updatedForRole.find(u => u.id === q.id)
+          return updated || q
+        }),
+      )
+
+      await Promise.all(
+        updatedForRole.map((q) =>
+          supabase
+            .from("role_questions")
+            .update({ display_order: q.display_order })
+            .eq("id", q.id),
+        ),
+      )
+    } catch (error) {
+      console.error("❌ Error during drag reorder:", error)
+      loadData(true).catch((e) => console.error("Error reloading data after drag reorder failure:", e))
+    } finally {
+      setDragState(null)
+    }
+  }
+
   const handleDuplicate = async (question: RoleQuestion) => {
     if (!currentUser) {
       toast({
@@ -1133,6 +2028,27 @@ export function RoleQuestionsManager() {
     }
 
     try {
+      // Generate a unique question key
+      let uniqueKey = `${question.question_key}_copy`
+      let counter = 1
+
+      // Check if the key already exists and increment counter until we find a unique one
+      while (true) {
+        const { data: existingQuestions, error: checkError } = await supabase
+          .from("role_questions")
+          .select("id")
+          .eq("role_id", question.role_id)
+          .eq("question_key", uniqueKey)
+
+        if (checkError) throw checkError
+
+        if (!existingQuestions || existingQuestions.length === 0) {
+          break // Unique key found
+        }
+
+        counter++
+        uniqueKey = `${question.question_key}_copy${counter}`
+      }
 
       const { data: lastQuestion, error: orderError } = await supabase
         .from("role_questions")
@@ -1143,14 +2059,15 @@ export function RoleQuestionsManager() {
 
       if (orderError) throw orderError
 
-      const nextDisplayOrder = lastQuestion && lastQuestion.length > 0 
-        ? lastQuestion[0].display_order + 1 
+      const nextDisplayOrder = lastQuestion && lastQuestion.length > 0
+        ? lastQuestion[0].display_order + 1
         : 0
 
       const { error } = await supabase.from("role_questions").insert({
         role_id: question.role_id,
-        question_key: `${question.question_key}_copy`,
+        question_key: uniqueKey,
         question_label: `${question.question_label} (Copy)`,
+        question_title: (question as any).question_title || question.question_label,
         question_type: question.question_type,
         question_description: question.question_description,
         placeholder: question.placeholder,
@@ -1312,30 +2229,12 @@ export function RoleQuestionsManager() {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
-        <Button
-            variant="outline"
-            onClick={() => setShowTemplates(!showTemplates)}
-          >
-            <Sparkles className="mr-2 h-4 w-4" />
-            Templates
-          </Button>
           <Link href="/admin/role-questions/new">
             <Button variant="default">
               <Plus className="mr-2 h-4 w-4" />
               Create Multiple Questions
             </Button>
           </Link>
-          <Button
-            variant="outline"
-          onClick={() => {
-            resetForm()
-            setEditingQuestion(null)
-            setShowCreateDialog(true)
-          }}
-        >
-          <Plus className="mr-2 h-4 w-4" />
-            Add Single Question
-        </Button>
         </div>
       </div>
 
@@ -1457,7 +2356,7 @@ export function RoleQuestionsManager() {
           </div>
           <div className="flex items-center justify-between mt-4 pt-4 border-t">
             <div className="text-sm text-muted-foreground">
-              Showing {filteredAndSortedQuestions.length} of {statistics.total} questions
+              Showing {sortedQuestionsForTable.length} of {statistics.total} questions
             </div>
             <Button
               variant="outline"
@@ -1540,53 +2439,114 @@ export function RoleQuestionsManager() {
               
               return (
                 <Card key={role.id} className="overflow-hidden">
-                  <CardHeader 
-                    className="cursor-pointer hover:bg-muted/50 transition-colors"
-                    onClick={() => {
-                      const newExpanded = new Set(expandedRoles)
-                      if (newExpanded.has(role.id)) {
-                        newExpanded.delete(role.id)
-                      } else {
-                        newExpanded.add(role.id)
-                      }
-                      setExpandedRoles(newExpanded)
-                    }}
-                  >
+                  <CardHeader className="pb-3">
                     <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-3">
+                      <div 
+                        className="flex items-center gap-3 flex-1 cursor-pointer hover:opacity-80 transition-opacity"
+                        onClick={() => {
+                          const newExpanded = new Set(expandedRoles)
+                          if (newExpanded.has(role.id)) {
+                            newExpanded.delete(role.id)
+                          } else {
+                            newExpanded.add(role.id)
+                          }
+                          setExpandedRoles(newExpanded)
+                        }}
+                      >
                         {isExpanded ? (
-                          <ChevronDown className="h-5 w-5 text-muted-foreground" />
+                          <ChevronDown className="h-5 w-5 text-muted-foreground transition-transform" />
                         ) : (
-                          <ChevronRight className="h-5 w-5 text-muted-foreground" />
+                          <ChevronRight className="h-5 w-5 text-muted-foreground transition-transform" />
                         )}
                         <div>
-                          <CardTitle className="text-lg">{role.name}</CardTitle>
-                          <CardDescription>
+                          <CardTitle className="text-lg font-semibold">
+                            {role.name.charAt(0).toUpperCase() + role.name.slice(1).replace(/-/g, ' ')}
+                          </CardTitle>
+                          <CardDescription className="mt-1">
                             {role.description || `${roleQuestions.length} question${roleQuestions.length !== 1 ? "s" : ""}`}
                           </CardDescription>
                         </div>
                       </div>
                       <div className="flex items-center gap-2">
-                        <Badge variant="secondary">
+                        <Badge variant="secondary" className="text-xs">
                           {roleQuestions.length} question{roleQuestions.length !== 1 ? "s" : ""}
                         </Badge>
-                        <Badge variant="outline">
+                        <Badge variant="outline" className="text-xs">
                           {roleQuestions.filter(q => q.is_active).length} active
                         </Badge>
+                        <Button
+                          variant="default"
+                          size="sm"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setFormData({
+                              ...formData,
+                              role_id: role.id,
+                              question_key: "",
+                              question_label: "",
+                              question_title: "",
+                              question_type: "text",
+                              question_description: "",
+                              placeholder: "",
+                              options: null,
+                              is_required: false,
+                              display_order: roleQuestions.length,
+                              validation_rules: null,
+                              is_active: true,
+                              conditional_logic: null,
+                              default_value: null,
+                              help_text: null,
+                              min_value: null,
+                              max_value: null,
+                              min_length: null,
+                              max_length: null,
+                              pattern: null,
+                              step: null,
+                              min_date: null,
+                              max_date: null,
+                            })
+                            setEditingQuestion(null)
+                            setFormErrors({})
+                            setShowCreateDialog(true)
+                          }}
+                          className="gap-1.5"
+                        >
+                          <Plus className="h-4 w-4" />
+                          Add Question
+                        </Button>
                       </div>
                     </div>
                   </CardHeader>
                   {isExpanded && (
                     <CardContent className="pt-0">
                       <div className="space-y-3">
-                        {roleQuestions.map((question) => (
-                          <Card key={question.id} className="border-l-4 border-l-primary/20">
+                        {roleQuestions.map((question, index) => (
+                          <Card
+                            key={question.id}
+                            className="border-l-4 border-l-primary/20"
+                            draggable={isSuperAdmin}
+                            onDragStart={() => {
+                              if (!isSuperAdmin) return
+                              setDragState({ roleId: role.id, questionId: question.id })
+                            }}
+                            onDragOver={(e) => {
+                              if (!isSuperAdmin) return
+                              if (!dragState || dragState.roleId !== role.id) return
+                              e.preventDefault()
+                            }}
+                            onDrop={(e) => {
+                              if (!isSuperAdmin) return
+                              if (!dragState || dragState.roleId !== role.id) return
+                              e.preventDefault()
+                              void handleDragReorderQuestion(role.id, dragState.questionId, question.id)
+                            }}
+                          >
                             <CardContent className="pt-4">
                               <div className="flex items-start justify-between">
                                 <div className="flex-1 space-y-2">
                                   <div className="flex items-center gap-2 flex-wrap">
                                     <Badge variant="outline" className="text-xs">
-                                      #{question.display_order}
+                                      #{roleQuestions.indexOf(question) + 1}
                                     </Badge>
                                     <span className="font-semibold text-base">
                                       {question.question_label}
@@ -1600,7 +2560,7 @@ export function RoleQuestionsManager() {
                                   </div>
                                   <div className="flex items-center gap-2 flex-wrap">
                                     <code className="text-xs bg-muted px-2 py-1 rounded font-mono">
-                                      {question.question_key}
+                                      {question.question_title || question.question_label}
                                     </code>
                                     <Badge variant="secondary" className="text-xs">
                                       {question.question_type}
@@ -1627,6 +2587,28 @@ export function RoleQuestionsManager() {
                                   )}
                                 </div>
                                 <div className="flex items-center gap-1 ml-4">
+                                  {isSuperAdmin && (
+                                    <div className="flex flex-col items-center mr-1">
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-6 w-6"
+                                        disabled={question.display_order === 0}
+                                        onClick={() => handleReorderQuestion(role.id, question.id, "up")}
+                                      >
+                                        <ChevronUp className="h-3 w-3" />
+                                      </Button>
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-6 w-6"
+                                        disabled={index === roleQuestions.length - 1}
+                                        onClick={() => handleReorderQuestion(role.id, question.id, "down")}
+                                      >
+                                        <ChevronDown className="h-3 w-3" />
+                                      </Button>
+                                    </div>
+                                  )}
                                   <Button
                                     variant="ghost"
                                     size="sm"
@@ -1882,7 +2864,7 @@ export function RoleQuestionsManager() {
                   </SelectContent>
                 </Select>
                 <span className="text-sm text-muted-foreground">
-                  Showing {(currentPage - 1) * itemsPerPage + 1} to {Math.min(currentPage * itemsPerPage, filteredAndSortedQuestions.length)} of {filteredAndSortedQuestions.length}
+                  Showing {(currentPage - 1) * itemsPerPage + 1} to {Math.min(currentPage * itemsPerPage, sortedQuestionsForTable.length)} of {sortedQuestionsForTable.length}
                 </span>
               </div>
               <div className="flex items-center gap-2">
@@ -1968,28 +2950,55 @@ export function RoleQuestionsManager() {
                 </SelectTrigger>
                 <SelectContent>
                   {roles.length === 0 ? (
-                    <SelectItem value="" disabled>
-                      {isLoading ? "Loading roles..." : "No roles available"}
-                    </SelectItem>
+                    editingQuestion ? (
+                      <SelectItem value={editingQuestion.role_id} disabled={!isSuperAdmin}>
+                        <div className="flex items-center justify-between w-full">
+                          <span>{editingQuestion.role?.name || editingQuestion.role_id || "Current role"}</span>
+                        </div>
+                      </SelectItem>
+                    ) : (
+                      <SelectItem value="__no_roles__" disabled>
+                        {isLoading ? "Loading roles..." : "No roles available"}
+                      </SelectItem>
+                    )
                   ) : (
-                    roles.map((role) => {
-                      const questionCount = questions.filter(q => q.role_id === role.id).length
-                      return (
-                        <SelectItem 
-                          key={role.id} 
-                          value={role.id}
-                        >
+                    <>
+                      {editingQuestion && !roles.some(role => role.id === editingQuestion.role_id) && (
+                        <SelectItem value={editingQuestion.role_id} disabled={!isSuperAdmin}>
                           <div className="flex items-center justify-between w-full">
-                            <span>{role.name}</span>
-                            {questionCount > 0 && (
-                              <Badge variant="secondary" className="ml-2">
-                                {questionCount} question{questionCount !== 1 ? "s" : ""}
-                              </Badge>
-                            )}
+                            <span>{editingQuestion.role?.name || editingQuestion.role_id || "Current role"}</span>
                           </div>
                         </SelectItem>
-                      )
-                    })
+                      )}
+                      {roles.map((role) => {
+                        const questionCount = questions.filter(q => q.role_id === role.id).length
+                        const isAssignedRole = !!editingQuestion && role.id === editingQuestion.role_id
+
+                        return (
+                          <SelectItem 
+                            key={role.id} 
+                            value={role.id}
+                          >
+                            <div className="flex items-center justify-between w-full">
+                              <span className="flex items-center gap-2">
+                                <span>{role.name}</span>
+                                {isSuperAdmin && isAssignedRole && (
+                                  <Badge variant="default" className="text-[10px] font-medium flex items-center gap-1">
+                                    <CheckSquare className="h-3 w-3" />
+                                    Assigned
+                                  </Badge>
+                                )}
+                              </span>
+                              {questionCount > 0 && (
+                                <Badge variant="secondary" className="ml-2">
+                                  {questionCount} question{questionCount !== 1 ? "s" : ""}
+                                </Badge>
+                              )}
+                            </div>
+                          </SelectItem>
+                        )
+                      })}
+                    </>
                   )}
                 </SelectContent>
               </Select>
@@ -2038,6 +3047,22 @@ export function RoleQuestionsManager() {
               )}
             </div>
             <div className="space-y-2">
+              <Label htmlFor="question_title">
+                Question Title
+              </Label>
+              <Input
+                id="question_title"
+                value={formData.question_title || ""}
+                onChange={(e) =>
+                  setFormData({ ...formData, question_title: e.target.value })
+                }
+                placeholder="Short title shown in the wizard step (optional)"
+              />
+              <p className="text-xs text-muted-foreground">
+                If provided, this title is used as the step name in the daily entry wizard. Leave blank to use the question label.
+              </p>
+            </div>
+            <div className="space-y-2">
               <Label htmlFor="question_type">
                 Question Type <span className="text-destructive">*</span>
               </Label>
@@ -2050,22 +3075,48 @@ export function RoleQuestionsManager() {
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="text">Text Input</SelectItem>
-                  <SelectItem value="textarea">Textarea (Long Text)</SelectItem>
-                  <SelectItem value="email">Email</SelectItem>
-                  <SelectItem value="url">URL</SelectItem>
-                  <SelectItem value="phone">Phone Number</SelectItem>
-                  <SelectItem value="number">Number</SelectItem>
-                  <SelectItem value="date">Date</SelectItem>
-                  <SelectItem value="time">Time</SelectItem>
-                  <SelectItem value="datetime">Date & Time</SelectItem>
-                  <SelectItem value="select">Select (Dropdown)</SelectItem>
-                  <SelectItem value="radio">Radio Buttons</SelectItem>
-                  <SelectItem value="multiselect">Multi-Select (Checkboxes)</SelectItem>
-                  <SelectItem value="checkbox">Checkbox (Yes/No)</SelectItem>
-                  <SelectItem value="rating">Rating Scale</SelectItem>
-                  <SelectItem value="file">File Upload</SelectItem>
+                <SelectContent className="max-h-[400px]">
+                  {/* Text Input Types */}
+                  <SelectItem value="text">📝 Text Input (Short)</SelectItem>
+                  <SelectItem value="textarea">📄 Textarea (Long Text)</SelectItem>
+                  
+                  {/* Validated Input Types */}
+                  <SelectItem value="email">📧 Email Address</SelectItem>
+                  <SelectItem value="url">🔗 URL/Website Link</SelectItem>
+                  <SelectItem value="phone">📱 Phone Number</SelectItem>
+                  
+                  {/* Numeric Types */}
+                  <SelectItem value="number">🔢 Number (Integer/Decimal)</SelectItem>
+                  <SelectItem value="currency">💰 Currency/Money</SelectItem>
+                  <SelectItem value="percentage">📊 Percentage</SelectItem>
+                  
+                  {/* Date and Time Types */}
+                  <SelectItem value="date">📅 Date Picker</SelectItem>
+                  <SelectItem value="time">🕐 Time Picker</SelectItem>
+                  <SelectItem value="datetime">📅🕐 Date & Time</SelectItem>
+                  <SelectItem value="daterange">📅➡️📅 Date Range</SelectItem>
+                  <SelectItem value="duration">⏱️ Duration (Hours/Minutes)</SelectItem>
+                  
+                  {/* Selection Types */}
+                  <SelectItem value="select">▼ Dropdown Select (Single)</SelectItem>
+                  <SelectItem value="radio">◉ Radio Buttons (Single)</SelectItem>
+                  <SelectItem value="multiselect">☑️ Multi-Select (Checkboxes)</SelectItem>
+                  <SelectItem value="checkbox">✓ Checkbox (Yes/No)</SelectItem>
+                  
+                  {/* Rating and Scale Types */}
+                  <SelectItem value="rating">⭐ Rating Scale (Stars)</SelectItem>
+                  <SelectItem value="slider">━ Slider Scale</SelectItem>
+                  <SelectItem value="nps">📈 NPS Score (0-10)</SelectItem>
+                  
+                  {/* File and Media Types */}
+                  <SelectItem value="file">📎 File Upload (Documents)</SelectItem>
+                  <SelectItem value="image">🖼️ Image Upload</SelectItem>
+                  
+                  {/* Special Business Types */}
+                  <SelectItem value="priority">🎯 Priority Level</SelectItem>
+                  <SelectItem value="status">🚦 Status Indicator</SelectItem>
+                  <SelectItem value="tags">🏷️ Tags (Multiple)</SelectItem>
+                  <SelectItem value="rich-text">✍️ Rich Text Editor</SelectItem>
                 </SelectContent>
               </Select>
               {formErrors.question_type && (
@@ -2095,15 +3146,21 @@ export function RoleQuestionsManager() {
                 placeholder="Placeholder text"
               />
             </div>
-            {/* Options for select, multiselect, radio, rating */}
+            {/* Options for select, multiselect, radio, rating, priority, status, nps, tags */}
             {(formData.question_type === "select" || 
               formData.question_type === "multiselect" || 
               formData.question_type === "radio" ||
-              formData.question_type === "rating") && (
+              formData.question_type === "rating" ||
+              formData.question_type === "priority" ||
+              formData.question_type === "status" ||
+              formData.question_type === "tags") && (
               <div className="space-y-2">
                 <Label>
                   Options 
                   {formData.question_type === "rating" && " (e.g., 1,2,3,4,5 or Poor,Fair,Good,Very Good,Excellent)"}
+                  {formData.question_type === "priority" && " (e.g., Low, Medium, High, Critical)"}
+                  {formData.question_type === "status" && " (e.g., Not Started, In Progress, Completed, Blocked)"}
+                  {formData.question_type === "tags" && " (Multiple tags available for selection)"}
                   <span className="text-destructive">*</span>
                 </Label>
                 <div className="flex gap-2">
@@ -2116,9 +3173,17 @@ export function RoleQuestionsManager() {
                         addOption()
                       }
                     }}
-                    placeholder={formData.question_type === "rating" 
-                      ? "Enter rating option (e.g., 1 or Poor)" 
-                      : "Enter option and press Enter"}
+                    placeholder={
+                      formData.question_type === "rating" 
+                        ? "Enter rating option (e.g., 1 or Poor)" 
+                        : formData.question_type === "priority"
+                        ? "Enter priority level (e.g., High)"
+                        : formData.question_type === "status"
+                        ? "Enter status option (e.g., In Progress)"
+                        : formData.question_type === "tags"
+                        ? "Enter tag option (e.g., Bug, Feature)"
+                        : "Enter option and press Enter"
+                    }
                   />
                   <Button type="button" onClick={addOption}>
                     Add
@@ -2286,7 +3351,9 @@ export function RoleQuestionsManager() {
                 )}
 
                 {/* Number validation */}
-                {formData.question_type === "number" && (
+                {(formData.question_type === "number" || 
+                  formData.question_type === "currency" || 
+                  formData.question_type === "percentage") && (
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="min_value">Minimum Value</Label>
@@ -2300,7 +3367,7 @@ export function RoleQuestionsManager() {
                             min_value: e.target.value ? parseFloat(e.target.value) : null 
                           })
                         }
-                        placeholder="Min value"
+                        placeholder={formData.question_type === "percentage" ? "0" : "Min value"}
                       />
                       {formErrors.min_value && (
                         <p className="text-sm text-destructive">{formErrors.min_value}</p>
@@ -2318,7 +3385,7 @@ export function RoleQuestionsManager() {
                             max_value: e.target.value ? parseFloat(e.target.value) : null 
                           })
                         }
-                        placeholder="Max value"
+                        placeholder={formData.question_type === "percentage" ? "100" : "Max value"}
                       />
                       {formErrors.max_value && (
                         <p className="text-sm text-destructive">{formErrors.max_value}</p>
@@ -2337,17 +3404,81 @@ export function RoleQuestionsManager() {
                             step: e.target.value ? parseFloat(e.target.value) : null 
                           })
                         }
-                        placeholder="e.g., 0.1 for decimals, 1 for integers"
+                        placeholder={formData.question_type === "percentage" ? "1" : "e.g., 0.1 for decimals, 1 for integers"}
                       />
                       <p className="text-xs text-muted-foreground">
-                        Increment step for number input
+                        {formData.question_type === "currency" && "Increment step (e.g., 0.01 for cents)"}
+                        {formData.question_type === "percentage" && "Percentage increment (default: 1)"}
+                        {formData.question_type === "number" && "Increment step for number input"}
                       </p>
                     </div>
                   </div>
                 )}
 
+                {/* Slider/NPS validation */}
+                {(formData.question_type === "slider" || formData.question_type === "nps") && (
+                  <div className="space-y-4">
+                    <p className="text-sm text-muted-foreground">
+                      {formData.question_type === "nps" 
+                        ? "NPS scores are automatically configured from 0-10 (Net Promoter Score standard)" 
+                        : "Configure the min/max range for the slider"}
+                    </p>
+                    {formData.question_type === "slider" && (
+                      <div className="grid grid-cols-3 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="min_value">Minimum</Label>
+                          <Input
+                            id="min_value"
+                            type="number"
+                            value={formData.min_value || "0"}
+                            onChange={(e) =>
+                              setFormData({ 
+                                ...formData, 
+                                min_value: e.target.value ? parseFloat(e.target.value) : 0 
+                              })
+                            }
+                            placeholder="0"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="max_value">Maximum</Label>
+                          <Input
+                            id="max_value"
+                            type="number"
+                            value={formData.max_value || "100"}
+                            onChange={(e) =>
+                              setFormData({ 
+                                ...formData, 
+                                max_value: e.target.value ? parseFloat(e.target.value) : 100 
+                              })
+                            }
+                            placeholder="100"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="step">Step</Label>
+                          <Input
+                            id="step"
+                            type="number"
+                            value={formData.step || "1"}
+                            onChange={(e) =>
+                              setFormData({ 
+                                ...formData, 
+                                step: e.target.value ? parseFloat(e.target.value) : 1 
+                              })
+                            }
+                            placeholder="1"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Date validation */}
-                {(formData.question_type === "date" || formData.question_type === "datetime") && (
+                {(formData.question_type === "date" || 
+                  formData.question_type === "datetime" ||
+                  formData.question_type === "daterange") && (
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
                       <Label htmlFor="min_date">Minimum Date</Label>
@@ -2359,6 +3490,9 @@ export function RoleQuestionsManager() {
                           setFormData({ ...formData, min_date: e.target.value })
                         }
                       />
+                      <p className="text-xs text-muted-foreground">
+                        {formData.question_type === "daterange" && "Start date cannot be before this"}
+                      </p>
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="max_date">Maximum Date</Label>
@@ -2370,6 +3504,52 @@ export function RoleQuestionsManager() {
                           setFormData({ ...formData, max_date: e.target.value })
                         }
                       />
+                      <p className="text-xs text-muted-foreground">
+                        {formData.question_type === "daterange" && "End date cannot be after this"}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Duration validation */}
+                {formData.question_type === "duration" && (
+                  <div className="space-y-4">
+                    <p className="text-sm text-muted-foreground">
+                      Duration fields allow users to enter time periods (e.g., "2 hours 30 minutes" or "150 minutes")
+                    </p>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="min_value">Minimum (minutes)</Label>
+                        <Input
+                          id="min_value"
+                          type="number"
+                          min="0"
+                          value={formData.min_value || ""}
+                          onChange={(e) =>
+                            setFormData({ 
+                              ...formData, 
+                              min_value: e.target.value ? parseFloat(e.target.value) : null 
+                            })
+                          }
+                          placeholder="Min duration in minutes"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="max_value">Maximum (minutes)</Label>
+                        <Input
+                          id="max_value"
+                          type="number"
+                          min="0"
+                          value={formData.max_value || ""}
+                          onChange={(e) =>
+                            setFormData({ 
+                              ...formData, 
+                              max_value: e.target.value ? parseFloat(e.target.value) : null 
+                            })
+                          }
+                          placeholder="Max duration in minutes"
+                        />
+                      </div>
                     </div>
                   </div>
                 )}
@@ -2579,8 +3759,25 @@ export function RoleQuestionsManager() {
               }}>
               Cancel
             </Button>
-            <Button onClick={editingQuestion ? handleUpdate : handleCreate}>
-              {editingQuestion ? "Update" : "Create"}
+            <Button 
+              onClick={() => {
+                console.log("🔵 Create button clicked", { editingQuestion, isUpdating, isCreating })
+                if (editingQuestion) {
+                  handleUpdate()
+                } else {
+                  handleCreate()
+                }
+              }}
+              disabled={isUpdating || isCreating}
+              type="button"
+            >
+              {(isUpdating || isCreating) && (
+                <RefreshCw className="h-4 w-4 mr-2 animate-spin" />
+              )}
+              {editingQuestion 
+                ? (isUpdating ? "Updating..." : "Update")
+                : (isCreating ? "Creating..." : "Create")
+              }
             </Button>
             </div>
           </DialogFooter>
