@@ -1,13 +1,10 @@
 import type { Metadata } from 'next'
-import { Geist, Geist_Mono } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
 import { Toaster } from 'sonner'
 import { AppWrapper } from '@/components/app-wrapper'
 import './globals.css'
 
-const _geist = Geist({ subsets: ["latin"] });
-const _geistMono = Geist_Mono({ subsets: ["latin"] });
-
+// Use local font fallbacks instead of Google Fonts to avoid connectivity issues
 export const metadata: Metadata = {
   title: "TOP Captain's Log - IT Department Daily Tracker",
   description: 'A modern IT Department Daily Tracker for documenting daily activities and maintaining comprehensive work records',
