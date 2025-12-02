@@ -58,7 +58,7 @@ export function RoleBasedQuestionFields({
             type="email"
             value={value ?? ""}
             onChange={(event) => onChange(question.key, event.target.value)}
-            placeholder={question.placeholder || "example@email.com"}
+            placeholder={question.placeholder || "youremail@topwaterethiopia.com"}
             className={error ? "border-destructive" : ""}
           />
         )
@@ -69,7 +69,7 @@ export function RoleBasedQuestionFields({
             type="url"
             value={value ?? ""}
             onChange={(event) => onChange(question.key, event.target.value)}
-            placeholder={question.placeholder || "https://example.com"}
+            placeholder={question.placeholder || "https://topwaterethiopia.com"}
             className={error ? "border-destructive" : ""}
           />
         )
@@ -80,7 +80,7 @@ export function RoleBasedQuestionFields({
             type="tel"
             value={value ?? ""}
             onChange={(event) => onChange(question.key, event.target.value)}
-            placeholder={question.placeholder || "+1 (555) 123-4567"}
+            placeholder={question.placeholder || "+251 901-234-567"}
             className={error ? "border-destructive" : ""}
           />
         )

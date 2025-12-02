@@ -265,6 +265,12 @@ export function UserManagementDialog({ onClose }: { onClose: () => void }) {
       return
     }
 
+    // Prevent deleting admin accounts
+    if (user.role === "admin") {
+      toast.error("You cannot delete admin accounts")
+      return
+    }
+
     if (!confirm(`Are you sure you want to delete ${user.name}? This action cannot be undone.`)) {
       return
     }
@@ -444,7 +450,8 @@ export function UserManagementDialog({ onClose }: { onClose: () => void }) {
                                   variant="destructive"
                                   size="sm"
                                   onClick={() => handleDeleteUser(user)}
-                                  disabled={user.id === currentUser?.id}
+                                  disabled={user.id === currentUser?.id || user.role === "admin"}
+                                  title={user.role === "admin" ? "Cannot delete admin accounts" : "Delete user"}
                                 >
                                   <Trash2 className="h-4 w-4" />
                                 </Button>

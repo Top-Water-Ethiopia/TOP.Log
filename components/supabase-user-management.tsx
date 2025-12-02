@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useState } from 'react'
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context";
 import { supabase } from "@/lib/supabase-client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -71,7 +71,7 @@ interface UserWithProfile {
   profile: {
     id: string;
     name: string;
-    department: string | null;
+    department_id: string | null;
     role_id: string;
     role_name: string;
     is_active: boolean;
@@ -186,8 +186,9 @@ export function SupabaseUserManagement() {
       const response = await fetch('/api/admin/users?per_page=1000');
       
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Failed to fetch users' }));
-        throw new Error(errorData.error || 'Failed to fetch users');
+        const errorData = await response.json().catch(() => ({ error: 'Failed to fetch users', status: response.status }));
+        console.error('Failed to fetch users:', errorData);
+        throw new Error(`${errorData.error || 'Failed to fetch users'} (Status: ${errorData.status || response.status})`);
       }
 
       const result = await response.json();
@@ -201,7 +202,7 @@ export function SupabaseUserManagement() {
           profile: {
             id: user.profile.id,
             name: user.profile.name,
-            department: user.profile.department,
+            department_id: user.profile.department_id, // Changed from department to department_id
             role_id: user.profile.role_id,
             role_name: user.profile.role_name || 'user',
             is_active: user.profile.is_active,
@@ -230,12 +231,56 @@ export function SupabaseUserManagement() {
     }
   }, [isAdmin]);
 
+  // Effect to update department when role changes in edit form
+  useEffect(() => {
+    if (editingUser && editUserForm.role_id) {
+      // Find the selected role
+      const selectedRole = roles.find(role => role.id === editUserForm.role_id);
+      if (selectedRole) {
+        // Find the associated department name
+        const departmentName = selectedRole.department_id 
+          ? departments.find(dept => dept.id === selectedRole.department_id)?.name || ""
+          : "";
+        
+        // Update the department if it's different
+        if (editUserForm.department !== departmentName) {
+          setEditUserForm(prev => ({ 
+            ...prev, 
+            department: departmentName
+          }));
+        }
+      }
+    }
+  }, [editUserForm.role_id, roles, departments, editingUser, editUserForm.department]);
+
+  // Effect to update department when role changes in create form
+  useEffect(() => {
+    if (createUserForm.role_id) {
+      // Find the selected role
+      const selectedRole = roles.find(role => role.id === createUserForm.role_id);
+      if (selectedRole) {
+        // Find the associated department name
+        const departmentName = selectedRole.department_id 
+          ? departments.find(dept => dept.id === selectedRole.department_id)?.name || ""
+          : "";
+        
+        // Update the department if it's different
+        if (createUserForm.department !== departmentName) {
+          setCreateUserForm(prev => ({ 
+            ...prev, 
+            department: departmentName
+          }));
+        }
+      }
+    }
+  }, [createUserForm.role_id, roles, departments, createUserForm.department]);
+
   // Filter users
   const filteredUsers = users.filter(user => {
     const matchesSearch = 
       user.profile?.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (user.profile?.department?.toLowerCase().includes(searchTerm.toLowerCase()) || false);
+      (user.profile?.department_id && departments.find(d => d.id === user.profile?.department_id)?.name.toLowerCase().includes(searchTerm.toLowerCase()));
     
     const matchesRole = roleFilter === "all" || user.profile?.role_id === roleFilter;
     const matchesStatus = statusFilter === "all" || 
@@ -291,7 +336,7 @@ export function SupabaseUserManagement() {
           password: createUserForm.password,
           name: createUserForm.name.trim(),
           role_id: createUserForm.role_id,
-          department: createUserForm.department.trim() || null,
+          department_id: createUserForm.department ? departments.find(d => d.name === createUserForm.department)?.id || null : null,
         }),
       });
 
@@ -391,7 +436,7 @@ export function SupabaseUserManagement() {
           user_id: editingUser.id,
           name: editUserForm.name.trim(),
           email: editUserForm.email.trim().toLowerCase(),
-          department: editUserForm.department.trim() || null,
+          department_id: editUserForm.department ? departments.find(d => d.name === editUserForm.department)?.id || null : null,
           role_id: editUserForm.role_id,
           is_active: editUserForm.is_active,
         }),
@@ -461,6 +506,15 @@ export function SupabaseUserManagement() {
 
     if (userToDelete.id === currentUser?.id) {
       toast.error("You cannot delete your own account");
+      setShowDeleteDialog(false);
+      setUserToDelete(null);
+      return;
+    }
+
+    // Prevent deleting admin accounts
+    const userRoleId = userToDelete.profile?.role_id;
+    if (userRoleId === ADMIN_ROLE_ID || userRoleId === SUPER_ADMIN_ROLE_ID) {
+      toast.error("You cannot delete admin accounts");
       setShowDeleteDialog(false);
       setUserToDelete(null);
       return;
@@ -699,7 +753,23 @@ export function SupabaseUserManagement() {
                           </Avatar>
                           <div>
                             <div className="font-medium">{user.profile?.name || "N/A"}</div>
-                            <div className="text-sm text-muted-foreground">{user.email}</div>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                if (!user.email || user.email === "N/A") return
+                                try {
+                                  await navigator.clipboard.writeText(user.email)
+                                  toast.success("Email copied to clipboard")
+                                } catch (error) {
+                                  console.error("Failed to copy email", error)
+                                  toast.error("Failed to copy email")
+                                }
+                              }}
+                              className="text-sm text-muted-foreground hover:text-primary underline-offset-2 hover:underline focus:outline-none"
+                              title="Click to copy email"
+                            >
+                              {user.email}
+                            </button>
                           </div>
                         </div>
                       </TableCell>
@@ -749,7 +819,11 @@ export function SupabaseUserManagement() {
                           </SelectContent>
                         </Select>
                       </TableCell>
-                      <TableCell>{user.profile?.department || "-"}</TableCell>
+                      <TableCell>
+                        {user.profile?.department_id ? (
+                          departments.find(d => d.id === user.profile?.department_id)?.name || "-"
+                        ) : "-"}
+                      </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-2">
                           {user.profile?.is_active ? (
@@ -784,7 +858,7 @@ export function SupabaseUserManagement() {
                               setEditUserForm({
                                 name: user.profile?.name || "",
                                 email: user.email,
-                                department: user.profile?.department || "",
+                                department: user.profile?.department_id ? departments.find(d => d.id === user.profile?.department_id)?.name || "" : "",
                                 role_id: user.profile?.role_id || USER_ROLE_ID,
                                 is_active: user.profile?.is_active ?? true,
                               });
@@ -830,8 +904,16 @@ export function SupabaseUserManagement() {
                               setUserToDelete(user);
                               setShowDeleteDialog(true);
                             }}
-                            disabled={user.id === currentUser?.id}
-                            title="Delete user"
+                            disabled={
+                              user.id === currentUser?.id || 
+                              user.profile?.role_id === ADMIN_ROLE_ID || 
+                              user.profile?.role_id === SUPER_ADMIN_ROLE_ID
+                            }
+                            title={
+                              user.profile?.role_id === ADMIN_ROLE_ID || user.profile?.role_id === SUPER_ADMIN_ROLE_ID
+                                ? "Cannot delete admin accounts"
+                                : "Delete user"
+                            }
                           >
                             <Trash2 className="h-4 w-4" />
                           </Button>
@@ -943,7 +1025,19 @@ export function SupabaseUserManagement() {
                 <Label htmlFor="role">Role</Label>
                 <Select
                   value={createUserForm.role_id}
-                  onValueChange={(value) => setCreateUserForm(prev => ({ ...prev, role_id: value }))}
+                  onValueChange={(value) => {
+                    // When a role is selected, automatically set the department
+                    const selectedRole = roles.find(role => role.id === value);
+                    const departmentName = selectedRole?.department_id 
+                      ? departments.find(dept => dept.id === selectedRole.department_id)?.name || ""
+                      : "";
+                    
+                    setCreateUserForm(prev => ({ 
+                      ...prev, 
+                      role_id: value,
+                      department: departmentName
+                    }));
+                  }}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select a role" />
@@ -977,23 +1071,10 @@ export function SupabaseUserManagement() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="department">Department (Optional)</Label>
-                <Select
-                  value={createUserForm.department || "__none__"}
-                  onValueChange={(value) => setCreateUserForm(prev => ({ ...prev, department: value === "__none__" ? "" : value }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a department" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">No department</SelectItem>
-                    {departments.map((dept) => (
-                      <SelectItem key={dept.id} value={dept.name}>
-                        {dept.name} {dept.code && `(${dept.code})`}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label htmlFor="department">Department</Label>
+                <div className="p-3 bg-muted rounded-md min-h-10 flex items-center">
+                  {createUserForm.department || "No department (will be set based on role)"}
+                </div>
               </div>
             </div>
           </div>
@@ -1048,7 +1129,19 @@ export function SupabaseUserManagement() {
                 <Label htmlFor="edit-role">Role</Label>
                 <Select
                   value={editUserForm.role_id}
-                  onValueChange={(value) => setEditUserForm(prev => ({ ...prev, role_id: value }))}
+                  onValueChange={(value) => {
+                    // When a role is selected, automatically set the department
+                    const selectedRole = roles.find(role => role.id === value);
+                    const departmentName = selectedRole?.department_id 
+                      ? departments.find(dept => dept.id === selectedRole.department_id)?.name || ""
+                      : "";
+                    
+                    setEditUserForm(prev => ({ 
+                      ...prev, 
+                      role_id: value,
+                      department: departmentName
+                    }));
+                  }}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select a role" />
@@ -1082,23 +1175,10 @@ export function SupabaseUserManagement() {
                 </Select>
               </div>
               <div className="space-y-2">
-                <Label htmlFor="edit-department">Department (Optional)</Label>
-                <Select
-                  value={editUserForm.department || "__none__"}
-                  onValueChange={(value) => setEditUserForm(prev => ({ ...prev, department: value === "__none__" ? "" : value }))}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a department" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__none__">No department</SelectItem>
-                    {departments.map((dept) => (
-                      <SelectItem key={dept.id} value={dept.name}>
-                        {dept.name} {dept.code && `(${dept.code})`}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label htmlFor="edit-department">Department</Label>
+                <div className="p-3 bg-muted rounded-md min-h-10 flex items-center">
+                  {editUserForm.department || "No department (will be set based on role)"}
+                </div>
               </div>
             </div>
             <div className="flex items-center space-x-2">

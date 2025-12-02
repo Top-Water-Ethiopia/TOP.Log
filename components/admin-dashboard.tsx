@@ -1,7 +1,7 @@
 "use client"
 
 import { useState } from "react"
-import { useCaptainLog } from "@/contexts/captain-log-context"
+import { useCaptainLog } from "@/contexts/supabase-log-context"
 import { useAuth } from "@/contexts/auth-context"
 import { useRBAC } from "@/hooks/use-rbac"
 import { UserManagementDialog } from "./user-management-dialog"
@@ -227,7 +227,7 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
                             </span>
                           </div>
                           <div className="mt-2 text-sm">
-                            <p className="font-mono text-xs text-muted-foreground">Entity ID: {log.entityId}</p>
+                            <p className="font-mono text-xs text-muted-foreground">Entity ID: {log.entity_id}</p>
                             {log.changes && Object.keys(log.changes).length > 0 && (
                               <details className="mt-2">
                                 <summary className="cursor-pointer text-xs font-medium">View Changes</summary>

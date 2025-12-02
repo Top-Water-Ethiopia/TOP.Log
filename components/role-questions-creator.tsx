@@ -46,6 +46,7 @@ interface QuestionFormData {
   id: string // Temporary ID for tracking
   question_key: string
   question_label: string
+  question_title: string
   question_type: string
   question_description: string
   placeholder: string
@@ -143,7 +144,8 @@ export function RoleQuestionsCreator() {
       id: `temp-${Date.now()}-${Math.random()}`,
       question_key: "",
       question_label: "",
-      question_type: "text",
+      question_title: "",
+      question_type: "textarea",
       question_description: "",
       placeholder: "",
       options: null,
@@ -268,6 +270,7 @@ export function RoleQuestionsCreator() {
         role_id: selectedRole.id,
         question_key: q.question_key.trim(),
         question_label: q.question_label.trim(),
+        question_title: q.question_title.trim() || q.question_label.trim(),
         question_type: q.question_type,
         question_description: q.question_description?.trim() || null,
         placeholder: q.placeholder?.trim() || null,
@@ -730,7 +733,7 @@ function QuestionForm({ question, index, onUpdate, onRemove, canRemove }: Questi
           <div className="flex items-center gap-2">
             <Badge variant="outline">Question {index + 1}</Badge>
             <CardTitle className="text-lg">
-              {question.question_label || "New Question"}
+              {question.question_title || question.question_label || "New Question"}
             </CardTitle>
           </div>
           <div className="flex items-center gap-2">
@@ -837,6 +840,21 @@ function QuestionForm({ question, index, onUpdate, onRemove, canRemove }: Questi
               onChange={(e) => onUpdate({ question_label: e.target.value })}
               placeholder="What is your project name?"
             />
+          </div>
+
+          <div className="space-y-2">
+            <Label>
+              Question Title
+            </Label>
+            <Input
+              value={question.question_title}
+              onChange={(e) => onUpdate({ question_title: e.target.value })}
+              placeholder="Short title for wizard step (optional)"
+            />
+            <p className="text-xs text-muted-foreground">
+              If provided, this title is used as the step name in the daily entry wizard. 
+              Leave blank to use the question label.
+            </p>
           </div>
 
           <div className="space-y-2">
