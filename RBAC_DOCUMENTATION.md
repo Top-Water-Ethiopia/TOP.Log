@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document describes the Role-Based Access Control (RBAC) system implemented in the TOP Captain's Log application. The RBAC system provides granular control over user permissions and access to various features within the application.
+This document describes the Role-Based Access Control (RBAC) system implemented in the TOP Log application. The RBAC system provides granular control over user permissions and access to various features within the application.
 
 ## Architecture
 

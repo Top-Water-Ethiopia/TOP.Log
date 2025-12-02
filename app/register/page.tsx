@@ -51,7 +51,7 @@ export default function RegisterPage() {
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-1">
           <CardTitle className="text-2xl font-bold">Create an account</CardTitle>
-          <CardDescription>Enter your details to create your Captain's Log account</CardDescription>
+          <CardDescription>Enter your details to create your TOP Log account</CardDescription>
         </CardHeader>
         
         <form onSubmit={handleRegister}>

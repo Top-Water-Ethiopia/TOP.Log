@@ -46,7 +46,7 @@ export function VersionInfo() {
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Tag className="h-5 w-5" />
-            Captain's Log Version Information
+            TOP Log Version Information
           </DialogTitle>
           <DialogDescription>
             Application version details and release history

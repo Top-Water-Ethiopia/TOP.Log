@@ -8,7 +8,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.0.0] - 2024-11-05
 
 ### Added
-- Initial release of TOP Captain's Log
+- Initial release of TOP Log
 - Interactive calendar view for date navigation
 - Comprehensive entry form with six structured sections:
   - Development Tasks

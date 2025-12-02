@@ -1,6 +1,6 @@
-# Supabase Integration for Captain's Log
+# Supabase Integration for TOP Log
 
-This guide explains how to set up and configure Supabase for Captain's Log. Supabase is an open-source Firebase alternative providing PostgreSQL databases, authentication, instant APIs, and real-time subscriptions.
+This guide explains how to set up and configure Supabase for TOP Log. Supabase is an open-source Firebase alternative providing PostgreSQL databases, authentication, instant APIs, and real-time subscriptions.
 
 ## Table of Contents
 
@@ -77,7 +77,7 @@ This will create the following tables:
 
 ## Authentication
 
-Captain's Log uses Supabase Authentication for user management:
+TOP Log uses Supabase Authentication for user management:
 
 1. **Authentication Configuration**:
    - In your Supabase dashboard, go to "Authentication" > "Settings".
@@ -96,7 +96,7 @@ Captain's Log uses Supabase Authentication for user management:
 
 ## Data Migration
 
-The Captain's Log includes utilities to migrate data from localStorage to Supabase:
+The TOP Log includes utilities to migrate data from localStorage to Supabase:
 
 1. **Migration Process**:
    - Log in to your Supabase-enabled account.
@@ -165,4 +165,4 @@ To verify your Supabase integration:
 
 ---
 
-This integration was developed as part of the Captain's Log v2.0 release. For questions or issues, please contact the development team.
+This integration was developed as part of the TOP Log v2.0 release. For questions or issues, please contact the development team.

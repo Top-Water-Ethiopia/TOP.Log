@@ -1,6 +1,6 @@
 ## Supabase Integration
 
-TOP Captain's Log now includes optional Supabase integration for cloud storage and authentication.
+TOP Log now includes optional Supabase integration for cloud storage and authentication.
 
 ### Backend & Data Storage
 - **[Supabase](https://supabase.com/)** - Open source Firebase alternative

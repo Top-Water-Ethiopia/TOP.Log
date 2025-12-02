@@ -2,7 +2,7 @@
 
 ## Overview
 
-Captain's Log now features a complete Supabase integration, providing cloud storage and authentication capabilities. This integration allows users to access their data from any device while maintaining the security and privacy of their information.
+TOP Log now features a complete Supabase integration, providing cloud storage and authentication capabilities. This integration allows users to access their data from any device while maintaining the security and privacy of their information.
 
 ## Implementation Details
 

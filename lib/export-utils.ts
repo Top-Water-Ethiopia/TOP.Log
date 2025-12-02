@@ -1,7 +1,7 @@
 import type { CaptainLogEntry } from "@/contexts/captain-log-context"
 
 /**
- * Export utilities for Captain's Log entries
+ * Export utilities for TOP Log entries
  */
 
 /**
@@ -118,13 +118,13 @@ export function downloadMarkdown(entries: CaptainLogEntry[], filename: string = 
  */
 export function exportToMarkdown(entries: CaptainLogEntry[]): string {
   if (entries.length === 0) {
-    return "# Captain's Log\n\nNo entries to export."
+    return "# TOP Log\n\nNo entries to export."
   }
 
   // Sort entries by date (newest first)
   const sortedEntries = [...entries].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
 
-  let markdown = "# Captain's Log Export\n\n"
+  let markdown = "# TOP Log Export\n\n"
   markdown += `Exported on: ${new Date().toLocaleString()}\n\n`
   markdown += `Total Entries: ${entries.length}\n\n`
   markdown += "---\n\n"

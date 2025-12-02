@@ -1,8 +1,8 @@
 {
-  "name": "captains-log",
+  "name": "top-log",
   "version": "1.1.0",
-  "description": "TOP Captain's Log - A modern IT Department Daily Tracker for documenting daily activities and maintaining comprehensive work records",
-  "author": "TOP Captain's Log Contributors",
+  "description": "TOP Log - A modern IT Department Daily Tracker for documenting daily activities and maintaining comprehensive work records",
+  "author": "TOP Log Contributors",
   "repository": {
     "type": "git",
     "url": "git+https://github.com/yourusername/captains-log.git"

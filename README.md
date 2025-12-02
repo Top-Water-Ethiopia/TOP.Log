@@ -1,11 +1,11 @@
-# TOP Captain's Log 🚀
+# TOP Log 🚀
 
 [![Next.js](https://img.shields.io/badge/Next.js-16.0-black?logo=next.js)](https://nextjs.org/)
 [![React](https://img.shields.io/badge/React-19.2-0b72b5?logo=react)](https://reactjs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-0b72b5?logo=typescript)](https://www.typescriptlang.org/)
 [![TailwindCSS](https://img.shields.io/badge/TailwindCSS-4.1-1b99d3?logo=tailwind-css)](https://tailwindcss.com/)
 
-**TOP Captain's Log** is a modern, intuitive IT Department Daily Tracker designed to help IT professionals document their daily activities, track progress, and maintain a comprehensive record of development work, challenges, and achievements.
+**TOP Log** is a modern, intuitive IT Department Daily Tracker designed to help IT professionals document their daily activities, track progress, and maintain a comprehensive record of development work, challenges, and achievements.
 
 ## 📋 Table of Contents
 
@@ -26,7 +26,7 @@
 
 ## 🎯 Overview
 
-TOP Captain's Log provides IT teams with a structured way to maintain daily logs of their work activities. The application features an interactive calendar interface for easy navigation between dates and comprehensive forms for documenting various aspects of daily IT work.
+TOP Log provides IT teams with a structured way to maintain daily logs of their work activities. The application features an interactive calendar interface for easy navigation between dates and comprehensive forms for documenting various aspects of daily IT work.
 
 ### Key Use Cases
 
@@ -257,7 +257,7 @@ Entries can be deleted from the entry details view using the delete functionalit
 
 ## 💾 Data Storage
 
-TOP Captain's Log uses **browser Local Storage** for data persistence:
+TOP Log uses **browser Local Storage** for data persistence:
 
 - **Storage Key**: `captain-log-entries`
 - **Format**: JSON array of entry objects
@@ -347,7 +347,7 @@ The production build includes:
 
 ### Deployment Options
 
-TOP Captain's Log can be deployed to:
+TOP Log can be deployed to:
 
 - **[Vercel](https://vercel.com/)** (Recommended - Zero configuration)
   ```bash
@@ -375,7 +375,7 @@ Currently, the application doesn't require environment variables as it uses loca
 
 ## 📦 Version Management
 
-TOP Captain's Log implements a comprehensive version management system for tracking releases and handling data migrations.
+TOP Log implements a comprehensive version management system for tracking releases and handling data migrations.
 
 ### Features
 

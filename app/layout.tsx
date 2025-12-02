@@ -9,7 +9,7 @@ const _geist = Geist({ subsets: ["latin"] });
 const _geistMono = Geist_Mono({ subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "TOP Captain's Log - IT Department Daily Tracker",
+  title: "TOP Log - IT Department Daily Tracker",
   description: 'A modern IT Department Daily Tracker for documenting daily activities and maintaining comprehensive work records',
   keywords: ['daily log', 'it tracker', 'developer journal', 'work log'],
 }

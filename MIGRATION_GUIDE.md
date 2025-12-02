@@ -1,10 +1,10 @@
 # Migrating from LocalStorage to Supabase
 
-This guide will help you migrate your Captain's Log data from browser localStorage to Supabase cloud storage.
+This guide will help you migrate your TOP Log data from browser localStorage to Supabase cloud storage.
 
 ## Overview
 
-Captain's Log now supports two storage options:
+TOP Log now supports two storage options:
 
 1. **LocalStorage (Default)** - Data stored in your browser only
 2. **Supabase (Cloud)** - Data stored in a PostgreSQL database with user authentication
