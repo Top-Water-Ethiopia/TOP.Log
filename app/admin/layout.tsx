@@ -11,7 +11,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
     <AuthProvider>
       <CaptainLogProvider>
         <SidebarProvider>
-          <div className="flex min-h-screen">
+          <div className="flex min-h-screen w-full">
             <AdminSidebar />
             <SidebarInset className="flex-1 overflow-auto">
               {children}

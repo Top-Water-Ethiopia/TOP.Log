@@ -22,6 +22,14 @@ const stats = [
 
 const quickActions = [
   { 
+    name: 'Captain Log Entries', 
+    description: 'View all individual captain log reports', 
+    icon: FileText,
+    href: '/admin/reports',
+    iconForeground: 'text-emerald-700',
+    iconBackground: 'bg-emerald-50',
+  },
+  { 
     name: 'Add New User', 
     description: 'Create a new user account', 
     icon: Users,
