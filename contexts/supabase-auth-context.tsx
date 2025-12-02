@@ -4,7 +4,7 @@ import React, { createContext, useContext, useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import type { User, Session } from "@supabase/supabase-js";
-import { supabase } from "@/lib/supabase-client";
+import { createSupabaseClient } from "@/lib/supabase-client";
 import { signIn, signOut, signUp, onAuthStateChange, getCurrentUser, createUserProfile } from "@/lib/auth-utils";
 
 // Define types for our auth context
@@ -56,12 +56,35 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
   useEffect(() => {
     const initializeAuth = async () => {
       try {
-        const user = await getCurrentUser();
+        // Add timeout to prevent hanging on network errors
+        const getUserPromise = getCurrentUser();
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Auth initialization timeout')), 15000) // Increased to 15 seconds
+        );
+        
+        const user = await Promise.race([getUserPromise, timeoutPromise]) as Awaited<ReturnType<typeof getCurrentUser>>;
+        
         if (user) {
-          const { data: session } = await supabase.auth.getSession();
+          let session = null;
+          try {
+            const localSupabase = createSupabaseClient();
+            const sessionPromise = localSupabase.auth.getSession();
+            const sessionTimeoutPromise = new Promise((_, reject) => 
+              setTimeout(() => reject(new Error('Session fetch timeout')), 5000)
+            );
+            const { data } = await Promise.race([sessionPromise, sessionTimeoutPromise]) as { data: { session: any } };
+            session = data?.session || null;
+          } catch (sessionError: any) {
+            // Handle session fetch errors gracefully
+            if (sessionError?.status !== 0 && !sessionError?.message?.includes('timeout')) {
+              console.error("Session fetch error:", sessionError);
+            }
+            // Continue without session - user is still authenticated
+          }
           
           // Try to get profile, or create one if it doesn't exist
-          let { data: profile, error: profileError } = await supabase
+          const localSupabase = createSupabaseClient();
+          let { data: profile, error: profileError } = await localSupabase
             .from('user_profiles')
             .select('*')
             .eq('user_id', user.id)
@@ -69,7 +92,8 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
 
           // If profile doesn't exist, create a default one
           if (!profile && !profileError) {
-            const { data: newProfile, error: createError } = await supabase
+            const localSupabase = createSupabaseClient();
+            const { data: newProfile, error: createError } = await localSupabase
               .from('user_profiles')
               .insert({
                 user_id: user.id,
@@ -90,7 +114,7 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
           setAuthState({
             user,
             profile: profile || null,
-            session: session.session,
+            session: session,
             isLoading: false,
             error: null,
           });
@@ -103,14 +127,22 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
             error: null,
           });
         }
-      } catch (error) {
+      } catch (error: any) {
+        // Handle timeout and network errors more gracefully
         console.error("Auth initialization error:", error);
+        
+        // For timeout or network errors, we still want to show the app
+        // rather than keeping it in a loading state
+        const isNetworkError = error?.message?.includes('timeout') || 
+                              error?.message?.includes('fetch failed') ||
+                              error?.status === 0;
+        
         setAuthState({
           user: null,
           profile: null,
           session: null,
           isLoading: false,
-          error: "Failed to initialize authentication",
+          error: isNetworkError ? null : "Failed to initialize authentication", // Don't show error for network issues
         });
       }
     };
@@ -119,44 +151,82 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
 
     // Set up auth state change listener
     const { data: { subscription } } = onAuthStateChange(async (user: User | null) => {
-      if (user) {
-        // Try to get profile, or create one if it doesn't exist
-        let { data: profile } = await supabase
-          .from('user_profiles')
-          .select('*')
-          .eq('user_id', user.id)
-          .maybeSingle();
+      try {
+        if (user) {
+          // Try to get profile, or create one if it doesn't exist
+          let profile = null;
+          try {
+            const localSupabase = createSupabaseClient();
+            const { data: profileData, error: profileError } = await localSupabase
+              .from('user_profiles')
+              .select('*')
+              .eq('user_id', user.id)
+              .maybeSingle();
 
-        // If profile doesn't exist, create a default one
-        if (!profile) {
-          const { data: newProfile } = await supabase
-            .from('user_profiles')
-            .insert({
-              user_id: user.id,
-              name: user.email?.split('@')[0] || 'User',
-              role_id: '00000000-0000-0000-0000-000000000002', // Default user role
-              is_active: true,
-            })
-            .select('*')
-            .single();
-          
-          profile = newProfile;
+            profile = profileData || null;
+
+            // If profile doesn't exist and no error, create a default one
+            if (!profile && !profileError) {
+              try {
+                const localSupabase = createSupabaseClient();
+                const { data: newProfile, error: createError } = await localSupabase
+                  .from('user_profiles')
+                  .insert({
+                    user_id: user.id,
+                    name: user.email?.split('@')[0] || 'User',
+                    role_id: '00000000-0000-0000-0000-000000000002', // Default user role
+                    is_active: true,
+                  })
+                  .select('*')
+                  .single();
+                
+                if (!createError) {
+                  profile = newProfile;
+                }
+              } catch (createErr: any) {
+                // Only log if it's not a network error
+                if (createErr?.status !== 0 && !createErr?.message?.includes('fetch failed')) {
+                  console.error("Failed to create user profile:", createErr);
+                }
+              }
+            }
+          } catch (profileErr: any) {
+            // Only log if it's not a network error
+            if (profileErr?.status !== 0 && !profileErr?.message?.includes('fetch failed')) {
+              console.error("Error fetching user profile:", profileErr);
+            }
+          }
+
+          setAuthState(prev => ({
+            ...prev,
+            user,
+            profile: profile || null,
+            isLoading: false,
+          }));
+        } else {
+          setAuthState(prev => ({
+            ...prev,
+            user: null,
+            profile: null,
+            session: null,
+            isLoading: false,
+          }));
         }
-
-        setAuthState(prev => ({
-          ...prev,
-          user,
-          profile: profile || null,
-          isLoading: false,
-        }));
-      } else {
-        setAuthState(prev => ({
-          ...prev,
-          user: null,
-          profile: null,
-          session: null,
-          isLoading: false,
-        }));
+      } catch (error: any) {
+        // Handle unexpected errors in auth state change
+        if (error?.status !== 0 && !error?.message?.includes('fetch failed')) {
+          console.error("Auth state change error:", error);
+        }
+        // Still update state to reflect no user if we can't fetch profile
+        if (!user) {
+          setAuthState(prev => ({
+            ...prev,
+            user: null,
+            profile: null,
+            session: null,
+            isLoading: false,
+          }));
+        }
       }
     });
 
@@ -171,7 +241,13 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
     setAuthState(prev => ({ ...prev, isLoading: true, error: null }));
     
     try {
-      const { session, user } = await signIn(email, password);
+      const { data, error } = await signIn(email, password);
+      
+      if (error) {
+        throw error;
+      }
+      
+      const { session, user } = data;
       
       if (!user || !session) {
         // Invalid credentials: handle gracefully without throwing
@@ -185,7 +261,8 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
       }
       
       // Get user profile, or create one if it doesn't exist
-      let { data: profile } = await supabase
+      const localSupabase = createSupabaseClient();
+      let { data: profile } = await localSupabase
         .from('user_profiles')
         .select('*')
         .eq('user_id', user.id)
@@ -193,7 +270,8 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
 
       // If profile doesn't exist, create a default one
       if (!profile) {
-        const { data: newProfile } = await supabase
+        const localSupabase = createSupabaseClient();
+        const { data: newProfile } = await localSupabase
           .from('user_profiles')
           .insert({
             user_id: user.id,
@@ -209,7 +287,8 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
       
       // Update last login time
       if (profile) {
-        await supabase
+        const localSupabase = createSupabaseClient();
+        await localSupabase
           .from('user_profiles')
           .update({ last_login: new Date().toISOString() })
           .eq('user_id', user.id);
@@ -264,7 +343,13 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
     
     try {
       // Create user in Supabase Auth
-      const { user } = await signUp(email, password);
+      const { data, error } = await signUp(email, password);
+      
+      if (error) {
+        throw error;
+      }
+      
+      const { user } = data;
       
       if (!user) {
         throw new Error("Registration failed");
@@ -302,7 +387,8 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
     setAuthState(prev => ({ ...prev, isLoading: true, error: null }));
     
     try {
-      const { data: updatedProfile, error } = await supabase
+      const localSupabase = createSupabaseClient();
+      const { data: updatedProfile, error } = await localSupabase
         .from('user_profiles')
         .update({
           ...data,
@@ -338,7 +424,8 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
     if (!authState.user) return;
     
     try {
-      const { data: profile, error } = await supabase
+      const localSupabase = createSupabaseClient();
+      const { data: profile, error } = await localSupabase
         .from('user_profiles')
         .select('*')
         .eq('user_id', authState.user.id)

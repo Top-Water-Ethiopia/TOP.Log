@@ -1,15 +1,9 @@
 import type { User } from '@supabase/supabase-js';
-import type { SupabaseClient } from './supabase-client';
+import { createSupabaseClient } from './supabase-client';
 
-// Dynamically import supabase client to avoid initialization issues
-let supabase: SupabaseClient;
-
-const getSupabase = async () => {
-  if (!supabase) {
-    const module = await import('./supabase-client');
-    supabase = module.supabase;
-  }
-  return supabase;
+// Create a new client instance each time to ensure fresh environment variables
+const getSupabase = () => {
+  return createSupabaseClient();
 };
 
 /**
@@ -238,7 +232,8 @@ export async function getCurrentSession() {
  * Setup a listener for auth state changes
  */
 export function onAuthStateChange(callback: (user: User | null) => void) {
-  return supabase.auth.onAuthStateChange((event, session) => {
+  const supabase = getSupabase();
+  return supabase.auth.onAuthStateChange((event: any, session: any) => {
     callback(session?.user || null);
   });
 }
