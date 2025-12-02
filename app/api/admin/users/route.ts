@@ -51,7 +51,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json()
-    const { email, password, name, role_id, department } = body
+    const { email, password, name, role_id, department_id } = body
 
     // Validate required fields
     if (!email || !password || !name) {
@@ -123,12 +123,15 @@ export async function POST(request: Request) {
     // Create user profile using admin client (bypasses RLS)
     const defaultRoleId = role_id || '00000000-0000-0000-0000-000000000002' // Default to user role
     
+    // Use the department_id directly
+    const departmentId = department_id || null;
+    
     const { data: profile, error: profileError } = await adminSupabase
       .from('user_profiles')
       .insert({
         user_id: authData.user.id,
         name: name.trim(),
-        department: department?.trim() || null,
+        department_id: departmentId,
         role_id: defaultRoleId,
         is_active: true,
       })
@@ -184,7 +187,7 @@ export async function PUT(request: Request) {
     }
 
     const body = await request.json()
-    const { user_id, name, email, department, role_id, is_active } = body
+    const { user_id, name, email, department_id, role_id, is_active } = body
 
     if (!user_id) {
       return NextResponse.json(
@@ -255,7 +258,10 @@ export async function PUT(request: Request) {
     // Update user profile
     const updateData: any = {}
     if (name !== undefined) updateData.name = name.trim()
-    if (department !== undefined) updateData.department = department?.trim() || null
+    if (department_id !== undefined) {
+      // Use the department_id directly
+      updateData.department_id = department_id || null;
+    }
     if (role_id !== undefined) updateData.role_id = role_id
     if (is_active !== undefined) updateData.is_active = is_active
     updateData.updated_at = new Date().toISOString()
@@ -314,6 +320,15 @@ export async function PUT(request: Request) {
 
 export async function GET(request: Request) {
   try {
+    // Verify admin access
+    const { isAdmin, isSuperAdmin, error: authVerifyError } = await verifyAdmin()
+    if (!isAdmin) {
+      return NextResponse.json(
+        { error: authVerifyError || 'Admin access required' },
+        { status: 403 }
+      )
+    }
+
     // Parse pagination parameters from the URL
     const { searchParams } = new URL(request.url)
     const page = Math.max(1, parseInt(searchParams.get('page') || '1'))
@@ -334,7 +349,7 @@ export async function GET(request: Request) {
         id,
         user_id,
         name,
-        department,
+        department_id,
         role_id,
         is_active,
         created_at,
@@ -385,7 +400,7 @@ export async function GET(request: Request) {
         profile: {
           id: profile.id,
           name: profile.name,
-          department: profile.department,
+          department_id: profile.department_id,
           role_id: profile.role_id,
           role_name: profile.roles?.name || 'user',
           is_active: profile.is_active,

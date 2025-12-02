@@ -155,6 +155,11 @@ export async function POST(request: Request) {
       display_order: question.display_order ?? index,
       validation_rules: question.validation_rules || null,
       is_active: question.is_active !== false,
+      // Handle question_title by storing it in metadata since it's not a core column
+      metadata: {
+        ...(question.metadata || {}),
+        question_title: question.question_title?.trim() || question.question_label.trim() || null,
+      },
       // Advanced features - TODO: Uncomment after migration 20251118020000_enhance_questions_advanced_features.sql is applied
       // help_text: question.help_text?.trim() || null,
       // default_value: question.default_value?.trim() || null,
@@ -169,7 +174,7 @@ export async function POST(request: Request) {
       // conditional_logic: question.conditional_logic || null,
       created_by: userId,
       updated_by: userId,
-      }))
+    }))
 
     // Insert all questions in a transaction
     const { data: createdQuestions, error: insertError } = await adminSupabase
