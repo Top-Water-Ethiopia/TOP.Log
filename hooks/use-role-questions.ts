@@ -6,6 +6,7 @@ export interface RoleQuestion {
   role_id: string
   question_key: string
   question_label: string
+  question_title?: string | null
   question_type: 'text' | 'textarea' | 'select' | 'multiselect' | 'checkbox' | 'number' | 'date'
   question_description?: string | null
   placeholder?: string | null
@@ -18,15 +19,21 @@ export interface RoleQuestion {
   updated_at: string
 }
 
-export function useRoleQuestions() {
+export function useRoleQuestions(initialQuestions?: RoleQuestion[]) {
   const { user, profile } = useSupabaseAuth()
-  const [questions, setQuestions] = useState<RoleQuestion[]>([])
-  const [isLoading, setIsLoading] = useState(true)
+  const [questions, setQuestions] = useState<RoleQuestion[]>(initialQuestions ?? [])
+  const [isLoading, setIsLoading] = useState(!initialQuestions)
   const [error, setError] = useState<string | null>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
   const lastFetchRef = useRef<{ userId: string | undefined; roleId: string | undefined } | null>(null)
 
   useEffect(() => {
+    if (initialQuestions && initialQuestions.length > 0) {
+      setIsLoading(false)
+      setQuestions(initialQuestions)
+      return
+    }
+
     // Cancel any pending requests
     if (abortControllerRef.current) {
       abortControllerRef.current.abort()
@@ -97,12 +104,15 @@ export function useRoleQuestions() {
         abortControllerRef.current.abort()
       }
     }
-  }, [user?.id, profile?.role_id]) // Use specific properties instead of whole objects
+  }, [user?.id, profile?.role_id, initialQuestions]) // Use specific properties instead of whole objects
 
   // Convert database questions to the format expected by RoleBasedQuestionFields
+  // and include a separate title field (backed by question_title, falling back to label)
   const formattedQuestions = questions.map(q => ({
+    id: q.id, // Include the database ID for proper response creation
     key: q.question_key,
     label: q.question_label,
+    title: q.question_title || q.question_label,
     type: q.question_type,
     description: q.question_description || undefined,
     placeholder: q.placeholder || undefined,
@@ -111,8 +121,8 @@ export function useRoleQuestions() {
     order: q.display_order,
     validationRules: q.validation_rules || undefined,
     defaultValue: q.question_type === 'checkbox' ? false : 
-                   q.question_type === 'multiselect' ? [] : 
-                   undefined,
+                  q.question_type === 'multiselect' ? [] : 
+                  undefined,
   }))
 
   return {

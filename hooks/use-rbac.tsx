@@ -3,7 +3,7 @@
 import { useContext, useCallback, useMemo } from "react"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import type { User, Role, Permission, PermissionCheck, CustomQuestion, RoleQuestionSet, QuestionResponse, Department, AccessScope } from "@/lib/rbac/types"
-import { ROLE_HIERARCHY } from "@/lib/rbac/types"
+import { ROLE_HIERARCHY, DEFAULT_ROLES } from "@/lib/rbac/types"
 import {
   hasPermission,
   canPerformAction,
@@ -37,9 +37,11 @@ export function useRBAC() {
   const user = useMemo(() => mapSupabaseUserToRbacUser(supabaseUser, profile), [supabaseUser, profile])
   
   // Load roles from storage (normalize missing access scopes)
+  // Always fallback to DEFAULT_ROLES to ensure permissions work even if localStorage is empty
   const roles: Role[] = useMemo(() => {
     const stored = loadFromStorage("ROLES", [] as Role[])
-    return stored.map((role) => ({
+    const rolesArray = stored && stored.length > 0 ? stored : DEFAULT_ROLES
+    return rolesArray.map((role) => ({
       ...role,
       accessScopes: role.accessScopes ?? [],
     }))

@@ -465,6 +465,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const contextValue: AuthContextType = {
     ...authState,
+    isInitialized,
     login,
     logout,
     register,

@@ -5,7 +5,127 @@ import { toast } from "sonner";
 import { useSupabaseAuth } from "./supabase-auth-context";
 import { v4 as uuidv4 } from 'uuid';
 import * as supabaseData from "@/lib/supabase-data";
-import type { CaptainLogEntry, AuditLog } from "@/lib/supabase-data";
+import type { CaptainLogEntry as DbCaptainLogEntry, AuditLog } from "@/lib/supabase-data";
+
+// Re-export types for components
+export type { AuditLog } from "@/lib/supabase-data";
+
+// Enhanced entry type with camelCase properties for components
+export type CaptainLogEntry = {
+  // Core properties
+  id: string;
+  user_id: string;
+  date: string;
+  created_at: string;
+  updated_at: string;
+  version: number;
+  metadata: any | null;
+  
+  // Standard question fields (now loaded from custom_responses)
+  objectives: string;
+  keyResults: string;
+  challenges: string;
+  developmentTasks: string;
+  featuresCompleted: string;
+  challengesAndBlockers: string;
+  codeAndPriorities: string;
+  systemImprovements: string;
+  projectUpdates: string;
+  
+  // Metadata fields
+  createdAt: string;
+  updatedAt: string;
+  
+  // Custom responses
+  customResponses: any[];
+};
+
+// Helper function to get standard question labels
+function getStandardQuestionLabel(key: string): string {
+  const labels: Record<string, string> = {
+    'objectives': 'Objectives',
+    'keyResults': 'Key Results',
+    'challenges': 'Challenges',
+    'developmentTasks': 'Development Tasks',
+    'featuresCompleted': 'Features Completed',
+    'challengesAndBlockers': 'Challenges & Blockers',
+    'codeAndPriorities': 'Code Review & Priorities',
+    'systemImprovements': 'System Improvements',
+    'projectUpdates': 'Project Updates'
+  };
+  return labels[key] || key;
+}
+
+// Compatibility layer: Transform database entry + custom responses to component format
+async function transformEntryForComponents(entry: DbCaptainLogEntry): Promise<CaptainLogEntry> {
+  // Fetch custom responses for this entry
+  let customResponsesData: any[] = [];
+  try {
+    customResponsesData = await supabaseData.getCustomResponses(entry.id);
+  } catch (error) {
+    console.error(`Failed to load custom responses for entry ${entry.id}:`, error);
+  }
+  
+  // Transform custom responses to expected format
+  const customResponses = customResponsesData.map((response) => ({
+    questionId: response.question_id,
+    questionKey: response.question_key,
+    questionLabel: response.question_label,
+    questionType: response.question_type,
+    questionCategory: response.question_category,
+    value: response.value,
+    timestamp: response.timestamp,
+  }));
+
+  // Extract standard fields from custom responses
+  const standardResponses = customResponsesData.filter(r => r.question_category === 'standard');
+  const getField = (key: string) => {
+    const response = standardResponses.find(r => r.question_key === key);
+    return response ? (response.value as string || "") : "";
+  };
+
+  return {
+    ...entry,
+    // Standard fields from custom responses
+    objectives: getField('objectives'),
+    keyResults: getField('keyResults'),
+    challenges: getField('challenges'),
+    developmentTasks: getField('developmentTasks'),
+    featuresCompleted: getField('featuresCompleted'),
+    challengesAndBlockers: getField('challengesAndBlockers'),
+    codeAndPriorities: getField('codeAndPriorities'),
+    systemImprovements: getField('systemImprovements'),
+    projectUpdates: getField('projectUpdates'),
+    
+    // Metadata fields
+    createdAt: entry.created_at,
+    updatedAt: entry.updated_at,
+    
+    // All custom responses
+    customResponses,
+  };
+}
+
+// Transform entry from components to database format (entry + custom responses)
+function transformEntryForDatabase(entry: any) {
+  const dbEntry: any = { ...entry };
+  
+  // Remove component-only fields
+  delete dbEntry.objectives;
+  delete dbEntry.keyResults;
+  delete dbEntry.challenges;
+  delete dbEntry.developmentTasks;
+  delete dbEntry.featuresCompleted;
+  delete dbEntry.challengesAndBlockers;
+  delete dbEntry.codeAndPriorities;
+  delete dbEntry.systemImprovements;
+  delete dbEntry.projectUpdates;
+  delete dbEntry.createdAt;
+  delete dbEntry.updatedAt;
+  delete dbEntry.customResponses;
+  
+  return dbEntry;
+}
 
 // Context type
 interface CaptainLogContextType {
@@ -62,7 +182,9 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
     setIsLoading(true);
     try {
       const data = await supabaseData.getEntriesByUserId(user.id);
-      setEntries(data);
+      // Transform entries for component compatibility
+      const transformedEntries = await Promise.all(data.map(transformEntryForComponents));
+      setEntries(transformedEntries);
       setError(null);
     } catch (error) {
       console.error("Failed to load entries:", error);
@@ -100,7 +222,7 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
       setIsInitialized(false);
       setIsLoading(false);
     }
-  }, [user, loadEntries, loadAuditLogs]);
+  }, [user?.id, loadEntries, loadAuditLogs]); // Include callbacks to ensure stable dependency array
 
   // CRUD Operations
   
@@ -114,6 +236,9 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
     setError(null);
 
     try {
+      // Transform entry from camelCase to snake_case for database
+      const dbEntry = transformEntryForDatabase(entry);
+      
       // Check for duplicate by date
       const existingEntry = await supabaseData.getEntryByDate(user.id, entry.date);
       if (existingEntry) {
@@ -123,13 +248,59 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
       // Create the entry
       const now = new Date().toISOString();
       const newEntry = await supabaseData.createEntry({
-        ...entry,
+        ...dbEntry,
         id: uuidv4(),
         user_id: user.id,
+        date: entry.date,
         created_at: now,
         updated_at: now,
         version: 1
       });
+
+      // Save standard fields as custom responses
+      const standardResponses = [
+        { key: 'objectives', value: entry.objectives || '' },
+        { key: 'keyResults', value: entry.keyResults || '' },
+        { key: 'challenges', value: entry.challenges || '' },
+        { key: 'developmentTasks', value: entry.developmentTasks || '' },
+        { key: 'featuresCompleted', value: entry.featuresCompleted || '' },
+        { key: 'challengesAndBlockers', value: entry.challengesAndBlockers || '' },
+        { key: 'codeAndPriorities', value: entry.codeAndPriorities || '' },
+        { key: 'systemImprovements', value: entry.systemImprovements || '' },
+        { key: 'projectUpdates', value: entry.projectUpdates || '' }
+      ];
+
+      // Create custom responses for standard fields
+      for (const response of standardResponses) {
+        if (response.value) {
+          await supabaseData.createCustomResponse({
+            entry_id: newEntry.id,
+            question_id: `std_${response.key}`,
+            question_key: response.key,
+            question_label: getStandardQuestionLabel(response.key),
+            question_type: 'textarea',
+            question_category: 'standard',
+            value: response.value,
+            timestamp: now
+          });
+        }
+      }
+
+      // Save any additional custom responses
+      if (entry.customResponses && Array.isArray(entry.customResponses)) {
+        for (const response of entry.customResponses) {
+          await supabaseData.createCustomResponse({
+            entry_id: newEntry.id,
+            question_id: response.questionId,
+            question_key: response.questionKey,
+            question_label: response.questionLabel,
+            question_type: response.questionType,
+            question_category: response.questionCategory || 'custom',
+            value: response.value,
+            timestamp: response.timestamp || now
+          });
+        }
+      }
 
       // Create audit log
       await supabaseData.createAuditLog({
@@ -139,8 +310,9 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
         metadata: { date: newEntry.date }
       });
 
-      // Update local state
-      setEntries(prev => [...prev, newEntry]);
+      // Transform back to camelCase for state
+      const transformedEntry = await transformEntryForComponents(newEntry);
+      setEntries(prev => [...prev, transformedEntry]);
       
       toast.success("Entry saved successfully");
     } catch (error) {
@@ -171,11 +343,65 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
         throw new Error(`Entry ${id} not found`);
       }
 
+      // Transform updates from camelCase to snake_case for database
+      const dbUpdates = transformEntryForDatabase(updates);
+
       // Update the entry
       const updatedEntry = await supabaseData.updateEntry(id, {
-        ...updates,
+        ...dbUpdates,
         updated_at: new Date().toISOString(),
       });
+
+      // For updates, we'll recreate all custom responses to keep it simple
+      // First delete existing custom responses for this entry
+      await supabaseData.deleteCustomResponses(id);
+
+      // Then recreate standard fields as custom responses
+      const standardResponses = [
+        { key: 'objectives', value: updates.objectives || '' },
+        { key: 'keyResults', value: updates.keyResults || '' },
+        { key: 'challenges', value: updates.challenges || '' },
+        { key: 'developmentTasks', value: updates.developmentTasks || '' },
+        { key: 'featuresCompleted', value: updates.featuresCompleted || '' },
+        { key: 'challengesAndBlockers', value: updates.challengesAndBlockers || '' },
+        { key: 'codeAndPriorities', value: updates.codeAndPriorities || '' },
+        { key: 'systemImprovements', value: updates.systemImprovements || '' },
+        { key: 'projectUpdates', value: updates.projectUpdates || '' }
+      ];
+
+      const now = new Date().toISOString();
+      
+      // Create standard responses
+      for (const response of standardResponses) {
+        if (response.value) {
+          await supabaseData.createCustomResponse({
+            entry_id: id,
+            question_id: `std_${response.key}`,
+            question_key: response.key,
+            question_label: getStandardQuestionLabel(response.key),
+            question_type: 'textarea',
+            question_category: 'standard',
+            value: response.value,
+            timestamp: now
+          });
+        }
+      }
+
+      // Handle additional custom responses if provided
+      if (updates.customResponses && Array.isArray(updates.customResponses)) {
+        for (const response of updates.customResponses) {
+          await supabaseData.createCustomResponse({
+            entry_id: id,
+            question_id: response.questionId,
+            question_key: response.questionKey,
+            question_label: response.questionLabel,
+            question_type: response.questionType,
+            question_category: response.questionCategory || 'custom',
+            value: response.value,
+            timestamp: response.timestamp || now
+          });
+        }
+      }
 
       // Create audit log
       await supabaseData.createAuditLog({
@@ -184,16 +410,16 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
         user_id: user.id,
         changes: {
           from: Object.keys(updates).reduce((acc, key) => {
-            const typedKey = key as keyof CaptainLogEntry;
-            acc[key] = existingEntry[typedKey];
+            acc[key] = (existingEntry as any)[key];
             return acc;
           }, {} as Record<string, any>),
           to: updates
         }
       });
 
-      // Update local state
-      setEntries(prev => prev.map(e => e.id === id ? updatedEntry : e));
+      // Transform back to camelCase for state
+      const transformedEntry = await transformEntryForComponents(updatedEntry);
+      setEntries(prev => prev.map(e => e.id === id ? transformedEntry : e));
       
       toast.success("Entry updated successfully");
     } catch (error) {
@@ -310,7 +536,9 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
     }
 
     try {
-      return await supabaseData.searchEntries(user.id, query);
+      const results = await supabaseData.searchEntries(user.id, query);
+      // Transform results for component compatibility
+      return await Promise.all(results.map(transformEntryForComponents));
     } catch (error) {
       console.error("Search failed:", error);
       toast.error("Search failed");
@@ -325,7 +553,9 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
     }
 
     try {
-      return await supabaseData.getEntriesByDateRange(user.id, from, to);
+      const results = await supabaseData.getEntriesByDateRange(user.id, from, to);
+      // Transform results for component compatibility
+      return await Promise.all(results.map(transformEntryForComponents));
     } catch (error) {
       console.error("Failed to get entries by date range:", error);
       toast.error("Failed to fetch entries");
@@ -379,12 +609,16 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
           continue;
         }
 
+        // Transform entry to database format
+        const dbEntry = transformEntryForDatabase(entry);
+
         // Create new entry
         await supabaseData.createEntry({
-          ...entry,
+          ...dbEntry,
           id: uuidv4(), // Generate new ID to avoid conflicts
           user_id: user.id,
-          created_at: entry.created_at || new Date().toISOString(),
+          date: entry.date,
+          created_at: entry.created_at || entry.createdAt || new Date().toISOString(),
           updated_at: new Date().toISOString(),
           version: 1
         });
@@ -549,3 +783,6 @@ export function useSupabaseLog() {
   
   return context;
 }
+
+// Alias for backward compatibility with existing components
+export const useCaptainLog = useSupabaseLog;
