@@ -24,7 +24,8 @@ import {
   Settings,
   LogOut,
   Moon,
-  Sun
+  Sun,
+  FileText
 } from "lucide-react"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 
@@ -44,6 +45,11 @@ export function AdminSidebar() {
       name: "Overview",
       icon: LayoutDashboard,
       path: "/admin"
+    },
+    {
+      name: "Reports",
+      icon: FileText,
+      path: "/admin/reports"
     },
     {
       name: "Users",

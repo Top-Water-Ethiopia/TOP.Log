@@ -24,10 +24,12 @@ import {
   ArrowLeft, 
   LogOut, 
   User, 
-  Settings
+  Settings,
+  FileText
 } from "lucide-react"
+import Link from "next/link"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs"
-import { useCaptainLog } from "@/contexts/captain-log-context"
+import { useCaptainLog } from "@/contexts/supabase-log-context"
 import { useAuth } from "@/contexts/auth-context"
 import { useRBAC } from "@/hooks/use-rbac"
 import { VersionInfo } from "./version-info"
@@ -41,6 +43,9 @@ import {
 } from "./ui/dropdown-menu"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 
+// Role IDs from schema
+const SUPER_ADMIN_ROLE_ID = '00000000-0000-0000-0000-000000000000';
+
 /**
  * MainLayout - Supabase-first enterprise layout
  * Provides cloud-native authentication and data management
@@ -48,9 +53,12 @@ import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 export function MainLayout() {
   const { entries } = useCaptainLog()
   const { isAuthenticated, user, logout } = useAuth()
-  const { user: supabaseUser } = useSupabaseAuth()
+  const { user: supabaseUser, profile: supabaseProfile } = useSupabaseAuth()
   const { canViewAnalytics, canAccessAdmin, canExportData, canImportData } = useRBAC()
   const isSupabaseLoggedIn = Boolean(supabaseUser)
+  
+  // Check if current user is super admin
+  const isSuperAdmin = supabaseProfile?.role_id === SUPER_ADMIN_ROLE_ID;
   
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split("T")[0])
   const [viewMode, setViewMode] = useState<"landing" | "calendar" | "form" | "details" | "analytics" | "thankYou">("landing")
@@ -58,6 +66,8 @@ export function MainLayout() {
   const [showAuthDialog, setShowAuthDialog] = useState(false)
   const [showProfileDialog, setShowProfileDialog] = useState(false)
   const [editingDate, setEditingDate] = useState<string | undefined>(undefined)
+
+  const canCreateEntry = isAuthenticated && !!user
 
   const handleDateSelect = (date: string) => {
     setSelectedDate(date)
@@ -110,94 +120,95 @@ export function MainLayout() {
               <p className="text-sm text-muted-foreground mt-1">IT Department Daily Tracker</p>
             </div>
             <div className="flex gap-2">
-              <SearchDialog onSelectEntry={handleSearchSelect} />
-              
-              {/* Export/Import - Permission based */}
-              {canExportData && <ExportDialog />}
-              {canImportData && <ImportDialog />}
-              
-              {/* Analytics - Permission based */}
-              {canViewAnalytics && (
-                <Button
-                  variant={viewMode === "analytics" ? "default" : "outline"}
-                  size="sm"
-                  onClick={() => setViewMode(viewMode === "analytics" ? "calendar" : "analytics")}
-                  className="gap-2"
-                >
-                  <BarChart3 className="h-4 w-4" />
-                  Analytics
-                </Button>
-              )}
-              
-              {/* Admin - Permission based */}
-              {canAccessAdmin && (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => setShowAdminDashboard(true)}
-                  className="gap-2"
-                >
-                  <Shield className="h-4 w-4" />
-                  Admin
-                </Button>
-              )}
-              
-              {/* Authentication */}
-              {isSupabaseLoggedIn ? (
-                <SupabaseNav />
-              ) : isAuthenticated && user ? (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <Button variant="outline" size="sm" className="gap-2">
-                      <Avatar className="h-6 w-6">
-                        <AvatarImage src={user.avatar} />
-                        <AvatarFallback className="text-xs">
-                          {user.name.split(" ").map(n => n[0]).join("").toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      {user.name.split(" ")[0]}
-                      <Badge variant={getRoleBadgeVariant(user.role)} className="text-xs">
-                        {user.role}
-                      </Badge>
+              {/* Primary Navigation - Left side */}
+              <div className="flex gap-2">
+                <SearchDialog onSelectEntry={handleSearchSelect} />
+                
+                {/* Admin - Permission based or Super Admin */}
+                {(canAccessAdmin || isSuperAdmin) && (
+                  <>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setShowAdminDashboard(true)}
+                      className="gap-2"
+                    >
+                      <Shield className="h-4 w-4" />
+                      Admin
                     </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-56">
-                    <DropdownMenuLabel className="flex items-center gap-2">
-                      <Avatar className="h-8 w-8">
-                        <AvatarImage src={user.avatar} />
-                        <AvatarFallback>
-                          {user.name.split(" ").map(n => n[0]).join("").toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div>
-                        <div className="font-medium">{user.name}</div>
-                        <div className="text-sm text-muted-foreground">{user.email}</div>
-                      </div>
-                    </DropdownMenuLabel>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={() => setShowProfileDialog(true)}>
-                      <User className="mr-2 h-4 w-4" />
-                      Profile
-                    </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setShowProfileDialog(true)}>
-                      <Settings className="mr-2 h-4 w-4" />
-                      Settings
-                    </DropdownMenuItem>
-                    <DropdownMenuSeparator />
-                    <DropdownMenuItem onClick={logout} className="text-red-600">
-                      <LogOut className="mr-2 h-4 w-4" />
-                      Logout
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              ) : (
-                <>
-                  {/* Supabase Auth Nav */}
-                  <SupabaseNav />
-                </>
-              )}
+                    <Link href="/admin/reports">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-2"
+                      >
+                        <FileText className="h-4 w-4" />
+                        Reports
+                      </Button>
+                    </Link>
+                  </>
+                )}
+              </div>
               
-              <VersionInfo />
+              {/* Utility Items - Right side */}
+              <div className="flex gap-2 ml-auto">
+                {/* Authentication */}
+                {isSupabaseLoggedIn ? (
+                  <SupabaseNav />
+                ) : isAuthenticated && user ? (
+                  <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                      <Button variant="outline" size="sm" className="gap-2">
+                        <Avatar className="h-6 w-6">
+                          <AvatarImage src={user.avatar} />
+                          <AvatarFallback className="text-xs">
+                            {user.name.split(" ").map(n => n[0]).join("").toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        {user.name.split(" ")[0]}
+                        <Badge variant={getRoleBadgeVariant(user.role)} className="text-xs">
+                          {user.role}
+                        </Badge>
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end" className="w-56">
+                      <DropdownMenuLabel className="flex items-center gap-2">
+                        <Avatar className="h-8 w-8">
+                          <AvatarImage src={user.avatar} />
+                          <AvatarFallback>
+                            {user.name.split(" ").map(n => n[0]).join("").toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div>
+                          <div className="font-medium">{user.name}</div>
+                          <div className="text-sm text-muted-foreground">{user.email}</div>
+                        </div>
+                      </DropdownMenuLabel>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={() => setShowProfileDialog(true)}>
+                        <User className="mr-2 h-4 w-4" />
+                        Profile
+                      </DropdownMenuItem>
+                      <DropdownMenuItem onClick={() => setShowProfileDialog(true)}>
+                        <Settings className="mr-2 h-4 w-4" />
+                        Settings
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem onClick={logout} className="text-red-600">
+                        <LogOut className="mr-2 h-4 w-4" />
+                        Logout
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                ) : (
+                  <>
+                    {/* Supabase Auth Nav */}
+                    <SupabaseNav />
+                  </>
+                )}
+                
+                <VersionInfo />
+              </div>
             </div>
           </div>
         </div>
@@ -205,10 +216,10 @@ export function MainLayout() {
 
       {/* Admin Dashboard Modal */}
       {showAdminDashboard && <AdminDashboard onClose={() => setShowAdminDashboard(false)} />}
-      
+
       {/* Auth Dialog */}
       {showAuthDialog && <AuthDialog onClose={() => setShowAuthDialog(false)} />}
-      
+
       {/* Profile Dialog */}
       {showProfileDialog && <UserProfileDialog onClose={() => setShowProfileDialog(false)} />}
 
@@ -311,12 +322,6 @@ export function MainLayout() {
         </div>
       </main>
 
-      {/* Supabase Integration Banner */}
-      <div className="border-t border-border bg-card p-2 flex items-center justify-center">
-        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-          <span>Supabase Cloud Storage</span>
-        </div>
-      </div>
     </div>
   )
 }

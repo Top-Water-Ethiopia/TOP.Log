@@ -36,8 +36,12 @@ import {
   AlertCircleIcon,
   InfoIcon,
   Moon,
-  Sun
+  Sun,
+  LayoutDashboard
 } from "lucide-react";
+
+// Role IDs from schema
+const SUPER_ADMIN_ROLE_ID = '00000000-0000-0000-0000-000000000000';
 
 export function SupabaseNav() {
   const pathname = usePathname();
@@ -48,6 +52,9 @@ export function SupabaseNav() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
 
   const isSupabaseConfigured = !!process.env.NEXT_PUBLIC_SUPABASE_URL;
+  
+  // Check if current user is super admin
+  const isSuperAdmin = profile?.role_id === SUPER_ADMIN_ROLE_ID;
 
   useEffect(() => {
     setMounted(true);
@@ -92,7 +99,15 @@ export function SupabaseNav() {
                   <span>Profile</span>
                 </Link>
               </DropdownMenuItem>
-              {canAccessAdmin && (
+              {isSuperAdmin && (
+                <DropdownMenuItem asChild>
+                  <Link href="/admin">
+                    <LayoutDashboard className="h-4 w-4 mr-2" />
+                    <span>Admin Dashboard</span>
+                  </Link>
+                </DropdownMenuItem>
+              )}
+              {canAccessAdmin && !isSuperAdmin && (
                 <DropdownMenuItem asChild>
                   <Link href="/admin">
                     <LockIcon className="h-4 w-4 mr-2" />
