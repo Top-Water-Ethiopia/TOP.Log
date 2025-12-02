@@ -4,9 +4,10 @@ import { useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
-import { useCaptainLog, type CaptainLogEntry } from "@/contexts/captain-log-context"
+import { useCaptainLog, type CaptainLogEntry } from "@/contexts/supabase-log-context"
 import { ArrowLeft, Edit, Trash2, Target, CheckCircle, AlertTriangle, ListChecks } from "lucide-react"
 import type { QuestionResponse } from "@/lib/rbac/types"
+import { canUpdateEntryForDate } from "@/lib/date-restrictions"
 
 interface EntryDetailsProps {
   date: string
@@ -53,6 +54,13 @@ export function EntryDetails({ date, onEdit, onBack }: EntryDetailsProps) {
     }
   }
 
+  // Check if entry can be edited (within 2-day window)
+  const canEdit = useMemo(() => {
+    if (!currentEntry) return false
+    const validation = canUpdateEntryForDate(currentEntry.date, currentEntry.createdAt)
+    return validation.isValid
+  }, [currentEntry])
+
   const formatDate = (dateString: string) => {
     const date = new Date(dateString + "T00:00:00")
     return date.toLocaleDateString("default", { weekday: "long", year: "numeric", month: "long", day: "numeric" })
@@ -63,25 +71,8 @@ export function EntryDetails({ date, onEdit, onBack }: EntryDetailsProps) {
     return date.toLocaleTimeString("default", { hour: "2-digit", minute: "2-digit" })
   }
 
-  // Display new 3-question format if available, otherwise fall back to legacy fields
-  const hasNewFormat = currentEntry && ((currentEntry as any).objectives || (currentEntry as any).keyResults)
-
-  const newFields = [
-    { id: "objectives", label: "Objectives", icon: Target },
-    { id: "keyResults", label: "Key Results", icon: CheckCircle },
-    { id: "challenges", label: "Challenges", icon: AlertTriangle },
-  ]
-
-  const legacyFields = [
-    { id: "developmentTasks", label: "Development Tasks" },
-    { id: "featuresCompleted", label: "Features Completed" },
-    { id: "challengesAndBlockers", label: "Challenges & Blockers" },
-    { id: "codeAndPriorities", label: "Code Review & Priorities" },
-    { id: "systemImprovements", label: "System Improvements" },
-    { id: "projectUpdates", label: "Project Updates" },
-  ]
-
-  const fields = hasNewFormat ? newFields : legacyFields
+  // Industrial standard: Show ONLY role-specific responses in Daily Log view
+  // No legacy fields, no generic questions - only custom role-based Q&A
 
   if (!currentEntry) {
     return (
@@ -116,54 +107,27 @@ export function EntryDetails({ date, onEdit, onBack }: EntryDetailsProps) {
               <ArrowLeft className="h-4 w-4" />
               Back
             </Button>
-            <Button size="sm" onClick={onEdit} className="gap-2">
+            <Button 
+              size="sm" 
+              onClick={onEdit} 
+              className="gap-2"
+              disabled={!canEdit}
+              title={!canEdit ? "Entries older than 2 days cannot be edited" : "Edit this entry"}
+            >
               <Edit className="h-4 w-4" />
               Edit
             </Button>
           </div>
         </div>
 
-        {/* Entry Content */}
+        {/* Entry Content - Only Role-Specific Responses */}
         <Card className="p-6 flex-1 overflow-y-auto shadow-sm">
           <div className="space-y-8">
-            {fields.map((field, index) => {
-              const content = currentEntry[field.id as keyof CaptainLogEntry]
-              return (
-                <div key={field.id}>
-                  {index > 0 && <div className="border-t border-border mb-8" />}
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-2">
-                      {hasNewFormat && (field as any).icon && (() => {
-                        const IconComponent = (field as any).icon
-                        return <IconComponent className="h-5 w-5" />
-                      })()}
-                      <h3 className="text-lg font-semibold text-foreground">
-                        {field.label}
-                      </h3>
-                    </div>
-                    {content ? (
-                      <div className={`${hasNewFormat ? 'bg-muted/30 p-4 rounded-lg border border-border/50' : ''}`}>
-                        <p className="text-base text-foreground whitespace-pre-wrap leading-relaxed">
-                          {String(content)}
-                        </p>
-                      </div>
-                    ) : (
-                      <p className="text-sm text-muted-foreground italic pl-1">
-                        {hasNewFormat && field.id === 'challenges'
-                          ? 'No challenges reported'
-                          : 'No information provided'}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
-
-            {currentEntry.customResponses && currentEntry.customResponses.length > 0 && (
-              <div className="border-t border-border pt-8">
-                <div className="flex items-center gap-2 mb-4">
-                  <ListChecks className="h-5 w-5" />
-                  <h3 className="text-lg font-semibold text-foreground">
+            {currentEntry.customResponses && currentEntry.customResponses.length > 0 ? (
+              <div>
+                <div className="flex items-center gap-2 mb-6">
+                  <ListChecks className="h-6 w-6 text-primary" />
+                  <h3 className="text-xl font-semibold text-foreground">
                     Role-Specific Responses
                   </h3>
                 </div>
@@ -192,11 +156,23 @@ export function EntryDetails({ date, onEdit, onBack }: EntryDetailsProps) {
                           </div>
                         </div>
                         <p className="text-sm text-muted-foreground whitespace-pre-wrap leading-relaxed">
-                          {formatCustomResponseValue(response)}
+                          {formatCustomResponseValue(response as QuestionResponse)}
                         </p>
                       </div>
                     )
                   })}
+                </div>
+              </div>
+            ) : (
+              <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-6 text-center">
+                <div className="flex flex-col items-center gap-3">
+                  <AlertTriangle className="h-10 w-10 text-amber-500" />
+                  <div>
+                    <p className="text-base font-medium text-foreground">No Role-Specific Responses</p>
+                    <p className="text-sm text-muted-foreground mt-2">
+                      This entry does not contain any role-specific question responses.
+                    </p>
+                  </div>
                 </div>
               </div>
             )}
@@ -210,28 +186,19 @@ export function EntryDetails({ date, onEdit, onBack }: EntryDetailsProps) {
               <span>Updated {formatTime(currentEntry.updatedAt)}</span>
             </div>
             
-            {/* Delete Button */}
-            {showDeleteConfirm ? (
-              <div className="flex items-center gap-2">
-                <span className="text-sm text-foreground font-medium mr-2">Delete this entry?</span>
-                <Button variant="ghost" size="sm" onClick={() => setShowDeleteConfirm(false)}>
-                  Cancel
-                </Button>
-                <Button variant="destructive" size="sm" onClick={handleDelete}>
-                  Delete
-                </Button>
-              </div>
-            ) : (
+            {/* Delete Button - Disabled with Explanation */}
+            <div className="flex items-center gap-2">
               <Button
                 variant="ghost"
                 size="sm"
-                onClick={() => setShowDeleteConfirm(true)}
-                className="gap-2 text-muted-foreground hover:text-destructive"
+                disabled={true}
+                className="gap-2 text-muted-foreground cursor-not-allowed opacity-50"
+                title="Deleting entries is not allowed due to data retention policy"
               >
                 <Trash2 className="h-4 w-4" />
-                Delete
+                Delete (Disabled)
               </Button>
-            )}
+            </div>
           </div>
         </Card>
       </div>

@@ -4,7 +4,7 @@ import type React from "react"
 
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
-import { useCaptainLog } from "@/contexts/captain-log-context"
+import { useCaptainLog } from "@/contexts/supabase-log-context"
 import { ArrowLeft, Save } from "lucide-react"
 import { TemplateDialog } from "@/components/template-dialog"
 import type { EntryTemplate } from "@/lib/templates"

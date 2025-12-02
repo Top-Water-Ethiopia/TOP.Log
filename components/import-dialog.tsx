@@ -12,7 +12,7 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Upload, FileJson, AlertCircle } from "lucide-react"
-import { useCaptainLog } from "@/contexts/captain-log-context"
+import { useCaptainLog } from "@/contexts/supabase-log-context"
 import { importFromJSON } from "@/lib/export-utils"
 import { toast } from "sonner"
 import { Alert, AlertDescription } from "@/components/ui/alert"

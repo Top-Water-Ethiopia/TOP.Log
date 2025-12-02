@@ -14,7 +14,7 @@ import {
 import { Label } from "@/components/ui/label"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Download, FileJson, FileText, FileSpreadsheet } from "lucide-react"
-import { useCaptainLog } from "@/contexts/captain-log-context"
+import { useCaptainLog } from "@/contexts/supabase-log-context"
 import { downloadCSV, downloadJSON, downloadMarkdown, getDateRangeSummary } from "@/lib/export-utils"
 import { toast } from "sonner"
 

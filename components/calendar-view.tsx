@@ -3,7 +3,8 @@
 import { useState, useMemo } from "react"
 import { ChevronLeft, ChevronRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { useCaptainLog } from "@/contexts/captain-log-context"
+import { useCaptainLog } from "@/contexts/supabase-log-context"
+import { isDateInAllowedRange } from "@/lib/date-restrictions"
 
 interface CalendarViewProps {
   selectedDate: string
@@ -106,6 +107,8 @@ export function CalendarView({ selectedDate, onDateSelect }: CalendarViewProps) 
             const today = new Date().toISOString().split("T")[0]
             const isToday = dateString === today
             const isFuture = dateString > today
+            const isEditable = isDateInAllowedRange(dateString)
+            const isPast = dateString < today && !isEditable
 
             return (
               <button
@@ -121,17 +124,34 @@ export function CalendarView({ selectedDate, onDateSelect }: CalendarViewProps) 
                         : isToday
                           ? "bg-accent text-accent-foreground ring-2 ring-accent hover:shadow-md"
                           : hasEntry
-                            ? "bg-secondary text-secondary-foreground hover:bg-accent/20 hover:shadow-md border-2 border-transparent hover:border-accent"
-                            : "bg-secondary/50 text-secondary-foreground hover:bg-muted hover:shadow-sm"
+                            ? isPast
+                              ? "bg-secondary/70 text-secondary-foreground/70 hover:bg-accent/10 hover:shadow-sm border-2 border-dashed border-border"
+                              : "bg-secondary text-secondary-foreground hover:bg-accent/20 hover:shadow-md border-2 border-transparent hover:border-accent"
+                            : isEditable
+                              ? "bg-secondary/50 text-secondary-foreground hover:bg-muted hover:shadow-sm"
+                              : "bg-secondary/30 text-muted-foreground/60 opacity-60"
                   }
                 `}
-                title={isFuture ? "Cannot log future dates" : hasEntry ? "View entry" : "Create entry"}
+                title={
+                  isFuture
+                    ? "Cannot log future dates"
+                    : isPast && hasEntry
+                      ? "View only (older than 2 days)"
+                      : hasEntry
+                        ? "View/Edit entry"
+                        : isEditable
+                          ? "Create entry (within 2-day window)"
+                          : "Not editable (older than 2 days)"
+                }
               >
                 <span className="text-sm mb-1">{day}</span>
                 {/* Entry Indicator - More prominent */}
                 {hasEntry && !isFuture && (
                   <div className="flex items-center justify-center w-full mt-auto">
-                    <div className="h-2 w-2 rounded-full" style={{ backgroundColor: '#099748' }} />
+                    <div 
+                      className={`h-2 w-2 rounded-full ${isPast ? 'opacity-50' : ''}`} 
+                      style={{ backgroundColor: '#099748' }} 
+                    />
                   </div>
                 )}
               </button>
@@ -141,16 +161,20 @@ export function CalendarView({ selectedDate, onDateSelect }: CalendarViewProps) 
 
         {/* Legend & Stats */}
         <div className="pt-6 mt-6 border-t border-border">
-          <div className="flex items-center justify-between flex-wrap gap-4">
+          <div className="flex flex-col gap-4">
             {/* Legend */}
-            <div className="flex items-center gap-4 text-xs text-muted-foreground">
+            <div className="flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
               <div className="flex items-center gap-2">
                 <div className="h-3 w-3 rounded bg-accent ring-2 ring-accent" />
                 <span>Today</span>
               </div>
               <div className="flex items-center gap-2">
                 <div className="h-2 w-2 rounded-full" style={{ backgroundColor: '#099748' }} />
-                <span>Has report</span>
+                <span>Editable (last 2 days)</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <div className="h-2 w-2 rounded-full opacity-50" style={{ backgroundColor: '#099748' }} />
+                <span>View only (older)</span>
               </div>
             </div>
             

@@ -12,8 +12,7 @@ import {
 } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Search, Calendar, ArrowRight } from "lucide-react"
-import { useCaptainLog } from "@/contexts/captain-log-context"
-import type { CaptainLogEntry } from "@/contexts/captain-log-context"
+import { useCaptainLog, type CaptainLogEntry } from "@/contexts/supabase-log-context"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Badge } from "@/components/ui/badge"
 
