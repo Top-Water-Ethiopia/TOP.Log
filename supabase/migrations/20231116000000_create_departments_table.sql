@@ -83,10 +83,16 @@ CREATE POLICY "Admins can delete departments"
 -- Trigger for updating timestamps (if function exists)
 DO $$
 BEGIN
-  IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'update_timestamp') THEN
-    CREATE TRIGGER update_departments_timestamp
-    BEFORE UPDATE ON departments
-    FOR EACH ROW EXECUTE PROCEDURE update_timestamp();
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_trigger 
+    WHERE tgname = 'update_departments_timestamp' 
+    AND tgrelid = 'public.departments'::regclass
+  ) THEN
+    IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'update_timestamp') THEN
+      CREATE TRIGGER update_departments_timestamp
+      BEFORE UPDATE ON departments
+      FOR EACH ROW EXECUTE PROCEDURE update_timestamp();
+    END IF;
   END IF;
+END IF;
 END $$;
-
