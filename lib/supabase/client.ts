@@ -8,8 +8,42 @@ if (!supabaseUrl || !supabaseAnonKey) {
   console.error('Supabase URL or Anon Key not found in environment variables.');
 }
 
-// Regular client for client-side operations
-export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey);
+// Regular client for client-side operations with improved error handling
+export const supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
+  auth: {
+    autoRefreshToken: true,
+    persistSession: true,
+    detectSessionInUrl: true,
+    flowType: 'pkce',
+  },
+  global: {
+    // Add fetch options to handle network errors better (only in browser environments)
+    ...(typeof window !== 'undefined' && typeof AbortController !== 'undefined' ? {
+      fetch: (url: string, options: RequestInit = {}) => {
+        // Add timeout to prevent hanging requests
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+        
+        return fetch(url, {
+          ...options,
+          signal: controller.signal,
+        })
+          .then((response) => {
+            clearTimeout(timeoutId);
+            return response;
+          })
+          .catch((error) => {
+            clearTimeout(timeoutId);
+            // Only log non-abort errors and network errors that aren't expected
+            if (error.name !== 'AbortError' && error.message !== 'fetch failed') {
+              console.error('Supabase fetch error:', error);
+            }
+            throw error;
+          });
+      },
+    } : {}),
+  },
+});
 
 // Helper functions for authentication
 export async function getCurrentUser() {

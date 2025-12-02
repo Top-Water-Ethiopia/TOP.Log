@@ -449,6 +449,7 @@ export interface AuthState {
 }
 
 export interface AuthContextType extends AuthState {
+  isInitialized: boolean
   login: (email: string, password: string) => Promise<void>
   logout: () => void
   register: (userData: Omit<User, "id" | "createdAt" | "updatedAt"> & { password: string }) => Promise<void>

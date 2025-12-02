@@ -16,7 +16,7 @@ export interface UserWithProfile {
   profile: {
     id: string
     name: string
-    department: string | null
+    department_id: string | null
     role_id: string
     role_name: string
     is_active: boolean

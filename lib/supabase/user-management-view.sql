@@ -8,7 +8,7 @@ RETURNS TABLE (
   email TEXT,
   created_at TIMESTAMPTZ,
   name TEXT,
-  department TEXT,
+  department_name TEXT,
   role_id UUID,
   role_name TEXT,
   is_active BOOLEAN,
@@ -35,7 +35,7 @@ BEGIN
     au.email,
     au.created_at,
     up.name,
-    up.department,
+    d.name as department_name,
     up.role_id,
     r.name as role_name,
     up.is_active,
@@ -44,6 +44,7 @@ BEGIN
   FROM public.user_profiles up
   JOIN auth.users au ON au.id = up.user_id
   LEFT JOIN public.roles r ON r.id = up.role_id
+  LEFT JOIN public.departments d ON d.id = up.department_id
   ORDER BY up.created_at DESC;
 END;
 $$;

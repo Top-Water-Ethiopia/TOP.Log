@@ -6,280 +6,566 @@ export type Json =
   | { [key: string]: Json | undefined }
   | Json[]
 
-export interface Database {
+export type Database = {
+  // Allows to automatically instantiate createClient with right options
+  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
+  __InternalSupabase: {
+    PostgrestVersion: "13.0.5"
+  }
   public: {
     Tables: {
-      captain_log_entries: {
-        Row: {
-          id: string
-          user_id: string
-          date: string
-          objectives: string | null
-          key_results: string | null
-          challenges: string | null
-          development_tasks: string | null
-          features_completed: string | null
-          challenges_and_blockers: string | null
-          code_and_priorities: string | null
-          system_improvements: string | null
-          project_updates: string | null
-          created_at: string
-          updated_at: string
-          version: number
-          metadata: Json | null
-        }
-        Insert: {
-          id: string
-          user_id: string
-          date: string
-          objectives?: string | null
-          key_results?: string | null
-          challenges?: string | null
-          development_tasks?: string | null
-          features_completed?: string | null
-          challenges_and_blockers?: string | null
-          code_and_priorities?: string | null
-          system_improvements?: string | null
-          project_updates?: string | null
-          created_at?: string
-          updated_at?: string
-          version?: number
-          metadata?: Json | null
-        }
-        Update: {
-          id?: string
-          user_id?: string
-          date?: string
-          objectives?: string | null
-          key_results?: string | null
-          challenges?: string | null
-          development_tasks?: string | null
-          features_completed?: string | null
-          challenges_and_blockers?: string | null
-          code_and_priorities?: string | null
-          system_improvements?: string | null
-          project_updates?: string | null
-          created_at?: string
-          updated_at?: string
-          version?: number
-          metadata?: Json | null
-        }
-      }
-      custom_responses: {
-        Row: {
-          id: string
-          entry_id: string
-          question_id: string
-          question_key: string
-          question_label: string | null
-          question_type: string | null
-          question_category: string | null
-          value: Json
-          timestamp: string
-        }
-        Insert: {
-          id: string
-          entry_id: string
-          question_id: string
-          question_key: string
-          question_label?: string | null
-          question_type?: string | null
-          question_category?: string | null
-          value: Json
-          timestamp: string
-        }
-        Update: {
-          id?: string
-          entry_id?: string
-          question_id?: string
-          question_key?: string
-          question_label?: string | null
-          question_type?: string | null
-          question_category?: string | null
-          value?: Json
-          timestamp?: string
-        }
-      }
       audit_logs: {
         Row: {
-          id: string
-          timestamp: string
-          operation: string
-          entity_id: string
           changes: Json | null
+          entity_id: string
+          id: string
           metadata: Json | null
+          operation: string
+          timestamp: string
           user_id: string | null
         }
         Insert: {
-          id: string
-          timestamp: string
-          operation: string
+          changes?: Json | null
           entity_id: string
-          changes?: Json | null
-          metadata?: Json | null
-          user_id?: string | null
-        }
-        Update: {
           id?: string
+          metadata?: Json | null
+          operation: string
           timestamp?: string
-          operation?: string
-          entity_id?: string
-          changes?: Json | null
-          metadata?: Json | null
           user_id?: string | null
         }
-      }
-      roles: {
-        Row: {
-          id: string
-          name: string
-          description: string | null
-          created_at: string
-          updated_at: string
-        }
-        Insert: {
-          id: string
-          name: string
-          description?: string | null
-          created_at?: string
-          updated_at?: string
-        }
         Update: {
+          changes?: Json | null
+          entity_id?: string
           id?: string
-          name?: string
-          description?: string | null
-          created_at?: string
-          updated_at?: string
+          metadata?: Json | null
+          operation?: string
+          timestamp?: string
+          user_id?: string | null
         }
+        Relationships: []
       }
-      permissions: {
+      captain_log_entries: {
         Row: {
+          created_at: string | null
+          date: string
           id: string
-          role_id: string
-          resource: string
-          action: string
-          conditions: Json | null
-          created_at: string
-          updated_at: string
-        }
-        Insert: {
-          id: string
-          role_id: string
-          resource: string
-          action: string
-          conditions?: Json | null
-          created_at?: string
-          updated_at?: string
-        }
-        Update: {
-          id?: string
-          role_id?: string
-          resource?: string
-          action?: string
-          conditions?: Json | null
-          created_at?: string
-          updated_at?: string
-        }
-      }
-      user_profiles: {
-        Row: {
-          id: string
-          user_id: string
-          name: string
-          department: string | null
-          role_id: string
-          is_active: boolean
-          created_at: string
-          updated_at: string
           metadata: Json | null
-          last_login: string | null
+          updated_at: string | null
+          user_id: string
+          version: number | null
         }
         Insert: {
-          id: string
-          user_id: string
-          name: string
-          department?: string | null
-          role_id: string
-          is_active?: boolean
-          created_at?: string
-          updated_at?: string
+          created_at?: string | null
+          date: string
+          id?: string
           metadata?: Json | null
-          last_login?: string | null
+          updated_at?: string | null
+          user_id: string
+          version?: number | null
         }
         Update: {
+          created_at?: string | null
+          date?: string
           id?: string
-          user_id?: string
-          name?: string
-          department?: string | null
-          role_id?: string
-          is_active?: boolean
-          created_at?: string
-          updated_at?: string
           metadata?: Json | null
-          last_login?: string | null
+          updated_at?: string | null
+          user_id?: string
+          version?: number | null
         }
+        Relationships: []
+      }
+      custom_responses: {
+        Row: {
+          entry_id: string
+          id: string
+          question_category: string | null
+          question_id: string
+          question_key: string
+          question_label: string
+          question_type: string
+          timestamp: string | null
+          value: Json | null
+        }
+        Insert: {
+          entry_id: string
+          id?: string
+          question_category?: string | null
+          question_id: string
+          question_key: string
+          question_label: string
+          question_type: string
+          timestamp?: string | null
+          value?: Json | null
+        }
+        Update: {
+          entry_id?: string
+          id?: string
+          question_category?: string | null
+          question_id?: string
+          question_key?: string
+          question_label?: string
+          question_type?: string
+          timestamp?: string | null
+          value?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "custom_responses_entry_id_fkey"
+            columns: ["entry_id"]
+            isOneToOne: false
+            referencedRelation: "captain_log_entries"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       departments: {
         Row: {
-          id: string
-          name: string
           code: string | null
-          description: string | null
-          is_active: boolean
-          created_by: string | null
-          updated_by: string | null
           created_at: string
-          updated_at: string
+          created_by: string | null
+          description: string | null
+          id: string
+          is_active: boolean
           metadata: Json | null
+          name: string
+          updated_at: string
+          updated_by: string | null
         }
         Insert: {
-          id?: string
-          name: string
           code?: string | null
-          description?: string | null
-          is_active?: boolean
-          created_by?: string | null
-          updated_by?: string | null
           created_at?: string
-          updated_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean
           metadata?: Json | null
+          name: string
+          updated_at?: string
+          updated_by?: string | null
         }
         Update: {
-          id?: string
-          name?: string
           code?: string | null
-          description?: string | null
-          is_active?: boolean
-          created_by?: string | null
-          updated_by?: string | null
           created_at?: string
-          updated_at?: string
+          created_by?: string | null
+          description?: string | null
+          id?: string
+          is_active?: boolean
           metadata?: Json | null
+          name?: string
+          updated_at?: string
+          updated_by?: string | null
         }
+        Relationships: []
+      }
+      permissions: {
+        Row: {
+          action: string
+          conditions: Json | null
+          created_at: string
+          id: string
+          resource: string
+          role_id: string
+          updated_at: string
+        }
+        Insert: {
+          action: string
+          conditions?: Json | null
+          created_at?: string
+          id?: string
+          resource: string
+          role_id: string
+          updated_at?: string
+        }
+        Update: {
+          action?: string
+          conditions?: Json | null
+          created_at?: string
+          id?: string
+          resource?: string
+          role_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "permissions_role_id_fkey"
+            columns: ["role_id"]
+            isOneToOne: false
+            referencedRelation: "roles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      role_questions: {
+        Row: {
+          conditional_logic: Json | null
+          created_at: string
+          created_by: string | null
+          default_value: string | null
+          display_order: number
+          help_text: string | null
+          id: string
+          is_active: boolean
+          is_required: boolean
+          max_date: string | null
+          max_length: number | null
+          max_value: number | null
+          metadata: Json | null
+          min_date: string | null
+          min_length: number | null
+          min_value: number | null
+          options: Json | null
+          pattern: string | null
+          placeholder: string | null
+          question_description: string | null
+          question_key: string
+          question_label: string
+          question_title: string | null
+          question_type: string
+          role_id: string
+          step: number | null
+          updated_at: string
+          updated_by: string | null
+          validation_rules: Json | null
+        }
+        Insert: {
+          conditional_logic?: Json | null
+          created_at?: string
+          created_by?: string | null
+          default_value?: string | null
+          display_order?: number
+          help_text?: string | null
+          id?: string
+          is_active?: boolean
+          is_required?: boolean
+          max_date?: string | null
+          max_length?: number | null
+          max_value?: number | null
+          metadata?: Json | null
+          min_date?: string | null
+          min_length?: number | null
+          min_value?: number | null
+          options?: Json | null
+          pattern?: string | null
+          placeholder?: string | null
+          question_description?: string | null
+          question_key: string
+          question_label: string
+          question_title?: string | null
+          question_type: string
+          role_id: string
+          step?: number | null
+          updated_at?: string
+          updated_by?: string | null
+          validation_rules?: Json | null
+        }
+        Update: {
+          conditional_logic?: Json | null
+          created_at?: string
+          created_by?: string | null
+          default_value?: string | null
+          display_order?: number
+          help_text?: string | null
+          id?: string
+          is_active?: boolean
+          is_required?: boolean
+          max_date?: string | null
+          max_length?: number | null
+          max_value?: number | null
+          metadata?: Json | null
+          min_date?: string | null
+          min_length?: number | null
+          min_value?: number | null
+          options?: Json | null
+          pattern?: string | null
+          placeholder?: string | null
+          question_description?: string | null
+          question_key?: string
+          question_label?: string
+          question_title?: string | null
+          question_type?: string
+          role_id?: string
+          step?: number | null
+          updated_at?: string
+          updated_by?: string | null
+          validation_rules?: Json | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "role_questions_role_id_fkey"
+            columns: ["role_id"]
+            isOneToOne: false
+            referencedRelation: "roles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      roles: {
+        Row: {
+          created_at: string
+          department_id: string | null
+          description: string | null
+          id: string
+          level: number
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          department_id?: string | null
+          description?: string | null
+          id?: string
+          level?: number
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          department_id?: string | null
+          description?: string | null
+          id?: string
+          level?: number
+          name?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "roles_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_profiles: {
+        Row: {
+          created_at: string
+          department_id: string | null
+          id: string
+          is_active: boolean
+          last_login: string | null
+          metadata: Json | null
+          name: string
+          role_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          department_id?: string | null
+          id?: string
+          is_active?: boolean
+          last_login?: string | null
+          metadata?: Json | null
+          name: string
+          role_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          department_id?: string | null
+          id?: string
+          is_active?: boolean
+          last_login?: string | null
+          metadata?: Json | null
+          name?: string
+          role_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_profiles_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_profiles_role_id_fkey"
+            columns: ["role_id"]
+            isOneToOne: false
+            referencedRelation: "roles"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      get_users_with_emails: {
-        Args: Record<PropertyKey, never>
+      create_report_questions_table_if_not_exists: {
+        Args: never
+        Returns: undefined
+      }
+      diagnose_is_admin: {
+        Args: never
         Returns: {
-          user_id: string
-          email: string
-          created_at: string
-          name: string
-          department: string | null
-          role_id: string
-          role_name: string | null
+          current_user_id: string
+          final_result: boolean
           is_active: boolean
-          profile_created_at: string
-          last_login: string | null
+          is_admin_role: boolean
+          role_id: string
+          user_exists: boolean
         }[]
       }
+      get_current_user_role: {
+        Args: never
+        Returns: {
+          is_active: boolean
+          name: string
+          role_id: string
+          user_id: string
+        }[]
+      }
+      get_users_with_emails: {
+        Args: never
+        Returns: {
+          created_at: string
+          department: string
+          email: string
+          is_active: boolean
+          last_login: string
+          name: string
+          profile_created_at: string
+          role_id: string
+          role_name: string
+          user_id: string
+        }[]
+      }
+      is_admin: { Args: never; Returns: boolean }
+      is_admin_or_super_admin: { Args: { user_uuid: string }; Returns: boolean }
     }
     Enums: {
       [_ in never]: never
     }
+    CompositeTypes: {
+      [_ in never]: never
+    }
   }
 }
+
+type DatabaseWithoutInternals = Omit<Database, "__InternalSupabase">
+
+type DefaultSchema = DatabaseWithoutInternals[Extract<keyof Database, "public">]
+
+export type Tables<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+        DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"] &
+      DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Views"])[TableName] extends {
+      Row: infer R
+    }
+    ? R
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])
+    ? (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
+        Row: infer R
+      }
+      ? R
+      : never
+    : never
+
+export type TablesInsert<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Insert: infer I
+    }
+    ? I
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Insert: infer I
+      }
+      ? I
+      : never
+    : never
+
+export type TablesUpdate<
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
+  TableName extends DefaultSchemaTableNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
+    : never = never,
+> = DefaultSchemaTableNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"][TableName] extends {
+      Update: infer U
+    }
+    ? U
+    : never
+  : DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"]
+    ? DefaultSchema["Tables"][DefaultSchemaTableNameOrOptions] extends {
+        Update: infer U
+      }
+      ? U
+      : never
+    : never
+
+export type Enums<
+  DefaultSchemaEnumNameOrOptions extends
+    | keyof DefaultSchema["Enums"]
+    | { schema: keyof DatabaseWithoutInternals },
+  EnumName extends DefaultSchemaEnumNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
+    : never = never,
+> = DefaultSchemaEnumNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"][EnumName]
+  : DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"]
+    ? DefaultSchema["Enums"][DefaultSchemaEnumNameOrOptions]
+    : never
+
+export type CompositeTypes<
+  PublicCompositeTypeNameOrOptions extends
+    | keyof DefaultSchema["CompositeTypes"]
+    | { schema: keyof DatabaseWithoutInternals },
+  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
+    schema: keyof DatabaseWithoutInternals
+  }
+    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
+    : never = never,
+> = PublicCompositeTypeNameOrOptions extends {
+  schema: keyof DatabaseWithoutInternals
+}
+  ? DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"][CompositeTypeName]
+  : PublicCompositeTypeNameOrOptions extends keyof DefaultSchema["CompositeTypes"]
+    ? DefaultSchema["CompositeTypes"][PublicCompositeTypeNameOrOptions]
+    : never
+
+export const Constants = {
+  public: {
+    Enums: {},
+  },
+} as const
