@@ -1,9 +1,10 @@
 /**
- * Script to set a user as super admin
+ * Script to set a user as super admin and reset credentials
  * 
  * Usage: npx tsx scripts/set-super-admin.ts
  * 
- * This script sets the user with email: contact.samuelerbo@gmail.com as super admin
+ * This script sets the user with email: info@topwaterethiopia.com as super admin
+ * and resets their password to: Admin@123456
  */
 
 // Load environment variables FIRST before any other imports
@@ -20,7 +21,8 @@ async function runScript() {
   const { adminSupabase } = await import('../lib/supabase/admin');
 
   const SUPER_ADMIN_ROLE_ID = '00000000-0000-0000-0000-000000000000';
-  const USER_EMAIL = 'contact.samuelerbo@gmail.com';
+  const USER_EMAIL = 'info@topwaterethiopia.com';
+  const USER_PASSWORD = 'Admin@123456';
 
   async function setSuperAdmin() {
     try {
@@ -48,7 +50,7 @@ async function runScript() {
             description: 'Super Administrator with ultimate system access',
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
-          })
+          } as any)
           .select()
           .single();
 
@@ -67,13 +69,46 @@ async function runScript() {
         throw new Error(`Failed to list users: ${listError.message}`);
       }
 
-      const user = users.find(u => u.email === USER_EMAIL);
+      let user = users.find(u => u.email === USER_EMAIL);
       
       if (!user) {
-        throw new Error(`User with email ${USER_EMAIL} not found`);
-      }
+        // Create the user if it doesn't exist
+        console.log(`📝 User not found. Creating new user...\n`);
+        const { data: newUser, error: createUserError } = await adminSupabase.auth.admin.createUser({
+          email: USER_EMAIL,
+          password: USER_PASSWORD,
+          email_confirm: true, // Auto-confirm email
+        });
 
-      console.log(`✅ Found user: ${user.email} (ID: ${user.id})\n`);
+        if (createUserError) {
+          throw new Error(`Failed to create user: ${createUserError.message}`);
+        }
+
+        if (!newUser.user) {
+          throw new Error('Failed to create user: No user returned');
+        }
+
+        user = newUser.user;
+        console.log(`✅ Created new user: ${user.email} (ID: ${user.id})\n`);
+      } else {
+        // Update password for existing user
+        console.log(`✅ Found user: ${user.email} (ID: ${user.id})`);
+        console.log(`🔑 Resetting password...\n`);
+        
+        const { data: updatedUser, error: updatePasswordError } = await adminSupabase.auth.admin.updateUserById(
+          user.id,
+          {
+            password: USER_PASSWORD,
+            email_confirm: true, // Ensure email is confirmed
+          }
+        );
+
+        if (updatePasswordError) {
+          throw new Error(`Failed to update password: ${updatePasswordError.message}`);
+        }
+
+        console.log(`✅ Password reset successfully!\n`);
+      }
 
       // Check if user profile exists
       const { data: profile, error: profileError } = await adminSupabase
@@ -88,13 +123,13 @@ async function runScript() {
 
       if (profile) {
         console.log(`📋 Current profile:`);
-        console.log(`   - Role ID: ${profile.role_id}`);
-        console.log(`   - Name: ${profile.name || 'N/A'}`);
-        console.log(`   - Department: ${profile.department || 'N/A'}\n`);
+        console.log(`   - Role ID: ${(profile as any).role_id}`);
+        console.log(`   - Name: ${(profile as any).name || 'N/A'}`);
+        console.log(`   - Department: ${(profile as any).department || 'N/A'}\n`);
 
         // Update existing profile
-        const { data: updatedProfile, error: updateError } = await adminSupabase
-          .from('user_profiles')
+        const { data: updatedProfile, error: updateError } = await (adminSupabase
+          .from('user_profiles') as any)
           .update({ 
             role_id: SUPER_ADMIN_ROLE_ID,
             updated_at: new Date().toISOString()
@@ -107,8 +142,12 @@ async function runScript() {
           throw new Error(`Failed to update user profile: ${updateError.message}`);
         }
 
+        if (!updatedProfile) {
+          throw new Error('Failed to update user profile: No profile returned');
+        }
+
         console.log(`✅ Successfully updated user profile to super admin!`);
-        console.log(`   - New Role ID: ${updatedProfile.role_id}`);
+        console.log(`   - New Role ID: ${(updatedProfile as any).role_id}`);
       } else {
         // Create new profile with super admin role
         console.log(`📝 Creating new user profile with super admin role...\n`);
@@ -122,7 +161,7 @@ async function runScript() {
             is_active: true,
             created_at: new Date().toISOString(),
             updated_at: new Date().toISOString(),
-          })
+          } as any)
           .select()
           .single();
 
@@ -130,13 +169,20 @@ async function runScript() {
           throw new Error(`Failed to create user profile: ${createError.message}`);
         }
 
+        if (!newProfile) {
+          throw new Error('Failed to create user profile: No profile returned');
+        }
+
         console.log(`✅ Successfully created user profile with super admin role!`);
-        console.log(`   - Role ID: ${newProfile.role_id}`);
+        console.log(`   - Role ID: ${(newProfile as any).role_id}`);
       }
 
       console.log(`\n🎉 ${USER_EMAIL} is now a super admin!`);
+      console.log(`\n📋 Credentials:`);
+      console.log(`   - Email: ${USER_EMAIL}`);
+      console.log(`   - Password: ${USER_PASSWORD}`);
       console.log(`\n💡 Next steps:`);
-      console.log(`   1. Log out and log back in to refresh your session`);
+      console.log(`   1. Log out and log back in with the credentials above`);
       console.log(`   2. Visit /admin/role-questions to see your questions`);
       console.log(`   3. You should now have full access to all admin features`);
 

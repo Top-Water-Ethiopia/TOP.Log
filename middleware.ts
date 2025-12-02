@@ -23,8 +23,26 @@ export async function middleware(req: NextRequest) {
     }
   );
 
-  // Refresh session if it exists
-  const { data: { session } } = await supabase.auth.getSession();
+  // Refresh session if it exists - with error handling for network failures
+  let session = null;
+  try {
+    // Add timeout to prevent hanging requests
+    const sessionPromise = supabase.auth.getSession();
+    const timeoutPromise = new Promise((_, reject) => 
+      setTimeout(() => reject(new Error('Session fetch timeout')), 5000)
+    );
+    
+    const { data } = await Promise.race([sessionPromise, timeoutPromise]) as { data: { session: any } };
+    session = data?.session || null;
+  } catch (error: any) {
+    // Handle network errors gracefully - don't block requests if Supabase is unreachable
+    // Only log if it's not a timeout or network error (status 0)
+    if (error?.status !== 0 && !error?.message?.includes('timeout') && !error?.message?.includes('fetch failed')) {
+      console.error('Middleware session fetch error:', error);
+    }
+    // Continue without session - let the route handle authentication
+    session = null;
+  }
 
   // Authentication logic for protected routes
   const isAuthRoute = req.nextUrl.pathname.startsWith('/login') || 

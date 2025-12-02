@@ -211,116 +211,21 @@ async function seedReportQuestions() {
       continue;
     }
 
-    for (const question of questions) {
-      const { error } = await supabase
-        .from('report_questions')
-        .upsert({
-          ...question,
-          role_id: role.id
-        }, { onConflict: 'role_id,question_key' });
-
-      if (error) {
-        console.error(`❌ Error creating question for ${roleName}:`, question.question_key, error);
-      } else {
-        console.log(`✅ Created question for ${roleName}: ${question.question_label}`);
-      }
-    }
+    // Note: role_questions seeding removed as report_questions table has been deleted
+    console.log(`ℹ️  Skipping question seeding for ${roleName} (table removed)`);
   }
 }
-// Add this function to create the report_questions table if it doesn't exist
-async function ensureReportQuestionsTableExists() {
-  console.log('\nEnsuring report_questions table exists...');
-  
-  // First, check if the function exists
-  const { error: functionError } = await supabase.rpc('create_report_questions_table_if_not_exists');
 
-  if (functionError) {
-    console.log('Creating report_questions table function...');
-    
-    // If function doesn't exist, run the SQL to create it
-    const { error: sqlError } = await supabase.rpc(`
-      CREATE OR REPLACE FUNCTION public.create_report_questions_table_if_not_exists()
-      RETURNS void
-      LANGUAGE plpgsql
-      AS $function$
-      BEGIN
-        IF NOT EXISTS (
-          SELECT FROM information_schema.tables 
-          WHERE  table_schema = 'public'
-          AND    table_name   = 'report_questions'
-        ) THEN
-          CREATE TABLE public.report_questions (
-            id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-            question_key TEXT NOT NULL,
-            question_label TEXT NOT NULL,
-            question_type TEXT NOT NULL,
-            question_category TEXT,
-            role_id UUID NOT NULL REFERENCES public.roles(id) ON DELETE CASCADE,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            UNIQUE(role_id, question_key)
-          );
-
-          CREATE INDEX idx_report_questions_role_id ON public.report_questions(role_id);
-          ALTER TABLE public.report_questions ENABLE ROW LEVEL SECURITY;
-
-          CREATE POLICY "Enable read access for all users" 
-            ON public.report_questions
-            FOR SELECT
-            USING (true);
-
-          CREATE POLICY "Enable insert for admins" 
-            ON public.report_questions
-            FOR INSERT
-            WITH CHECK (
-              EXISTS (
-                SELECT 1 FROM user_profiles
-                WHERE user_profiles.user_id = auth.uid()
-                AND user_profiles.role_id = '00000000-0000-0000-0000-000000000001'
-              )
-            );
-
-          RAISE NOTICE 'Created report_questions table';
-        ELSE
-          RAISE NOTICE 'report_questions table already exists';
-        END IF;
-      END;
-      $function$;
-    `, {});
-
-    if (sqlError) {
-      console.error('Error creating report_questions table function:', sqlError);
-      return false;
-    }
-
-    // Now call the function
-    const { error: callError } = await supabase.rpc('create_report_questions_table_if_not_exists');
-    if (callError) {
-      console.error('Error creating report_questions table:', callError);
-      return false;
-    }
-  }
-  
-  console.log('✅ report_questions table is ready');
-  return true;
-}
-
-// Update the main function to include table creation
+// Update the main function
 async function main() {
   console.log('🚀 Starting database seeding...\n');
   
   try {
-    // First ensure the table exists
-    const tableReady = await ensureReportQuestionsTableExists();
-    if (!tableReady) {
-      console.error('❌ Failed to ensure report_questions table exists');
-      process.exit(1);
-    }
-
-    // Then run the seeders
+    // Run the seeders
     await seedRoles();
     await seedUsers();
-    await seedReportQuestions();
+    // Note: seedReportQuestions skipped as report_questions table has been deleted
+    console.log('ℹ️  Skipped report questions seeding (table removed)');
     
     console.log('\n✨ Database seeding completed successfully!');
   } catch (error) {
