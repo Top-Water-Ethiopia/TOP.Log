@@ -1,6 +1,6 @@
 import { Database } from './database.types'
 
-export interface UserProfile extends Database['public']['Tables']['user_profiles']['Row'] {
+export type UserProfile = Database['public']['Tables']['user_profiles']['Row'] & {
   roles?: {
     id: string
     name: string
@@ -11,6 +11,11 @@ export interface UserProfile extends Database['public']['Tables']['user_profiles
 export interface UserWithProfile {
   id: string
   email: string
+  email_confirmed_at: string | null
+  user_metadata: {
+    email_verified?: boolean
+    [key: string]: any
+  } | null
   created_at: string
   last_sign_in_at: string | null
   profile: {

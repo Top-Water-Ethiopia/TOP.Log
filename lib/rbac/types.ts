@@ -487,7 +487,7 @@ export interface CustomQuestion {
   id: string
   key: string // Field key for storage
   label: string
-  type: "text" | "textarea" | "select" | "multiselect" | "checkbox" | "number" | "date"
+  type: "text" | "textarea" | "email" | "url" | "phone" | "select" | "multiselect" | "checkbox" | "number" | "date" | "time" | "datetime" | "daterange" | "duration" | "priority" | "status" | "radio" | "tags" | "rating" | "slider" | "nps" | "file" | "image" | "rich-text" | "currency" | "percentage"
   required: boolean
   placeholder?: string
   options?: string[] // For select/multiselect types
