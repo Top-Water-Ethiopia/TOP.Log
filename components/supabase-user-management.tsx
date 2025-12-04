@@ -9,6 +9,7 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import {
   Table,
@@ -56,6 +57,7 @@ import {
   Eye,
   EyeOff,
   Key,
+  MailCheck,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -68,6 +70,11 @@ interface UserWithProfile {
   id: string;
   email: string;
   created_at: string;
+  email_confirmed_at?: string | null;
+  user_metadata?: {
+    email_verified?: boolean;
+    [key: string]: any;
+  } | null;
   profile: {
     id: string;
     name: string;
@@ -147,6 +154,7 @@ export function SupabaseUserManagement() {
     department: "",
     role_id: USER_ROLE_ID,
     is_active: true,
+    email_verified: false,
   });
 
   // Load departments
@@ -198,6 +206,7 @@ export function SupabaseUserManagement() {
         const usersWithProfiles: UserWithProfile[] = result.data.map((user: any) => ({
           id: user.id,
           email: user.email || 'N/A', // Should always have email from auth.users
+          email_confirmed_at: user.email_confirmed_at || null,
           created_at: user.created_at,
           profile: {
             id: user.profile.id,
@@ -427,6 +436,11 @@ export function SupabaseUserManagement() {
 
     setIsUpdatingUser(true);
     try {
+      // Check if we need to mark email as verified or unverified
+      const shouldMarkEmailVerified = editUserForm.email_verified && (!editingUser.email_confirmed_at || !editingUser.user_metadata?.email_verified);
+      const shouldUnmarkEmailVerified = !editUserForm.email_verified && (editingUser.email_confirmed_at || editingUser.user_metadata?.email_verified) && isSuperAdmin;
+      
+      // Update user details
       const response = await fetch('/api/admin/users', {
         method: 'PUT',
         headers: {
@@ -449,6 +463,75 @@ export function SupabaseUserManagement() {
       }
 
       toast.success("User updated successfully");
+      
+      // Mark email as verified if requested
+      if (shouldMarkEmailVerified) {
+        try {
+          const verifyResponse = await fetch('/api/admin/users/mark-email-verified', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              user_id: editingUser.id,
+            }),
+          });
+          
+          const verifyResult = await verifyResponse.json();
+          
+          if (!verifyResponse.ok) {
+            throw new Error(verifyResult.message || verifyResult.error || "Failed to mark email as verified");
+          }
+          
+          // Update the editingUser state to reflect the new email verification status
+          if (editingUser) {
+            setEditingUser({
+              ...editingUser,
+              email_confirmed_at: new Date().toISOString()
+            });
+          }
+          
+          toast.success(`Email for ${editUserForm.name || editUserForm.email} marked as verified`);
+        } catch (verifyError: any) {
+          console.error("Failed to mark email as verified:", verifyError);
+          toast.error("Failed to mark email as verified: " + (verifyError.message || "Unknown error"));
+        }
+      }
+      
+      // Unmark email as verified if requested (superadmin only)
+      if (shouldUnmarkEmailVerified) {
+        try {
+          const unverifyResponse = await fetch('/api/admin/users/unmark-email-verified', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              user_id: editingUser.id,
+            }),
+          });
+          
+          const unverifyResult = await unverifyResponse.json();
+          
+          if (!unverifyResponse.ok) {
+            throw new Error(unverifyResult.message || unverifyResult.error || "Failed to unmark email as verified");
+          }
+          
+          // Update the editingUser state to reflect the new email verification status
+          if (editingUser) {
+            setEditingUser({
+              ...editingUser,
+              email_confirmed_at: null
+            });
+          }
+          
+          toast.success(`Email for ${editUserForm.name || editUserForm.email} unmarked as verified`);
+        } catch (unverifyError: any) {
+          console.error("Failed to unmark email as verified:", unverifyError);
+          toast.error("Failed to unmark email as verified: " + (unverifyError.message || "Unknown error"));
+        }
+      }
+      
       setShowEditUser(false);
       setEditingUser(null);
       setEditFormErrors({});
@@ -861,6 +944,7 @@ export function SupabaseUserManagement() {
                                 department: user.profile?.department_id ? departments.find(d => d.id === user.profile?.department_id)?.name || "" : "",
                                 role_id: user.profile?.role_id || USER_ROLE_ID,
                                 is_active: user.profile?.is_active ?? true,
+                                email_verified: !!user.email_confirmed_at,
                               });
                               setShowEditUser(true);
                             }}
@@ -1122,6 +1206,22 @@ export function SupabaseUserManagement() {
               />
               {editFormErrors.email && (
                 <p className="text-sm text-destructive">{editFormErrors.email}</p>
+              )}
+            </div>
+            <div className="flex items-center justify-between pt-2">
+              <div className="flex items-center space-x-2">
+                <Switch
+                  id="email-verified"
+                  checked={editUserForm.email_verified}
+                  onCheckedChange={(checked) => setEditUserForm(prev => ({ ...prev, email_verified: checked }))}
+                  disabled={(!editingUser?.email_confirmed_at || !editingUser?.user_metadata?.email_verified) && !isSuperAdmin}
+                />
+                <Label htmlFor="email-verified">Email Verified</Label>
+              </div>
+              {editingUser?.email_confirmed_at && (
+                <span className="text-xs text-muted-foreground">
+                  Verified: {new Date(editingUser.email_confirmed_at).toLocaleDateString()}
+                </span>
               )}
             </div>
             <div className="grid grid-cols-2 gap-4">

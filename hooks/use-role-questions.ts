@@ -7,7 +7,7 @@ export interface RoleQuestion {
   question_key: string
   question_label: string
   question_title?: string | null
-  question_type: 'text' | 'textarea' | 'select' | 'multiselect' | 'checkbox' | 'number' | 'date'
+  question_type: 'text' | 'textarea' | 'email' | 'url' | 'phone' | 'select' | 'multiselect' | 'checkbox' | 'number' | 'date' | 'time' | 'datetime' | 'daterange' | 'duration' | 'priority' | 'status' | 'radio' | 'tags' | 'rating' | 'slider' | 'nps' | 'file' | 'image' | 'rich-text' | 'currency' | 'percentage'
   question_description?: string | null
   placeholder?: string | null
   options?: any

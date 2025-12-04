@@ -30,7 +30,7 @@ async function verifyAdmin() {
   }
 
   const isSuperAdmin = profile.role_id === SUPER_ADMIN_ROLE_ID
-  const isAdmin = profile.role_id === ADMIN_ROLE_ID
+  const isAdmin = profile.role_id === ADMIN_ROLE_ID || isSuperAdmin
 
   if (!isSuperAdmin && !isAdmin) {
     return { isAdmin: false, isSuperAdmin: false, error: 'Admin access required' }
@@ -395,6 +395,8 @@ export async function GET(request: Request) {
       return {
         id: profile.user_id,
         email: authUser?.email || 'N/A',
+        email_confirmed_at: authUser?.email_confirmed_at || null,
+        user_metadata: authUser?.user_metadata || null,
         created_at: authUser?.created_at || profile.created_at,
         last_sign_in_at: authUser?.last_sign_in_at || null,
         profile: {
