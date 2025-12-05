@@ -105,11 +105,13 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
               <p className="text-sm text-muted-foreground mt-1">IT Department Daily Tracker</p>
             </div>
             <div className="flex gap-2 items-center">
-              {/* Mobile Navigation - Hidden on desktop */}
-              <MobileNavigation />
+              {/* Mobile Navigation - Hidden on desktop, fixed position */}
+              <div className="lg:hidden fixed top-4 right-4 z-50">
+                <MobileNavigation />
+              </div>
               
-              {/* Primary Navigation - Left side */}
-              <div className="flex gap-2">
+              {/* Primary Navigation - Left side (hidden on mobile) */}
+              <div className="hidden lg:flex gap-2">
                 <SearchDialog onSelectEntry={handleSearchSelect} />
                 
                 {/* Admin - Permission based or Super Admin */}
