@@ -27,6 +27,7 @@ import { useRBAC } from "@/hooks/use-rbac"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { VersionInfo } from "./version-info"
 import { useRouter } from "next/navigation"
+import { MobileNavigation } from "./mobile-navigation"
 
 // Role IDs from schema
 const SUPER_ADMIN_ROLE_ID = '00000000-0000-0000-0000-000000000000';
@@ -104,6 +105,9 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
               <p className="text-sm text-muted-foreground mt-1">IT Department Daily Tracker</p>
             </div>
             <div className="flex gap-2 items-center">
+              {/* Mobile Navigation - Hidden on desktop */}
+              <MobileNavigation />
+              
               {/* Primary Navigation - Left side */}
               <div className="flex gap-2">
                 <SearchDialog onSelectEntry={handleSearchSelect} />
@@ -118,7 +122,7 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
                         className="gap-2"
                       >
                         <Shield className="h-4 w-4" />
-                        Admin
+                        <span className="hidden lg:inline">Admin</span>
                       </Button>
                     </Link>
                     <Link href="/admin/reports">
@@ -128,7 +132,7 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
                         className="gap-2"
                       >
                         <FileText className="h-4 w-4" />
-                        Reports
+                        <span className="hidden lg:inline">Reports</span>
                       </Button>
                     </Link>
                   </>
