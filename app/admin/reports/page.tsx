@@ -65,26 +65,6 @@ export default function AdminReportsPage() {
 
   return (
     <div className="min-h-screen bg-background">
-      {/* Header */}
-      <div className="border-b bg-card">
-        <div className="container mx-auto px-4 py-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <Shield className="h-8 w-8 text-primary" />
-              <div>
-                <h1 className="text-3xl font-bold tracking-tight">Admin Reports Dashboard</h1>
-                <p className="text-muted-foreground mt-1">
-                  View and manage all individual captain log entries across the organization
-                </p>
-              </div>
-            </div>
-            <Button variant="outline" onClick={() => router.push('/admin')}>
-              Back to Admin
-            </Button>
-          </div>
-        </div>
-      </div>
-
       {/* Main Content */}
       <div className="container mx-auto px-4 py-8">
         <AdminReportsView />
