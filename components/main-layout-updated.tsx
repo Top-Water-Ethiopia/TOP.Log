@@ -26,6 +26,7 @@ import { useCaptainLog } from "@/contexts/supabase-log-context"
 import { useRBAC } from "@/hooks/use-rbac"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { VersionInfo } from "./version-info"
+import { useRouter } from "next/navigation"
 
 // Role IDs from schema
 const SUPER_ADMIN_ROLE_ID = '00000000-0000-0000-0000-000000000000';
@@ -40,9 +41,17 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
   const { profile } = useSupabaseAuth()
   const { theme, setTheme } = useTheme()
   const [mounted, setMounted] = useState(false)
+  const router = useRouter()
   
   // Check if current user is super admin
   const isSuperAdmin = profile?.role_id === SUPER_ADMIN_ROLE_ID;
+  
+  // Redirect superadmin without department to admin page
+  useEffect(() => {
+    if (isSuperAdmin && (!profile?.department || profile?.department === '')) {
+      router.push('/admin')
+    }
+  }, [isSuperAdmin, profile?.department, router])
   
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split("T")[0])
   const [viewMode, setViewMode] = useState<"landing" | "calendar" | "form" | "details" | "analytics" | "thankYou">("landing")

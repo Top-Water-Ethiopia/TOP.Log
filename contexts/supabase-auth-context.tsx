@@ -148,92 +148,6 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
     };
 
     initializeAuth();
-
-    // Set up auth state change listener
-    const { data: { subscription } } = onAuthStateChange(async (user: User | null) => {
-      try {
-        if (user) {
-          // Try to get profile, or create one if it doesn't exist
-          let profile = null;
-          try {
-            const localSupabase = createSupabaseClient();
-            const { data: profileData, error: profileError } = await localSupabase
-              .from('user_profiles')
-              .select('*')
-              .eq('user_id', user.id)
-              .maybeSingle();
-
-            profile = profileData || null;
-
-            // If profile doesn't exist and no error, create a default one
-            if (!profile && !profileError) {
-              try {
-                const localSupabase = createSupabaseClient();
-                const { data: newProfile, error: createError } = await localSupabase
-                  .from('user_profiles')
-                  .insert({
-                    user_id: user.id,
-                    name: user.email?.split('@')[0] || 'User',
-                    role_id: '00000000-0000-0000-0000-000000000002', // Default user role
-                    is_active: true,
-                  })
-                  .select('*')
-                  .single();
-                
-                if (!createError) {
-                  profile = newProfile;
-                }
-              } catch (createErr: any) {
-                // Only log if it's not a network error
-                if (createErr?.status !== 0 && !createErr?.message?.includes('fetch failed')) {
-                  console.error("Failed to create user profile:", createErr);
-                }
-              }
-            }
-          } catch (profileErr: any) {
-            // Only log if it's not a network error
-            if (profileErr?.status !== 0 && !profileErr?.message?.includes('fetch failed')) {
-              console.error("Error fetching user profile:", profileErr);
-            }
-          }
-
-          setAuthState(prev => ({
-            ...prev,
-            user,
-            profile: profile || null,
-            isLoading: false,
-          }));
-        } else {
-          setAuthState(prev => ({
-            ...prev,
-            user: null,
-            profile: null,
-            session: null,
-            isLoading: false,
-          }));
-        }
-      } catch (error: any) {
-        // Handle unexpected errors in auth state change
-        if (error?.status !== 0 && !error?.message?.includes('fetch failed')) {
-          console.error("Auth state change error:", error);
-        }
-        // Still update state to reflect no user if we can't fetch profile
-        if (!user) {
-          setAuthState(prev => ({
-            ...prev,
-            user: null,
-            profile: null,
-            session: null,
-            isLoading: false,
-          }));
-        }
-      }
-    });
-
-    // Cleanup subscription on unmount
-    return () => {
-      subscription?.unsubscribe();
-    };
   }, []);
 
   // Login function
@@ -333,7 +247,15 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
       toast.success("Logged out successfully");
     } catch (error: any) {
       console.error("Logout error:", error);
-      toast.error("Error during logout");
+      // Even if sign out fails, redirect to login page for security
+      router.push('/login');
+      
+      // Show appropriate error message based on error type
+      if (error?.message?.includes('timeout') || error?.message?.includes('network')) {
+        toast.error("Network connection issue during logout. You have been redirected to the login page for security.");
+      } else {
+        toast.error("Error during logout. You have been redirected to the login page for security.");
+      }
     }
   };
   
