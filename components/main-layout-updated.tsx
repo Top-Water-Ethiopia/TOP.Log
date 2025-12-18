@@ -26,8 +26,6 @@ import { useCaptainLog } from "@/contexts/supabase-log-context"
 import { useRBAC } from "@/hooks/use-rbac"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { VersionInfo } from "./version-info"
-import { useRouter } from "next/navigation"
-import { MobileNavigation } from "./mobile-navigation"
 
 // Role IDs from schema
 const SUPER_ADMIN_ROLE_ID = '00000000-0000-0000-0000-000000000000';
@@ -42,17 +40,9 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
   const { profile } = useSupabaseAuth()
   const { theme, setTheme } = useTheme()
   const [mounted, setMounted] = useState(false)
-  const router = useRouter()
   
   // Check if current user is super admin
   const isSuperAdmin = profile?.role_id === SUPER_ADMIN_ROLE_ID;
-  
-  // Redirect superadmin without department to admin page
-  useEffect(() => {
-    if (isSuperAdmin && (!profile?.department || profile?.department === '')) {
-      router.push('/admin')
-    }
-  }, [isSuperAdmin, profile?.department, router])
   
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split("T")[0])
   const [viewMode, setViewMode] = useState<"landing" | "calendar" | "form" | "details" | "analytics" | "thankYou">("landing")
@@ -105,14 +95,25 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
               <p className="text-sm text-muted-foreground mt-1">IT Department Daily Tracker</p>
             </div>
             <div className="flex gap-2 items-center">
-              {/* Mobile Navigation - Hidden on desktop, fixed position */}
-              <div className="lg:hidden fixed top-4 right-4 z-50">
-                <MobileNavigation />
-              </div>
-              
-              {/* Primary Navigation - Left side (hidden on mobile) */}
-              <div className="hidden lg:flex gap-2">
+              {/* Primary Navigation - Left side */}
+              <div className="flex gap-2">
                 <SearchDialog onSelectEntry={handleSearchSelect} />
+                
+                {/* New Report Button - Always visible for authenticated users */}
+                {profile && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="gap-2"
+                    onClick={() => {
+                      setEditingDate(undefined);
+                      setViewMode("form");
+                    }}
+                  >
+                    <FileText className="h-4 w-4" />
+                    New Report
+                  </Button>
+                )}
                 
                 {/* Admin - Permission based or Super Admin */}
                 {(canAccessAdmin || isSuperAdmin) && (
@@ -124,7 +125,7 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
                         className="gap-2"
                       >
                         <Shield className="h-4 w-4" />
-                        <span className="hidden lg:inline">Admin</span>
+                        Admin
                       </Button>
                     </Link>
                     <Link href="/admin/reports">
@@ -134,7 +135,7 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
                         className="gap-2"
                       >
                         <FileText className="h-4 w-4" />
-                        <span className="hidden lg:inline">Reports</span>
+                        Reports
                       </Button>
                     </Link>
                   </>

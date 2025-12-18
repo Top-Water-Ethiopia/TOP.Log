@@ -25,15 +25,20 @@ import {
   LogOut,
   Moon,
   Sun,
-  FileText
+  FileText,
+  BarChart,
+  Calendar,
+  Home
 } from "lucide-react"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
+import { useIsMobile } from "@/hooks/use-mobile"
 
 export function AdminSidebar() {
   const pathname = usePathname()
   const { logout } = useSupabaseAuth()
   const { theme, setTheme } = useTheme()
   const [mounted, setMounted] = useState(false)
+  const isMobile = useIsMobile()
 
   useEffect(() => {
     setMounted(true)
@@ -77,7 +82,7 @@ export function AdminSidebar() {
     }
   ]
 
-  // Settings
+  // Settings - hidden on mobile
   const settingsNavItems = [
     {
       name: "Settings",
@@ -103,6 +108,19 @@ export function AdminSidebar() {
 
   const renderNavItem = (item: { name: string; icon: any; path: string }) => {
     const Icon = item.icon
+    
+    // For placeholder items (path === "#"), don't use Link component
+    if (item.path === "#") {
+      return (
+        <SidebarMenuItem key={`${item.name}-${item.path}`}>
+          <SidebarMenuButton className="w-full justify-start cursor-pointer">
+            <Icon className="h-4 w-4" />
+            <span>{item.name}</span>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+      )
+    }
+    
     return (
       <SidebarMenuItem key={item.path}>
         <Link href={item.path} className="w-full">
@@ -134,13 +152,15 @@ export function AdminSidebar() {
           </SidebarMenu>
         </SidebarGroup>
 
-        {/* Settings */}
-        <SidebarGroup>
-          <SidebarGroupLabel>Configuration</SidebarGroupLabel>
-          <SidebarMenu>
-            {settingsNavItems.map(renderNavItem)}
-          </SidebarMenu>
-        </SidebarGroup>
+        {/* Settings - hidden on mobile */}
+        {!isMobile && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Configuration</SidebarGroupLabel>
+            <SidebarMenu>
+              {settingsNavItems.map(renderNavItem)}
+            </SidebarMenu>
+          </SidebarGroup>
+        )}
       </SidebarContent>
       <SidebarFooter className="space-y-2">
         <Button
