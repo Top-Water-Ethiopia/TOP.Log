@@ -6,6 +6,8 @@ import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { DepartmentManager } from "@/components/department-manager"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Icons } from "@/components/icons"
+import { ListSkeleton } from "@/components/skeletons/list-skeleton"
+import { Skeleton } from "@/components/ui/skeleton"
 
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
 const SUPER_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000000"
@@ -25,8 +27,12 @@ export default function AdminDepartmentsPage() {
 
   if (isLoading || !user || !profile) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Icons.spinner className="h-8 w-8 animate-spin" />
+      <div className="space-y-6">
+        <div className="space-y-2">
+          <Skeleton className="h-9 w-64 bg-gray-200/80 dark:bg-gray-800" />
+          <Skeleton className="h-5 w-80 mt-2 bg-gray-200/70 dark:bg-gray-800" />
+        </div>
+        <ListSkeleton itemCount={5} />
       </div>
     )
   }
@@ -56,12 +62,6 @@ export default function AdminDepartmentsPage() {
 
   return (
     <div className="container py-6 space-y-6">
-      <div>
-        <h1 className="text-3xl font-bold tracking-tight">Departments</h1>
-        <p className="text-muted-foreground mt-2">
-          Create and manage departments. Roles can be assigned to departments.
-        </p>
-      </div>
       <DepartmentManager />
     </div>
   )

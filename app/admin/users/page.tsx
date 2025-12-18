@@ -1,11 +1,12 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { SupabaseUserManagement } from "@/components/supabase-user-management"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Icons } from "@/components/icons"
+import { UsersTableSkeleton } from "@/components/skeletons/users-table-skeleton"
+import { Skeleton } from "@/components/ui/skeleton"
 
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
 const SUPER_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000000"
@@ -13,6 +14,11 @@ const SUPER_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000000"
 export default function AdminUsersPage() {
   const { user, profile, isLoading } = useSupabaseAuth()
   const router = useRouter()
+  const [isClient, setIsClient] = useState(false)
+
+  useEffect(() => {
+    setIsClient(true)
+  }, [])
 
   const isSuperAdmin = profile?.role_id === SUPER_ADMIN_ROLE_ID
   const isAdmin = profile?.role_id === ADMIN_ROLE_ID || isSuperAdmin
@@ -23,10 +29,14 @@ export default function AdminUsersPage() {
     }
   }, [user, isAdmin, isLoading, router])
 
-  if (isLoading || !user || !profile) {
+  if (!isClient || isLoading || !user || !profile) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Icons.spinner className="h-8 w-8 animate-spin" />
+      <div className="space-y-6">
+        <div className="space-y-2">
+          <Skeleton className="h-9 w-64 bg-gray-200/80 dark:bg-gray-800" />
+          <Skeleton className="h-5 w-80 mt-2 bg-gray-200/70 dark:bg-gray-800" />
+        </div>
+        <UsersTableSkeleton />
       </div>
     )
   }
@@ -55,17 +65,15 @@ export default function AdminUsersPage() {
   }
 
   return (
-    <div className="py-8">
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold tracking-tight">Users</h1>
-          <p className="text-muted-foreground mt-2">
-            View and manage all users in the system.
-          </p>
-        </div>
-        <div className="w-full">
-          <SupabaseUserManagement />
-        </div>
+    <div>
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold tracking-tight">Users</h1>
+        <p className="text-muted-foreground mt-2">
+          View and manage all users in the system.
+        </p>
+      </div>
+      <div className="w-full">
+        <SupabaseUserManagement />
       </div>
     </div>
   )

@@ -6,6 +6,8 @@ import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { RoleManager } from "@/components/role-manager"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Icons } from "@/components/icons"
+import { ListSkeleton } from "@/components/skeletons/list-skeleton"
+import { Skeleton } from "@/components/ui/skeleton"
 
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
 const SUPER_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000000"
@@ -25,8 +27,14 @@ export default function AdminRolesPage() {
 
   if (isLoading || !user || !profile) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Icons.spinner className="h-8 w-8 animate-spin" />
+      <div className="space-y-6">
+        <div className="space-y-2">
+          <h1 className="text-3xl font-bold tracking-tight">Roles</h1>
+          <p className="text-muted-foreground">
+            Manage user roles and permissions across the application
+          </p>
+        </div>
+        <ListSkeleton itemCount={5} />
       </div>
     )
   }
@@ -56,15 +64,7 @@ export default function AdminRolesPage() {
 
   return (
     <div className="py-6">
-      <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold tracking-tight">Roles</h1>
-          <p className="text-muted-foreground mt-1">
-            Create and manage roles. Assign roles to departments and customize questions for each role.
-          </p>
-        </div>
-        <RoleManager />
-      </div>
+      <RoleManager />
     </div>
   )
 }

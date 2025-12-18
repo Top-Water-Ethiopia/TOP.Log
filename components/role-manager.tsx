@@ -39,6 +39,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table"
+import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { useToast } from "@/components/ui/use-toast"
@@ -320,8 +321,31 @@ export function RoleManager() {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-8">
-        <div className="text-muted-foreground">Loading roles...</div>
+      <div className="space-y-4">
+        <div className="flex items-center justify-between gap-4">
+          <div className="space-y-2">
+            <Skeleton className="h-7 w-32 bg-gray-200/80 dark:bg-gray-800" />
+            <Skeleton className="h-4 w-96 bg-gray-200/70 dark:bg-gray-800" />
+          </div>
+          <Skeleton className="h-10 w-32 bg-gray-200/80 dark:bg-gray-800" />
+        </div>
+
+        <div className="border rounded-lg">
+          <div className="p-4 space-y-3">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <div key={i} className="flex items-center justify-between">
+                <div className="space-y-2">
+                  <Skeleton className="h-4 w-48 bg-gray-200/70 dark:bg-gray-800" />
+                  <Skeleton className="h-3 w-72 bg-gray-200/60 dark:bg-gray-800" />
+                </div>
+                <div className="flex gap-2">
+                  <Skeleton className="h-8 w-8 bg-gray-200/70 dark:bg-gray-800 rounded" />
+                  <Skeleton className="h-8 w-8 bg-gray-200/70 dark:bg-gray-800 rounded" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     )
   }
