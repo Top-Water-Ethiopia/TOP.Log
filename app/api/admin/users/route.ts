@@ -7,6 +7,84 @@ import type { UserWithProfile, PaginatedUsersResponse } from '@/lib/supabase/adm
 // This ensures we get fresh data on each request
 export const dynamic = 'force-dynamic'
 
+export async function DELETE(request: Request) {
+  try {
+    // Verify admin access
+    const { isAdmin, isSuperAdmin, error: authError, userId } = await verifyAdmin()
+    if (!isAdmin || !userId) {
+      return NextResponse.json(
+        { error: authError || 'Admin access required' },
+        { status: 403 }
+      )
+    }
+
+    const { searchParams } = new URL(request.url)
+    const userIdToDelete = searchParams.get('user_id')
+
+    if (!userIdToDelete) {
+      return NextResponse.json(
+        { error: 'User ID is required' },
+        { status: 400 }
+      )
+    }
+
+    // Prevent users from deleting themselves
+    if (userIdToDelete === userId) {
+      return NextResponse.json(
+        { error: 'You cannot delete your own account' },
+        { status: 400 }
+      )
+    }
+
+    // Get the user's role to prevent deleting admin accounts
+    const { data: userProfile, error: profileError } = await adminSupabase
+      .from('user_profiles')
+      .select('role_id')
+      .eq('user_id', userIdToDelete)
+      .single()
+
+    if (profileError || !userProfile) {
+      return NextResponse.json(
+        { error: 'User profile not found' },
+        { status: 404 }
+      )
+    }
+
+    // Prevent deleting admin accounts unless super admin
+    if ((userProfile.role_id === ADMIN_ROLE_ID || userProfile.role_id === SUPER_ADMIN_ROLE_ID) && !isSuperAdmin) {
+      return NextResponse.json(
+        { error: 'You do not have permission to delete admin accounts' },
+        { status: 403 }
+      )
+    }
+
+    // Delete the auth user (this will cascade delete the profile due to RLS)
+    const { error: deleteError } = await adminSupabase.auth.admin.deleteUser(userIdToDelete)
+
+    if (deleteError) {
+      console.error('Error deleting auth user:', deleteError)
+      return NextResponse.json(
+        { error: 'Failed to delete user', message: deleteError.message },
+        { status: 500 }
+      )
+    }
+
+    return NextResponse.json(
+      { success: true, message: 'User deleted successfully' },
+      { status: 200 }
+    )
+  } catch (error) {
+    console.error('Delete user error:', error)
+    return NextResponse.json(
+      { 
+        error: 'Failed to delete user',
+        message: error instanceof Error ? error.message : 'Unknown error'
+      },
+      { status: 500 }
+    )
+  }
+}
+
 const SUPER_ADMIN_ROLE_ID = '00000000-0000-0000-0000-000000000000'
 const ADMIN_ROLE_ID = '00000000-0000-0000-0000-000000000001'
 

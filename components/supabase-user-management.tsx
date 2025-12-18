@@ -58,8 +58,10 @@ import {
   EyeOff,
   Key,
   MailCheck,
+  FilePlus,
 } from "lucide-react";
 import { toast } from "sonner";
+import { UsersTableSkeleton } from "@/components/skeletons/users-table-skeleton"
 
 // Role IDs from schema
 const SUPER_ADMIN_ROLE_ID = '00000000-0000-0000-0000-000000000000';
@@ -71,10 +73,6 @@ interface UserWithProfile {
   email: string;
   created_at: string;
   email_confirmed_at?: string | null;
-  user_metadata?: {
-    email_verified?: boolean;
-    [key: string]: any;
-  } | null;
   profile: {
     id: string;
     name: string;
@@ -437,8 +435,8 @@ export function SupabaseUserManagement() {
     setIsUpdatingUser(true);
     try {
       // Check if we need to mark email as verified or unverified
-      const shouldMarkEmailVerified = editUserForm.email_verified && (!editingUser.email_confirmed_at || !editingUser.user_metadata?.email_verified);
-      const shouldUnmarkEmailVerified = !editUserForm.email_verified && (editingUser.email_confirmed_at || editingUser.user_metadata?.email_verified) && isSuperAdmin;
+      const shouldMarkEmailVerified = editUserForm.email_verified && !editingUser.email_confirmed_at;
+      const shouldUnmarkEmailVerified = !editUserForm.email_verified && editingUser.email_confirmed_at && isSuperAdmin;
       
       // Update user details
       const response = await fetch('/api/admin/users', {
@@ -587,40 +585,49 @@ export function SupabaseUserManagement() {
   const handleDeleteUser = async () => {
     if (!userToDelete) return;
 
-    if (userToDelete.id === currentUser?.id) {
+    // Type assert userToDelete as UserWithProfile with proper type safety
+    const user = userToDelete as unknown as UserWithProfile;
+
+    if (user.id === currentUser?.id) {
       toast.error("You cannot delete your own account");
       setShowDeleteDialog(false);
       setUserToDelete(null);
       return;
     }
 
-    // Prevent deleting admin accounts
-    const userRoleId = userToDelete.profile?.role_id;
-    if (userRoleId === ADMIN_ROLE_ID || userRoleId === SUPER_ADMIN_ROLE_ID) {
-      toast.error("You cannot delete admin accounts");
+    // Prevent deleting admin accounts for non-super admins
+    const userRoleId = user.profile?.role_id;
+    const isCurrentUserSuperAdmin = currentUser?.profile?.role_id === SUPER_ADMIN_ROLE_ID;
+    
+    if ((userRoleId === ADMIN_ROLE_ID || userRoleId === SUPER_ADMIN_ROLE_ID) && !isCurrentUserSuperAdmin) {
+      toast.error("You do not have permission to delete admin accounts");
       setShowDeleteDialog(false);
       setUserToDelete(null);
       return;
     }
 
     try {
-      // Delete user profile (this will cascade delete related data)
-      const { error } = await supabase
-        .from('user_profiles')
-        .delete()
-        .eq('user_id', userToDelete.id);
+      // Call the API to delete the user
+      const response = await fetch(`/api/admin/users?user_id=${userToDelete.id}`, {
+        method: 'DELETE',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+      });
 
-      if (error) throw error;
+      const data = await response.json();
 
-      // Note: To delete the auth user, you need admin API access
-      // For now, we'll just delete the profile
-      toast.success("User profile deleted successfully");
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to delete user');
+      }
+
+      toast.success("User deleted successfully");
       setShowDeleteDialog(false);
       setUserToDelete(null);
       await loadUsers();
     } catch (error: any) {
       console.error("Failed to delete user:", error);
-      toast.error("Failed to delete user: " + (error.message || "Unknown error"));
+      toast.error(error.message || "Failed to delete user");
     }
   };
 
@@ -725,8 +732,16 @@ export function SupabaseUserManagement() {
     );
   }
 
+  if (isLoading) {
+    return (
+      <div className="space-y-4">
+        <UsersTableSkeleton />
+      </div>
+    );
+  }
+
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {/* Action Bar */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div className="flex flex-wrap items-center gap-3 flex-1">
@@ -737,6 +752,13 @@ export function SupabaseUserManagement() {
           <Button onClick={() => setShowCreateUser(true)}>
             <UserPlus className="h-4 w-4 mr-2" />
             Add User
+          </Button>
+          <Button 
+            variant="outline" 
+            onClick={() => window.location.href = '/admin/reports/new'}
+          >
+            <FilePlus className="h-4 w-4 mr-2" />
+            Add New Report
           </Button>
         </div>
       </div>
@@ -1214,7 +1236,7 @@ export function SupabaseUserManagement() {
                   id="email-verified"
                   checked={editUserForm.email_verified}
                   onCheckedChange={(checked) => setEditUserForm(prev => ({ ...prev, email_verified: checked }))}
-                  disabled={(!editingUser?.email_confirmed_at || !editingUser?.user_metadata?.email_verified) && !isSuperAdmin}
+                  disabled={!!editingUser && editingUser.email_confirmed_at !== null && !isSuperAdmin}
                 />
                 <Label htmlFor="email-verified">Email Verified</Label>
               </div>
@@ -1460,4 +1482,3 @@ export function SupabaseUserManagement() {
     </div>
   );
 }
-

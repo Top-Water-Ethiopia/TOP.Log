@@ -89,7 +89,7 @@ export async function signOut() {
     const signOutPromise = supabase.auth.signOut();
     
     const timeoutPromise = new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Sign out timeout - please check your internet connection and try again')), 30000)
+      setTimeout(() => reject(new Error('Sign out timeout - please check your internet connection and try again')), 10000)
     );
     
     const result = await Promise.race([signOutPromise, timeoutPromise]);
