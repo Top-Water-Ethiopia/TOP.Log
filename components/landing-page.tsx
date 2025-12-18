@@ -27,27 +27,39 @@ export function LandingPage({ canCreateNewReport = true, onNewReport, onViewRepo
           </p>
         </div>
 
-        {/* Action Buttons */}
-        <div className="flex flex-col sm:flex-row gap-6 justify-center items-center">
+        {/* Action Cards */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto">
           {canCreateNewReport && (
-            <Button
+            <div 
               onClick={onNewReport}
-              size="lg"
-              className="w-full sm:w-64 h-32 text-xl font-semibold flex flex-col gap-4 hover:scale-105 transition-transform"
+              className="group cursor-pointer rounded-xl border border-border bg-card p-6 shadow-sm transition-all hover:shadow-md hover:border-primary/20 hover:bg-card/80"
             >
-              <FileText className="h-12 w-12" />
-              New Report
-            </Button>
+              <div className="flex flex-col items-center text-center h-full">
+                <div className="flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 text-primary mb-4 group-hover:bg-primary/20 transition-colors">
+                  <FileText className="h-8 w-8" />
+                </div>
+                <h3 className="text-xl font-semibold mb-2">New Report</h3>
+                <p className="text-muted-foreground text-sm">
+                  Start a new daily report to log your activities and updates
+                </p>
+              </div>
+            </div>
           )}
-          <Button
+          
+          <div 
             onClick={onViewReports}
-            variant="outline"
-            size="lg"
-            className="w-full sm:w-64 h-32 text-xl font-semibold flex flex-col gap-4 hover:scale-105 transition-transform"
+            className="group cursor-pointer rounded-xl border border-border bg-card p-6 shadow-sm transition-all hover:shadow-md hover:border-primary/20 hover:bg-card/80"
           >
-            <History className="h-12 w-12" />
-            View Reports
-          </Button>
+            <div className="flex flex-col items-center text-center h-full">
+              <div className="flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 text-primary mb-4 group-hover:bg-primary/20 transition-colors">
+                <History className="h-8 w-8" />
+              </div>
+              <h3 className="text-xl font-semibold mb-2">View Reports</h3>
+              <p className="text-muted-foreground text-sm">
+                Browse and search through your previously submitted reports
+              </p>
+            </div>
+          </div>
         </div>
 
         {/* Optional description */}
