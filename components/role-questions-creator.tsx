@@ -578,6 +578,23 @@ export function RoleQuestionsCreator() {
                   Add Question
                 </Button>
               )}
+              <Button 
+                onClick={handleSubmit} 
+                disabled={isSubmitting || questions.length === 0}
+                size={creationMode === "wizard" ? "default" : "sm"}
+              >
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    Creating...
+                  </>
+                ) : (
+                  <>
+                    <Save className="h-4 w-4 mr-2" />
+                    Create {questions.length} Question{questions.length !== 1 ? "s" : ""}
+                  </>
+                )}
+              </Button>
             </div>
           </div>
         </CardHeader>
@@ -655,29 +672,24 @@ export function RoleQuestionsCreator() {
       <Card>
         <CardContent className="pt-6">
           <div className="flex items-center justify-between">
-            <Button variant="outline" onClick={handleBack}>
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Back
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button variant="outline" onClick={handleBack}>
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                Back
+              </Button>
+              {creationMode === "single" && (
+                <Button variant="outline" onClick={addQuestion}>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Add Question
+                </Button>
+              )}
+            </div>
             <div className="flex gap-2">
               <Button
                 variant="outline"
                 onClick={() => router.push("/admin/role-questions")}
               >
                 Cancel
-              </Button>
-              <Button onClick={handleSubmit} disabled={isSubmitting || questions.length === 0}>
-                {isSubmitting ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Creating...
-                  </>
-                ) : (
-                  <>
-                    <Save className="h-4 w-4 mr-2" />
-                    Create {questions.length} Question{questions.length !== 1 ? "s" : ""}
-                  </>
-                )}
               </Button>
             </div>
           </div>
