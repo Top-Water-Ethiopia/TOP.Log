@@ -6,8 +6,8 @@ import { useSupabaseAuth } from '@/contexts/supabase-auth-context'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { Icons } from '@/components/icons'
 import { ArrowLeft } from 'lucide-react'
+import { ReportDetailsSkeleton } from '@/components/skeletons/report-details-skeleton'
 import { format, parseISO } from 'date-fns'
 
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
@@ -102,19 +102,11 @@ export default function AdminReportDetailsPage() {
   }, [entryId, isLoading, user, isAdmin])
 
   if (isLoading || (!user && !isAdmin)) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Icons.spinner className="h-8 w-8 animate-spin" />
-      </div>
-    )
+    return <ReportDetailsSkeleton />
   }
 
   if (isEntryLoading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Icons.spinner className="h-8 w-8 animate-spin" />
-      </div>
-    )
+    return <ReportDetailsSkeleton />
   }
 
   if (error) {

@@ -90,9 +90,8 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
               }}
             >
               <h1 className="text-3xl font-semibold text-foreground">
-                <span className="text-primary">TOP</span> Captain's Log
+                <span className="text-primary">TOP</span> Log
               </h1>
-              <p className="text-sm text-muted-foreground mt-1">IT Department Daily Tracker</p>
             </div>
             <div className="flex gap-2 items-center">
               {/* Primary Navigation - Left side */}

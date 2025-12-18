@@ -3,7 +3,7 @@
 import type React from "react"
 import { useState, useEffect, useMemo, useCallback } from "react"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card"
 import { useCaptainLog } from "@/contexts/supabase-log-context"
 import { useAuth } from "@/contexts/auth-context"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
@@ -11,7 +11,7 @@ import { useRBAC } from "@/hooks/use-rbac"
 import { useRoleQuestions } from "@/hooks/use-role-questions"
 import { RoleBasedQuestionFields } from "@/components/role-based-question-fields"
 import type { QuestionResponse } from "@/lib/rbac/types"
-import { ArrowLeft, ArrowRight, Save, Eye, CheckCircle2, Target, CheckCircle, AlertTriangle, AlertCircle, Sparkles, Calendar, ListChecks, Pencil } from "lucide-react"
+import { ArrowLeft, ArrowRight, Save, Eye, AlertCircle, ListChecks, Pencil } from "lucide-react"
 import { toast } from "sonner"
 import { 
   getMinAllowedDate, 
@@ -126,8 +126,8 @@ export function EntryFormMultistep({ date: initialDate, onSave, onCancel, initia
 
   // Steps: Date -> each role question -> Preview
   const steps = useMemo(() => {
-    const stepsList: { key: string; title: string; icon: React.ComponentType<{ className?: string }> }[] = [
-      { key: "date", title: "Select Date", icon: Calendar },
+    const stepsList: { key: string; title: string }[] = [
+      { key: "date", title: "Select Date" },
     ]
 
     // One step per role question, with a dedicated title (falls back to label)
@@ -137,11 +137,10 @@ export function EntryFormMultistep({ date: initialDate, onSave, onCancel, initia
       stepsList.push({
         key: `question-${q.key}`,
         title,
-        icon: ListChecks,
       })
     })
 
-    stepsList.push({ key: "preview", title: "Preview & Submit", icon: Eye })
+    stepsList.push({ key: "preview", title: "Preview & Submit" })
 
     return stepsList.map((step, index) => ({
       ...step,
@@ -349,10 +348,14 @@ export function EntryFormMultistep({ date: initialDate, onSave, onCancel, initia
         toast.success("Entry updated successfully!")
       } else {
         // Create new entry
+        const now = new Date().toISOString()
         await addEntry({
           date: selectedDate,
           ...formData,
           customResponses: processedCustom.processedResponses,
+          createdAt: now,
+          updatedAt: now,
+          metadata: null,
         })
         toast.success("Entry created successfully!")
       }
@@ -408,79 +411,9 @@ export function EntryFormMultistep({ date: initialDate, onSave, onCancel, initia
         </Button>
       </div>
 
-      {/* Progress Steps */}
-      <div className="flex items-center justify-between">
-        {steps.map((step, index) => {
-          const canNavigate = canNavigateToStep(step.number)
-          const isCompleted = currentStep > step.number
-          const isCurrent = currentStep === step.number
-          const isFuture = step.number > currentStep
-          
-          return (
-            <div key={step.key} className="flex items-center flex-1">
-              <div className="flex flex-col items-center group">
-                <button
-                  type="button"
-                  onClick={() => handleStepClick(step.number)}
-                  disabled={!canNavigate}
-                  className={`w-10 h-10 rounded-full flex items-center justify-center text-lg font-medium transition-colors ${
-                    isCurrent
-                      ? "bg-primary text-primary-foreground group-hover:bg-primary/90 cursor-pointer"
-                      : isCompleted
-                        ? "text-white group-hover:bg-emerald-700 cursor-pointer"
-                        : isFuture
-                          ? "bg-muted text-muted-foreground cursor-not-allowed opacity-60"
-                          : "bg-muted text-muted-foreground group-hover:bg-muted/80 group-hover:text-foreground cursor-pointer"
-                  }`}
-                  style={isCompleted ? { backgroundColor: '#099748' } : undefined}
-                  aria-current={isCurrent ? "step" : undefined}
-                  aria-disabled={!canNavigate}
-                >
-                  {isCompleted ? <CheckCircle2 className="h-5 w-5" /> : <step.icon className="h-5 w-5" />}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleStepClick(step.number)}
-                  disabled={!canNavigate}
-                  className={`text-xs mt-2 text-center hidden md:block transition-colors ${
-                    canNavigate ? 'cursor-pointer' : 'cursor-not-allowed opacity-60'
-                  } ${
-                    step.number < currentStep
-                      ? "text-foreground group-hover:text-primary"
-                      : step.number === currentStep
-                        ? "text-foreground font-medium group-hover:text-primary/90"
-                        : "text-muted-foreground group-hover:text-foreground/80"
-                  }`}
-                  aria-current={step.number === currentStep ? "step" : undefined}
-                  aria-disabled={!canNavigate}
-                >
-                  {step.title}
-                </button>
-              </div>
-              {index < steps.length - 1 && (
-                <div
-                  className={`flex-1 h-1 mx-2 rounded transition-colors ${
-                    currentStep > step.number ? "bg-muted" : "bg-muted"
-                  }`}
-                  style={currentStep > step.number ? { backgroundColor: '#099748' } : undefined}
-                />
-              )}
-            </div>
-          )
-        })}
-      </div>
-
       {/* Step Content */}
       <Card className="flex-1 flex flex-col overflow-hidden shadow-sm">
         <CardHeader className="flex-shrink-0">
-          <CardTitle className="flex items-center gap-2">
-            {currentStepConfig ? (
-              <>
-                <currentStepConfig.icon className="h-6 w-6" />
-                {currentStepConfig.title}
-              </>
-            ) : null}
-          </CardTitle>
           <CardDescription>
             Step {currentStep} of {steps.length}
           </CardDescription>

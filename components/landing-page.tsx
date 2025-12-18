@@ -29,22 +29,20 @@ export function LandingPage({ canCreateNewReport = true, onNewReport, onViewRepo
 
         {/* Action Cards */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto">
-          {canCreateNewReport && (
-            <div 
-              onClick={onNewReport}
-              className="group cursor-pointer rounded-xl border border-border bg-card p-6 shadow-sm transition-all hover:shadow-md hover:border-primary/20 hover:bg-card/80"
-            >
-              <div className="flex flex-col items-center text-center h-full">
-                <div className="flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 text-primary mb-4 group-hover:bg-primary/20 transition-colors">
-                  <FileText className="h-8 w-8" />
-                </div>
-                <h3 className="text-xl font-semibold mb-2">New Report</h3>
-                <p className="text-muted-foreground text-sm">
-                  Start a new daily report to log your activities and updates
-                </p>
+          <div 
+            onClick={onNewReport}
+            className="group cursor-pointer rounded-xl border border-border bg-card p-6 shadow-sm transition-all hover:shadow-md hover:border-primary/20 hover:bg-card/80"
+          >
+            <div className="flex flex-col items-center text-center h-full">
+              <div className="flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 text-primary mb-4 group-hover:bg-primary/20 transition-colors">
+                <FileText className="h-8 w-8" />
               </div>
+              <h3 className="text-xl font-semibold mb-2">Add Report</h3>
+              <p className="text-muted-foreground text-sm">
+                Start a new daily report to log your activities and updates
+              </p>
             </div>
-          )}
+          </div>
           
           <div 
             onClick={onViewReports}
