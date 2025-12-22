@@ -30,7 +30,7 @@ export default function AdminDepartmentsPage() {
       <div className="space-y-6">
         <div className="space-y-2">
           <Skeleton className="h-9 w-64 bg-gray-200/80 dark:bg-gray-800" />
-          <Skeleton className="h-5 w-80 mt-2 bg-gray-200/70 dark:bg-gray-800" />
+          <Skeleton className="mt-2 h-5 w-80 bg-gray-200/70 dark:bg-gray-800" />
         </div>
         <ListSkeleton itemCount={5} />
       </div>
@@ -39,18 +39,16 @@ export default function AdminDepartmentsPage() {
 
   if (!isAdmin) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
+      <div className="flex min-h-screen items-center justify-center">
         <Card className="w-full max-w-md">
           <CardHeader>
             <CardTitle>Access Denied</CardTitle>
-            <CardDescription>
-              You don't have permission to access this page.
-            </CardDescription>
+            <CardDescription>You don't have permission to access this page.</CardDescription>
           </CardHeader>
           <CardContent>
             <button
               onClick={() => router.push("/")}
-              className="w-full px-4 py-2 text-sm font-medium text-white bg-primary rounded-md hover:bg-primary/90"
+              className="bg-primary hover:bg-primary/90 w-full rounded-md px-4 py-2 text-sm font-medium text-white"
             >
               Go to Home
             </button>
@@ -61,10 +59,14 @@ export default function AdminDepartmentsPage() {
   }
 
   return (
-    <div className="container py-6 space-y-6">
-      <DepartmentManager />
+    <div>
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold tracking-tight">Departments</h1>
+        <p className="text-muted-foreground mt-2">View and manage all departments in the system.</p>
+      </div>
+      <div className="w-full">
+        <DepartmentManager />
+      </div>
     </div>
   )
 }
-
-

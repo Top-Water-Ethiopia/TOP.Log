@@ -14,68 +14,68 @@ const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
 const SUPER_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000000"
 
 const stats = [
-  { name: 'Total Users', value: '1,234', icon: Users, change: '+12%', changeType: 'positive' },
-  { name: 'Active Sessions', value: '42', icon: Activity, change: '+5%', changeType: 'positive' },
-  { name: 'Storage Used', value: '2.4 GB', icon: Database, change: '3%', changeType: 'neutral' },
-  { name: 'Uptime', value: '99.9%', icon: Clock, change: '0.1%', changeType: 'negative' },
+  { name: "Total Users", value: "1,234", icon: Users, change: "+12%", changeType: "positive" },
+  { name: "Active Sessions", value: "42", icon: Activity, change: "+5%", changeType: "positive" },
+  { name: "Storage Used", value: "2.4 GB", icon: Database, change: "3%", changeType: "neutral" },
+  { name: "Uptime", value: "99.9%", icon: Clock, change: "0.1%", changeType: "negative" },
 ]
 
 const quickActions = [
-  { 
-    name: 'Captain Log Entries', 
-    description: 'View all individual captain log reports', 
+  {
+    name: "Captain Log Entries",
+    description: "View all individual captain log reports",
     icon: FileText,
-    href: '/admin/reports',
-    iconForeground: 'text-emerald-700',
-    iconBackground: 'bg-emerald-50',
+    href: "/admin/reports",
+    iconForeground: "text-emerald-700",
+    iconBackground: "bg-emerald-50",
   },
-  { 
-    name: 'Add New User', 
-    description: 'Create a new user account', 
+  {
+    name: "Add New User",
+    description: "Create a new user account",
     icon: Users,
-    href: '/admin/users/new',
-    iconForeground: 'text-sky-700',
-    iconBackground: 'bg-sky-50',
+    href: "/admin/users/new",
+    iconForeground: "text-sky-700",
+    iconBackground: "bg-sky-50",
   },
-  { 
-    name: 'Departments', 
-    description: 'Create and manage departments', 
+  {
+    name: "Departments",
+    description: "Manage departments",
     icon: Building2,
-    href: '/admin/departments',
-    iconForeground: 'text-blue-700',
-    iconBackground: 'bg-blue-50',
+    href: "/admin/departments",
+    iconForeground: "text-blue-700",
+    iconBackground: "bg-blue-50",
   },
-  { 
-    name: 'Manage Roles', 
-    description: 'Create roles and assign to departments', 
+  {
+    name: "Manage Roles",
+    description: "Create roles and assign to departments",
     icon: Shield,
-    href: '/admin/roles',
-    iconForeground: 'text-purple-700',
-    iconBackground: 'bg-purple-50',
+    href: "/admin/roles",
+    iconForeground: "text-purple-700",
+    iconBackground: "bg-purple-50",
   },
-  { 
-    name: 'Role Questions', 
-    description: 'Customize questions for each role', 
+  {
+    name: "Role Questions",
+    description: "Customize questions for each role",
     icon: FileText,
-    href: '/admin/role-questions',
-    iconForeground: 'text-indigo-700',
-    iconBackground: 'bg-indigo-50',
+    href: "/admin/role-questions",
+    iconForeground: "text-indigo-700",
+    iconBackground: "bg-indigo-50",
   },
-  { 
-    name: 'System Settings', 
-    description: 'Configure system preferences', 
+  {
+    name: "System Settings",
+    description: "Configure system preferences",
     icon: Settings,
-    href: '/admin/settings',
-    iconForeground: 'text-green-700',
-    iconBackground: 'bg-green-50',
+    href: "/admin/settings",
+    iconForeground: "text-green-700",
+    iconBackground: "bg-green-50",
   },
-  { 
-    name: 'View Audit Logs', 
-    description: 'Review system activity', 
+  {
+    name: "View Audit Logs",
+    description: "Review system activity",
     icon: FileText,
-    href: '/admin/audit-logs',
-    iconForeground: 'text-amber-700',
-    iconBackground: 'bg-amber-50',
+    href: "/admin/audit-logs",
+    iconForeground: "text-amber-700",
+    iconBackground: "bg-amber-50",
   },
 ]
 
@@ -101,7 +101,7 @@ export default function AdminPage() {
       const statsData = await getAdminStats()
       setStats(statsData)
     } catch (error) {
-      console.error('Failed to fetch stats:', error)
+      console.error("Failed to fetch stats:", error)
     } finally {
       setIsRefreshing(false)
     }
@@ -121,7 +121,7 @@ export default function AdminPage() {
 
   if (isLoading || !user || !profile) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
+      <div className="flex min-h-screen items-center justify-center">
         <Icons.spinner className="h-8 w-8 animate-spin" />
       </div>
     )
@@ -129,13 +129,11 @@ export default function AdminPage() {
 
   if (!isAdmin) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
+      <div className="flex min-h-screen items-center justify-center">
         <Card className="w-full max-w-md">
           <CardHeader>
             <CardTitle>Access Denied</CardTitle>
-            <CardDescription>
-              You don't have permission to access the admin dashboard.
-            </CardDescription>
+            <CardDescription>You don't have permission to access the admin dashboard.</CardDescription>
           </CardHeader>
           <CardContent>
             <Button onClick={() => router.push("/")} className="w-full">
@@ -148,77 +146,76 @@ export default function AdminPage() {
   }
 
   const displayStats = [
-    { 
-      name: 'Total Users', 
-      value: stats?.totalUsers?.toLocaleString() ?? 'Loading...', 
-      icon: Users, 
-      change: stats ? '+12%' : '', 
-      changeType: 'positive' 
+    {
+      name: "Total Users",
+      value: stats?.totalUsers?.toLocaleString() ?? "Loading...",
+      icon: Users,
+      change: stats ? "+12%" : "",
+      changeType: "positive",
     },
-    { 
-      name: 'Active Sessions', 
-      value: stats?.activeSessions?.toString() ?? 'Loading...', 
-      icon: Activity, 
-      change: stats ? '+5%' : '', 
-      changeType: 'positive' 
+    {
+      name: "Active Sessions",
+      value: stats?.activeSessions?.toString() ?? "Loading...",
+      icon: Activity,
+      change: stats ? "+5%" : "",
+      changeType: "positive",
     },
-    { 
-      name: 'Storage Used', 
-      value: stats?.storageUsed ?? 'Loading...', 
-      icon: Database, 
-      change: '3%', 
-      changeType: 'neutral' 
+    {
+      name: "Storage Used",
+      value: stats?.storageUsed ?? "Loading...",
+      icon: Database,
+      change: "3%",
+      changeType: "neutral",
     },
-    { 
-      name: 'Uptime', 
-      value: stats?.uptime ?? 'Loading...', 
-      icon: Clock, 
-      change: '0.1%', 
-      changeType: 'negative' 
+    {
+      name: "Uptime",
+      value: stats?.uptime ?? "Loading...",
+      icon: Clock,
+      change: "0.1%",
+      changeType: "negative",
     },
   ]
 
   return (
     <div className="py-6">
-      <div className="flex justify-between items-center mb-8">
+      <div className="mb-8 flex items-center justify-between">
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Admin Dashboard</h1>
-          <p className="text-muted-foreground mt-1">
-            Overview of your application's performance and quick actions
-          </p>
+          <p className="text-muted-foreground mt-1">Overview of your application's performance and quick actions</p>
         </div>
-        <Button 
-          variant="outline" 
-          size="sm" 
+        <Button
+          variant="outline"
+          size="sm"
           onClick={fetchStats}
           disabled={isRefreshing}
           className="flex items-center gap-2"
         >
-          <RefreshCw className={`h-4 w-4 ${isRefreshing ? 'animate-spin' : ''}`} />
+          <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
           Refresh
         </Button>
       </div>
 
       {/* Stats */}
-      <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4 mb-8">
+      <div className="mb-8 grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
         {displayStats.map((stat) => (
           <Card key={stat.name}>
             <CardContent className="pt-6">
               <div className="flex items-center">
-                <div className="flex-shrink-0 rounded-md bg-indigo-500 p-3">
+                <div className="shrink-0 rounded-md bg-indigo-500 p-3">
                   <stat.icon className="h-6 w-6 text-white" aria-hidden="true" />
                 </div>
                 <div className="ml-5 w-0 flex-1">
-                  <dt className="truncate text-sm font-medium text-muted-foreground">
-                    {stat.name}
-                  </dt>
+                  <dt className="text-muted-foreground truncate text-sm font-medium">{stat.name}</dt>
                   <dd className="flex items-baseline">
                     <div className="text-2xl font-semibold">{stat.value}</div>
                     <div
                       className={
-                        'ml-2 flex items-baseline text-sm font-semibold ' +
-                        (stat.changeType === 'positive' ? 'text-green-600' : 
-                         stat.changeType === 'negative' ? 'text-red-600' : 'text-amber-600')
+                        "ml-2 flex items-baseline text-sm font-semibold " +
+                        (stat.changeType === "positive"
+                          ? "text-green-600"
+                          : stat.changeType === "negative"
+                            ? "text-red-600"
+                            : "text-amber-600")
                       }
                     >
                       {stat.change}
@@ -233,19 +230,19 @@ export default function AdminPage() {
 
       {/* Quick Actions */}
       <div className="mb-8">
-        <h2 className="text-lg font-medium text-foreground mb-4">Quick Actions</h2>
+        <h2 className="text-foreground mb-4 text-lg font-medium">Quick Actions</h2>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
           {quickActions.map((action) => (
             <Link key={action.name} href={action.href}>
-              <Card className="h-full transition-colors hover:bg-accent/50">
+              <Card className="hover:bg-accent/50 h-full transition-colors">
                 <CardContent className="p-6">
                   <div className="flex items-center">
-                    <div className={`${action.iconBackground} p-3 rounded-lg`}>
+                    <div className={`${action.iconBackground} rounded-lg p-3`}>
                       <action.icon className={`h-6 w-6 ${action.iconForeground}`} aria-hidden="true" />
                     </div>
                     <div className="ml-4">
                       <h3 className="font-medium">{action.name}</h3>
-                      <p className="text-sm text-muted-foreground">{action.description}</p>
+                      <p className="text-muted-foreground text-sm">{action.description}</p>
                     </div>
                   </div>
                 </CardContent>
@@ -257,10 +254,10 @@ export default function AdminPage() {
 
       {/* Recent Activity */}
       <div className="mb-8">
-        <h2 className="text-lg font-medium text-foreground mb-4">Recent Activity</h2>
+        <h2 className="text-foreground mb-4 text-lg font-medium">Recent Activity</h2>
         <Card>
           <CardContent className="p-6">
-            <div className="flex items-center justify-center h-40">
+            <div className="flex h-40 items-center justify-center">
               <p className="text-muted-foreground">Recent activity will appear here</p>
             </div>
           </CardContent>
