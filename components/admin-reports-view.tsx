@@ -949,47 +949,22 @@ export function AdminReportsView() {
 
         {/* Enhanced Calendar View Tab */}
         <TabsContent value="calendar" className="space-y-6">
-          <Card className="border border-gray-200 shadow-lg transition-shadow duration-300 hover:shadow-xl">
-            <CardHeader className={`${styles.calendarHeader} pb-4`}>
-              <div className="flex flex-col space-y-4 sm:flex-row sm:items-center sm:justify-between sm:space-y-0">
-                <div>
-                  <h2 className={styles.calendarTitle}>Reports Calendar</h2>
-                  <p className={styles.calendarSubtitle}>
-                    Enterprise-grade calendar view with advanced filtering and analytics
-                  </p>
-                </div>
-                <div className="flex flex-wrap items-center gap-3">
-                  <div className="flex items-center space-x-4 text-sm text-gray-600">
-                    <div className="flex items-center">
-                      <div className="mr-2 h-3 w-3 rounded-full bg-gradient-to-r from-blue-400 to-blue-600"></div>
-                      <span className="hidden sm:inline">Team Member</span>
-                      <span className="sm:hidden">TM</span>
-                    </div>
-                    <div className="flex items-center">
-                      <div className="mr-2 h-3 w-3 rounded-full bg-gradient-to-r from-indigo-500 to-indigo-700"></div>
-                      <span className="hidden sm:inline">Admin</span>
-                      <span className="sm:hidden">A</span>
-                    </div>
-                    <div className="flex items-center">
-                      <div className="mr-2 h-3 w-3 rounded-full bg-gradient-to-r from-orange-400 to-red-500"></div>
-                      <span className="hidden sm:inline">High Activity</span>
-                      <span className="sm:hidden">HA</span>
-                    </div>
-                  </div>
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="h-9 border-gray-300 bg-white text-gray-700 shadow-sm hover:bg-gray-50"
-                    onClick={loadEntries}
-                  >
-                    <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
-                    <span className="xs:inline hidden">Refresh Data</span>
-                    <span className="xs:hidden">Refresh</span>
-                  </Button>
-                </div>
+          <Card className="border border-gray-200 bg-transparent shadow-lg transition-shadow duration-300 hover:shadow-xl">
+            <CardHeader className="pb-2">
+              <div className="flex justify-end">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-9 border-gray-300 bg-white text-gray-700 shadow-sm hover:bg-gray-50"
+                  onClick={loadEntries}
+                >
+                  <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
+                  <span className="xs:inline hidden">Refresh Data</span>
+                  <span className="xs:hidden">Refresh</span>
+                </Button>
               </div>
             </CardHeader>
-            <CardContent className="pt-2">
+            <CardContent className="bg-transparent pt-2">
               {/* Advanced Calendar Filters - Responsive */}
               <div className={`${styles.filterPanel} ${styles.animateSlideIn}`}>
                 <h3 className={styles.filterTitle}>Advanced Filters</h3>
@@ -1200,8 +1175,8 @@ export function AdminReportsView() {
                   })()
 
                   return (
-                    <div className="overflow-hidden rounded-xl border border-gray-300 bg-white shadow-lg">
-                      <div className="flex items-center justify-between border-b border-gray-200 bg-white px-4 py-3">
+                    <div className="overflow-hidden rounded-xl border border-gray-300 bg-transparent shadow-lg">
+                      <div className="flex items-center justify-between border-b border-gray-200 bg-transparent px-4 py-3">
                         <Button
                           variant="outline"
                           size="icon"
@@ -1235,7 +1210,7 @@ export function AdminReportsView() {
                         </Button>
                       </div>
 
-                      <div className="grid grid-cols-7 border-b border-gray-200 bg-gray-50 text-xs font-semibold text-gray-700">
+                      <div className="grid grid-cols-7 border-b border-gray-200 bg-transparent text-xs font-semibold text-gray-700">
                         {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((label) => (
                           <div key={label} className="py-2 text-center">
                             {label}
@@ -1258,7 +1233,7 @@ export function AdminReportsView() {
                               type="button"
                               className={
                                 `relative border-r border-b border-gray-200 p-2 text-left transition-colors hover:bg-gray-50 focus:outline-hidden ` +
-                                (!isInMonth ? "bg-gray-50/60 text-gray-400" : "bg-white text-gray-900") +
+                                (!isInMonth ? "bg-gray-50/60 text-gray-400" : "bg-transparent text-gray-900") +
                                 (isToday && !isSelected ? " bg-blue-50/60 ring-1 ring-blue-400/60 ring-inset" : "") +
                                 (isSelected ? " bg-blue-50/50 ring-2 ring-blue-500 ring-inset" : "")
                               }
@@ -1271,7 +1246,7 @@ export function AdminReportsView() {
                                 <div
                                   className={
                                     `inline-flex h-7 w-7 items-center justify-center rounded-full text-sm ` +
-                                    (isToday
+                                    (isToday && count > 0
                                       ? "bg-blue-600 font-semibold text-white shadow-sm ring-2 ring-white"
                                       : "text-gray-700")
                                   }

@@ -294,11 +294,7 @@ export function DepartmentManager() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-bold">Departments</h2>
-          <p className="text-muted-foreground">Create and manage departments.</p>
-        </div>
+      <div className="flex items-center justify-end">
         <Button
           onClick={() => {
             resetForm()
