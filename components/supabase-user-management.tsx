@@ -753,13 +753,7 @@ export function SupabaseUserManagement() {
             <UserPlus className="h-4 w-4 mr-2" />
             Add User
           </Button>
-          <Button 
-            variant="outline" 
-            onClick={() => window.location.href = '/admin/reports/new'}
-          >
-            <FilePlus className="h-4 w-4 mr-2" />
-            Add New Report
-          </Button>
+         
         </div>
       </div>
 
