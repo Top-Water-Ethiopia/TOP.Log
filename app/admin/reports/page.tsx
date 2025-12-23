@@ -8,7 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button'
 import { Icons } from '@/components/icons'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Shield, FileText } from 'lucide-react'
+import { FileText } from 'lucide-react'
 
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
 const SUPER_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000000"
@@ -108,10 +108,11 @@ export default function AdminReportsPage() {
     <div className="min-h-screen bg-background">
       {/* Main Content */}
       <div>
-        <div className="flex justify-end mb-4">
-          <Button variant="outline" onClick={() => router.push('/admin')}>
-            Back to Admin
-          </Button>
+        <div className="mb-8">
+          <h1 className="text-3xl font-bold tracking-tight">Reports</h1>
+          <p className="text-muted-foreground mt-2">
+            View and manage all reports in the system.
+          </p>
         </div>
         <AdminReportsView />
       </div>

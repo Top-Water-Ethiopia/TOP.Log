@@ -12,7 +12,6 @@ import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
@@ -21,13 +20,11 @@ import {
   Filter,
   Calendar,
   CalendarDays,
-  User,
   FileText,
   TrendingUp,
   TrendingDown,
   BarChart3,
   Users,
-  Clock,
   Eye,
   ChevronDown,
   ChevronUp,
@@ -38,9 +35,6 @@ import {
   RefreshCw,
   Info,
   PlusCircle,
-  ExternalLink,
-  Building2,
-  Shield,
 } from "lucide-react"
 import {
   addDays,
@@ -431,13 +425,8 @@ export function AdminReportsView() {
   return (
     <div className="space-y-6">
       {/* Header with Refresh */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h2 className="text-2xl font-bold tracking-tight">Individual Reports</h2>
-          <p className="text-muted-foreground">
-            {entries.length} total {entries.length === 1 ? "entry" : "entries"}
-          </p>
-        </div>
+      <div className="flex justify-end">
+     
         <div className="flex gap-2">
           <Button onClick={loadEntries} disabled={isLoading} variant="outline" size="sm" className="gap-2">
             {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}

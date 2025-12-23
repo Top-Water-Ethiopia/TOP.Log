@@ -45,7 +45,7 @@ interface Department {
 }
 
 export function DepartmentManager() {
-  const { user: currentUser, profile: currentProfile } = useSupabaseAuth()
+  const { profile: currentProfile } = useSupabaseAuth()
   const [departments, setDepartments] = useState<Department[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)

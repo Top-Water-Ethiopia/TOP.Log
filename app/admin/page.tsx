@@ -13,12 +13,6 @@ import { getAdminStats } from "@/lib/admin-stats"
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
 const SUPER_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000000"
 
-const stats = [
-  { name: "Total Users", value: "1,234", icon: Users, change: "+12%", changeType: "positive" },
-  { name: "Active Sessions", value: "42", icon: Activity, change: "+5%", changeType: "positive" },
-  { name: "Storage Used", value: "2.4 GB", icon: Database, change: "3%", changeType: "neutral" },
-  { name: "Uptime", value: "99.9%", icon: Clock, change: "0.1%", changeType: "negative" },
-]
 
 const quickActions = [
   {

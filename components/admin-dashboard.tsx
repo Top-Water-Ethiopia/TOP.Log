@@ -2,7 +2,6 @@
 
 import { useState } from "react"
 import { useCaptainLog } from "@/contexts/supabase-log-context"
-import { useAuth } from "@/contexts/auth-context"
 import { useRBAC } from "@/hooks/use-rbac"
 import { UserManagementDialog } from "./user-management-dialog"
 import { SupabaseUserManagement } from "./supabase-user-management"
@@ -20,10 +19,8 @@ import {
   Activity,
   FileText,
   AlertCircle,
-  CheckCircle2,
   TrendingUp,
   Users,
-  Shield,
   Settings,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -33,8 +30,7 @@ import { toast } from "sonner"
  * Provides insights, metrics, and administrative controls
  */
 export function AdminDashboard({ onClose }: { onClose: () => void }) {
-  const { entries, auditLogs, exportData, importData, batchDelete, clearError, error } = useCaptainLog()
-  const { user } = useAuth()
+  const { entries, auditLogs, exportData, importData, batchDelete } = useCaptainLog()
   const { canManageUsers, canImportData, canExportData, isAdmin } = useRBAC()
   
   const [selectedTab, setSelectedTab] = useState("overview")
@@ -53,7 +49,7 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
       toast.success("Data exported successfully")
-    } catch (err) {
+    } catch {
       toast.error("Failed to export data")
     }
   }
@@ -68,7 +64,7 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
         try {
           const text = await file.text()
           await importData(text)
-        } catch (err) {
+        } catch {
           toast.error("Failed to import data")
         }
       }
@@ -81,7 +77,7 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
       try {
         const ids = entries.map((e) => e.id)
         await batchDelete(ids)
-      } catch (err) {
+      } catch {
         toast.error("Failed to clear data")
       }
     }

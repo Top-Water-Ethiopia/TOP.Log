@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context";
 import { Button } from "@/components/ui/button";
@@ -20,7 +19,6 @@ interface Department {
 }
 
 export default function RegisterPage() {
-  const router = useRouter();
   const { register, isLoading, error } = useSupabaseAuth();
   const { theme, setTheme } = useTheme();
   const [email, setEmail] = useState("");

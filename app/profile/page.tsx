@@ -5,7 +5,7 @@ import { useSupabaseAuth } from "@/contexts/supabase-auth-context";
 import { useSupabaseRbac } from "@/hooks/use-supabase-rbac";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Separator } from "@/components/ui/separator";
@@ -15,7 +15,7 @@ import Link from "next/link";
 
 export default function ProfilePage() {
   const { user, profile, updateProfile, logout, isLoading } = useSupabaseAuth();
-  const { permissions, canPerformAction } = useSupabaseRbac();
+  const { permissions } = useSupabaseRbac();
   
   const [name, setName] = useState(profile?.name || "");
   const [department, setDepartment] = useState(profile?.department || "");

@@ -29,7 +29,22 @@ export class SupabaseDataError extends Error {
 
 // Helper function to process Supabase errors
 const handleSupabaseError = (error: PostgrestError): never => {
-  console.error('Supabase error:', error);
+  // Enhanced logging with more context
+  console.error('Supabase error:', {
+    message: error.message,
+    code: error.code,
+    details: error.details,
+    hint: error.hint,
+    fullError: error
+  });
+  
+  // Defensive check for undefined/null error
+  if (!error) {
+    throw new SupabaseDataError(
+      'Unknown error occurred while accessing the database',
+      'unknown_error'
+    );
+  }
   
   let errorCode = 'unknown';
   if (error.code === '23505') {
@@ -266,20 +281,11 @@ export async function migrateLocalStorageToSupabase(
     try {
       const entry = entries[i];
       
-      // Transform legacy format to new format
+      // Transform legacy format to new format (captain_log_entries table only stores core fields)
       const supabaseEntry: CaptainLogEntryInsert = {
         id: entry.id,
         user_id: userId,
         date: entry.date,
-        objectives: entry.objectives || null,
-        key_results: entry.keyResults || null,
-        challenges: entry.challenges || null,
-        development_tasks: entry.developmentTasks || null,
-        features_completed: entry.featuresCompleted || null,
-        challenges_and_blockers: entry.challengesAndBlockers || null,
-        code_and_priorities: entry.codeAndPriorities || null,
-        system_improvements: entry.systemImprovements || null,
-        project_updates: entry.projectUpdates || null,
         created_at: entry.createdAt || new Date().toISOString(),
         updated_at: entry.updatedAt || new Date().toISOString(),
         version: entry.version || 1,
@@ -296,16 +302,44 @@ export async function migrateLocalStorageToSupabase(
       }
       
       // Create the entry
-      await createEntry(supabaseEntry);
+      const createdEntry = await createEntry(supabaseEntry);
+      
+      // Create custom responses for all the legacy fields
+      const standardFields = [
+        { key: 'objectives', value: entry.objectives },
+        { key: 'keyResults', value: entry.keyResults },
+        { key: 'challenges', value: entry.challenges },
+        { key: 'developmentTasks', value: entry.developmentTasks },
+        { key: 'featuresCompleted', value: entry.featuresCompleted },
+        { key: 'challengesAndBlockers', value: entry.challengesAndBlockers },
+        { key: 'codeAndPriorities', value: entry.codeAndPriorities },
+        { key: 'systemImprovements', value: entry.systemImprovements },
+        { key: 'projectUpdates', value: entry.projectUpdates }
+      ];
+      
+      for (const field of standardFields) {
+        if (field.value) {
+          await createCustomResponse({
+            entry_id: createdEntry.id,
+            question_id: `std_${field.key}`,
+            question_key: field.key,
+            question_label: field.key.charAt(0).toUpperCase() + field.key.slice(1),
+            question_type: 'textarea',
+            question_category: 'standard',
+            value: field.value,
+            timestamp: new Date().toISOString()
+          });
+        }
+      }
       
       // Handle custom responses if any
       if (entry.customResponses && Array.isArray(entry.customResponses) && entry.customResponses.length > 0) {
         for (const response of entry.customResponses) {
           await createCustomResponse({
-            entry_id: supabaseEntry.id,
+            entry_id: createdEntry.id,
             question_id: response.questionId,
             question_key: response.questionKey,
-            question_label: response.questionLabel || null,
+            question_label: response.questionLabel,
             question_type: response.questionType || null,
             question_category: response.questionCategory || null,
             value: response.value,

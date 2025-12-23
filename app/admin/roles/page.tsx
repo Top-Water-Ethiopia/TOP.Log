@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { RoleManager } from "@/components/role-manager"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Icons } from "@/components/icons"
 import { ListSkeleton } from "@/components/skeletons/list-skeleton"
 import { Skeleton } from "@/components/ui/skeleton"
 
@@ -29,10 +28,8 @@ export default function AdminRolesPage() {
     return (
       <div className="space-y-6">
         <div className="space-y-2">
-          <h1 className="text-3xl font-bold tracking-tight">Roles</h1>
-          <p className="text-muted-foreground">
-            Manage user roles and permissions across the application
-          </p>
+          <Skeleton className="h-9 w-64 bg-gray-200/80 dark:bg-gray-800" />
+          <Skeleton className="mt-2 h-5 w-80 bg-gray-200/70 dark:bg-gray-800" />
         </div>
         <ListSkeleton itemCount={5} />
       </div>
@@ -63,8 +60,14 @@ export default function AdminRolesPage() {
   }
 
   return (
-    <div className="py-6">
-      <RoleManager />
+    <div>
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold tracking-tight">Roles</h1>
+        <p className="text-muted-foreground mt-2">Manage user roles and permissions across the application</p>
+      </div>
+      <div className="w-full">
+        <RoleManager />
+      </div>
     </div>
   )
 }

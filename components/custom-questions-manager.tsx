@@ -12,22 +12,16 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox"
 import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { ScrollArea } from "@/components/ui/scroll-area"
 import { 
-  Settings, 
   Plus, 
   Edit, 
   Trash2, 
   Save, 
   X, 
-  Eye, 
-  EyeOff,
   GripVertical,
-  AlertCircle,
-  CheckCircle
+  AlertCircle
 } from "lucide-react"
-import type { CustomQuestion, RoleQuestionSet, QuestionResponse } from "@/lib/rbac/types"
+import type { CustomQuestion, RoleQuestionSet } from "@/lib/rbac/types"
 import { 
   getAllQuestionSets, 
   saveQuestionSet, 

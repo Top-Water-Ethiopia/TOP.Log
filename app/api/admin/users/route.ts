@@ -399,7 +399,7 @@ export async function PUT(request: Request) {
 export async function GET(request: Request) {
   try {
     // Verify admin access
-    const { isAdmin, isSuperAdmin, error: authVerifyError } = await verifyAdmin()
+    const { isAdmin, error: authVerifyError } = await verifyAdmin()
     if (!isAdmin) {
       return NextResponse.json(
         { error: authVerifyError || 'Admin access required' },

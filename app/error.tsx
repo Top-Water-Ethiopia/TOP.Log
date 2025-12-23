@@ -2,7 +2,6 @@
 
 import { useEffect } from 'react'
 import Link from 'next/link'
-import { useRouter } from 'next/navigation'
 
 interface ErrorPageProps {
   error: Error & { digest?: string }
@@ -10,7 +9,6 @@ interface ErrorPageProps {
 }
 
 export default function ErrorPage({ error, reset }: ErrorPageProps) {
-  const router = useRouter()
 
   useEffect(() => {
     console.error('Error:', error)

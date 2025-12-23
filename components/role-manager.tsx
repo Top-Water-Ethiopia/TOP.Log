@@ -513,11 +513,11 @@ export function RoleManager() {
   }
 
   return (
-    <div className="relative mx-auto w-full max-w-7xl px-4 py-8 sm:px-6 lg:px-8">
+    <div className="relative mx-auto w-full max-w-7xl px-4 sm:px-0">
       {!isAdmin ? (
         <div className="text-muted-foreground py-8 text-center">You don't have permission to manage roles.</div>
       ) : isLoading ? (
-        <div className="space-y-4">
+        <div className="space-y-4 border-red-600">
           <div className="flex items-center justify-between gap-4">
             <div className="space-y-2">
               <Skeleton className="h-7 w-32 bg-gray-200/80 dark:bg-gray-800" />
@@ -545,27 +545,30 @@ export function RoleManager() {
         </div>
       ) : (
         <>
-          <Tabs value={roleFilter} onValueChange={(value) => setRoleFilter(value as "all" | "system" | "custom")}>
-            <div className="mb-8 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-end">
-              <div>
-                <h1 className="text-2xl font-bold tracking-tight">Roles</h1>
-                <p className="text-muted-foreground mt-1 text-sm">
-                  Manage system roles and create custom roles assigned to departments.
-                </p>
+       
+            <Tabs value={roleFilter} onValueChange={(value) => setRoleFilter(value as "all" | "system" | "custom")}>
+                <div className="flex justify-end">
+                   <div className="mb-8 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-end">
+                {/* <div>
+                  <h1 className="text-2xl font-bold tracking-tight">Roles</h1>
+                  <p className="text-muted-foreground mt-1 text-sm">
+                    Manage system roles and create custom roles assigned to departments.
+                  </p>
+                </div> */}
+                <TabsList className="bg-background h-auto rounded-lg border p-1 shadow-sm">
+                  <TabsTrigger className="text-xs" value="all">
+                    All Roles ({allPagination.total})
+                  </TabsTrigger>
+                  <TabsTrigger className="text-xs" value="system">
+                    System ({systemPagination.total})
+                  </TabsTrigger>
+                  <TabsTrigger className="text-xs" value="custom">
+                    Custom ({customPagination.total})
+                  </TabsTrigger>
+                </TabsList>
               </div>
-              <TabsList className="bg-background h-auto rounded-lg border p-1 shadow-sm">
-                <TabsTrigger className="text-xs" value="all">
-                  All Roles ({allPagination.total})
-                </TabsTrigger>
-                <TabsTrigger className="text-xs" value="system">
-                  System ({systemPagination.total})
-                </TabsTrigger>
-                <TabsTrigger className="text-xs" value="custom">
-                  Custom ({customPagination.total})
-                </TabsTrigger>
-              </TabsList>
-            </div>
-
+         
+</div>
             <div className="bg-card text-card-foreground mb-6 flex flex-col items-center justify-between gap-4 rounded-xl border p-4 shadow-sm md:flex-row">
               <div className="relative w-full md:w-96">
                 <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />

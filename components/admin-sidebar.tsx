@@ -27,9 +27,6 @@ import {
   Moon,
   Sun,
   FileText,
-  BarChart,
-  Calendar,
-  Home,
 } from "lucide-react"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { useIsMobile } from "@/hooks/use-mobile"

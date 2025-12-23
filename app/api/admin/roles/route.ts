@@ -82,7 +82,7 @@ export async function GET() {
 export async function POST(request: Request) {
   try {
     // Verify admin access and get role info
-    const { isAdmin, isSuperAdmin, error: authError, roleId } = await verifyAdmin()
+    const { isAdmin, isSuperAdmin, error: authError } = await verifyAdmin()
     if (!isAdmin) {
       return NextResponse.json(
         { error: authError || 'Admin access required' },
@@ -189,7 +189,7 @@ export async function POST(request: Request) {
 export async function PUT(request: Request) {
   try {
     // Verify admin access and get role info
-    const { isAdmin, isSuperAdmin, error: authError, roleId } = await verifyAdmin()
+    const { isAdmin, isSuperAdmin, error: authError } = await verifyAdmin()
     if (!isAdmin) {
       return NextResponse.json(
         { error: authError || 'Admin access required' },

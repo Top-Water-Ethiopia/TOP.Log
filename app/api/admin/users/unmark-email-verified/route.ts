@@ -40,7 +40,7 @@ async function verifyAdmin() {
 export async function POST(request: Request) {
   try {
     // Verify admin access
-    const { isAdmin, isSuperAdmin, error: authError } = await verifyAdmin()
+    const { isAdmin, error: authError } = await verifyAdmin()
     if (!isAdmin) {
       return NextResponse.json(
         { error: authError || 'Admin access required' },

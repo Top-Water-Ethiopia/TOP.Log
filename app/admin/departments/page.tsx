@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { DepartmentManager } from "@/components/department-manager"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Icons } from "@/components/icons"
 import { ListSkeleton } from "@/components/skeletons/list-skeleton"
 import { Skeleton } from "@/components/ui/skeleton"
 

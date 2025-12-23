@@ -597,7 +597,7 @@ export function SupabaseUserManagement() {
 
     // Prevent deleting admin accounts for non-super admins
     const userRoleId = user.profile?.role_id;
-    const isCurrentUserSuperAdmin = currentUser?.profile?.role_id === SUPER_ADMIN_ROLE_ID;
+    const isCurrentUserSuperAdmin = currentProfile?.role_id === SUPER_ADMIN_ROLE_ID;
     
     if ((userRoleId === ADMIN_ROLE_ID || userRoleId === SUPER_ADMIN_ROLE_ID) && !isCurrentUserSuperAdmin) {
       toast.error("You do not have permission to delete admin accounts");
@@ -743,8 +743,8 @@ export function SupabaseUserManagement() {
   return (
     <div className="space-y-4">
       {/* Action Bar */}
-      <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        <div className="flex flex-wrap items-center gap-3 flex-1">
+      <div className="flex sm:justify-end pb-4">
+        <div className="flex flex-wrap gap-3">
           <Button onClick={loadUsers} variant="outline" size="sm">
             <RefreshCw className="h-4 w-4 mr-2" />
             Refresh

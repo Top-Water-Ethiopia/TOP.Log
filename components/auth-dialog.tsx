@@ -4,11 +4,9 @@ import { useState } from "react"
 import { Button } from "./ui/button"
 import { Input } from "./ui/input"
 import { Label } from "./ui/label"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "./ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs"
 import { Alert, AlertDescription } from "./ui/alert"
-import { Badge } from "./ui/badge"
-import { Eye, EyeOff, Mail, Lock, User, Shield, CheckCircle } from "lucide-react"
+import { Eye, EyeOff, Mail, Lock, User, CheckCircle } from "lucide-react"
 import { useAuth } from "@/contexts/auth-context"
 import { validatePassword, isValidEmail } from "@/lib/rbac/utils"
 import { toast } from "sonner"
@@ -65,7 +63,7 @@ export function AuthDialog({ onClose }: { onClose: () => void }) {
     try {
       await login(loginEmail, loginPassword)
       onClose()
-    } catch (error) {
+    } catch {
       // Error is handled by the auth context
     }
   }
@@ -118,12 +116,12 @@ export function AuthDialog({ onClose }: { onClose: () => void }) {
         name: registerName.trim(),
         email: registerEmail.trim(),
         password: registerPassword,
-        role: "user",
+        role: "viewer",
         isActive: true,
       })
       setActiveTab("login")
       toast.success("Account created! Please log in.")
-    } catch (error) {
+    } catch {
       // Error is handled by the auth context
     }
   }
