@@ -110,7 +110,12 @@ interface RoleQuestionWithRole extends RoleQuestion {
   role?: Role | null
 }
 
-export function RoleQuestionsManager() {
+type RoleQuestionsManagerProps = {
+  externalSearchQuery?: string
+  refreshKey?: number
+}
+
+export function RoleQuestionsManager({ externalSearchQuery, refreshKey }: RoleQuestionsManagerProps) {
   const { user: currentUser, profile: currentProfile } = useSupabaseAuth()
   const [questions, setQuestions] = useState<RoleQuestionWithRole[]>([])
   const [roles, setRoles] = useState<Role[]>([])
@@ -139,6 +144,13 @@ export function RoleQuestionsManager() {
   const [viewMode, setViewMode] = useState<"table" | "grouped">("grouped")
   const [expandedRoles, setExpandedRoles] = useState<Set<string>>(new Set())
   const [dragState, setDragState] = useState<{ roleId: string; questionId: string } | null>(null)
+
+  useEffect(() => {
+    if (externalSearchQuery === undefined) return
+    if (externalSearchQuery === searchQuery) return
+    setSearchQuery(externalSearchQuery)
+    setCurrentPage(1)
+  }, [externalSearchQuery, searchQuery])
 
   // Cache tracking to prevent unnecessary refetches
   const dataLoadedRef = useRef(false)
@@ -180,6 +192,49 @@ export function RoleQuestionsManager() {
   const [showPreview, setShowPreview] = useState(false)
   const [previewAnswers, setPreviewAnswers] = useState<Record<string, string>>({})
   const [showTemplates, setShowTemplates] = useState(false)
+
+  const [quickAddByRole, setQuickAddByRole] = useState<Record<string, string>>({})
+
+  const toQuestionKey = useCallback((label: string) => {
+    return label
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-_]/g, "")
+      .replace(/\s+/g, "-")
+      .replace(/-+/g, "-")
+  }, [])
+
+  const openCreateDialogForRole = useCallback((roleId: string, displayOrder: number, presetLabel?: string) => {
+    const label = presetLabel?.trim() || ""
+    setFormData({
+      role_id: roleId,
+      question_key: label ? toQuestionKey(label) : "",
+      question_label: label,
+      question_title: "",
+      question_type: "text",
+      question_description: "",
+      placeholder: "",
+      options: null,
+      is_required: false,
+      display_order: displayOrder,
+      validation_rules: null,
+      is_active: true,
+      conditional_logic: null,
+      default_value: null,
+      help_text: null,
+      min_value: null,
+      max_value: null,
+      min_length: null,
+      max_length: null,
+      pattern: null,
+      step: null,
+      min_date: null,
+      max_date: null,
+    })
+    setEditingQuestion(null)
+    setFormErrors({})
+    setShowCreateDialog(true)
+  }, [toQuestionKey])
 
   const loadData = useCallback(async (forceRefresh = false) => {
     try {
@@ -505,6 +560,18 @@ export function RoleQuestionsManager() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentUser?.id, currentProfile?.role_id]) // Removed computed values to prevent unnecessary re-renders
+
+  useEffect(() => {
+    if (refreshKey === undefined) return
+    if (!currentUser) return
+    if (currentProfile === undefined) return
+    if (currentProfile === null) return
+    if (!isAdmin) return
+
+    loadData(true).catch((error) => {
+      console.error("Error loading data:", error)
+    })
+  }, [refreshKey, currentUser, currentProfile, isAdmin, loadData])
 
   // Enhanced filtering, sorting, and pagination
   const filteredAndSortedQuestions = useMemo(() => {
@@ -2479,35 +2546,7 @@ export function RoleQuestionsManager() {
                           size="sm"
                           onClick={(e) => {
                             e.stopPropagation()
-                            setFormData({
-                              ...formData,
-                              role_id: role.id,
-                              question_key: "",
-                              question_label: "",
-                              question_title: "",
-                              question_type: "text",
-                              question_description: "",
-                              placeholder: "",
-                              options: null,
-                              is_required: false,
-                              display_order: roleQuestions.length,
-                              validation_rules: null,
-                              is_active: true,
-                              conditional_logic: null,
-                              default_value: null,
-                              help_text: null,
-                              min_value: null,
-                              max_value: null,
-                              min_length: null,
-                              max_length: null,
-                              pattern: null,
-                              step: null,
-                              min_date: null,
-                              max_date: null,
-                            })
-                            setEditingQuestion(null)
-                            setFormErrors({})
-                            setShowCreateDialog(true)
+                            openCreateDialogForRole(role.id, roleQuestions.length)
                           }}
                           className="gap-1.5"
                         >
@@ -2524,11 +2563,6 @@ export function RoleQuestionsManager() {
                           <Card
                             key={question.id}
                             className="border-l-4 border-l-primary/20"
-                            draggable={isSuperAdmin}
-                            onDragStart={() => {
-                              if (!isSuperAdmin) return
-                              setDragState({ roleId: role.id, questionId: question.id })
-                            }}
                             onDragOver={(e) => {
                               if (!isSuperAdmin) return
                               if (!dragState || dragState.roleId !== role.id) return
@@ -2542,7 +2576,26 @@ export function RoleQuestionsManager() {
                             }}
                           >
                             <CardContent className="pt-4">
-                              <div className="flex items-start justify-between">
+                              <div className="flex items-start gap-3">
+                                <div className="pt-0.5">
+                                  <button
+                                    type="button"
+                                    draggable={isSuperAdmin}
+                                    aria-label="Reorder question"
+                                    onDragStart={() => {
+                                      if (!isSuperAdmin) return
+                                      setDragState({ roleId: role.id, questionId: question.id })
+                                    }}
+                                    onDragEnd={() => setDragState(null)}
+                                    className={
+                                      "inline-flex h-9 w-9 items-center justify-center rounded-md border bg-background text-muted-foreground transition-colors hover:bg-muted focus:outline-none focus:ring-2 focus:ring-primary " +
+                                      (!isSuperAdmin ? "opacity-40 cursor-not-allowed" : "cursor-grab active:cursor-grabbing")
+                                    }
+                                  >
+                                    <GripVertical className="h-4 w-4" />
+                                  </button>
+                                </div>
+
                                 <div className="flex-1 space-y-2">
                                   <div className="flex items-center gap-2 flex-wrap">
                                     <Badge variant="outline" className="text-xs">
@@ -2586,7 +2639,7 @@ export function RoleQuestionsManager() {
                                     </div>
                                   )}
                                 </div>
-                                <div className="flex items-center gap-1 ml-4">
+                                <div className="flex items-center gap-1">
                                   {isSuperAdmin && (
                                     <div className="flex flex-col items-center mr-1">
                                       <Button
@@ -2665,6 +2718,47 @@ export function RoleQuestionsManager() {
                             </CardContent>
                           </Card>
                         ))}
+
+                        <Card className="border-dashed bg-muted/20">
+                          <CardContent className="py-3">
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                              <div className="flex-1">
+                                <Input
+                                  value={quickAddByRole[role.id] || ""}
+                                  onChange={(e) =>
+                                    setQuickAddByRole((prev) => ({
+                                      ...prev,
+                                      [role.id]: e.target.value,
+                                    }))
+                                  }
+                                  onKeyDown={(e) => {
+                                    if (e.key !== "Enter") return
+                                    e.preventDefault()
+                                    const label = (quickAddByRole[role.id] || "").trim()
+                                    if (!label) return
+                                    openCreateDialogForRole(role.id, roleQuestions.length, label)
+                                    setQuickAddByRole((prev) => ({ ...prev, [role.id]: "" }))
+                                  }}
+                                  placeholder="Type a new question and press Enter..."
+                                />
+                              </div>
+                              <Button
+                                variant="default"
+                                size="sm"
+                                className="gap-2"
+                                onClick={() => {
+                                  const label = (quickAddByRole[role.id] || "").trim()
+                                  if (!label) return
+                                  openCreateDialogForRole(role.id, roleQuestions.length, label)
+                                  setQuickAddByRole((prev) => ({ ...prev, [role.id]: "" }))
+                                }}
+                              >
+                                <Plus className="h-4 w-4" />
+                                Add
+                              </Button>
+                            </div>
+                          </CardContent>
+                        </Card>
                       </div>
                     </CardContent>
                   )}
