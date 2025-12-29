@@ -72,11 +72,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const usersWithPassword = [...loadedUsers, { ...adminUser, password: hashedPassword }]
         setUsers(usersWithPassword)
         saveToStorage("USERS", usersWithPassword)
-        
-        toast.info("Default admin user created", {
-          description: "Email: admin@captains-log.local, Password: admin123",
-          duration: 10000,
-        })
       } else {
         setUsers(loadedUsers)
       }

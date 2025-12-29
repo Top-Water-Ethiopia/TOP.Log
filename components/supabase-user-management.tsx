@@ -110,6 +110,7 @@ export function SupabaseUserManagement() {
   const [searchTerm, setSearchTerm] = useState("");
   const [roleFilter, setRoleFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [page, setPage] = useState(1);
   const [showCreateUser, setShowCreateUser] = useState(false);
   const [showEditUser, setShowEditUser] = useState(false);
   const [showDeleteDialog, setShowDeleteDialog] = useState(false);
@@ -219,8 +220,9 @@ export function SupabaseUserManagement() {
         }));
         setUsers(usersWithProfiles);
       } else {
-        setUsers([]);
+        setUsers(result.data || []);
       }
+      setPage(1);
     } catch (error: any) {
       console.error("Failed to load users:", error);
       toast.error("Failed to load users: " + (error.message || "Unknown error"));
@@ -238,27 +240,48 @@ export function SupabaseUserManagement() {
     }
   }, [isAdmin]);
 
-  // Effect to update department when role changes in edit form
+  // Get departments that have at least one role
+  const departmentsWithRoles = (() => {
+    // Get all department IDs that have roles
+    const deptIdsWithRoles = new Set(
+      roles.map(role => role.department_id).filter(Boolean)
+    );
+    
+    // Filter departments to only those with roles
+    return departments.filter(
+      dept => dept.is_active && dept.id && deptIdsWithRoles.has(dept.id)
+    );
+  })();
+
+  const editAvailableRoles = (() => {
+    const selectedDeptId = editUserForm.department
+      ? departments.find((d) => d.name === editUserForm.department)?.id || null
+      : null
+
+    return roles
+      .filter((role) => (isSuperAdmin ? true : role.id !== SUPER_ADMIN_ROLE_ID))
+      .filter((role) => {
+        // Only show roles for selected department; if no department selected, show none.
+        if (!selectedDeptId) return false;
+        return role.department_id === selectedDeptId;
+      });
+  })()
+
   useEffect(() => {
-    if (editingUser && editUserForm.role_id) {
-      // Find the selected role
-      const selectedRole = roles.find(role => role.id === editUserForm.role_id);
-      if (selectedRole) {
-        // Find the associated department name
-        const departmentName = selectedRole.department_id 
-          ? departments.find(dept => dept.id === selectedRole.department_id)?.name || ""
-          : "";
-        
-        // Update the department if it's different
-        if (editUserForm.department !== departmentName) {
-          setEditUserForm(prev => ({ 
-            ...prev, 
-            department: departmentName
-          }));
-        }
+    if (!editUserForm.department) {
+      if (editUserForm.role_id) {
+        setEditUserForm((prev) => ({ ...prev, role_id: "" }))
       }
+      return
     }
-  }, [editUserForm.role_id, roles, departments, editingUser, editUserForm.department]);
+
+    if (!editUserForm.role_id) return
+
+    const stillValid = editAvailableRoles.some((r) => r.id === editUserForm.role_id)
+    if (!stillValid) {
+      setEditUserForm((prev) => ({ ...prev, role_id: "" }))
+    }
+  }, [editUserForm.department, editUserForm.role_id, editAvailableRoles]);
 
   // Effect to update department when role changes in create form
   useEffect(() => {
@@ -282,6 +305,30 @@ export function SupabaseUserManagement() {
     }
   }, [createUserForm.role_id, roles, departments, createUserForm.department]);
 
+  const pageSize = 6;
+
+  const clampPage = (requestedPage: number, total: number) => {
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    return Math.min(Math.max(1, requestedPage), totalPages);
+  };
+
+  const paginate = <T,>(items: T[], requestedPage: number) => {
+    const total = items.length;
+    const safePage = clampPage(requestedPage, total);
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    const startIndex = (safePage - 1) * pageSize;
+    const endIndexExclusive = Math.min(startIndex + pageSize, total);
+
+    return {
+      page: safePage,
+      total,
+      totalPages,
+      start: total === 0 ? 0 : startIndex + 1,
+      end: total === 0 ? 0 : endIndexExclusive,
+      pageItems: items.slice(startIndex, endIndexExclusive),
+    };
+  };
+
   // Filter users
   const filteredUsers = users.filter(user => {
     const matchesSearch = 
@@ -296,6 +343,18 @@ export function SupabaseUserManagement() {
     
     return matchesSearch && matchesRole && matchesStatus;
   });
+
+  const pagination = paginate(filteredUsers, page);
+
+  useEffect(() => {
+    setPage(1);
+  }, [searchTerm, roleFilter, statusFilter]);
+
+  useEffect(() => {
+    const nextPage = clampPage(page, filteredUsers.length);
+    if (nextPage !== page) setPage(nextPage);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [filteredUsers.length]);
 
   const validateCreateUserForm = () => {
     const errors: Record<string, string> = {};
@@ -375,41 +434,6 @@ export function SupabaseUserManagement() {
     }
   };
 
-  const handleUpdateUserRole = async (user: UserWithProfile, newRoleId: string) => {
-    if (!user.profile) return;
-
-    // Prevent admins (non-super admins) from assigning super admin role
-    if (newRoleId === SUPER_ADMIN_ROLE_ID && !isSuperAdmin) {
-      toast.error("Only super admins can assign super admin role");
-      return;
-    }
-
-    try {
-      const response = await fetch('/api/admin/users', {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          user_id: user.id,
-          role_id: newRoleId,
-        }),
-      });
-
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.message || result.error || "Failed to update user role");
-      }
-
-      toast.success("User role updated successfully");
-      await loadUsers();
-    } catch (error: any) {
-      console.error("Failed to update user role:", error);
-      toast.error("Failed to update user role: " + (error.message || "Unknown error"));
-    }
-  };
-
   const validateEditUserForm = () => {
     const errors: Record<string, string> = {};
 
@@ -423,6 +447,14 @@ export function SupabaseUserManagement() {
       errors.email = "Invalid email format";
     } else if (users.some(u => u.id !== editingUser?.id && u.email.toLowerCase() === editUserForm.email.toLowerCase())) {
       errors.email = "Email is already in use by another user";
+    }
+
+    if (!editUserForm.department) {
+      errors.department = "Department is required";
+    }
+
+    if (!editUserForm.role_id) {
+      errors.role_id = "Role is required";
     }
 
     setEditFormErrors(errors);
@@ -826,205 +858,215 @@ export function SupabaseUserManagement() {
               No users found
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <div className="min-w-full inline-block align-middle">
-                <Table>
-                <TableHeader>
-                  <TableRow>
-                    <TableHead>User</TableHead>
-                    <TableHead>Role</TableHead>
-                    <TableHead>Department</TableHead>
-                    <TableHead>Status</TableHead>
-                    <TableHead>Last Login</TableHead>
-                    <TableHead>Created</TableHead>
-                    <TableHead>Actions</TableHead>
-                  </TableRow>
-                </TableHeader>
-                <TableBody>
-                  {filteredUsers.map((user) => (
-                    <TableRow key={user.id}>
-                      <TableCell>
-                        <div className="flex items-center gap-3">
-                          <Avatar className="h-8 w-8">
-                            <AvatarFallback>
-                              {user.profile?.name.split(" ").map(n => n[0]).join("").toUpperCase() || "U"}
-                            </AvatarFallback>
-                          </Avatar>
-                          <div>
-                            <div className="font-medium">{user.profile?.name || "N/A"}</div>
-                            <button
-                              type="button"
-                              onClick={async () => {
-                                if (!user.email || user.email === "N/A") return
-                                try {
-                                  await navigator.clipboard.writeText(user.email)
-                                  toast.success("Email copied to clipboard")
-                                } catch (error) {
-                                  console.error("Failed to copy email", error)
-                                  toast.error("Failed to copy email")
-                                }
-                              }}
-                              className="text-sm text-muted-foreground hover:text-primary underline-offset-2 hover:underline focus:outline-none"
-                              title="Click to copy email"
-                            >
-                              {user.email}
-                            </button>
-                          </div>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Select
-                          value={user.profile?.role_id || ""}
-                          onValueChange={(newRoleId) => handleUpdateUserRole(user, newRoleId)}
-                          disabled={user.id === currentUser?.id}
-                        >
-                          <SelectTrigger className="w-[150px]">
-                            <Badge variant={getRoleBadgeVariant(user.profile?.role_name || "user")}>
-                              {user.profile?.role_name || "user"}
-                            </Badge>
-                          </SelectTrigger>
-                          <SelectContent>
-                            {roles.length > 0 ? (
-                              roles.map((role) => (
-                                <SelectItem key={role.id} value={role.id}>
-                                  <div className="flex items-center gap-2">
-                                    <Badge 
-                                      variant={
-                                        role.id === ADMIN_ROLE_ID ? "destructive" :
-                                        role.id === USER_ROLE_ID ? "secondary" : 
-                                        "outline"
-                                      }
-                                    >
-                                      {role.name}
-                                    </Badge>
-                                    {role.description && (
-                                      <span className="text-xs text-muted-foreground">
-                                        {role.description}
-                                      </span>
-                                    )}
-                                  </div>
-                                </SelectItem>
-                              ))
-                            ) : (
-                              <>
-                                <SelectItem value={ADMIN_ROLE_ID}>
-                                  <Badge variant="destructive">Admin</Badge>
-                                </SelectItem>
-                                <SelectItem value={USER_ROLE_ID}>
-                                  <Badge variant="secondary">User</Badge>
-                                </SelectItem>
-                              </>
-                            )}
-                          </SelectContent>
-                        </Select>
-                      </TableCell>
-                      <TableCell>
-                        {user.profile?.department_id ? (
-                          departments.find(d => d.id === user.profile?.department_id)?.name || "-"
-                        ) : "-"}
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          {user.profile?.is_active ? (
-                            <CheckCircle2 className="h-4 w-4 text-green-500" />
-                          ) : (
-                            <XCircle className="h-4 w-4 text-red-500" />
-                          )}
-                          <span className="text-sm">
-                            {user.profile?.is_active ? "Active" : "Inactive"}
-                          </span>
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="text-sm">
-                          {user.profile?.last_login
-                            ? new Date(user.profile.last_login).toLocaleDateString()
-                            : "Never"}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="text-sm">
-                          {new Date(user.created_at).toLocaleDateString()}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              setEditingUser(user);
-                              setEditUserForm({
-                                name: user.profile?.name || "",
-                                email: user.email,
-                                department: user.profile?.department_id ? departments.find(d => d.id === user.profile?.department_id)?.name || "" : "",
-                                role_id: user.profile?.role_id || USER_ROLE_ID,
-                                is_active: user.profile?.is_active ?? true,
-                                email_verified: !!user.email_confirmed_at,
-                              });
-                              setShowEditUser(true);
-                            }}
-                            title="Edit user"
-                          >
-                            <Edit className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => handleToggleUserStatus(user)}
-                            disabled={user.id === currentUser?.id || togglingUserId === user.id}
-                            title={user.profile?.is_active ? "Lock/Deactivate user" : "Unlock/Activate user"}
-                          >
-                            {togglingUserId === user.id ? (
-                              <Loader2 className="h-4 w-4 animate-spin" />
-                            ) : user.profile?.is_active ? (
-                              <Lock className="h-4 w-4" />
-                            ) : (
-                              <Unlock className="h-4 w-4" />
-                            )}
-                          </Button>
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={() => {
-                              setUserToResetPassword(user);
-                              setResetPasswordMode("email");
-                              setNewPassword("");
-                              setConfirmNewPassword("");
-                              setShowResetPasswordDialog(true);
-                            }}
-                            title="Reset password"
-                          >
-                            <Key className="h-4 w-4" />
-                          </Button>
-                          <Button
-                            variant="destructive"
-                            size="sm"
-                            onClick={() => {
-                              setUserToDelete(user);
-                              setShowDeleteDialog(true);
-                            }}
-                            disabled={
-                              user.id === currentUser?.id || 
-                              user.profile?.role_id === ADMIN_ROLE_ID || 
-                              user.profile?.role_id === SUPER_ADMIN_ROLE_ID
-                            }
-                            title={
-                              user.profile?.role_id === ADMIN_ROLE_ID || user.profile?.role_id === SUPER_ADMIN_ROLE_ID
-                                ? "Cannot delete admin accounts"
-                                : "Delete user"
-                            }
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </Button>
-                        </div>
-                      </TableCell>
+            <>
+              <div className="overflow-x-auto">
+                <div className="min-w-full inline-block align-middle">
+                  <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>User</TableHead>
+                      <TableHead>Department</TableHead>
+                      <TableHead>Role</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead>Last Login</TableHead>
+                      <TableHead>Created</TableHead>
+                      <TableHead>Actions</TableHead>
                     </TableRow>
-                  ))}
-                </TableBody>
-                </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {pagination.pageItems.map((user) => (
+                      <TableRow key={user.id}>
+                        <TableCell>
+                          <div className="flex items-center gap-3">
+                            <Avatar className="h-8 w-8">
+                              <AvatarFallback>
+                                {user.profile?.name.split(" ").map(n => n[0]).join("").toUpperCase() || "U"}
+                              </AvatarFallback>
+                            </Avatar>
+                            <div>
+                              <div className="font-medium">{user.profile?.name || "N/A"}</div>
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  if (!user.email || user.email === "N/A") return
+                                  try {
+                                    await navigator.clipboard.writeText(user.email)
+                                    toast.success("Email copied to clipboard")
+                                  } catch (error) {
+                                    console.error("Failed to copy email", error)
+                                    toast.error("Failed to copy email")
+                                  }
+                                }}
+                                className="text-sm text-muted-foreground hover:text-primary underline-offset-2 hover:underline focus:outline-none"
+                                title="Click to copy email"
+                              >
+                                {user.email}
+                              </button>
+                            </div>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          {user.profile?.department_id ? (
+                            departments.find(d => d.id === user.profile?.department_id)?.name || "-"
+                          ) : "-"}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={getRoleBadgeVariant(user.profile?.role_name || "user")}>
+                            {user.profile?.role_name || "user"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            {user.profile?.is_active ? (
+                              <CheckCircle2 className="h-4 w-4 text-green-500" />
+                            ) : (
+                              <XCircle className="h-4 w-4 text-red-500" />
+                            )}
+                            <span className="text-sm">
+                              {user.profile?.is_active ? "Active" : "Inactive"}
+                            </span>
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="text-sm">
+                            {user.profile?.last_login
+                              ? new Date(user.profile.last_login).toLocaleDateString()
+                              : "Never"}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="text-sm">
+                            {new Date(user.created_at).toLocaleDateString()}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                setEditingUser(user);
+                                setEditUserForm({
+                                  name: user.profile?.name || "",
+                                  email: user.email,
+                                  department: user.profile?.department_id ? departments.find(d => d.id === user.profile?.department_id)?.name || "" : "",
+                                  role_id: user.profile?.role_id || USER_ROLE_ID,
+                                  is_active: user.profile?.is_active ?? true,
+                                  email_verified: !!user.email_confirmed_at,
+                                });
+                                setShowEditUser(true);
+                              }}
+                              title="Edit user"
+                            >
+                              <Edit className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => handleToggleUserStatus(user)}
+                              disabled={user.id === currentUser?.id || togglingUserId === user.id}
+                              title={user.profile?.is_active ? "Lock/Deactivate user" : "Unlock/Activate user"}
+                            >
+                              {togglingUserId === user.id ? (
+                                <Loader2 className="h-4 w-4 animate-spin" />
+                              ) : user.profile?.is_active ? (
+                                <Lock className="h-4 w-4" />
+                              ) : (
+                                <Unlock className="h-4 w-4" />
+                              )}
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                setUserToResetPassword(user);
+                                setResetPasswordMode("email");
+                                setNewPassword("");
+                                setConfirmNewPassword("");
+                                setShowResetPasswordDialog(true);
+                              }}
+                              title="Reset password"
+                            >
+                              <Key className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="destructive"
+                              size="sm"
+                              onClick={() => {
+                                setUserToDelete(user);
+                                setShowDeleteDialog(true);
+                              }}
+                              disabled={
+                                user.id === currentUser?.id ||
+                                user.profile?.role_id === ADMIN_ROLE_ID ||
+                                user.profile?.role_id === SUPER_ADMIN_ROLE_ID
+                              }
+                              title={
+                                user.profile?.role_id === ADMIN_ROLE_ID || user.profile?.role_id === SUPER_ADMIN_ROLE_ID
+                                  ? "Cannot delete admin accounts"
+                                  : "Delete user"
+                              }
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                  </Table>
+                </div>
               </div>
-            </div>
+
+              <div className="flex items-center justify-between border-t px-4 py-3 sm:px-6">
+                <div className="hidden sm:block">
+                  <p className="text-muted-foreground text-sm">
+                    Showing <span className="text-foreground font-medium">{pagination.start}</span> to{" "}
+                    <span className="text-foreground font-medium">{pagination.end}</span> of{" "}
+                    <span className="text-foreground font-medium">{pagination.total}</span> results
+                  </p>
+                </div>
+
+                <div className="ml-auto flex items-center gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={pagination.total === 0 || pagination.page <= 1}
+                    onClick={() => setPage(pagination.page - 1)}
+                  >
+                    Prev
+                  </Button>
+
+                  <div className="hidden items-center gap-1 sm:flex">
+                    {Array.from({ length: pagination.totalPages }).map((_, i) => {
+                      const p = i + 1;
+                      const active = p === pagination.page;
+                      return (
+                        <Button
+                          key={`user-page-${p}`}
+                          variant="outline"
+                          size="sm"
+                          disabled={pagination.total === 0}
+                          className={active ? "border-primary bg-primary/10 text-primary" : ""}
+                          onClick={() => setPage(p)}
+                        >
+                          {p}
+                        </Button>
+                      );
+                    })}
+                  </div>
+
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    disabled={pagination.total === 0 || pagination.page >= pagination.totalPages}
+                    onClick={() => setPage(pagination.page + 1)}
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+            </>
           )}
         </CardContent>
       </Card>
@@ -1242,59 +1284,58 @@ export function SupabaseUserManagement() {
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
+                <Label htmlFor="edit-department">Department</Label>
+                <Select
+                  value={editUserForm.department}
+                  onValueChange={(value) => {
+                    setEditUserForm((prev) => ({
+                      ...prev,
+                      department: value,
+                      role_id: "",
+                    }))
+                  }}
+                >
+                  <SelectTrigger id="edit-department">
+                    <SelectValue placeholder="Select a department" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {departmentsWithRoles.map((dept) => (
+                      <SelectItem key={dept.id} value={dept.name}>
+                        {dept.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {editFormErrors.department && (
+                  <p className="text-sm text-destructive">{editFormErrors.department}</p>
+                )}
+              </div>
+              <div className="space-y-2">
                 <Label htmlFor="edit-role">Role</Label>
                 <Select
                   value={editUserForm.role_id}
-                  onValueChange={(value) => {
-                    // When a role is selected, automatically set the department
-                    const selectedRole = roles.find(role => role.id === value);
-                    const departmentName = selectedRole?.department_id 
-                      ? departments.find(dept => dept.id === selectedRole.department_id)?.name || ""
-                      : "";
-                    
-                    setEditUserForm(prev => ({ 
-                      ...prev, 
-                      role_id: value,
-                      department: departmentName
-                    }));
-                  }}
+                  onValueChange={(value) => setEditUserForm((prev) => ({ ...prev, role_id: value }))}
+                  disabled={!editUserForm.department}
                 >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a role" />
+                  <SelectTrigger id="edit-role">
+                    <SelectValue placeholder={editUserForm.department ? "Select a role" : "Select department first"} />
                   </SelectTrigger>
                   <SelectContent>
-                    {roles.length > 0 ? (
-                      roles
-                        .filter(role => isSuperAdmin || role.id !== SUPER_ADMIN_ROLE_ID)
-                        .map((role) => (
-                        <SelectItem key={role.id} value={role.id}>
-                          <div className="flex flex-col">
-                            <span className="font-medium">{role.name}</span>
-                            {role.description && (
-                              <span className="text-xs text-muted-foreground">
-                                {role.description}
-                              </span>
-                            )}
-                          </div>
-                        </SelectItem>
-                      ))
-                    ) : (
-                      <>
-                        {isSuperAdmin && (
-                          <SelectItem value={SUPER_ADMIN_ROLE_ID}>Super Admin</SelectItem>
-                        )}
-                        <SelectItem value={USER_ROLE_ID}>User</SelectItem>
-                        <SelectItem value={ADMIN_ROLE_ID}>Admin</SelectItem>
-                      </>
-                    )}
+                    {editAvailableRoles.map((role) => (
+                      <SelectItem key={role.id} value={role.id}>
+                        <div className="flex flex-col">
+                          <span className="font-medium">{role.name}</span>
+                          {role.description && (
+                            <span className="text-xs text-muted-foreground">{role.description}</span>
+                          )}
+                        </div>
+                      </SelectItem>
+                    ))}
                   </SelectContent>
                 </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="edit-department">Department</Label>
-                <div className="p-3 bg-muted rounded-md min-h-10 flex items-center">
-                  {editUserForm.department || "No department (will be set based on role)"}
-                </div>
+                {editFormErrors.role_id && (
+                  <p className="text-sm text-destructive">{editFormErrors.role_id}</p>
+                )}
               </div>
             </div>
             <div className="flex items-center space-x-2">
