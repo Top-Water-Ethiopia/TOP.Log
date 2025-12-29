@@ -110,11 +110,26 @@ export async function GET() {
 
     // Fetch ALL users (for dropdown - not just those with entries)
     // Use adminSupabase to bypass RLS and get all users
-    const { data: allUsers, error: allUsersError } = await adminSupabase
+    let allUsers: any[] | null = null
+    let allUsersError: any = null
+
+    const activeUsersResult = await adminSupabase
       .from("user_profiles")
       .select("user_id, name, role_id, department_id")
       .eq("is_active", true)
       .order("name")
+
+    allUsers = (activeUsersResult as any).data ?? null
+    allUsersError = (activeUsersResult as any).error ?? null
+
+    if (allUsersError || !allUsers || allUsers.length === 0) {
+      const fallbackUsersResult = await adminSupabase
+        .from("user_profiles")
+        .select("user_id, name, role_id, department_id")
+        .order("name")
+      allUsers = (fallbackUsersResult as any).data ?? allUsers
+      allUsersError = (fallbackUsersResult as any).error ?? allUsersError
+    }
 
     console.log("Users fetched:", allUsers?.length || 0)
     console.log("Sample user:", allUsers?.[0])
@@ -163,38 +178,29 @@ export async function GET() {
 
     console.log("✅ Fetched departments for dropdown:", allDepartments?.length || 0)
 
+    const roleMap = new Map((allRoles as any[])?.map((r) => [r.id, r.name]) || [])
+    const deptMap = new Map((allDepartments as any[])?.map((d) => [d.id, d.name]) || [])
+
+    const normalizedUsers =
+      (allUsers as any[])?.map((u) => ({
+        user_id: u.user_id,
+        name: u.name || "Unknown User",
+        email: userEmailMap.get(u.user_id) || "",
+        role_name: roleMap.get(u.role_id) || "Unknown",
+        department_name: deptMap.get(u.department_id) || null,
+      })) || []
+
     // If no entries, return empty result with filter options
     if (!entries || entries.length === 0) {
       return NextResponse.json({
         entries: [],
-        users:
-          (allUsers as any[])?.map((u) => ({
-            id: u.user_id,
-            name: u.name || "Unknown User",
-            email: userEmailMap.get(u.user_id) || "",
-          })) || [],
+        users: normalizedUsers,
         roles: (allRoles as any[])?.map((r) => ({ id: r.id, name: r.name })) || [],
         departments: (allDepartments as any[])?.map((d) => ({ id: d.id, name: d.name })) || [],
       })
     }
 
-    // Create lookup maps for roles and departments
-    const roleMap = new Map((allRoles as any[])?.map((r) => [r.id, r.name]) || [])
-    const deptMap = new Map((allDepartments as any[])?.map((d) => [d.id, d.name]) || [])
-
-    // Create user profile lookup map
-    const userMap = new Map(
-      (allUsers as any[])?.map((u) => [
-        u.user_id,
-        {
-          user_id: u.user_id,
-          name: u.name || "Unknown User",
-          email: userEmailMap.get(u.user_id) || "",
-          role_name: roleMap.get(u.role_id) || "Unknown",
-          department_name: deptMap.get(u.department_id) || null,
-        },
-      ]) || []
-    )
+    const userMap = new Map(normalizedUsers.map((u) => [u.user_id, u]))
 
     console.log("UserMap created with", userMap.size, "entries")
     console.log("Sample user IDs in userMap:", Array.from(userMap.keys()).slice(0, 5))
@@ -255,12 +261,7 @@ export async function GET() {
     // Return enriched entries along with filter options
     return NextResponse.json({
       entries: enrichedEntries,
-      users:
-        (allUsers as any[])?.map((u) => ({
-          id: u.user_id,
-          name: u.name || "Unknown User",
-          email: userEmailMap.get(u.user_id) || "",
-        })) || [],
+      users: normalizedUsers,
       roles: (allRoles as any[])?.map((r) => ({ id: r.id, name: r.name })) || [],
       departments: (allDepartments as any[])?.map((d) => ({ id: d.id, name: d.name })) || [],
     })

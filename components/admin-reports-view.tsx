@@ -4,7 +4,6 @@ import { useEffect, useState, useMemo } from "react"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { FileDown } from "lucide-react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -15,7 +14,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
-  Download,
   Search,
   Filter,
   Calendar,
@@ -52,6 +50,7 @@ import {
 } from "date-fns"
 import { toast } from "sonner"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import styles from "./admin-reports-view.module.css"
 
 // Types
@@ -114,12 +113,16 @@ export function AdminReportsView() {
   const [calendarMonth, setCalendarMonth] = useState<Date>(() => startOfMonth(new Date()))
   const [selectedDate, setSelectedDate] = useState<Date | null>(null)
   const [isDetailsOpen, setIsDetailsOpen] = useState(false)
+  const [sidebarUserSearch, setSidebarUserSearch] = useState("")
+  const [calendarUserSearch, setCalendarUserSearch] = useState("")
 
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedUser, setSelectedUser] = useState<string>("all")
   const [dateRange, setDateRange] = useState<string>("all")
   const [selectedDepartment, setSelectedDepartment] = useState<string>("all")
   const [selectedRole, setSelectedRole] = useState<string>("all")
+  const [filteredUsers, setFilteredUsers] = useState<UserProfile[]>(allUsers)
+  const [filteredRoles, setFilteredRoles] = useState<{id: string, name: string}[]>(allRoles)
 
   // Load all entries with user profiles
   useEffect(() => {
@@ -140,7 +143,22 @@ export function AdminReportsView() {
 
       // Handle new API response structure
       setEntries(data.entries || [])
-      setAllUsers(data.users || [])
+      const normalizedUsers: UserProfile[] = (Array.isArray(data.users) ? data.users : [])
+        .map((u: any) => {
+          const user_id = String(u.user_id ?? u.id ?? "").trim()
+          if (!user_id) return null
+
+          return {
+            user_id,
+            name: u.name ?? "Unknown User",
+            email: u.email ?? "",
+            role_name: u.role_name ?? "Unknown",
+            department_name: u.department_name ?? null,
+          } satisfies UserProfile
+        })
+        .filter(Boolean) as UserProfile[]
+
+      setAllUsers(normalizedUsers)
       setAllRoles(data.roles || [])
       setAllDepartments(data.departments || [])
 
@@ -210,32 +228,98 @@ export function AdminReportsView() {
     }
   }, [entries])
 
-  // Get unique values for filters - now from API data
+  // Update filtered users and roles when department or role changes
+  useEffect(() => {
+    let filtered = [...allUsers]
+    let roles = new Set<string>()
+    
+    // Filter users by department if a department is selected
+    if (selectedDepartment !== "all") {
+      filtered = filtered.filter(user => 
+        user.department_name === selectedDepartment
+      )
+      
+      // Get unique roles from users in the selected department
+      filtered.forEach(user => {
+        if (user.role_name) {
+          roles.add(user.role_name)
+        }
+      })
+      
+      // Update filtered roles
+      setFilteredRoles(
+        allRoles.filter(role => roles.has(role.name))
+      )
+    } else {
+      // If no department selected, show all roles
+      setFilteredRoles(allRoles)
+    }
+    
+    // If a role is selected, filter users by role
+    if (selectedRole !== "all") {
+      filtered = filtered.filter(user => user.role_name === selectedRole)
+    }
+    
+    setFilteredUsers(filtered)
+    
+    // Reset user selection if current selection is no longer valid
+    if (selectedUser !== "all" && !filtered.some(u => u.user_id === selectedUser)) {
+      setSelectedUser("all")
+    }
+    
+  }, [allUsers, allRoles, selectedDepartment, selectedRole, selectedUser])
+  
+  // Get departments that have at least one role assigned
+  const departmentsWithRoles = useMemo(() => {
+    // Create a set of department names that have roles
+    const deptWithRoles = new Set(
+      allRoles.map(role => 
+        allDepartments.find(d => d.id === role.id)?.name
+      ).filter(Boolean)
+    )
+    
+    // Filter departments to only those with roles
+    return allDepartments.filter(dept => dept.name && deptWithRoles.has(dept.name))
+  }, [allDepartments, allRoles])
+
+  // Get unique values for filters
   const filterOptions = useMemo(() => {
     return {
-      users: allUsers,
-      departments: allDepartments,
-      roles: allRoles,
+      users: filteredUsers,
+      departments: departmentsWithRoles,
+      roles: filteredRoles,
     }
-  }, [allUsers, allDepartments, allRoles])
+  }, [filteredUsers, departmentsWithRoles, filteredRoles])
+
+  const userOptions = useMemo(() => {
+    const base = (filteredUsers.length > 0 ? filteredUsers : allUsers).filter((u) => Boolean(u?.user_id))
+    const deduped = new Map<string, UserProfile>()
+    for (const u of base) {
+      if (!deduped.has(u.user_id)) deduped.set(u.user_id, u)
+    }
+    return Array.from(deduped.values()).sort((a, b) => (a.name || "").localeCompare(b.name || ""))
+  }, [allUsers, filteredUsers])
 
   // Filter entries
   const filteredEntries = useMemo(() => {
     let filtered = [...entries]
     const normalizedSelectedUser = String(selectedUser).trim()
 
-    // Filter by user
+    // Filter by user (if selected, this takes highest priority)
     if (selectedUser !== "all") {
-      filtered = filtered.filter((e) => String(e.user_id).trim() === normalizedSelectedUser)
+      return filtered.filter((e) => String(e.user_id).trim() === normalizedSelectedUser)
     }
-
-    // Filter by department
+    
+    // If no user selected, apply department and role filters
     if (selectedDepartment !== "all") {
       filtered = filtered.filter((e) => e.user_profile?.department_name === selectedDepartment)
-    }
-
-    // Filter by role
-    if (selectedRole !== "all") {
+      
+      // If role is also selected, filter by role within the department
+      if (selectedRole !== "all") {
+        filtered = filtered.filter((e) => e.user_profile?.role_name === selectedRole)
+      }
+    } else if (selectedRole !== "all") {
+      // If only role is selected (no department), filter by role
       filtered = filtered.filter((e) => e.user_profile?.role_name === selectedRole)
     }
 
@@ -301,40 +385,6 @@ export function AdminReportsView() {
   }
 
   // Export functions
-  const exportToJSON = () => {
-    try {
-      const exportData = filteredEntries.map((entry) => ({
-        date: entry.date,
-        user: entry.user_profile?.name || "Unknown",
-        email: entry.user_profile?.email || "Unknown",
-        department: entry.user_profile?.department_name || "N/A",
-        role: entry.user_profile?.role_name || "N/A",
-        created_at: entry.created_at,
-        responses:
-          entry.custom_responses?.map((r) => ({
-            question: r.question_label || r.question_key,
-            answer: r.value,
-          })) || [],
-      }))
-
-      const blob = new Blob([JSON.stringify(exportData, null, 2)], {
-        type: "application/json",
-      })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement("a")
-      a.href = url
-      a.download = `captain-log-entries-${new Date().toISOString().split("T")[0]}.json`
-      document.body.appendChild(a)
-      a.click()
-      document.body.removeChild(a)
-      URL.revokeObjectURL(url)
-
-      toast.success(`Exported ${filteredEntries.length} entries`)
-    } catch (error) {
-      toast.error("Failed to export data")
-    }
-  }
-
   const exportToCSV = () => {
     try {
       // CSV header
@@ -379,6 +429,8 @@ export function AdminReportsView() {
     setSelectedDepartment("all")
     setSelectedRole("all")
     setDateRange("all")
+    setFilteredUsers(allUsers)
+    setFilteredRoles(allRoles)
   }
 
   if (isLoading) {
@@ -555,10 +607,6 @@ export function AdminReportsView() {
               <CardDescription>Export and analyze data</CardDescription>
             </CardHeader>
             <CardContent className="flex flex-wrap gap-3">
-              <Button onClick={exportToJSON} variant="outline" className="gap-2">
-                <Download className="h-4 w-4" />
-                Export JSON
-              </Button>
               <Button onClick={exportToCSV} variant="outline" className="gap-2">
                 <TableIcon className="h-4 w-4" />
                 Export CSV
@@ -608,85 +656,97 @@ export function AdminReportsView() {
 
               {/* Filter Grid */}
               <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
-                {/* User Filter */}
-                <div className="space-y-2">
-                  <Label htmlFor="user-filter">User</Label>
-                  <Select value={selectedUser} onValueChange={setSelectedUser}>
-                    <SelectTrigger id="user-filter">
-                      <SelectValue placeholder="All users" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="all">All users</SelectItem>
-                      {filterOptions.users
-                        .filter(
-                          (user, index, self) =>
-                            user.user_id && self.findIndex((u) => u.user_id === user.user_id) === index
-                        )
-                        .map((user) => (
-                          <SelectItem key={`${user.user_id}-${user.email}`} value={user.user_id}>
-                            <span className="truncate">
-                              {user.name} ({user.email})
-                            </span>
-                          </SelectItem>
-                        ))}
-                    </SelectContent>
-                  </Select>
-                  {selectedUser !== "all" && (
-                    <p className="text-muted-foreground text-xs">
-                      Filtering by: {allUsers.find((u) => u.user_id === selectedUser)?.name || selectedUser}
-                    </p>
-                  )}
-                </div>
-
                 {/* Department Filter */}
                 <div className="space-y-2">
                   <Label htmlFor="dept-filter">Department</Label>
-                  <Select value={selectedDepartment} onValueChange={setSelectedDepartment}>
-                    <SelectTrigger id="dept-filter">
-                      <SelectValue placeholder="All departments" />
+                  <Select 
+                    value={selectedDepartment} 
+                    onValueChange={(value) => {
+                      setSelectedDepartment(value);
+                      // Reset role and user when department changes
+                      setSelectedRole("all");
+                      setSelectedUser("all");
+                    }}
+                  >
+                    <SelectTrigger id="dept-filter" className="min-w-[180px]">
+                      <SelectValue placeholder="Select department" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">All departments</SelectItem>
-                      {filterOptions.departments
-                        .filter(
-                          (dept, index, self) =>
-                            dept.id && dept.name && self.findIndex((d) => d.id === dept.id) === index
-                        )
-                        .map((dept) => (
-                          <SelectItem key={`${dept.id}-${dept.name}`} value={dept.name}>
-                            <span className="truncate">{dept.name}</span>
-                          </SelectItem>
-                        ))}
+                      <SelectItem value="all">
+                        <span className="text-muted-foreground font-semibold">All Departments</span>
+                      </SelectItem>
+                      {departmentsWithRoles.map((dept) => (
+                        <SelectItem key={dept.id} value={dept.name}>
+                          {dept.name}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
 
-                {/* Role Filter */}
+                {/* Role Filter - Disabled if no department selected */}
                 <div className="space-y-2">
-                  <Label htmlFor="role-filter">Role</Label>
-                  <Select value={selectedRole} onValueChange={setSelectedRole}>
-                    <SelectTrigger id="role-filter">
-                      <SelectValue placeholder="All roles" />
+                  <Label htmlFor="role-filter">
+                    Role
+                    {selectedDepartment === "all" && (
+                      <span className="ml-1 text-xs text-muted-foreground">(select department first)</span>
+                    )}
+                  </Label>
+                  <Select 
+                    value={selectedRole} 
+                    onValueChange={(value) => {
+                      setSelectedRole(value);
+                      // Reset user when role changes
+                      setSelectedUser("all");
+                    }}
+                    disabled={selectedDepartment === "all"}
+                  >
+                    <SelectTrigger id="role-filter" className="min-w-[160px]">
+                      <SelectValue placeholder={
+                        selectedDepartment === "all" ? "Select department first" : "All roles"
+                      } />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">All roles</SelectItem>
-                      {filterOptions.roles
-                        .filter(
-                          (role, index, self) =>
-                            role.id && role.name && self.findIndex((r) => r.id === role.id) === index
-                        )
-                        .map((role) => {
-                          // Format role name for display
-                          const displayName = role.name
-                            .replace(/-/g, " ")
-                            .replace(/\b\w/g, (char) => char.toUpperCase())
+                      <SelectItem value="all">
+                        <span className="text-muted-foreground font-semibold">All Roles</span>
+                      </SelectItem>
+                      {filteredRoles.map((role) => (
+                        <SelectItem key={role.id} value={role.name}>
+                          {role.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
 
-                          return (
-                            <SelectItem key={`${role.id}-${role.name}`} value={role.name}>
-                              <span className="truncate">{displayName}</span>
-                            </SelectItem>
-                          )
-                        })}
+                {/* User Filter - Disabled if no department selected */}
+                <div className="space-y-2">
+                  <Label htmlFor="user-filter">
+                    User
+                    {selectedDepartment === "all" && (
+                      <span className="ml-1 text-xs text-muted-foreground">(select department first)</span>
+                    )}
+                  </Label>
+                  <Select 
+                    value={selectedUser} 
+                    onValueChange={setSelectedUser}
+                    disabled={selectedDepartment === "all"}
+                  >
+                    <SelectTrigger id="user-filter" className="min-w-[180px]">
+                      <SelectValue placeholder={
+                        selectedDepartment === "all" ? "Select department first" : 
+                        filteredUsers.length === 0 ? "No users found" : "All users"
+                      } />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">
+                        <span className="text-muted-foreground font-semibold">All Users</span>
+                      </SelectItem>
+                      {filteredUsers.map((user) => (
+                        <SelectItem key={user.user_id} value={user.user_id}>
+                          {user.name}
+                        </SelectItem>
+                      ))}
                     </SelectContent>
                   </Select>
                 </div>
@@ -699,7 +759,9 @@ export function AdminReportsView() {
                       <SelectValue placeholder="All time" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="all">All time</SelectItem>
+                      <SelectItem value="all">
+                        <span className="text-muted-foreground font-semibold">All time</span>
+                      </SelectItem>
                       <SelectItem value="today">Today</SelectItem>
                       <SelectItem value="week">Last 7 days</SelectItem>
                       <SelectItem value="month">Last 30 days</SelectItem>
@@ -709,31 +771,25 @@ export function AdminReportsView() {
                 </div>
               </div>
 
-              {/* Clear Filters */}
-              {(searchQuery ||
-                selectedUser !== "all" ||
-                selectedDepartment !== "all" ||
-                selectedRole !== "all" ||
-                dateRange !== "all") && (
-                <Button variant="ghost" size="sm" onClick={clearFilters} className="gap-2">
-                  <Filter className="h-4 w-4" />
-                  Clear all filters
-                </Button>
-              )}
+              <div>
+                {/* Clear Filters */}
+                {(searchQuery ||
+                  selectedUser !== "all" ||
+                  selectedDepartment !== "all" ||
+                  selectedRole !== "all" ||
+                  dateRange !== "all") && (
+                  <div className="mt-2">
+                    <Button variant="ghost" size="sm" onClick={clearFilters} className="gap-2">
+                      <Filter className="h-4 w-4" />
+                      Clear all filters
+                    </Button>
+                  </div>
+                )}
+              </div>
 
               {/* Export Actions */}
               <Separator />
               <div className="flex flex-wrap gap-3">
-                <Button
-                  onClick={exportToJSON}
-                  variant="outline"
-                  size="sm"
-                  className="gap-2"
-                  disabled={filteredEntries.length === 0}
-                >
-                  <FileDown className="h-4 w-4" />
-                  Export JSON
-                </Button>
                 <Button
                   onClick={exportToCSV}
                   variant="outline"
@@ -958,88 +1014,139 @@ export function AdminReportsView() {
               <div className={`${styles.filterPanel} ${styles.animateSlideIn}`}>
                 <h3 className={styles.filterTitle}>Advanced Filters</h3>
                 <div className="flex flex-wrap items-center gap-2 sm:gap-3">
-                  {/* User Filter */}
-                  <div className="flex items-center space-x-2">
-                    <Label htmlFor="cal-user-filter" className="hidden text-sm text-gray-700 sm:block">
-                      User:
-                    </Label>
-                    <Select value={selectedUser} onValueChange={setSelectedUser}>
-                      <SelectTrigger id="cal-user-filter" className="h-8 w-24 sm:w-32">
-                        <SelectValue placeholder="All users" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="all">All users</SelectItem>
-                        {filterOptions.users
-                          .filter(
-                            (user, index, self) =>
-                              user.user_id && self.findIndex((u) => u.user_id === user.user_id) === index
-                          )
-                          .map((user) => (
-                            <SelectItem key={`${user.user_id}-${user.email}`} value={user.user_id}>
-                              <span className="truncate">
-                                {user.name} ({user.email})
-                              </span>
-                            </SelectItem>
-                          ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {/* Department Filter */}
+                  {/* Department Filter - Always shown */}
                   <div className="flex items-center space-x-2">
                     <Label htmlFor="cal-dept-filter" className="hidden text-sm text-gray-700 sm:block">
                       Dept:
                     </Label>
-                    <Select value={selectedDepartment} onValueChange={setSelectedDepartment}>
+                    <Select 
+                      value={selectedDepartment} 
+                      onValueChange={(value) => {
+                        setSelectedDepartment(value);
+                        setSelectedRole("all");
+                        setSelectedUser("all");
+                      }}
+                    >
                       <SelectTrigger id="cal-dept-filter" className="h-8 w-24 sm:w-32">
                         <SelectValue placeholder="All depts" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="all">All departments</SelectItem>
-                        {filterOptions.departments
-                          .filter(
-                            (dept, index, self) =>
-                              dept.id && dept.name && self.findIndex((d) => d.id === dept.id) === index
-                          )
+                        <SelectItem value="all">
+                          <span className="text-muted-foreground font-semibold">All Departments</span>
+                        </SelectItem>
+                        {allDepartments
+                          .filter((dept) => dept && dept.name)
                           .map((dept) => (
-                            <SelectItem key={`${dept.id}-${dept.name}`} value={dept.name}>
-                              <span className="truncate">{dept.name}</span>
+                            <SelectItem key={dept.id} value={dept.name}>
+                              {dept.name}
                             </SelectItem>
                           ))}
                       </SelectContent>
                     </Select>
                   </div>
 
-                  {/* Role Filter - Hidden on mobile */}
-                  <div className="hidden items-center space-x-2 sm:flex">
-                    <Label htmlFor="cal-role-filter" className="text-sm text-gray-700">
+                  {/* Role Filter - Disabled if no department selected */}
+                  <div className="flex items-center space-x-2">
+                    <Label htmlFor="cal-role-filter" className="hidden text-sm text-gray-700 sm:block">
                       Role:
                     </Label>
-                    <Select value={selectedRole} onValueChange={setSelectedRole}>
-                      <SelectTrigger id="cal-role-filter" className="h-8 w-32">
-                        <SelectValue placeholder="All roles" />
+                    <Select 
+                      value={selectedRole} 
+                      onValueChange={(value) => {
+                        setSelectedRole(value);
+                        setSelectedUser("all");
+                      }}
+                      disabled={selectedDepartment === "all"}
+                    >
+                      <SelectTrigger id="cal-role-filter" className="h-8 w-24 sm:w-32">
+                        <SelectValue placeholder={
+                          selectedDepartment === "all" ? "Select dept" : "All roles"
+                        } />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="all">All roles</SelectItem>
-                        {filterOptions.roles
-                          .filter(
-                            (role, index, self) =>
-                              role.id && role.name && self.findIndex((r) => r.id === role.id) === index
-                          )
-                          .map((role) => {
-                            // Format role name for display
-                            const displayName = role.name
-                              .replace(/-/g, " ")
-                              .replace(/\b\w/g, (char) => char.toUpperCase())
-
-                            return (
-                              <SelectItem key={`${role.id}-${role.name}`} value={role.name}>
-                                <span className="truncate">{displayName}</span>
-                              </SelectItem>
-                            )
-                          })}
+                        <SelectItem value="all">
+                          <span className="text-muted-foreground font-semibold">All Roles</span>
+                        </SelectItem>
+                        {filteredRoles.map((role) => (
+                          <SelectItem key={role.id} value={role.name}>
+                            {role.name}
+                          </SelectItem>
+                        ))}
                       </SelectContent>
                     </Select>
+                  </div>
+
+                  {/* User Filter - Disabled if no department selected */}
+                  <div className="flex items-center space-x-2">
+                    <Label htmlFor="cal-user-filter" className="hidden text-sm text-gray-700 sm:block">
+                      User:
+                    </Label>
+                    {(() => {
+                      const enableUserSearch = userOptions.length >= 15
+                      const enableUserScroll = userOptions.length >= 12
+                      const q = calendarUserSearch.trim().toLowerCase()
+                      const filteredUserOptions = enableUserSearch
+                        ? userOptions.filter((user) => {
+                            if (!q) return true
+                            const name = (user.name || "").toLowerCase()
+                            const dept = (user.department_name || "").toLowerCase()
+                            return name.includes(q) || dept.includes(q)
+                          })
+                        : userOptions
+
+                      return (
+                    <Select 
+                      value={selectedUser} 
+                      onValueChange={setSelectedUser}
+                      onOpenChange={(open) => {
+                        if (!open) setCalendarUserSearch("")
+                      }}
+                    >
+                      <SelectTrigger id="cal-user-filter" className="h-8 w-24 sm:w-32">
+                        <SelectValue placeholder={
+                          userOptions.length === 0 ? "No users found" : "All users"
+                        } />
+                      </SelectTrigger>
+                      <SelectContent className="max-h-[360px] overflow-hidden">
+                        <SelectItem value="all">
+                          <span className="font-semibold">All Users</span>
+                        </SelectItem>
+                        {enableUserSearch && (
+                          <div className="sticky top-0 z-10 border-b bg-white/95 p-2 backdrop-blur">
+                            <Input
+                              value={calendarUserSearch}
+                              onChange={(e) => setCalendarUserSearch(e.target.value)}
+                              placeholder="Search users..."
+                              className="h-8"
+                            />
+                          </div>
+                        )}
+                        {userOptions.length === 0 ? (
+                          <SelectItem value="__none__" disabled>
+                            No users found
+                          </SelectItem>
+                        ) : enableUserSearch && filteredUserOptions.length === 0 ? (
+                          <SelectItem value="__no_match__" disabled>
+                            No users match your search
+                          </SelectItem>
+                        ) : (
+                          <div className={enableUserScroll ? "max-h-[280px] overflow-y-auto pr-1" : undefined}>
+                            {filteredUserOptions.map((user, index) => (
+                              <SelectItem key={`${user.user_id}-${index}`} value={user.user_id}>
+                                <div className="min-w-0">
+                                  <div className="truncate">{user.name}</div>
+                                  {selectedDepartment === "all" && user.department_name && (
+                                    <div className="text-muted-foreground truncate text-xs">{user.department_name}</div>
+                                  )}
+                                </div>
+                              </SelectItem>
+                            ))}
+                          </div>
+                        )}
+                      </SelectContent>
+                    </Select>
+                      )
+                    })()}
                   </div>
 
                   {/* Date Range Filter */}
@@ -1052,7 +1159,9 @@ export function AdminReportsView() {
                         <SelectValue placeholder="Period" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="all">All time</SelectItem>
+                        <SelectItem value="all">
+                          <span className="text-muted-foreground font-semibold">All time</span>
+                        </SelectItem>
                         <SelectItem value="today">Today</SelectItem>
                         <SelectItem value="week">7 days</SelectItem>
                         <SelectItem value="month">30 days</SelectItem>
@@ -1063,26 +1172,21 @@ export function AdminReportsView() {
 
                   {/* Export Buttons - Stacked on mobile */}
                   <div className="flex items-center space-x-1">
-                    <Button
-                      onClick={exportToJSON}
-                      variant="outline"
-                      size="sm"
-                      className="h-8 gap-1 border-gray-300 px-2 text-xs"
-                      disabled={filteredEntries.length === 0}
-                    >
-                      <FileDown className="h-3 w-3" />
-                      <span className="xs:inline hidden">JSON</span>
-                    </Button>
-                    <Button
-                      onClick={exportToCSV}
-                      variant="outline"
-                      size="sm"
-                      className="h-8 gap-1 border-gray-300 px-2 text-xs"
-                      disabled={filteredEntries.length === 0}
-                    >
-                      <TableIcon className="h-3 w-3" />
-                      <span className="xs:inline hidden">CSV</span>
-                    </Button>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          onClick={exportToCSV}
+                          variant="outline"
+                          size="sm"
+                          className="h-8 gap-1 border-gray-300 px-2 text-xs"
+                          disabled={filteredEntries.length === 0}
+                        >
+                          <TableIcon className="h-3 w-3" />
+                          <span className="xs:inline hidden">CSV</span>
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent sideOffset={6}>Export as CSV</TooltipContent>
+                    </Tooltip>
                   </div>
 
                   {/* Clear Filters Button */}
@@ -1090,10 +1194,20 @@ export function AdminReportsView() {
                     selectedDepartment !== "all" ||
                     selectedRole !== "all" ||
                     dateRange !== "all") && (
-                    <Button variant="ghost" size="sm" onClick={clearFilters} className="h-8 gap-1 px-2 text-xs">
-                      <Filter className="h-3 w-3" />
-                      <span className="xs:inline hidden">Clear</span>
-                    </Button>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          onClick={clearFilters}
+                          className="h-8 gap-1 px-2 text-xs"
+                        >
+                          <Filter className="h-3 w-3" />
+                          <span className="xs:inline hidden">Clear</span>
+                        </Button>
+                      </TooltipTrigger>
+                      <TooltipContent sideOffset={6}>Clear all calendar filters</TooltipContent>
+                    </Tooltip>
                   )}
                 </div>
               </div>
@@ -1262,7 +1376,10 @@ export function AdminReportsView() {
                         open={isDetailsOpen}
                         onOpenChange={(open) => {
                           setIsDetailsOpen(open)
-                          if (!open) setSelectedDate(null)
+                          if (!open) {
+                            setSelectedDate(null)
+                            setSidebarUserSearch("")
+                          }
                         }}
                       >
                         <SheetContent className="sm:max-w-md">
@@ -1279,42 +1396,66 @@ export function AdminReportsView() {
                               </div>
                             ) : (
                               <div className="space-y-3">
-                                {uniqueUsersForSelectedDate.map((entry) => {
-                                  const name = entry.user_profile?.name || "Unknown User"
-                                  const email = entry.user_profile?.email || ""
-                                  const initials = name
-                                    .split(" ")
-                                    .filter(Boolean)
-                                    .map((n) => n[0])
-                                    .join("")
-                                    .toUpperCase()
-                                    .slice(0, 2)
+                                <Input
+                                  value={sidebarUserSearch}
+                                  onChange={(e) => setSidebarUserSearch(e.target.value)}
+                                  placeholder="Search users..."
+                                />
 
-                                  return (
-                                    <button
-                                      key={entry.user_id}
-                                      type="button"
-                                      className="hover:bg-muted/30 flex w-full items-center justify-between gap-3 rounded-xl border bg-white px-3 py-3 text-left shadow-sm focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
-                                      onClick={() => {
-                                        setIsDetailsOpen(false)
-                                        setSelectedDate(null)
-                                        router.push(`/admin/reports/${entry.id}`)
-                                      }}
-                                    >
-                                      <div className="flex min-w-0 items-center gap-3">
-                                        <div className="bg-muted text-primary/80 flex h-10 w-10 items-center justify-center rounded-full text-sm font-semibold">
-                                          {initials || "??"}
-                                        </div>
-                                        <div className="min-w-0">
-                                          <div className="truncate font-semibold">{name}</div>
-                                          {email && (
-                                            <div className="text-muted-foreground truncate text-xs">{email}</div>
-                                          )}
-                                        </div>
+                                {(() => {
+                                  const q = sidebarUserSearch.trim().toLowerCase()
+                                  const filtered = uniqueUsersForSelectedDate.filter((entry) => {
+                                    if (!q) return true
+                                    const name = (entry.user_profile?.name || "").toLowerCase()
+                                    return name.includes(q)
+                                  })
+
+                                  if (filtered.length === 0) {
+                                    return (
+                                      <div className="bg-muted/30 text-muted-foreground rounded-lg border p-4 text-sm">
+                                        No users match your search.
                                       </div>
-                                    </button>
-                                  )
-                                })}
+                                    )
+                                  }
+
+                                  return filtered.map((entry) => {
+                                    const name = entry.user_profile?.name || "Unknown User"
+                                    const email = entry.user_profile?.email || ""
+                                    const initials = name
+                                      .split(" ")
+                                      .filter(Boolean)
+                                      .map((n) => n[0])
+                                      .join("")
+                                      .toUpperCase()
+                                      .slice(0, 2)
+
+                                    return (
+                                      <button
+                                        key={entry.user_id}
+                                        type="button"
+                                        className="hover:bg-muted/30 flex w-full items-center justify-between gap-3 rounded-xl border bg-white px-3 py-3 text-left shadow-sm focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                                        onClick={() => {
+                                          setIsDetailsOpen(false)
+                                          setSelectedDate(null)
+                                          setSidebarUserSearch("")
+                                          router.push(`/admin/reports/${entry.id}`)
+                                        }}
+                                      >
+                                        <div className="flex min-w-0 items-center gap-3">
+                                          <div className="bg-muted text-primary/80 flex h-10 w-10 items-center justify-center rounded-full text-sm font-semibold">
+                                            {initials || "??"}
+                                          </div>
+                                          <div className="min-w-0">
+                                            <div className="truncate font-semibold">{name}</div>
+                                            {email && (
+                                              <div className="text-muted-foreground truncate text-xs">{email}</div>
+                                            )}
+                                          </div>
+                                        </div>
+                                      </button>
+                                    )
+                                  })
+                                })()}
                               </div>
                             )}
                           </div>
