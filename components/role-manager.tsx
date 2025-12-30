@@ -546,28 +546,32 @@ export function RoleManager() {
         <>
        
             <Tabs value={roleFilter} onValueChange={(value) => setRoleFilter(value as "all" | "system" | "custom")}>
-                <div className="flex justify-end">
-                   <div className="mb-8 flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-end">
+                <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 {/* <div>
                   <h1 className="text-2xl font-bold tracking-tight">Roles</h1>
                   <p className="text-muted-foreground mt-1 text-sm">
                     Manage system roles and create custom roles assigned to departments.
                   </p>
                 </div> */}
-                <TabsList className="bg-background h-auto rounded-lg border p-1 shadow-sm">
-                  <TabsTrigger className="text-xs" value="all">
-                    All Roles ({allPagination.total})
-                  </TabsTrigger>
-                  <TabsTrigger className="text-xs" value="system">
-                    System ({systemPagination.total})
-                  </TabsTrigger>
-                  <TabsTrigger className="text-xs" value="custom">
-                    Custom ({customPagination.total})
-                  </TabsTrigger>
+                <TabsList className="grid w-full max-w-lg grid-cols-3">
+                  <TabsTrigger value="all">All Roles ({allPagination.total})</TabsTrigger>
+                  <TabsTrigger value="system">System ({systemPagination.total})</TabsTrigger>
+                  <TabsTrigger value="custom">Custom ({customPagination.total})</TabsTrigger>
                 </TabsList>
+
+                <div className="flex w-full justify-start sm:w-auto sm:justify-end">
+                  <Button
+                    onClick={() => {
+                      resetForm()
+                      setEditingRole(null)
+                      setShowCreateDialog(true)
+                    }}
+                  >
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add Custom Role
+                  </Button>
+                </div>
               </div>
-         
-</div>
             <div className="bg-card text-card-foreground mb-6 flex flex-col items-center justify-between gap-4 rounded-xl border p-4 shadow-sm md:flex-row">
               <div className="relative w-full md:w-96">
                 <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
@@ -684,20 +688,6 @@ export function RoleManager() {
               </div>
             </TabsContent>
           </Tabs>
-
-          <div className="fixed right-8 bottom-8 z-50">
-            <Button
-              className="rounded-full px-5 py-6 shadow-lg"
-              onClick={() => {
-                resetForm()
-                setEditingRole(null)
-                setShowCreateDialog(true)
-              }}
-            >
-              <Plus className="mr-2 h-4 w-4" />
-              Add Custom Role
-            </Button>
-          </div>
 
           {/* Create/Edit Dialog */}
           <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
