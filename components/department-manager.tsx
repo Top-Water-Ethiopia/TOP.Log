@@ -37,7 +37,6 @@ const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
 interface Department {
   id: string
   name: string
-  code: string | null
   description: string | null
   is_active: boolean
   created_at?: string
@@ -49,18 +48,50 @@ export function DepartmentManager() {
   const [departments, setDepartments] = useState<Department[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const [page, setPage] = useState(1)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [editingDepartment, setEditingDepartment] = useState<Department | null>(null)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [departmentToDelete, setDepartmentToDelete] = useState<Department | null>(null)
   const { toast } = useToast()
 
+  const pageSize = 6
+
+  const clampPage = (requestedPage: number, total: number) => {
+    const totalPages = Math.max(1, Math.ceil(total / pageSize))
+    return Math.min(Math.max(1, requestedPage), totalPages)
+  }
+
+  const paginate = <T,>(items: T[], requestedPage: number) => {
+    const total = items.length
+    const safePage = clampPage(requestedPage, total)
+    const totalPages = Math.max(1, Math.ceil(total / pageSize))
+    const startIndex = (safePage - 1) * pageSize
+    const endIndexExclusive = Math.min(startIndex + pageSize, total)
+
+    return {
+      page: safePage,
+      total,
+      totalPages,
+      start: total === 0 ? 0 : startIndex + 1,
+      end: total === 0 ? 0 : endIndexExclusive,
+      pageItems: items.slice(startIndex, endIndexExclusive),
+    }
+  }
+
+  const pagination = paginate(departments, page)
+
+  useEffect(() => {
+    const nextPage = clampPage(page, departments.length)
+    if (nextPage !== page) setPage(nextPage)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [departments.length])
+
   const isSuperAdmin = currentProfile?.role_id === SUPER_ADMIN_ROLE_ID
   const isAdmin = currentProfile?.role_id === ADMIN_ROLE_ID || isSuperAdmin
 
   const [formData, setFormData] = useState({
     name: "",
-    code: "",
     description: "",
     is_active: true,
   })
@@ -85,6 +116,7 @@ export function DepartmentManager() {
       }
 
       setDepartments(result.data || [])
+      setPage(1)
     } catch (error: any) {
       console.error("Error loading data:", error)
       toast({
@@ -120,7 +152,6 @@ export function DepartmentManager() {
         },
         body: JSON.stringify({
           name: formData.name.trim(),
-          code: formData.code.trim() || null,
           description: formData.description.trim() || null,
           is_active: formData.is_active,
         }),
@@ -165,7 +196,6 @@ export function DepartmentManager() {
         body: JSON.stringify({
           id: editingDepartment.id,
           name: formData.name.trim(),
-          code: formData.code.trim() || null,
           description: formData.description.trim() || null,
           is_active: formData.is_active,
         }),
@@ -232,7 +262,6 @@ export function DepartmentManager() {
   const resetForm = () => {
     setFormData({
       name: "",
-      code: "",
       description: "",
       is_active: true,
     })
@@ -243,7 +272,6 @@ export function DepartmentManager() {
     setEditingDepartment(department)
     setFormData({
       name: department.name,
-      code: department.code || "",
       description: department.description || "",
       is_active: department.is_active,
     })
@@ -312,30 +340,22 @@ export function DepartmentManager() {
           <TableHeader>
             <TableRow>
               <TableHead>Name</TableHead>
-              <TableHead>Code</TableHead>
               <TableHead>Description</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {departments.length === 0 ? (
+            {pagination.total === 0 ? (
               <TableRow>
-                <TableCell colSpan={5} className="text-muted-foreground py-8 text-center">
+                <TableCell colSpan={4} className="text-muted-foreground py-8 text-center">
                   No departments found. Create your first department.
                 </TableCell>
               </TableRow>
             ) : (
-              departments.map((department) => (
+              pagination.pageItems.map((department) => (
                 <TableRow key={department.id}>
                   <TableCell className="font-medium">{department.name}</TableCell>
-                  <TableCell>
-                    {department.code ? (
-                      <Badge variant="outline">{department.code}</Badge>
-                    ) : (
-                      <span className="text-muted-foreground">-</span>
-                    )}
-                  </TableCell>
                   <TableCell className="max-w-md truncate">{department.description || "-"}</TableCell>
                   <TableCell>
                     <Badge variant={department.is_active ? "default" : "secondary"}>
@@ -357,6 +377,55 @@ export function DepartmentManager() {
             )}
           </TableBody>
         </Table>
+
+        <div className="flex items-center justify-between border-t px-4 py-3 sm:px-6">
+          <div className="hidden sm:block">
+            <p className="text-muted-foreground text-sm">
+              Showing <span className="text-foreground font-medium">{pagination.start}</span> to{" "}
+              <span className="text-foreground font-medium">{pagination.end}</span> of{" "}
+              <span className="text-foreground font-medium">{pagination.total}</span> results
+            </p>
+          </div>
+
+          <div className="ml-auto flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={pagination.total === 0 || pagination.page <= 1}
+              onClick={() => setPage(pagination.page - 1)}
+            >
+              Prev
+            </Button>
+
+            <div className="hidden items-center gap-1 sm:flex">
+              {Array.from({ length: pagination.totalPages }).map((_, i) => {
+                const p = i + 1
+                const active = p === pagination.page
+                return (
+                  <Button
+                    key={`department-page-${p}`}
+                    variant="outline"
+                    size="sm"
+                    disabled={pagination.total === 0}
+                    className={active ? "border-primary bg-primary/10 text-primary" : ""}
+                    onClick={() => setPage(p)}
+                  >
+                    {p}
+                  </Button>
+                )
+              })}
+            </div>
+
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={pagination.total === 0 || pagination.page >= pagination.totalPages}
+              onClick={() => setPage(pagination.page + 1)}
+            >
+              Next
+            </Button>
+          </div>
+        </div>
       </div>
 
       {/* Create/Edit Dialog */}
@@ -382,15 +451,6 @@ export function DepartmentManager() {
                 placeholder="e.g., Engineering"
               />
               {formErrors.name && <p className="text-destructive text-sm">{formErrors.name}</p>}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="code">Code</Label>
-              <Input
-                id="code"
-                value={formData.code}
-                onChange={(e) => setFormData({ ...formData, code: e.target.value })}
-                placeholder="e.g., ENG"
-              />
             </div>
             <div className="space-y-2">
               <Label htmlFor="description">Description</Label>

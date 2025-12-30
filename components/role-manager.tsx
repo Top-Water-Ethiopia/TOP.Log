@@ -38,7 +38,6 @@ const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
 interface Department {
   id: string
   name: string
-  code: string | null
   is_active: boolean
 }
 
@@ -316,7 +315,7 @@ export function RoleManager() {
     const q = searchQuery.trim().toLowerCase()
     if (!q) return true
 
-    const haystack = [role.name, role.description || "", role.department?.name || "", role.department?.code || ""]
+    const haystack = [role.name, role.description || "", role.department?.name || ""]
       .join(" ")
       .toLowerCase()
 
@@ -746,7 +745,7 @@ export function RoleManager() {
                       {departments.length > 0 ? (
                         departments.map((dept) => (
                           <SelectItem key={dept.id} value={dept.id}>
-                            {dept.name} {dept.code && `(${dept.code})`}
+                            {dept.name}
                           </SelectItem>
                         ))
                       ) : (

@@ -106,7 +106,7 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json()
-    const { name, code, description, is_active } = body
+    const { name, description, is_active } = body
 
     // Validate required fields
     if (!name || !name.trim()) {
@@ -137,7 +137,6 @@ export async function POST(request: Request) {
       .from('departments')
       .insert({
         name: name.trim(),
-        code: code?.trim() || null,
         description: description?.trim() || null,
         is_active: is_active !== undefined ? is_active : true,
         created_by: userId,
@@ -180,7 +179,7 @@ export async function PUT(request: Request) {
     }
 
     const body = await request.json()
-    const { id, name, code, description, is_active } = body
+    const { id, name, description, is_active } = body
 
     if (!id) {
       return NextResponse.json(
@@ -217,7 +216,6 @@ export async function PUT(request: Request) {
       .from('departments')
       .update({
         name: name.trim(),
-        code: code?.trim() || null,
         description: description?.trim() || null,
         is_active: is_active !== undefined ? is_active : true,
         updated_by: userId,
