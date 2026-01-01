@@ -2,19 +2,22 @@
 
 import { useEffect } from "react"
 import { useRouter } from "next/navigation"
+import { useParams } from "next/navigation"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
-import { DepartmentManager } from "@/components/department-manager"
+import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { ListSkeleton } from "@/components/skeletons/list-skeleton"
 import { Skeleton } from "@/components/ui/skeleton"
+import { DepartmentProfessionsManager } from "@/components/department-professions-manager"
 
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
 const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
 const SUPER_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000000"
 
-export default function AdminDepartmentsPage() {
+export default function AdminDepartmentProfessionsPage() {
   const { user, profile, isLoading } = useSupabaseAuth()
   const router = useRouter()
+  const params = useParams<{ departmentId: string }>()
+  const departmentId = params.departmentId
 
   const isSuperAdmin = profile?.role_id === SUPER_ADMIN_ROLE_ID
   const isAdmin = profile?.role_id === ADMIN_ROLE_ID || profile?.role_id === SYSTEM_ADMIN_ROLE_ID || isSuperAdmin
@@ -32,7 +35,17 @@ export default function AdminDepartmentsPage() {
           <Skeleton className="h-9 w-64 bg-gray-200/80 dark:bg-gray-800" />
           <Skeleton className="mt-2 h-5 w-80 bg-gray-200/70 dark:bg-gray-800" />
         </div>
-        <ListSkeleton itemCount={5} />
+        <Card>
+          <CardHeader>
+            <Skeleton className="h-5 w-40 bg-gray-200/70 dark:bg-gray-800" />
+            <Skeleton className="h-4 w-56 bg-gray-200/60 dark:bg-gray-800" />
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {[...Array(6)].map((_, i) => (
+              <Skeleton key={i} className="h-10 w-full bg-gray-200/60 dark:bg-gray-800" />
+            ))}
+          </CardContent>
+        </Card>
       </div>
     )
   }
@@ -46,12 +59,7 @@ export default function AdminDepartmentsPage() {
             <CardDescription>You don't have permission to access this page.</CardDescription>
           </CardHeader>
           <CardContent>
-            <button
-              onClick={() => router.push("/")}
-              className="bg-primary hover:bg-primary/90 w-full rounded-md px-4 py-2 text-sm font-medium text-white"
-            >
-              Go to Home
-            </button>
+            <Button className="w-full" onClick={() => router.push("/")}>Go to Home</Button>
           </CardContent>
         </Card>
       </div>
@@ -59,14 +67,12 @@ export default function AdminDepartmentsPage() {
   }
 
   return (
-    <div>
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold tracking-tight">Departments</h1>
-        <p className="text-muted-foreground mt-2">View and manage all departments in the system.</p>
+    <div className="space-y-6">
+      <div className="flex items-center justify-between gap-4">
+        <Button variant="outline" onClick={() => router.push("/admin/departments")}>Back</Button>
       </div>
-      <div className="w-full">
-        <DepartmentManager />
-      </div>
+
+      <DepartmentProfessionsManager departmentId={departmentId} />
     </div>
   )
 }
