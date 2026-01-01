@@ -1,6 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
+import Link from "next/link"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -27,12 +28,13 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/components/ui/use-toast"
-import { Plus, Pencil, Trash2, Loader2 } from "lucide-react"
+import { Plus, Pencil, Trash2, Loader2, Users, Briefcase } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
 import { Skeleton } from "@/components/ui/skeleton"
 
 const SUPER_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000000"
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
+const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
 
 interface Department {
   id: string
@@ -88,7 +90,8 @@ export function DepartmentManager() {
   }, [departments.length])
 
   const isSuperAdmin = currentProfile?.role_id === SUPER_ADMIN_ROLE_ID
-  const isAdmin = currentProfile?.role_id === ADMIN_ROLE_ID || isSuperAdmin
+  const isAdmin =
+    currentProfile?.role_id === ADMIN_ROLE_ID || currentProfile?.role_id === SYSTEM_ADMIN_ROLE_ID || isSuperAdmin
 
   const [formData, setFormData] = useState({
     name: "",
@@ -238,6 +241,9 @@ export function DepartmentManager() {
       const result = await response.json()
 
       if (!response.ok) {
+        if (result.code === '23503') { // Foreign key violation
+          throw new Error("Cannot delete department. It has roles assigned. Please remove all roles first.")
+        }
         throw new Error(result.message || result.error || "Failed to delete department")
       }
 
@@ -252,8 +258,8 @@ export function DepartmentManager() {
     } catch (error: any) {
       console.error("Error deleting department:", error)
       toast({
-        title: "Error",
-        description: error?.message || "Failed to delete department",
+        title: "Cannot Delete Department",
+        description: error?.message || "Failed to delete department. Please try again.",
         variant: "destructive",
       })
     }
@@ -331,7 +337,7 @@ export function DepartmentManager() {
           }}
         >
           <Plus className="mr-2 h-4 w-4" />
-          Add Department
+          Create department
         </Button>
       </div>
 
@@ -349,7 +355,7 @@ export function DepartmentManager() {
             {pagination.total === 0 ? (
               <TableRow>
                 <TableCell colSpan={4} className="text-muted-foreground py-8 text-center">
-                  No departments found. Create your first department.
+                  No departments yet. Create your first department to get started.
                 </TableCell>
               </TableRow>
             ) : (
@@ -364,11 +370,25 @@ export function DepartmentManager() {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
+                      <Button variant="ghost" size="sm" asChild>
+                        <Link href={`/admin/departments/${department.id}/members`}>
+                          <Users className="h-4 w-4" />
+                          <span className="sr-only">Manage members</span>
+                        </Link>
+                      </Button>
+                      <Button variant="ghost" size="sm" asChild>
+                        <Link href={`/admin/departments/${department.id}/professions`}>
+                          <Briefcase className="h-4 w-4" />
+                          <span className="sr-only">Manage profession roles</span>
+                        </Link>
+                      </Button>
                       <Button variant="ghost" size="sm" onClick={() => openEditDialog(department)}>
                         <Pencil className="h-4 w-4" />
+                        <span className="sr-only">Edit department</span>
                       </Button>
                       <Button variant="ghost" size="sm" onClick={() => openDeleteDialog(department)}>
                         <Trash2 className="text-destructive h-4 w-4" />
+                        <span className="sr-only">Delete department</span>
                       </Button>
                     </div>
                   </TableCell>
@@ -432,11 +452,11 @@ export function DepartmentManager() {
       <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
         <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
-            <DialogTitle>{editingDepartment ? "Edit Department" : "Create Department"}</DialogTitle>
+            <DialogTitle>{editingDepartment ? "Edit department" : "Create department"}</DialogTitle>
             <DialogDescription>
               {editingDepartment
-                ? "Update department information"
-                : "Create a new department. Departments can be assigned to roles."}
+                ? "Update department details."
+                : "Create a department so you can assign roles and manage access."}
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">

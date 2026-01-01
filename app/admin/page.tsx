@@ -11,37 +11,38 @@ import { Users, Shield, Settings, Activity, Database, Clock, FileText, RefreshCw
 import { getAdminStats } from "@/lib/admin-stats"
 
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
+const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
 const SUPER_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000000"
 
 
 const quickActions = [
   {
-    name: "Captain Log Entries",
-    description: "View all individual captain log reports",
+    name: "Reports",
+    description: "Review submitted captain logs and activity",
     icon: FileText,
     href: "/admin/reports",
     iconForeground: "text-emerald-700",
     iconBackground: "bg-emerald-50",
   },
   {
-    name: "Add New User",
-    description: "Create a new user account",
+    name: "Users",
+    description: "Create accounts and manage access",
     icon: Users,
-    href: "/admin/users/new",
+    href: "/admin/users",
     iconForeground: "text-sky-700",
     iconBackground: "bg-sky-50",
   },
   {
     name: "Departments",
-    description: "Manage departments",
+    description: "Manage teams, members, and roles",
     icon: Building2,
     href: "/admin/departments",
     iconForeground: "text-blue-700",
     iconBackground: "bg-blue-50",
   },
   {
-    name: "Manage Roles",
-    description: "Create roles and assign to departments",
+    name: "Roles",
+    description: "Define roles and map them to departments",
     icon: Shield,
     href: "/admin/roles",
     iconForeground: "text-purple-700",
@@ -49,27 +50,11 @@ const quickActions = [
   },
   {
     name: "Role Questions",
-    description: "Customize questions for each role",
+    description: "Configure which questions each role sees",
     icon: FileText,
     href: "/admin/role-questions",
     iconForeground: "text-indigo-700",
     iconBackground: "bg-indigo-50",
-  },
-  {
-    name: "System Settings",
-    description: "Configure system preferences",
-    icon: Settings,
-    href: "/admin/settings",
-    iconForeground: "text-green-700",
-    iconBackground: "bg-green-50",
-  },
-  {
-    name: "View Audit Logs",
-    description: "Review system activity",
-    icon: FileText,
-    href: "/admin/audit-logs",
-    iconForeground: "text-amber-700",
-    iconBackground: "bg-amber-50",
   },
 ]
 
@@ -87,7 +72,8 @@ export default function AdminPage() {
   const [isRefreshing, setIsRefreshing] = useState(false)
 
   const isSuperAdmin = profile?.role_id === SUPER_ADMIN_ROLE_ID
-  const isAdmin = profile?.role_id === ADMIN_ROLE_ID || isSuperAdmin
+  const isAdmin =
+    profile?.role_id === ADMIN_ROLE_ID || profile?.role_id === SYSTEM_ADMIN_ROLE_ID || isSuperAdmin
 
   const fetchStats = async () => {
     try {
@@ -141,14 +127,14 @@ export default function AdminPage() {
 
   const displayStats = [
     {
-      name: "Total Users",
+      name: "Active Users",
       value: stats?.totalUsers?.toLocaleString() ?? "Loading...",
       icon: Users,
       change: stats ? "+12%" : "",
       changeType: "positive",
     },
     {
-      name: "Active Sessions",
+      name: "Active Sessions (15m)",
       value: stats?.activeSessions?.toString() ?? "Loading...",
       icon: Activity,
       change: stats ? "+5%" : "",
@@ -225,16 +211,16 @@ export default function AdminPage() {
       {/* Quick Actions */}
       <div className="mb-8">
         <h2 className="text-foreground mb-4 text-lg font-medium">Quick Actions</h2>
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
           {quickActions.map((action) => (
             <Link key={action.name} href={action.href}>
               <Card className="hover:bg-accent/50 h-full transition-colors">
                 <CardContent className="p-6">
-                  <div className="flex items-center">
-                    <div className={`${action.iconBackground} rounded-lg p-3`}>
+                  <div className="flex h-full flex-col">
+                    <div className={`${action.iconBackground} w-fit rounded-lg p-3`}>
                       <action.icon className={`h-6 w-6 ${action.iconForeground}`} aria-hidden="true" />
                     </div>
-                    <div className="ml-4">
+                    <div className="mt-4">
                       <h3 className="font-medium">{action.name}</h3>
                       <p className="text-muted-foreground text-sm">{action.description}</p>
                     </div>
