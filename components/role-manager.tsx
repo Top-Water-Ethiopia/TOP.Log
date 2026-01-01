@@ -34,6 +34,7 @@ import { Plus, Pencil, Trash2, Shield, Loader2, Search, SlidersHorizontal, Arrow
 
 const SUPER_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000000"
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
+const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
 
 interface Department {
   id: string
@@ -74,7 +75,8 @@ export function RoleManager() {
   const { toast } = useToast()
 
   const isSuperAdmin = currentProfile?.role_id === SUPER_ADMIN_ROLE_ID
-  const isAdmin = currentProfile?.role_id === ADMIN_ROLE_ID || isSuperAdmin
+  const isAdmin =
+    currentProfile?.role_id === ADMIN_ROLE_ID || currentProfile?.role_id === SYSTEM_ADMIN_ROLE_ID || isSuperAdmin
 
   const [formData, setFormData] = useState({
     name: "",
@@ -136,7 +138,11 @@ export function RoleManager() {
 
     // Custom roles must have a department assigned
     const isSystemRole =
-      editingRole && (editingRole.name === "super-admin" || editingRole.name === "admin" || editingRole.name === "user")
+      editingRole &&
+      (editingRole.name === "super-admin" ||
+        editingRole.name === "admin" ||
+        editingRole.name === "system-admin" ||
+        editingRole.name === "user")
     if (!isSystemRole && !formData.department_id) {
       errors.department_id = "Department is required for custom roles"
     }
@@ -221,6 +227,7 @@ export function RoleManager() {
         description: "Role updated successfully",
       })
 
+      setShowCreateDialog(false)
       setEditingRole(null)
       resetForm()
       loadData()
@@ -243,8 +250,10 @@ export function RoleManager() {
     if (
       roleToDelete.id === SUPER_ADMIN_ROLE_ID ||
       roleToDelete.id === ADMIN_ROLE_ID ||
+      roleToDelete.id === SYSTEM_ADMIN_ROLE_ID ||
       roleToDelete.name === "super-admin" ||
       roleToDelete.name === "admin" ||
+      roleToDelete.name === "system-admin" ||
       roleToDelete.name === "user"
     ) {
       toast({
@@ -262,10 +271,21 @@ export function RoleManager() {
         method: "DELETE",
       })
 
-      const result = await response.json()
+      let result: any = null
+      try {
+        result = await response.json()
+      } catch {
+        // ignore non-json responses
+      }
 
       if (!response.ok) {
-        throw new Error(result.message || result.error || "Failed to delete role")
+        const message = result?.error || result?.message || "Failed to delete role"
+        toast({
+          title: "Error",
+          description: message,
+          variant: "destructive",
+        })
+        return
       }
 
       toast({
@@ -277,7 +297,7 @@ export function RoleManager() {
       setRoleToDelete(null)
       loadData()
     } catch (error: any) {
-      console.error("Error deleting role:", error)
+      console.warn("Error deleting role:", error)
       toast({
         title: "Error",
         description: error?.message || "Failed to delete role",
@@ -325,8 +345,10 @@ export function RoleManager() {
   const isSystemRole = (role: RoleWithDepartment) =>
     role.id === SUPER_ADMIN_ROLE_ID ||
     role.id === ADMIN_ROLE_ID ||
+    role.id === SYSTEM_ADMIN_ROLE_ID ||
     role.name === "super-admin" ||
     role.name === "admin" ||
+    role.name === "system-admin" ||
     role.name === "user"
 
   const systemRoles = filteredRoles.filter((role) => isSystemRole(role))
@@ -461,8 +483,10 @@ export function RoleManager() {
           const isSystemRole =
             role.id === SUPER_ADMIN_ROLE_ID ||
             role.id === ADMIN_ROLE_ID ||
+            role.id === SYSTEM_ADMIN_ROLE_ID ||
             role.name === "super-admin" ||
             role.name === "admin" ||
+            role.name === "system-admin" ||
             role.name === "user"
           const isSuperAdminRole = role.id === SUPER_ADMIN_ROLE_ID || role.name === "super-admin"
           return (

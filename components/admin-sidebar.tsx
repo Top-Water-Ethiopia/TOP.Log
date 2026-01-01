@@ -63,11 +63,6 @@ export function AdminSidebar() {
       path: "/admin",
     },
     {
-      name: "Reports",
-      icon: FileText,
-      path: "/admin/reports",
-    },
-    {
       name: "Users",
       icon: Users,
       path: "/admin/users",
@@ -81,6 +76,14 @@ export function AdminSidebar() {
       name: "Roles",
       icon: Shield,
       path: "/admin/roles",
+    },
+  ]
+
+  const reportsNavItems = [
+    {
+      name: "Reports",
+      icon: FileText,
+      path: "/admin/reports",
     },
   ]
 
@@ -155,6 +158,14 @@ export function AdminSidebar() {
         </div>
       </SidebarHeader>
       <SidebarContent className="gap-6 py-6">
+        {/* Reports */}
+        <SidebarGroup className="px-3">
+          <SidebarGroupLabel className="text-muted-foreground mb-2 px-3 text-xs font-semibold tracking-wider uppercase">
+            Reports
+          </SidebarGroupLabel>
+          <SidebarMenu>{reportsNavItems.map(renderNavItem)}</SidebarMenu>
+        </SidebarGroup>
+
         {/* Main Navigation */}
         <SidebarGroup className="px-3">
           <SidebarGroupLabel className="text-muted-foreground mb-2 px-3 text-xs font-semibold tracking-wider uppercase">

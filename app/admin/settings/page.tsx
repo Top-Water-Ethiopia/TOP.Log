@@ -8,6 +8,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Icons } from "@/components/icons"
 
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
+const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
 const SUPER_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000000"
 
 export default function AdminSettingsPage() {
@@ -15,7 +16,8 @@ export default function AdminSettingsPage() {
   const router = useRouter()
 
   const isSuperAdmin = profile?.role_id === SUPER_ADMIN_ROLE_ID
-  const isAdmin = profile?.role_id === ADMIN_ROLE_ID || isSuperAdmin
+  const isAdmin =
+    profile?.role_id === ADMIN_ROLE_ID || profile?.role_id === SYSTEM_ADMIN_ROLE_ID || isSuperAdmin
 
   useEffect(() => {
     if (!isLoading && (!user || !isAdmin)) {
