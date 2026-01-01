@@ -1,9 +1,10 @@
 import { NextResponse } from 'next/server'
 import { adminSupabase } from '@/lib/supabase/admin'
+import { createClient } from '@/lib/supabase/server'
 
 // Helper function to handle timeouts for Supabase operations
 async function withTimeout<T>(
-  promise: Promise<T>,
+  promise: PromiseLike<T>,
   timeoutMs: number = 5000,
   fallback: T
 ): Promise<T> {
@@ -18,8 +19,48 @@ async function withTimeout<T>(
   })
 }
 
+const SUPER_ADMIN_ROLE_ID = '00000000-0000-0000-0000-000000000000'
+const ADMIN_ROLE_ID = '00000000-0000-0000-0000-000000000001'
+const SYSTEM_ADMIN_ROLE_ID = '00000000-0000-0000-0000-000000000010'
+
+async function verifyAdmin() {
+  const supabase = await createClient()
+  const {
+    data: { user },
+    error: userError,
+  } = await supabase.auth.getUser()
+
+  if (userError || !user) {
+    return { isAdmin: false as const, error: 'Not authenticated' }
+  }
+
+  const { data: profile, error: profileError } = await supabase
+    .from('user_profiles')
+    .select('role_id')
+    .eq('user_id', user.id)
+    .single()
+
+  if (profileError || !profile) {
+    return { isAdmin: false as const, error: 'Admin access required' }
+  }
+
+  const isSuperAdmin = profile.role_id === SUPER_ADMIN_ROLE_ID
+  const isAdmin = profile.role_id === ADMIN_ROLE_ID || profile.role_id === SYSTEM_ADMIN_ROLE_ID || isSuperAdmin
+
+  if (!isAdmin) {
+    return { isAdmin: false as const, error: 'Admin access required' }
+  }
+
+  return { isAdmin: true as const }
+}
+
 export async function GET() {
   try {
+    const { isAdmin, error: authError } = await verifyAdmin()
+    if (!isAdmin) {
+      return NextResponse.json({ error: authError || 'Admin access required' }, { status: 403 })
+    }
+
     // Get total users with timeout handling
     const { count: totalUsers, error: usersError } = await withTimeout(
       adminSupabase
@@ -28,7 +69,7 @@ export async function GET() {
         .eq('is_active', true)
         .not('user_id', 'is', null),
       5000,
-      { count: null, error: null }
+      { data: null, count: null, error: null, status: 0, statusText: 'timeout' } as any
     )
 
     if (usersError) {

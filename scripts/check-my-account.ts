@@ -233,42 +233,43 @@ async function checkUserByEmail(email: string) {
       const answer = await question('> ');
       
       if (answer.toLowerCase() === 'y' || answer.toLowerCase() === 'yes') {
-      console.log('\n🔧 Applying fixes...');
-      
-      if (!profile) {
-        const { error } = await adminSupabase
-          .from('user_profiles')
-          .insert({
-            user_id: authUser.id,
-            name: authUser.email?.split('@')[0] || 'User',
-            role_id: ADMIN_ROLE_ID,
-            is_active: true
-          });
-        if (error) {
-          console.error(`   ❌ Error: ${error.message}`);
-        } else {
-          console.log('   ✅ Profile created');
-        }
-      } else {
-        const updates: any = {};
-        if (!isAdminByRole) updates.role_id = ADMIN_ROLE_ID;
-        if (!isActive) updates.is_active = true;
+        console.log('\n🔧 Applying fixes...');
         
-        if (Object.keys(updates).length > 0) {
+        if (!profile) {
           const { error } = await adminSupabase
             .from('user_profiles')
-            .update(updates)
-            .eq('user_id', authUser.id);
-          
+            .insert({
+              user_id: authUser.id,
+              name: authUser.email?.split('@')[0] || 'User',
+              role_id: ADMIN_ROLE_ID,
+              is_active: true
+            });
           if (error) {
             console.error(`   ❌ Error: ${error.message}`);
           } else {
-            console.log('   ✅ Profile updated');
+            console.log('   ✅ Profile created');
+          }
+        } else {
+          const updates: any = {};
+          if (!isAdminByRole) updates.role_id = ADMIN_ROLE_ID;
+          if (!isActive) updates.is_active = true;
+          
+          if (Object.keys(updates).length > 0) {
+            const { error } = await adminSupabase
+              .from('user_profiles')
+              .update(updates)
+              .eq('user_id', authUser.id);
+            
+            if (error) {
+              console.error(`   ❌ Error: ${error.message}`);
+            } else {
+              console.log('   ✅ Profile updated');
+            }
           }
         }
+        
+        console.log('\n✅ Fixes applied! Please test again.');
       }
-      
-      console.log('\n✅ Fixes applied! Please test again.');
     }
   }
   

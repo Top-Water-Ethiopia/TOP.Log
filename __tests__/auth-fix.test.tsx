@@ -21,6 +21,26 @@ describe("Authentication Fix", () => {
   const mockOnSave = jest.fn()
   const mockOnCancel = jest.fn()
 
+  const initialRoleQuestions = [
+    {
+      id: "q-1",
+      role_id: "role-1",
+      question_key: "k1",
+      question_label: "Q1",
+      question_title: "Q1",
+      question_type: "text",
+      question_description: null,
+      placeholder: null,
+      options: null,
+      is_required: false,
+      display_order: 1,
+      validation_rules: null,
+      is_active: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    },
+  ]
+
   beforeEach(() => {
     jest.clearAllMocks()
   })
@@ -31,8 +51,10 @@ describe("Authentication Fix", () => {
       <AuthProvider>
         <CaptainLogProvider>
           <EntryFormMultistep 
+            departmentId={"dept-1"}
             onSave={mockOnSave} 
             onCancel={mockOnCancel} 
+            initialRoleQuestions={initialRoleQuestions as any}
           />
         </CaptainLogProvider>
       </AuthProvider>

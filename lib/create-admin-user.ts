@@ -23,14 +23,14 @@ const ADMIN_ROLE_ID = '00000000-0000-0000-0000-000000000001';
  */
 export async function promoteUserToAdmin(email: string) {
   try {
-    // Get the user ID from auth.users
-    const { data: authUser, error: authError } = await supabase
-      .from('auth.users')
-      .select('id')
-      .eq('email', email)
-      .single();
+    // Get the user ID from Supabase Auth
+    const { data: listData, error: listError } = await (supabase.auth as any).admin.listUsers();
+    if (listError) {
+      throw listError;
+    }
 
-    if (authError || !authUser) {
+    const authUser = (listData?.users || []).find((u: any) => u?.email?.toLowerCase() === email.toLowerCase());
+    if (!authUser?.id) {
       throw new Error(`User with email ${email} not found`);
     }
 

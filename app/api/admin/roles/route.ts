@@ -7,6 +7,7 @@ export const dynamic = 'force-dynamic'
 
 const SUPER_ADMIN_ROLE_ID = '00000000-0000-0000-0000-000000000000'
 const ADMIN_ROLE_ID = '00000000-0000-0000-0000-000000000001'
+const SYSTEM_ADMIN_ROLE_ID = '00000000-0000-0000-0000-000000000010'
 
 // Helper to verify admin or super admin access
 async function verifyAdmin() {
@@ -28,7 +29,7 @@ async function verifyAdmin() {
   }
 
   const isSuperAdmin = profile.role_id === SUPER_ADMIN_ROLE_ID
-  const isAdmin = profile.role_id === ADMIN_ROLE_ID
+  const isAdmin = profile.role_id === ADMIN_ROLE_ID || profile.role_id === SYSTEM_ADMIN_ROLE_ID
 
   if (!isSuperAdmin && !isAdmin) {
     return { isAdmin: false, isSuperAdmin: false, error: 'Admin access required' }
@@ -102,7 +103,7 @@ export async function POST(request: Request) {
     }
 
     // Prevent admins (non-super admins) from creating admin or super-admin roles
-    if (!isSuperAdmin && (name.trim() === 'admin' || name.trim() === 'super-admin')) {
+    if (!isSuperAdmin && (name.trim() === 'admin' || name.trim() === 'super-admin' || name.trim() === 'system-admin')) {
       return NextResponse.json(
         { error: 'Only super admins can create admin or super-admin roles' },
         { status: 403 }
@@ -208,7 +209,7 @@ export async function PUT(request: Request) {
     }
 
     // Prevent updating system roles
-    if (id === SUPER_ADMIN_ROLE_ID || id === ADMIN_ROLE_ID || name === 'super-admin' || name === 'admin' || name === 'user') {
+    if (id === SUPER_ADMIN_ROLE_ID || id === ADMIN_ROLE_ID || id === SYSTEM_ADMIN_ROLE_ID || name === 'super-admin' || name === 'admin' || name === 'system-admin' || name === 'user') {
       return NextResponse.json(
         { error: 'Cannot modify system roles' },
         { status: 403 }
@@ -216,7 +217,7 @@ export async function PUT(request: Request) {
     }
 
     // Prevent admins (non-super admins) from updating roles to admin or super-admin
-    if (!isSuperAdmin && (name?.trim() === 'admin' || name?.trim() === 'super-admin')) {
+    if (!isSuperAdmin && (name?.trim() === 'admin' || name?.trim() === 'super-admin' || name?.trim() === 'system-admin')) {
       return NextResponse.json(
         { error: 'Only super admins can update roles to admin or super-admin' },
         { status: 403 }
@@ -338,7 +339,7 @@ export async function DELETE(request: Request) {
     }
 
     // Prevent deleting system roles
-    if (id === SUPER_ADMIN_ROLE_ID || id === ADMIN_ROLE_ID) {
+    if (id === SUPER_ADMIN_ROLE_ID || id === ADMIN_ROLE_ID || id === SYSTEM_ADMIN_ROLE_ID) {
       return NextResponse.json(
         { error: 'Cannot delete system roles' },
         { status: 403 }
