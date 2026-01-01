@@ -67,6 +67,7 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
+const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
 const SUPER_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000000"
 
 interface Role {
@@ -158,7 +159,8 @@ export function RoleQuestionsManager({ externalSearchQuery, refreshKey }: RoleQu
   const CACHE_DURATION = 30000 // 30 seconds - only refetch if data is older than this
 
   const isSuperAdmin = currentProfile?.role_id === SUPER_ADMIN_ROLE_ID
-  const isAdmin = currentProfile?.role_id === ADMIN_ROLE_ID || isSuperAdmin
+  const isAdmin =
+    currentProfile?.role_id === ADMIN_ROLE_ID || currentProfile?.role_id === SYSTEM_ADMIN_ROLE_ID || isSuperAdmin
 
   const [formData, setFormData] = useState<Partial<RoleQuestion>>({
     role_id: "",
@@ -262,6 +264,11 @@ export function RoleQuestionsManager({ externalSearchQuery, refreshKey }: RoleQu
         .order("name", { ascending: true })
         .limit(1000)
 
+      const roleDataWithDept = (roleData || []).map((r: any) => ({
+        ...r,
+        department_id: r.department_id ?? null,
+      }))
+
       if (roleError) {
         const roleErrorObj: any = roleError
         let extractedError: Record<string, any> = {}
@@ -305,7 +312,7 @@ export function RoleQuestionsManager({ externalSearchQuery, refreshKey }: RoleQu
         }
 
         extractedError.stringRepresentation = String(roleError)
-        extractedError.toString = roleError.toString?.()
+        extractedError.toStringResult = roleError.toString?.()
 
         console.error("❌ Error loading roles:", extractedError)
       
@@ -317,10 +324,10 @@ export function RoleQuestionsManager({ externalSearchQuery, refreshKey }: RoleQu
         // Don't throw - set empty array so UI can still render
         setRoles([])
       } else {
-        setRoles(roleData || [])
-        console.log("✅ Loaded roles:", (roleData || []).length)
-        if (roleData && roleData.length > 0) {
-          console.log("📋 Roles:", roleData.map(r => `${r.name} (${r.id})`).join(", "))
+        setRoles(roleDataWithDept)
+        console.log("✅ Loaded roles:", roleDataWithDept.length)
+        if (roleDataWithDept.length > 0) {
+          console.log("📋 Roles:", roleDataWithDept.map((r: any) => `${r.name} (${r.id})`).join(", "))
         } else {
           console.warn("⚠️ No roles found in database")
         }
@@ -356,7 +363,7 @@ export function RoleQuestionsManager({ externalSearchQuery, refreshKey }: RoleQu
         // Join with roles data - use existing role if present, otherwise find from loaded roles
         questionData = (questionsFromAPI || []).map((q: any) => ({
           ...q,
-          role: q.role || roleData?.find((r: any) => r.id === q.role_id) || null
+          role: q.role || roleDataWithDept.find((r: any) => r.id === q.role_id) || null
         }))
         
         console.log("📋 Questions with roles:", questionData)
@@ -816,14 +823,14 @@ export function RoleQuestionsManager({ externalSearchQuery, refreshKey }: RoleQu
     
     // Validation for number fields
     if (formData.question_type === "number") {
-      if (formData.min_value !== null && formData.max_value !== null && 
+      if (formData.min_value != null && formData.max_value != null &&
           formData.min_value > formData.max_value) {
         errors.max_value = "Maximum value must be greater than minimum value"
       }
     }
     
     // Validation for text length
-    if (formData.min_length !== null && formData.max_length !== null && 
+    if (formData.min_length != null && formData.max_length != null &&
         formData.min_length > formData.max_length) {
       errors.max_length = "Maximum length must be greater than minimum length"
     }
@@ -891,7 +898,7 @@ export function RoleQuestionsManager({ externalSearchQuery, refreshKey }: RoleQu
         const { data, error: checkError } = await supabase
           .from("role_questions")
           .select("id")
-          .eq("role_id", formData.role_id)
+          .eq("role_id", formData.role_id!)
           .eq("question_key", formData.question_key!.trim())
           .limit(1)
 
@@ -929,7 +936,7 @@ export function RoleQuestionsManager({ externalSearchQuery, refreshKey }: RoleQu
         const { data: lastQuestion, error: orderError } = await supabase
           .from("role_questions")
           .select("display_order")
-          .eq("role_id", formData.role_id)
+          .eq("role_id", formData.role_id!)
           .order("display_order", { ascending: false })
           .limit(1)
 
@@ -996,6 +1003,7 @@ export function RoleQuestionsManager({ externalSearchQuery, refreshKey }: RoleQu
         profileRoleId: currentProfile?.role_id,
         profileIsActive: currentProfile?.is_active,
         expectedAdminRoleId: ADMIN_ROLE_ID,
+        expectedSystemAdminRoleId: SYSTEM_ADMIN_ROLE_ID,
         expectedSuperAdminRoleId: SUPER_ADMIN_ROLE_ID,
       })
 
@@ -1082,7 +1090,7 @@ export function RoleQuestionsManager({ externalSearchQuery, refreshKey }: RoleQu
         
         // Convert error to string as fallback
         extractedError.stringRepresentation = String(error);
-        extractedError.toString = error.toString?.();
+        extractedError.toStringResult = error.toString?.();
         
         const errorInfo = {
           ...extractedError,
@@ -1150,9 +1158,9 @@ export function RoleQuestionsManager({ externalSearchQuery, refreshKey }: RoleQu
             },
             profileFromRLS: profileCheck,
             profileCheckError: profileCheckError,
-            expectedCheck: `EXISTS (SELECT 1 FROM user_profiles WHERE user_id = auth.uid() AND (role_id = '${ADMIN_ROLE_ID}' OR role_id = '${SUPER_ADMIN_ROLE_ID}') AND is_active = true)`,
+            expectedCheck: `EXISTS (SELECT 1 FROM user_profiles WHERE user_id = auth.uid() AND (role_id = '${ADMIN_ROLE_ID}' OR role_id = '${SYSTEM_ADMIN_ROLE_ID}' OR role_id = '${SUPER_ADMIN_ROLE_ID}') AND is_active = true)`,
             wouldPass: profileCheck && 
-              (profileCheck.role_id === ADMIN_ROLE_ID || profileCheck.role_id === SUPER_ADMIN_ROLE_ID) &&
+              (profileCheck.role_id === ADMIN_ROLE_ID || profileCheck.role_id === SYSTEM_ADMIN_ROLE_ID || profileCheck.role_id === SUPER_ADMIN_ROLE_ID) &&
               profileCheck.is_active === true
           })
           
@@ -1516,7 +1524,7 @@ export function RoleQuestionsManager({ externalSearchQuery, refreshKey }: RoleQu
         
         // Convert error to string as fallback
         extractedError.stringRepresentation = String(error);
-        extractedError.toString = error.toString?.();
+        extractedError.toStringResult = error.toString?.();
         
         const errorInfo = {
           ...extractedError,
@@ -1749,8 +1757,12 @@ export function RoleQuestionsManager({ externalSearchQuery, refreshKey }: RoleQu
           console.error("❌ Error loading roles for edit dialog:", roleError)
           setRoles([])
         } else {
-          setRoles(directRoleData || [])
-          console.log("✅ Loaded roles via direct query for edit dialog:", (directRoleData || []).length)
+          const directRoleDataWithDept = (directRoleData || []).map((r: any) => ({
+            ...r,
+            department_id: r.department_id ?? null,
+          }))
+          setRoles(directRoleDataWithDept)
+          console.log("✅ Loaded roles via direct query for edit dialog:", directRoleDataWithDept.length)
         }
       } catch (error) {
         console.error("❌ Error loading roles for edit dialog:", error)

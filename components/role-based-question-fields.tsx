@@ -443,7 +443,6 @@ export function RoleBasedQuestionFields({
                   <div className="flex items-center gap-2">
                     <CardTitle className="text-base font-semibold">{question.label}</CardTitle>
                     {question.required && <Badge variant="destructive" className="text-xs">Required</Badge>}
-                    <Badge variant="outline" className="text-xs capitalize">{question.type}</Badge>
                   </div>
                   {question.description && (
                     <CardDescription>{question.description}</CardDescription>

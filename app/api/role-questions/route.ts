@@ -39,10 +39,10 @@ export async function GET(request: Request) {
       )
     }
 
-    // Get user's role
+    // Get user's system role (and legacy default department)
     const { data: profile, error: profileError } = await supabase
       .from("user_profiles")
-      .select("role_id")
+      .select("role_id, department_id")
       .eq("user_id", user.id)
       .single()
 
@@ -54,11 +54,13 @@ export async function GET(request: Request) {
     }
 
     // Type assertion for profile since we know it has role_id
-    const userProfile = profile as { role_id: string }
+    const userProfile = profile as { role_id: string; department_id: string | null }
 
-    // Get query parameter to determine if this is for a report
+    // Get query parameters
     const { searchParams } = new URL(request.url)
     const forReport = searchParams.get("forReport") === "true"
+    const requestedDepartmentId = searchParams.get("departmentId")
+    const departmentId = requestedDepartmentId || userProfile.department_id || null
 
     // Check if user is super admin or admin
     const SUPER_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000000"
@@ -66,9 +68,53 @@ export async function GET(request: Request) {
     const isSuperAdmin = userProfile.role_id === SUPER_ADMIN_ROLE_ID
     const isAdmin = userProfile.role_id === ADMIN_ROLE_ID || isSuperAdmin
 
-    // Get questions for user's role
-    // For reports: ALL users (including admins) see only their own role's active questions
-    // For admin panel: Admins can see ALL questions (including inactive), regular users only see active questions for their role
+    // Determine role scope for fetching questions.
+    // - For reports: everyone (including admins) sees ONLY their department profession role's active questions.
+    // - For non-admin users: only active questions for their department profession role.
+    // - For admin panel: admins can fetch ALL questions (no filters) when departmentId is not provided.
+    // - If admins provide departmentId, return all questions for roles in that department.
+
+    const requiresDepartmentContext = forReport || !isAdmin
+    if (requiresDepartmentContext && !departmentId) {
+      return NextResponse.json(
+        { error: "departmentId is required", message: "Select a department to load role questions" },
+        { status: 400 },
+      )
+    }
+
+    let resolvedRoleId: string | null = null
+
+    if (departmentId) {
+      if (requiresDepartmentContext) {
+        const { data: professionRow, error: professionError } = await supabase
+          .from("user_department_professions")
+          .select("role_id")
+          .eq("user_id", user.id)
+          .eq("department_id", departmentId)
+          .eq("is_active", true)
+          .maybeSingle()
+
+        if (professionError) {
+          return NextResponse.json(
+            { error: "Failed to resolve profession role", message: professionError.message },
+            { status: 500 },
+          )
+        }
+
+        if (!professionRow?.role_id) {
+          return NextResponse.json(
+            {
+              error: "Profession role not assigned",
+              message: "You do not have a profession role assigned for this department",
+            },
+            { status: 404 },
+          )
+        }
+
+        resolvedRoleId = professionRow.role_id as string
+      }
+    }
+
     let questionsQuery = supabase
       .from("role_questions")
       .select(`
@@ -79,17 +125,42 @@ export async function GET(request: Request) {
       .limit(10000) // Ensure we fetch all questions (Supabase default limit is 1000)
 
     if (forReport) {
-      // For reports, everyone sees only their own role's active questions
-      questionsQuery = questionsQuery
-        .eq("is_active", true)
-        .eq("role_id", userProfile.role_id)
+      if (!resolvedRoleId) {
+        return NextResponse.json(
+          { error: "Profession role not resolved", message: "Unable to resolve profession role for this department" },
+          { status: 404 },
+        )
+      }
+      questionsQuery = questionsQuery.eq("is_active", true).eq("role_id", resolvedRoleId)
     } else if (!isAdmin) {
-      // Regular users (non-admin panel) only see active questions for their role
-      questionsQuery = questionsQuery
-        .eq("is_active", true)
-        .eq("role_id", userProfile.role_id)
+      if (!resolvedRoleId) {
+        return NextResponse.json(
+          { error: "Profession role not resolved", message: "Unable to resolve profession role for this department" },
+          { status: 404 },
+        )
+      }
+      questionsQuery = questionsQuery.eq("is_active", true).eq("role_id", resolvedRoleId)
+    } else if (departmentId) {
+      // Admin view: filter to a department if requested
+      const { data: deptRoles, error: deptRolesError } = await supabase
+        .from("roles")
+        .select("id")
+        .eq("department_id", departmentId)
+        .limit(10000)
+
+      if (deptRolesError) {
+        return NextResponse.json(
+          { error: "Failed to load department roles", message: deptRolesError.message },
+          { status: 500 },
+        )
+      }
+
+      const roleIds = (deptRoles || []).map((r: any) => r.id).filter(Boolean)
+      if (roleIds.length === 0) {
+        return NextResponse.json([])
+      }
+      questionsQuery = questionsQuery.in("role_id", roleIds)
     }
-    // Admins and super admins (admin panel) see all questions (no filters - includes inactive questions)
 
     const { data: questions, error: questionsError } = await questionsQuery
 
@@ -113,11 +184,13 @@ export async function GET(request: Request) {
       question_title: question.metadata?.question_title || null
     })) || []
 
-    const context = forReport 
-      ? `report (role ${userProfile.role_id})` 
-      : isAdmin 
-        ? 'admin/super admin (all roles)' 
-        : `role ${userProfile.role_id}`
+    const context = forReport
+      ? `report (department ${departmentId}, role ${resolvedRoleId})`
+      : isAdmin
+        ? departmentId
+          ? `admin/super admin (department ${departmentId})`
+          : "admin/super admin (all roles)"
+        : `department ${departmentId}, role ${resolvedRoleId}`
     console.log(`✅ Fetched ${processedQuestions.length || 0} questions for ${context}`)
     
     return NextResponse.json(processedQuestions)

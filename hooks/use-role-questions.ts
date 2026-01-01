@@ -19,13 +19,13 @@ export interface RoleQuestion {
   updated_at: string
 }
 
-export function useRoleQuestions(initialQuestions?: RoleQuestion[]) {
+export function useRoleQuestions(initialQuestions?: RoleQuestion[], departmentId?: string) {
   const { user, profile } = useSupabaseAuth()
   const [questions, setQuestions] = useState<RoleQuestion[]>(initialQuestions ?? [])
   const [isLoading, setIsLoading] = useState(!initialQuestions)
   const [error, setError] = useState<string | null>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
-  const lastFetchRef = useRef<{ userId: string | undefined; roleId: string | undefined } | null>(null)
+  const lastFetchRef = useRef<{ userId: string | undefined; roleId: string | undefined; departmentId?: string } | null>(null)
 
   useEffect(() => {
     if (initialQuestions && initialQuestions.length > 0) {
@@ -46,12 +46,23 @@ export function useRoleQuestions(initialQuestions?: RoleQuestion[]) {
         return
       }
 
+      // For report question loading, department context is required.
+      // Treat "no department selected yet" as an idle state (not an error).
+      if (!departmentId) {
+        setIsLoading(false)
+        setError(null)
+        setQuestions([])
+        lastFetchRef.current = { userId: user.id, roleId: profile.role_id, departmentId }
+        return
+      }
+
       // Prevent duplicate requests for the same user/role
-      const currentKey = { userId: user.id, roleId: profile.role_id }
+      const currentKey = { userId: user.id, roleId: profile.role_id, departmentId }
       if (
         lastFetchRef.current &&
         lastFetchRef.current.userId === currentKey.userId &&
-        lastFetchRef.current.roleId === currentKey.roleId
+        lastFetchRef.current.roleId === currentKey.roleId &&
+        lastFetchRef.current.departmentId === currentKey.departmentId
       ) {
         // Already fetched for this user/role, skip
         setIsLoading(false)
@@ -66,7 +77,15 @@ export function useRoleQuestions(initialQuestions?: RoleQuestion[]) {
         setIsLoading(true)
         setError(null)
 
-        const response = await fetch('/api/role-questions', {
+        const qs = new URLSearchParams()
+        qs.set('forReport', 'true')
+        if (departmentId) {
+          qs.set('departmentId', departmentId)
+        }
+
+        const url = qs.toString() ? `/api/role-questions?${qs.toString()}` : '/api/role-questions'
+
+        const response = await fetch(url, {
           signal: abortController.signal,
         })
         
@@ -74,7 +93,12 @@ export function useRoleQuestions(initialQuestions?: RoleQuestion[]) {
           if (response.status === 401) {
             throw new Error('Please sign in to view questions')
           }
-          throw new Error(`Failed to load questions: ${response.status}`)
+          const errorBody = await response.json().catch(() => null)
+          const serverMessage =
+            errorBody && typeof errorBody === 'object' && 'message' in errorBody && typeof (errorBody as any).message === 'string'
+              ? (errorBody as any).message
+              : null
+          throw new Error(serverMessage || `Failed to load questions: ${response.status}`)
         }
 
         const data = await response.json()
@@ -104,7 +128,7 @@ export function useRoleQuestions(initialQuestions?: RoleQuestion[]) {
         abortControllerRef.current.abort()
       }
     }
-  }, [user?.id, profile?.role_id, initialQuestions]) // Use specific properties instead of whole objects
+  }, [user?.id, profile?.role_id, departmentId]) // Use specific properties instead of whole objects
 
   // Convert database questions to the format expected by RoleBasedQuestionFields
   // and include a separate title field (backed by question_title, falling back to label)

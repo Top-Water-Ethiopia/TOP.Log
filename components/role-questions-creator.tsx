@@ -97,7 +97,13 @@ export function RoleQuestionsCreator() {
         if (!response.ok) throw new Error("Failed to load roles")
         
         const result = await response.json()
-        setRoles(result.data || [])
+        const professionRoles = (result.data || []).filter((role: Role) => !!role.department_id)
+
+        if (professionRoles.length === 0) {
+          toast.info("No profession-specific roles found. Create one from the department admin page.")
+        }
+
+        setRoles(professionRoles)
       } catch (error: any) {
         console.error("Error loading roles:", error)
         toast.error("Failed to load roles: " + (error.message || "Unknown error"))
