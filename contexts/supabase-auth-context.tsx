@@ -12,7 +12,7 @@ interface UserProfile {
   id: string;
   user_id: string;
   name: string;
-  department: string | null;
+  department_id: string | null;
   role_id: string;
   is_active: boolean;
   metadata: any | null;
@@ -30,7 +30,7 @@ interface AuthState {
 interface AuthContextType extends AuthState {
   login: (email: string, password: string, redirectTo?: string) => Promise<void>;
   logout: () => Promise<void>;
-  register: (email: string, password: string, name: string, department?: string) => Promise<void>;
+  register: (email: string, password: string, name: string, departmentId?: string) => Promise<void>;
   updateProfile: (data: Partial<UserProfile>) => Promise<void>;
   refreshProfile: () => Promise<void>;
   resetAuthError: () => void;
@@ -99,6 +99,7 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
                 user_id: user.id,
                 name: user.email?.split('@')[0] || 'User',
                 role_id: '00000000-0000-0000-0000-000000000002', // Default user role
+                department_id: null,
                 is_active: true,
               })
               .select('*')
@@ -175,6 +176,7 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
                     user_id: user.id,
                     name: user.email?.split('@')[0] || 'User',
                     role_id: '00000000-0000-0000-0000-000000000002', // Default user role
+                    department_id: null,
                     is_active: true,
                   })
                   .select('*')
@@ -277,6 +279,7 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
             user_id: user.id,
             name: user.email?.split('@')[0] || 'User',
             role_id: '00000000-0000-0000-0000-000000000002', // Default user role
+            department_id: null,
             is_active: true,
           })
           .select('*')
@@ -338,7 +341,7 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
   };
   
   // Register function
-  const register = async (email: string, password: string, name: string, department?: string) => {
+  const register = async (email: string, password: string, name: string, departmentId?: string) => {
     setAuthState(prev => ({ ...prev, isLoading: true, error: null }));
     
     try {
@@ -360,7 +363,7 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
         user.id,
         name,
         '00000000-0000-0000-0000-000000000002', // Default user role
-        department
+        departmentId
       );
       
       setAuthState(prev => ({ ...prev, isLoading: false }));

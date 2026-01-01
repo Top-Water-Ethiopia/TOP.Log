@@ -3,17 +3,9 @@
 import { useEffect, useState } from "react"
 import { User, Session } from "@supabase/supabase-js"
 import { supabase, getCurrentUser } from "@/lib/supabase/client"
+import type { Database } from "@/lib/supabase.types"
 
-type Profile = {
-  id: string
-  user_id: string
-  name: string
-  role_id: string
-  role_name: string
-  is_active: boolean
-  created_at: string
-  updated_at: string
-}
+type Profile = Database["public"]["Tables"]["user_profiles"]["Row"]
 
 export function useSupabaseAuth() {
   const [user, setUser] = useState<User | null>(null)
@@ -81,6 +73,6 @@ export function useSupabaseAuth() {
     isLoading,
     signOut,
     isAuthenticated: !!user,
-    isAdmin: profile?.role_name === 'admin' || profile?.role_id === '00000000-0000-0000-0000-000000000001',
+    isAdmin: profile?.role_id === '00000000-0000-0000-0000-000000000001',
   }
 }

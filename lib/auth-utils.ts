@@ -245,7 +245,7 @@ export async function createUserProfile(
   userId: string, 
   name: string, 
   roleId: string = '00000000-0000-0000-0000-000000000002', // Default to "user" role
-  department?: string,
+  departmentId?: string,
   metadata?: any,
 ) {
   try {
@@ -257,7 +257,7 @@ export async function createUserProfile(
         user_id: userId,
         name,
         role_id: roleId,
-        department,
+        department_id: departmentId,
         is_active: true,
         metadata,
       })

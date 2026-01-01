@@ -9,7 +9,7 @@ export const UserSchema = z.object({
   email: z.string().email(),
   name: z.string().min(1).max(100),
   avatar: z.string().url().optional(),
-  role: z.enum(["admin", "manager", "programmer", "qa", "tech-support", "graphic-designer", "viewer"]),
+  role: z.enum(["admin", "system-admin", "manager", "programmer", "qa", "tech-support", "graphic-designer", "viewer"]),
   department: z.string().optional(),
   isActive: z.boolean().default(true),
   lastLogin: z.string().optional(),
@@ -24,7 +24,7 @@ export type User = z.infer<typeof UserSchema>
 
 export const RoleSchema = z.object({
   id: z.string(),
-  name: z.enum(["admin", "manager", "programmer", "qa", "tech-support", "graphic-designer", "viewer"]),
+  name: z.enum(["admin", "system-admin", "manager", "programmer", "qa", "tech-support", "graphic-designer", "viewer"]),
   displayName: z.string(),
   description: z.string(),
   level: z.number(), // Higher number = more permissions (admin: 5, manager: 4, programmer/qa: 3, tech-support/graphic-designer: 2, viewer: 1)
@@ -107,6 +107,45 @@ export const DEFAULT_ROLES: Role[] = [
     id: "role-admin",
     name: "admin",
     displayName: "System Administrator",
+    description: "Full access to all system resources and user management",
+    level: 5,
+    permissions: [
+      "entries.create",
+      "entries.read",
+      "entries.update",
+      "entries.delete",
+      "entries.export",
+      "entries.import",
+      "users.create",
+      "users.read",
+      "users.update",
+      "users.delete",
+      "users.manage",
+      "analytics.read",
+      "analytics.advanced",
+      "admin.system",
+      "admin.audit",
+      "admin.backup",
+      "admin.restore",
+      "admin.settings",
+    ],
+    accessScopes: [
+      "scope-system-admin",
+      "scope-team-operations",
+      "scope-delivery-engineering",
+      "scope-quality-assurance",
+      "scope-support-operations",
+      "scope-creative-studio",
+      "scope-observability",
+    ],
+    isSystem: true,
+    createdAt: new Date().toISOString(),
+    updatedAt: new Date().toISOString(),
+  },
+  {
+    id: "role-system-admin",
+    name: "system-admin",
+    displayName: "System Admin",
     description: "Full access to all system resources and user management",
     level: 5,
     permissions: [
@@ -479,6 +518,7 @@ export const ROLE_HIERARCHY: RoleHierarchy = {
   programmer: 3,
   manager: 4,
   admin: 5,
+  "system-admin": 5,
 }
 
 // ==================== ROLE-BASED CUSTOM QUESTIONS ====================

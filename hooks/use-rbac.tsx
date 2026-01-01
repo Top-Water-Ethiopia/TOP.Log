@@ -40,8 +40,13 @@ export function useRBAC() {
   // Always fallback to DEFAULT_ROLES to ensure permissions work even if localStorage is empty
   const roles: Role[] = useMemo(() => {
     const stored = loadFromStorage("ROLES", [] as Role[])
-    const rolesArray = stored && stored.length > 0 ? stored : DEFAULT_ROLES
-    return rolesArray.map((role) => ({
+    const baseRoles = stored && stored.length > 0 ? stored : DEFAULT_ROLES
+    const mergedRoles = (
+      stored && stored.length > 0
+        ? [...baseRoles, ...DEFAULT_ROLES.filter((r) => !baseRoles.some((b) => b.name === r.name))]
+        : baseRoles
+    )
+    return mergedRoles.map((role) => ({
       ...role,
       accessScopes: role.accessScopes ?? [],
     }))
@@ -203,6 +208,10 @@ export function useRBAC() {
     }
   }, [user, roles, userPermissions, permissionCategories])
 
+  const getAssignableRolesForUser = useCallback(() => {
+    return getAssignableRoles(user, roles, ROLE_HIERARCHY)
+  }, [user, roles])
+
   return {
     // User and permissions
     user,
@@ -218,6 +227,10 @@ export function useRBAC() {
     hasRoleLevel: checkRoleLevel,
     hasRole: hasRole,
     canManageUser: checkCanManageUser,
+
+    // Legacy/compat
+    getAssignableRoles: getAssignableRolesForUser,
+    userInfo,
     
     // Question management
     getQuestionsForRole: getRoleQuestions,

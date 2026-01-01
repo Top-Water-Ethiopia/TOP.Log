@@ -16,6 +16,7 @@ export type CaptainLogEntry = {
   id: string;
   user_id: string;
   date: string;
+  department_id: string | null;
   created_at: string;
   updated_at: string;
   version: number;
@@ -138,7 +139,7 @@ interface CaptainLogContextType {
   addEntry: (entry: Omit<CaptainLogEntry, "id" | "user_id" | "created_at" | "updated_at" | "version">) => Promise<void>;
   updateEntry: (id: string, entry: Partial<CaptainLogEntry>) => Promise<void>;
   deleteEntry: (id: string) => Promise<void>;
-  getEntryByDate: (date: string) => CaptainLogEntry | undefined;
+  getEntryByDate: (date: string, departmentId?: string | null) => CaptainLogEntry | undefined;
   getEntryById: (id: string) => CaptainLogEntry | undefined;
 
   // Batch operations
@@ -232,6 +233,10 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
       throw new Error("Authentication required");
     }
 
+	  if (!('department_id' in entry)) {
+	    throw new Error('department_id is required');
+	  }
+
     setIsLoading(true);
     setError(null);
 
@@ -240,7 +245,7 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
       const dbEntry = transformEntryForDatabase(entry);
       
       // Check for duplicate by date
-      const existingEntry = await supabaseData.getEntryByDate(user.id, entry.date);
+      const existingEntry = await supabaseData.getEntryByDate(user.id, entry.date, entry.department_id);
       if (existingEntry) {
         throw new Error(`Entry already exists for ${entry.date}`);
       }
@@ -252,6 +257,7 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
         id: uuidv4(),
         user_id: user.id,
         date: entry.date,
+        department_id: entry.department_id,
         created_at: now,
         updated_at: now,
         version: 1
@@ -478,8 +484,11 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
   }, [entries, user]);
 
   // Get entry by date
-  const getEntryByDate = useCallback((date: string) => {
-    return entries.find(entry => entry.date === date);
+  const getEntryByDate = useCallback((date: string, departmentId?: string | null) => {
+    if (departmentId === undefined) {
+      return entries.find(entry => entry.date === date);
+    }
+    return entries.find(entry => entry.date === date && entry.department_id === departmentId);
   }, [entries]);
 
   // Get entry by id
@@ -601,8 +610,10 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
 
       // Import entries one by one
       for (const entry of importedEntries) {
+        const importedDepartmentId =
+          entry && typeof entry === "object" && "department_id" in entry ? ((entry as any).department_id as string | null) : undefined
         // Check if entry already exists by date
-        const existingEntry = await supabaseData.getEntryByDate(user.id, entry.date);
+        const existingEntry = await supabaseData.getEntryByDate(user.id, entry.date, importedDepartmentId);
         
         if (existingEntry) {
           console.log(`Entry for ${entry.date} already exists, skipping`);
@@ -618,6 +629,7 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
           id: uuidv4(), // Generate new ID to avoid conflicts
           user_id: user.id,
           date: entry.date,
+          department_id: importedDepartmentId ?? null,
           created_at: entry.created_at || entry.createdAt || new Date().toISOString(),
           updated_at: new Date().toISOString(),
           version: 1
