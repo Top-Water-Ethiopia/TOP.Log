@@ -1,6 +1,6 @@
 import { supabase } from './client';
 import { User } from '@supabase/supabase-js';
-import type { Database } from './database.types';
+import type { Database } from '../supabase.types';
 
 /**
  * Upsert user profile for the given Supabase user.
@@ -9,12 +9,12 @@ import type { Database } from './database.types';
 export async function upsertUserProfile(user: User, {
   name,
   role_id = '00000000-0000-0000-0000-000000000002', // default: user role
-  department = null,
+  department_id = null,
   is_active = true,
 }: {
   name: string,
   role_id?: string,
-  department?: string | null,
+  department_id?: string | null,
   is_active?: boolean,
 }) {
   if (!user) throw new Error('No user provided');
@@ -23,7 +23,7 @@ export async function upsertUserProfile(user: User, {
     user_id: user.id,
     name,
     role_id,
-    department,
+    department_id,
     is_active,
     created_at: new Date().toISOString(),
     updated_at: new Date().toISOString(),

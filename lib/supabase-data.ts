@@ -96,13 +96,22 @@ export async function getEntryById(id: string) {
   return data as CaptainLogEntry;
 }
 
-export async function getEntryByDate(userId: string, date: string) {
-  const { data, error } = await supabase
+export async function getEntryByDate(userId: string, date: string, departmentId?: string | null) {
+  let query = supabase
     .from('captain_log_entries')
     .select('*')
     .eq('user_id', userId)
     .eq('date', date)
-    .single();
+    .order('created_at', { ascending: false })
+    .limit(1)
+
+  if (departmentId === null) {
+    query = query.is('department_id', null)
+  } else if (typeof departmentId === 'string') {
+    query = query.eq('department_id', departmentId)
+  }
+
+  const { data, error } = await query.maybeSingle();
   
   if (error) {
     // Handle not found specifically
@@ -280,12 +289,16 @@ export async function migrateLocalStorageToSupabase(
   for (let i = 0; i < entries.length; i++) {
     try {
       const entry = entries[i];
+
+      const migratedDepartmentId =
+        entry && typeof entry === 'object' && 'department_id' in entry ? ((entry as any).department_id as string | null) : null
       
       // Transform legacy format to new format (captain_log_entries table only stores core fields)
       const supabaseEntry: CaptainLogEntryInsert = {
         id: entry.id,
         user_id: userId,
         date: entry.date,
+        department_id: migratedDepartmentId,
         created_at: entry.createdAt || new Date().toISOString(),
         updated_at: entry.updatedAt || new Date().toISOString(),
         version: entry.version || 1,
@@ -293,7 +306,7 @@ export async function migrateLocalStorageToSupabase(
       };
       
       // Check if entry already exists (by date)
-      const existingEntry = await getEntryByDate(userId, entry.date);
+      const existingEntry = await getEntryByDate(userId, entry.date, migratedDepartmentId);
       
       if (existingEntry) {
         // Skip duplicate entries

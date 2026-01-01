@@ -10,11 +10,51 @@ export type Json =
 export interface Database {
   public: {
     Tables: {
+      departments: {
+        Row: {
+          id: string;
+          name: string;
+          description: string | null;
+          code: string | null;
+          is_active: boolean;
+          created_at: string;
+          created_by: string | null;
+          updated_at: string;
+          updated_by: string | null;
+          metadata: Json | null;
+        };
+        Insert: {
+          id?: string;
+          name: string;
+          description?: string | null;
+          code?: string | null;
+          is_active?: boolean;
+          created_at?: string;
+          created_by?: string | null;
+          updated_at?: string;
+          updated_by?: string | null;
+          metadata?: Json | null;
+        };
+        Update: {
+          id?: string;
+          name?: string;
+          description?: string | null;
+          code?: string | null;
+          is_active?: boolean;
+          created_at?: string;
+          created_by?: string | null;
+          updated_at?: string;
+          updated_by?: string | null;
+          metadata?: Json | null;
+        };
+        Relationships: [];
+      };
       captain_log_entries: {
         Row: {
           id: string;
           user_id: string;
           date: string;
+          department_id: string | null;
           created_at: string;
           updated_at: string;
           version: number;
@@ -24,6 +64,7 @@ export interface Database {
           id?: string;
           user_id: string;
           date: string;
+          department_id?: string | null;
           created_at?: string;
           updated_at?: string;
           version?: number;
@@ -33,6 +74,7 @@ export interface Database {
           id?: string;
           user_id?: string;
           date?: string;
+          department_id?: string | null;
           created_at?: string;
           updated_at?: string;
           version?: number;
@@ -44,6 +86,13 @@ export interface Database {
             columns: ["user_id"];
             isOneToOne: false;
             referencedRelation: "users";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "captain_log_entries_department_id_fkey";
+            columns: ["department_id"];
+            isOneToOne: false;
+            referencedRelation: "departments";
             referencedColumns: ["id"];
           }
         ];
@@ -154,6 +203,110 @@ export interface Database {
         };
         Relationships: [];
       };
+      role_questions: {
+        Row: {
+          id: string;
+          role_id: string;
+          question_key: string;
+          question_label: string;
+          question_title: string | null;
+          question_type: string;
+          question_description: string | null;
+          placeholder: string | null;
+          options: Json | null;
+          is_required: boolean;
+          display_order: number;
+          validation_rules: Json | null;
+          is_active: boolean;
+          created_by: string | null;
+          updated_by: string | null;
+          created_at: string;
+          updated_at: string;
+          metadata: Json | null;
+          conditional_logic: Json | null;
+          default_value: string | null;
+          help_text: string | null;
+          min_value: number | null;
+          max_value: number | null;
+          min_length: number | null;
+          max_length: number | null;
+          pattern: string | null;
+          step: number | null;
+          min_date: string | null;
+          max_date: string | null;
+        };
+        Insert: {
+          id?: string;
+          role_id: string;
+          question_key: string;
+          question_label: string;
+          question_title?: string | null;
+          question_type: string;
+          question_description?: string | null;
+          placeholder?: string | null;
+          options?: Json | null;
+          is_required?: boolean;
+          display_order?: number;
+          validation_rules?: Json | null;
+          is_active?: boolean;
+          created_by?: string | null;
+          updated_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+          metadata?: Json | null;
+          conditional_logic?: Json | null;
+          default_value?: string | null;
+          help_text?: string | null;
+          min_value?: number | null;
+          max_value?: number | null;
+          min_length?: number | null;
+          max_length?: number | null;
+          pattern?: string | null;
+          step?: number | null;
+          min_date?: string | null;
+          max_date?: string | null;
+        };
+        Update: {
+          id?: string;
+          role_id?: string;
+          question_key?: string;
+          question_label?: string;
+          question_title?: string | null;
+          question_type?: string;
+          question_description?: string | null;
+          placeholder?: string | null;
+          options?: Json | null;
+          is_required?: boolean;
+          display_order?: number;
+          validation_rules?: Json | null;
+          is_active?: boolean;
+          created_by?: string | null;
+          updated_by?: string | null;
+          created_at?: string;
+          updated_at?: string;
+          metadata?: Json | null;
+          conditional_logic?: Json | null;
+          default_value?: string | null;
+          help_text?: string | null;
+          min_value?: number | null;
+          max_value?: number | null;
+          min_length?: number | null;
+          max_length?: number | null;
+          pattern?: string | null;
+          step?: number | null;
+          min_date?: string | null;
+          max_date?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "role_questions_role_id_fkey";
+            columns: ["role_id"];
+            isOneToOne: false;
+            referencedRelation: "roles";
+            referencedColumns: ["id"];
+          }
+        ];
+      };
       permissions: {
         Row: {
           id: string;
@@ -197,7 +350,7 @@ export interface Database {
           id: string;
           user_id: string;
           name: string;
-          department: string | null;
+          department_id: string | null;
           role_id: string;
           is_active: boolean;
           created_at: string;
@@ -209,7 +362,7 @@ export interface Database {
           id?: string;
           user_id: string;
           name: string;
-          department?: string | null;
+          department_id?: string | null;
           role_id: string;
           is_active?: boolean;
           created_at?: string;
@@ -221,7 +374,7 @@ export interface Database {
           id?: string;
           user_id?: string;
           name?: string;
-          department?: string | null;
+          department_id?: string | null;
           role_id?: string;
           is_active?: boolean;
           created_at?: string;
@@ -246,6 +399,102 @@ export interface Database {
           }
         ];
       };
+      user_department_roles: {
+        Row: {
+          id: string;
+          user_id: string;
+          department_id: string;
+          role: string;
+          is_active: boolean;
+          created_at: string;
+          created_by: string | null;
+          updated_at: string;
+          updated_by: string | null;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          department_id: string;
+          role: string;
+          is_active?: boolean;
+          created_at?: string;
+          created_by?: string | null;
+          updated_at?: string;
+          updated_by?: string | null;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          department_id?: string;
+          role?: string;
+          is_active?: boolean;
+          created_at?: string;
+          created_by?: string | null;
+          updated_at?: string;
+          updated_by?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "user_department_roles_department_id_fkey";
+            columns: ["department_id"];
+            isOneToOne: false;
+            referencedRelation: "departments";
+            referencedColumns: ["id"];
+          }
+        ];
+      };
+
+      user_department_professions: {
+        Row: {
+          id: string;
+          user_id: string;
+          department_id: string;
+          role_id: string;
+          is_active: boolean;
+          created_at: string;
+          created_by: string | null;
+          updated_at: string;
+          updated_by: string | null;
+        };
+        Insert: {
+          id?: string;
+          user_id: string;
+          department_id: string;
+          role_id: string;
+          is_active?: boolean;
+          created_at?: string;
+          created_by?: string | null;
+          updated_at?: string;
+          updated_by?: string | null;
+        };
+        Update: {
+          id?: string;
+          user_id?: string;
+          department_id?: string;
+          role_id?: string;
+          is_active?: boolean;
+          created_at?: string;
+          created_by?: string | null;
+          updated_at?: string;
+          updated_by?: string | null;
+        };
+        Relationships: [
+          {
+            foreignKeyName: "user_department_professions_department_id_fkey";
+            columns: ["department_id"];
+            isOneToOne: false;
+            referencedRelation: "departments";
+            referencedColumns: ["id"];
+          },
+          {
+            foreignKeyName: "user_department_professions_role_id_fkey";
+            columns: ["role_id"];
+            isOneToOne: false;
+            referencedRelation: "roles";
+            referencedColumns: ["id"];
+          }
+        ];
+      };
     };
     Views: {
       [_ in never]: never;
@@ -258,7 +507,7 @@ export interface Database {
           email: string;
           created_at: string;
           name: string;
-          department: string | null;
+          department_id: string | null;
           role_id: string;
           role_name: string | null;
           is_active: boolean;

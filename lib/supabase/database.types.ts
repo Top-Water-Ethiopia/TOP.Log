@@ -48,6 +48,7 @@ export type Database = {
         Row: {
           created_at: string | null
           date: string
+          department_id: string | null
           id: string
           metadata: Json | null
           updated_at: string | null
@@ -57,6 +58,7 @@ export type Database = {
         Insert: {
           created_at?: string | null
           date: string
+          department_id?: string | null
           id?: string
           metadata?: Json | null
           updated_at?: string | null
@@ -66,13 +68,22 @@ export type Database = {
         Update: {
           created_at?: string | null
           date?: string
+          department_id?: string | null
           id?: string
           metadata?: Json | null
           updated_at?: string | null
           user_id?: string
           version?: number | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "captain_log_entries_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       custom_responses: {
         Row: {
@@ -333,6 +344,102 @@ export type Database = {
             columns: ["department_id"]
             isOneToOne: false
             referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_department_roles: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          department_id: string
+          id: string
+          is_active: boolean
+          role: string
+          updated_at: string
+          updated_by: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          department_id: string
+          id?: string
+          is_active?: boolean
+          role: string
+          updated_at?: string
+          updated_by?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          department_id?: string
+          id?: string
+          is_active?: boolean
+          role?: string
+          updated_at?: string
+          updated_by?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_department_roles_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+
+      user_department_professions: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          department_id: string
+          id: string
+          is_active: boolean
+          role_id: string
+          updated_at: string
+          updated_by: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          department_id: string
+          id?: string
+          is_active?: boolean
+          role_id: string
+          updated_at?: string
+          updated_by?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          department_id?: string
+          id?: string
+          is_active?: boolean
+          role_id?: string
+          updated_at?: string
+          updated_by?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_department_professions_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_department_professions_role_id_fkey"
+            columns: ["role_id"]
+            isOneToOne: false
+            referencedRelation: "roles"
             referencedColumns: ["id"]
           },
         ]

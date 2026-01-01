@@ -15,7 +15,7 @@ export function mapSupabaseUserToRbacUser(supabaseUser: SupabaseUser | null, pro
     name: profile?.name || supabaseUser.user_metadata?.name || supabaseUser.email?.split('@')[0] || 'User',
     avatar: profile?.avatar || undefined,
     role: (profile?.role_name as User['role']) || defaultRole,
-    department: profile?.department || undefined,
+    department: profile?.department_id || undefined,
     isActive: profile?.is_active ?? true,
     lastLogin: profile?.last_login || undefined,
     createdAt: profile?.created_at || supabaseUser.created_at || new Date().toISOString(),
