@@ -6,6 +6,7 @@ export const dynamic = 'force-dynamic'
 
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
 const SUPER_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000000"
+const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
 
 export async function GET(
   _request: Request,
@@ -42,7 +43,7 @@ export async function GET(
     try {
       const profilePromise = supabase
         .from('user_profiles')
-        .select('role_id')
+        .select('role_id, is_active')
         .eq('user_id', user.id)
         .single()
 
@@ -62,7 +63,9 @@ export async function GET(
       return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
     }
 
-    const isAdmin = (profile as any).role_id === ADMIN_ROLE_ID || (profile as any).role_id === SUPER_ADMIN_ROLE_ID
+    const isActive = (profile as any).is_active === true
+    const isAdmin =
+      ((profile as any).role_id === ADMIN_ROLE_ID || (profile as any).role_id === SYSTEM_ADMIN_ROLE_ID || (profile as any).role_id === SUPER_ADMIN_ROLE_ID) && isActive
     if (!isAdmin) {
       return NextResponse.json({ error: 'Forbidden: Admin access required' }, { status: 403 })
     }
@@ -128,6 +131,103 @@ export async function GET(
     })
   } catch (error) {
     console.error('Unexpected error in GET /api/admin/captain-log-entries/[entryId]:', error)
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+  }
+}
+
+export async function DELETE(
+  _request: Request,
+  { params }: { params: Promise<{ entryId: string }> },
+) {
+  try {
+    const supabase = await createClient()
+
+    let userData: { data: { user: any }; error: any } | null = null
+    try {
+      const userPromise = supabase.auth.getUser()
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Auth check timeout')), 5000),
+      )
+
+      userData = (await Promise.race([userPromise, timeoutPromise])) as {
+        data: { user: any }
+        error: any
+      }
+    } catch {
+      return NextResponse.json({ error: 'Authentication timeout' }, { status: 500 })
+    }
+
+    const {
+      data: { user },
+      error: authError,
+    } = userData || { data: { user: null }, error: 'Unknown error' }
+
+    if (authError || !user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+
+    let profileData: { data: any; error: any } | null = null
+    try {
+      const profilePromise = supabase
+        .from('user_profiles')
+        .select('role_id, is_active')
+        .eq('user_id', user.id)
+        .single()
+
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Profile check timeout')), 5000),
+      )
+
+      profileData = (await Promise.race([profilePromise, timeoutPromise])) as { data: any; error: any }
+    } catch {
+      return NextResponse.json({ error: 'Profile check timeout' }, { status: 500 })
+    }
+
+    const { data: profile, error: profileError } =
+      profileData || ({ data: null, error: 'Unknown error' } as any)
+
+    if (profileError || !profile) {
+      return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
+    }
+
+    const isSuperAdmin = (profile as any).role_id === SUPER_ADMIN_ROLE_ID && (profile as any).is_active === true
+    if (!isSuperAdmin) {
+      return NextResponse.json({ error: 'Forbidden: Super Admin access required' }, { status: 403 })
+    }
+
+    const { entryId } = await params
+
+    const { data: existingEntry, error: existingEntryError } = await adminSupabase
+      .from('captain_log_entries')
+      .select('id')
+      .eq('id', entryId)
+      .maybeSingle()
+
+    if (existingEntryError) {
+      return NextResponse.json({ error: 'Failed to check entry existence', details: existingEntryError }, { status: 500 })
+    }
+
+    if (!existingEntry) {
+      return NextResponse.json({ error: 'Entry not found' }, { status: 404 })
+    }
+
+    const { data: deletedEntries, error: deleteError } = await supabase
+      .from('captain_log_entries')
+      .delete()
+      .eq('id', entryId)
+      .select('id')
+
+    if (deleteError) {
+      return NextResponse.json({ error: 'Failed to delete entry', details: deleteError }, { status: 500 })
+    }
+
+    if (!deletedEntries || deletedEntries.length === 0) {
+      return NextResponse.json({ error: 'Forbidden: Delete not permitted' }, { status: 403 })
+    }
+
+    return NextResponse.json({ ok: true, id: entryId })
+  } catch (error) {
+    console.error('Unexpected error in DELETE /api/admin/captain-log-entries/[entryId]:', error)
     return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
   }
 }

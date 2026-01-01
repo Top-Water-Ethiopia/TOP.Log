@@ -51,6 +51,17 @@ import {
 import { toast } from "sonner"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 import styles from "./admin-reports-view.module.css"
 
 // Types
@@ -100,7 +111,7 @@ interface DashboardStats {
  * Following Fortune 500 standards for data visualization and user experience
  */
 export function AdminReportsView() {
-  const { user } = useSupabaseAuth()
+  const { user, profile } = useSupabaseAuth()
   const router = useRouter()
   const [entries, setEntries] = useState<EnrichedEntry[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -123,6 +134,31 @@ export function AdminReportsView() {
   const [selectedRole, setSelectedRole] = useState<string>("all")
   const [filteredUsers, setFilteredUsers] = useState<UserProfile[]>(allUsers)
   const [filteredRoles, setFilteredRoles] = useState<{id: string, name: string}[]>(allRoles)
+
+  const isSuperAdmin = useMemo(() => {
+    return profile?.role_id === "00000000-0000-0000-0000-000000000000"
+  }, [profile?.role_id])
+
+  const deleteEntry = async (entryId: string) => {
+    try {
+      const res = await fetch(`/api/admin/captain-log-entries/${entryId}`, { method: "DELETE" })
+      const data = await res.json().catch(() => ({}))
+
+      if (!res.ok) {
+        throw new Error(data.error || `HTTP ${res.status}`)
+      }
+
+      setEntries((prev) => prev.filter((e) => e.id !== entryId))
+      setExpandedEntries((prev) => {
+        const next = new Set(prev)
+        next.delete(entryId)
+        return next
+      })
+      toast.success("Report deleted")
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to delete report")
+    }
+  }
 
   // Load all entries with user profiles
   useEffect(() => {
@@ -959,6 +995,52 @@ export function AdminReportsView() {
                     {isExpanded && (
                       <CardContent className="px-4 pt-0 pb-4">
                         <Separator className="mb-4" />
+                        <div className="mb-4 flex items-center justify-end gap-2">
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              router.push(`/admin/reports/${entry.id}`)
+                            }}
+                          >
+                            View
+                          </Button>
+                          {isSuperAdmin && (
+                            <AlertDialog>
+                              <AlertDialogTrigger asChild>
+                                <Button
+                                  variant="destructive"
+                                  size="sm"
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                  }}
+                                >
+                                  Delete
+                                </Button>
+                              </AlertDialogTrigger>
+                              <AlertDialogContent>
+                                <AlertDialogHeader>
+                                  <AlertDialogTitle>Delete report?</AlertDialogTitle>
+                                  <AlertDialogDescription>
+                                    This action cannot be undone.
+                                  </AlertDialogDescription>
+                                </AlertDialogHeader>
+                                <AlertDialogFooter>
+                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                  <AlertDialogAction
+                                    onClick={(e) => {
+                                      e.preventDefault()
+                                      deleteEntry(entry.id)
+                                    }}
+                                  >
+                                    Delete
+                                  </AlertDialogAction>
+                                </AlertDialogFooter>
+                              </AlertDialogContent>
+                            </AlertDialog>
+                          )}
+                        </div>
                         <div className="max-h-96 space-y-4 overflow-y-auto pr-2">
                           {entry.custom_responses && entry.custom_responses.length > 0 ? (
                             entry.custom_responses.map((response, index) => (

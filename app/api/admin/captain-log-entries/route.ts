@@ -8,6 +8,7 @@ export const dynamic = "force-dynamic"
 
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
 const SUPER_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000000"
+const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
 
 /**
  * GET /api/admin/captain-log-entries
@@ -81,7 +82,7 @@ export async function GET() {
       return NextResponse.json({ error: "Profile not found" }, { status: 404 })
     }
 
-    const isAdmin = (profile as any).role_id === ADMIN_ROLE_ID || (profile as any).role_id === SUPER_ADMIN_ROLE_ID
+    const isAdmin = (profile as any).role_id === ADMIN_ROLE_ID || (profile as any).role_id === SYSTEM_ADMIN_ROLE_ID || (profile as any).role_id === SUPER_ADMIN_ROLE_ID
 
     console.log("=== ROLE DEBUG ===")
     console.log("User role_id:", (profile as any).role_id)

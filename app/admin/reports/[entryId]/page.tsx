@@ -11,6 +11,7 @@ import { ReportDetailsSkeleton } from '@/components/skeletons/report-details-ske
 import { format, parseISO } from 'date-fns'
 
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
+const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
 const SUPER_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000000"
 
 interface CustomResponse {
@@ -54,7 +55,7 @@ export default function AdminReportDetailsPage() {
 
   const isAdmin = useMemo(() => {
     const roleId = profile?.role_id
-    return roleId === ADMIN_ROLE_ID || roleId === SUPER_ADMIN_ROLE_ID
+    return roleId === ADMIN_ROLE_ID || roleId === SYSTEM_ADMIN_ROLE_ID || roleId === SUPER_ADMIN_ROLE_ID
   }, [profile?.role_id])
 
   useEffect(() => {

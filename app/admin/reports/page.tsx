@@ -11,6 +11,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { FileText } from 'lucide-react'
 
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
+const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
 const SUPER_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000000"
 
 export default function AdminReportsPage() {
@@ -27,7 +28,7 @@ export default function AdminReportsPage() {
 
       // Check if user is admin or super admin
       const roleId = profile?.role_id
-      const adminAccess = roleId === ADMIN_ROLE_ID || roleId === SUPER_ADMIN_ROLE_ID
+      const adminAccess = roleId === ADMIN_ROLE_ID || roleId === SYSTEM_ADMIN_ROLE_ID || roleId === SUPER_ADMIN_ROLE_ID
       setIsAdmin(adminAccess)
 
       if (!adminAccess) {
