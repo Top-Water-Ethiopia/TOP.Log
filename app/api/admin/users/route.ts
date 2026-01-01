@@ -7,6 +7,108 @@ import type { UserWithProfile, PaginatedUsersResponse } from '@/lib/supabase/adm
 // This ensures we get fresh data on each request
 export const dynamic = 'force-dynamic'
 
+const SUPER_ADMIN_ROLE_ID = '00000000-0000-0000-0000-000000000000'
+const ADMIN_ROLE_ID = '00000000-0000-0000-0000-000000000001'
+const SYSTEM_ADMIN_ROLE_ID = '00000000-0000-0000-0000-000000000010'
+
+async function clearUserOwnershipReferences(userId: string) {
+  const updates: Array<{ table: string; column: string }> = [
+    { table: 'departments', column: 'created_by' },
+    { table: 'departments', column: 'updated_by' },
+    { table: 'report_questions', column: 'created_by' },
+    { table: 'report_questions', column: 'updated_by' },
+    { table: 'user_department_roles', column: 'created_by' },
+    { table: 'user_department_roles', column: 'updated_by' },
+    { table: 'user_department_professions', column: 'created_by' },
+    { table: 'user_department_professions', column: 'updated_by' },
+  ]
+
+  for (const u of updates) {
+    try {
+      const { error } = await (adminSupabase as any)
+        .from(u.table)
+        .update({ [u.column]: null })
+        .eq(u.column, userId)
+      if (error) {
+        console.warn(`Failed to clear ${u.table}.${u.column} references for user ${userId}:`, error)
+      }
+    } catch (e) {
+      console.warn(`Failed to clear ${u.table}.${u.column} references for user ${userId}:`, e)
+    }
+  }
+}
+
+async function deleteUserDependentRecords(userId: string) {
+  try {
+    const { data: entryIds, error: entriesSelectError } = await adminSupabase
+      .from('captain_log_entries')
+      .select('id')
+      .eq('user_id', userId)
+
+    if (!entriesSelectError && entryIds && entryIds.length > 0) {
+      const ids = entryIds.map((e: any) => e.id)
+      const { error: customResponsesDeleteError } = await adminSupabase
+        .from('custom_responses')
+        .delete()
+        .in('entry_id', ids)
+
+      if (customResponsesDeleteError) {
+        console.warn('Failed to delete custom responses for user entries:', customResponsesDeleteError)
+      }
+    }
+
+    const { error: entriesDeleteError } = await adminSupabase
+      .from('captain_log_entries')
+      .delete()
+      .eq('user_id', userId)
+
+    if (entriesDeleteError) {
+      console.warn('Failed to delete captain log entries for user:', entriesDeleteError)
+    }
+  } catch (e) {
+    console.warn('Failed to delete captain log related records for user:', e)
+  }
+
+  try {
+    const { error } = await adminSupabase
+      .from('user_department_roles')
+      .delete()
+      .eq('user_id', userId)
+
+    if (error) {
+      console.warn('Failed to delete user department roles for user:', error)
+    }
+  } catch (e) {
+    console.warn('Failed to delete user department roles for user:', e)
+  }
+
+  try {
+    const { error } = await adminSupabase
+      .from('user_department_professions')
+      .delete()
+      .eq('user_id', userId)
+
+    if (error) {
+      console.warn('Failed to delete user department professions for user:', error)
+    }
+  } catch (e) {
+    console.warn('Failed to delete user department professions for user:', e)
+  }
+
+  try {
+    const { error } = await adminSupabase
+      .from('user_profiles')
+      .delete()
+      .eq('user_id', userId)
+
+    if (error) {
+      console.warn('Failed to delete user profile for user:', error)
+    }
+  } catch (e) {
+    console.warn('Failed to delete user profile for user:', e)
+  }
+}
+
 export async function DELETE(request: Request) {
   try {
     // Verify admin access
@@ -51,20 +153,39 @@ export async function DELETE(request: Request) {
     }
 
     // Prevent deleting admin accounts unless super admin
-    if ((userProfile.role_id === ADMIN_ROLE_ID || userProfile.role_id === SUPER_ADMIN_ROLE_ID) && !isSuperAdmin) {
+    if (
+      (userProfile.role_id === ADMIN_ROLE_ID ||
+        userProfile.role_id === SYSTEM_ADMIN_ROLE_ID ||
+        userProfile.role_id === SUPER_ADMIN_ROLE_ID) &&
+      !isSuperAdmin
+    ) {
       return NextResponse.json(
         { error: 'You do not have permission to delete admin accounts' },
         { status: 403 }
       )
     }
 
-    // Delete the auth user (this will cascade delete the profile due to RLS)
-    const { error: deleteError } = await adminSupabase.auth.admin.deleteUser(userIdToDelete)
+    // Clear blocking created_by/updated_by references
+    await clearUserOwnershipReferences(userIdToDelete)
+
+    // Delete dependent rows that can block auth.users deletion (FK constraints)
+    await deleteUserDependentRecords(userIdToDelete)
+
+    let { error: deleteError } = await adminSupabase.auth.admin.deleteUser(userIdToDelete)
+    if (deleteError) {
+      await clearUserOwnershipReferences(userIdToDelete)
+      await deleteUserDependentRecords(userIdToDelete)
+      ;({ error: deleteError } = await adminSupabase.auth.admin.deleteUser(userIdToDelete))
+    }
 
     if (deleteError) {
       console.error('Error deleting auth user:', deleteError)
+      const message =
+        deleteError.message === 'Database error deleting user'
+          ? 'Cannot delete user because they are referenced by existing records. Remove or transfer ownership and try again.'
+          : deleteError.message
       return NextResponse.json(
-        { error: 'Failed to delete user', message: deleteError.message },
+        { error: 'Failed to delete user', message },
         { status: 500 }
       )
     }
@@ -84,9 +205,6 @@ export async function DELETE(request: Request) {
     )
   }
 }
-
-const SUPER_ADMIN_ROLE_ID = '00000000-0000-0000-0000-000000000000'
-const ADMIN_ROLE_ID = '00000000-0000-0000-0000-000000000001'
 
 // Helper to verify admin or super admin access
 async function verifyAdmin() {
@@ -108,7 +226,7 @@ async function verifyAdmin() {
   }
 
   const isSuperAdmin = profile.role_id === SUPER_ADMIN_ROLE_ID
-  const isAdmin = profile.role_id === ADMIN_ROLE_ID || isSuperAdmin
+  const isAdmin = profile.role_id === ADMIN_ROLE_ID || profile.role_id === SYSTEM_ADMIN_ROLE_ID || isSuperAdmin
 
   if (!isSuperAdmin && !isAdmin) {
     return { isAdmin: false, isSuperAdmin: false, error: 'Admin access required' }
@@ -140,7 +258,7 @@ export async function POST(request: Request) {
     }
 
     // Prevent admins (non-super admins) from creating users with super admin role
-    if (role_id && role_id === SUPER_ADMIN_ROLE_ID && !isSuperAdmin) {
+    if (role_id && (role_id === SUPER_ADMIN_ROLE_ID || role_id === SYSTEM_ADMIN_ROLE_ID) && !isSuperAdmin) {
       return NextResponse.json(
         { error: 'Only super admins can create users with super admin role' },
         { status: 403 }
@@ -274,8 +392,32 @@ export async function PUT(request: Request) {
       )
     }
 
+    const { data: targetProfile, error: targetProfileError } = await adminSupabase
+      .from('user_profiles')
+      .select('role_id')
+      .eq('user_id', user_id)
+      .single()
+
+    if (targetProfileError || !targetProfile) {
+      return NextResponse.json(
+        { error: 'User profile not found' },
+        { status: 404 }
+      )
+    }
+
+    const targetIsProtected =
+      targetProfile.role_id === SUPER_ADMIN_ROLE_ID ||
+      targetProfile.role_id === SYSTEM_ADMIN_ROLE_ID
+
+    if (targetIsProtected && !isSuperAdmin) {
+      return NextResponse.json(
+        { error: 'You do not have permission to modify this account' },
+        { status: 403 }
+      )
+    }
+
     // Prevent admins (non-super admins) from assigning super admin role
-    if (role_id && role_id === SUPER_ADMIN_ROLE_ID && !isSuperAdmin) {
+    if (role_id && (role_id === SUPER_ADMIN_ROLE_ID || role_id === SYSTEM_ADMIN_ROLE_ID) && !isSuperAdmin) {
       return NextResponse.json(
         { error: 'Only super admins can assign super admin role' },
         { status: 403 }

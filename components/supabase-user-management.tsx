@@ -66,7 +66,9 @@ import { UsersTableSkeleton } from "@/components/skeletons/users-table-skeleton"
 // Role IDs from schema
 const SUPER_ADMIN_ROLE_ID = '00000000-0000-0000-0000-000000000000';
 const ADMIN_ROLE_ID = '00000000-0000-0000-0000-000000000001';
+const SYSTEM_ADMIN_ROLE_ID = '00000000-0000-0000-0000-000000000010';
 const USER_ROLE_ID = '00000000-0000-0000-0000-000000000002';
+const SYSTEM_ADMIN_ROLE_NAME = "system-admin";
 
 interface UserWithProfile {
   id: string;
@@ -129,7 +131,7 @@ export function SupabaseUserManagement() {
   
   // Check if current user is super admin or admin
   const isSuperAdmin = currentProfile?.role_id === SUPER_ADMIN_ROLE_ID;
-  const isAdmin = currentProfile?.role_id === ADMIN_ROLE_ID || isSuperAdmin;
+  const isAdmin = currentProfile?.role_id === ADMIN_ROLE_ID || currentProfile?.role_id === SYSTEM_ADMIN_ROLE_ID || isSuperAdmin;
 
   // Create user form state
   const [createUserForm, setCreateUserForm] = useState({
@@ -138,7 +140,6 @@ export function SupabaseUserManagement() {
     password: "",
     confirmPassword: "",
     role_id: USER_ROLE_ID,
-    department: "",
   });
 
   const [formErrors, setFormErrors] = useState<Record<string, string>>({});
@@ -150,7 +151,6 @@ export function SupabaseUserManagement() {
   const [editUserForm, setEditUserForm] = useState({
     name: "",
     email: "",
-    department: "",
     role_id: USER_ROLE_ID,
     is_active: true,
     email_verified: false,
@@ -240,70 +240,34 @@ export function SupabaseUserManagement() {
     }
   }, [isAdmin]);
 
-  // Get departments that have at least one role
-  const departmentsWithRoles = (() => {
-    // Get all department IDs that have roles
-    const deptIdsWithRoles = new Set(
-      roles.map(role => role.department_id).filter(Boolean)
-    );
-    
-    // Filter departments to only those with roles
-    return departments.filter(
-      dept => dept.is_active && dept.id && deptIdsWithRoles.has(dept.id)
-    );
-  })();
+  const editSystemRoles = (() => {
+    const order = ["super-admin", "admin", SYSTEM_ADMIN_ROLE_NAME, "user"]
+    const allowed = new Set(order)
 
-  const editAvailableRoles = (() => {
-    const selectedDeptId = editUserForm.department
-      ? departments.find((d) => d.name === editUserForm.department)?.id || null
-      : null
+    const options = roles
+      .filter((role) => allowed.has(role.name))
+      .map((role) => ({ id: role.id, name: role.name }))
+      .filter((opt, idx, all) => all.findIndex((x) => x.id === opt.id) === idx)
 
-    return roles
-      .filter((role) => (isSuperAdmin ? true : role.id !== SUPER_ADMIN_ROLE_ID))
-      .filter((role) => {
-        // Only show roles for selected department; if no department selected, show none.
-        if (!selectedDeptId) return false;
-        return role.department_id === selectedDeptId;
-      });
+    if (!options.some((r) => r.id === USER_ROLE_ID)) {
+      options.push({ id: USER_ROLE_ID, name: "user" })
+    }
+
+    if (!options.some((r) => r.id === ADMIN_ROLE_ID)) {
+      options.push({ id: ADMIN_ROLE_ID, name: "admin" })
+    }
+
+    if (!options.some((r) => r.id === SUPER_ADMIN_ROLE_ID)) {
+      options.push({ id: SUPER_ADMIN_ROLE_ID, name: "super-admin" })
+    }
+
+    if (!options.some((r) => r.id === SYSTEM_ADMIN_ROLE_ID)) {
+      options.push({ id: SYSTEM_ADMIN_ROLE_ID, name: SYSTEM_ADMIN_ROLE_NAME })
+    }
+
+    return options.sort((a, b) => order.indexOf(a.name) - order.indexOf(b.name))
   })()
 
-  useEffect(() => {
-    if (!editUserForm.department) {
-      if (editUserForm.role_id) {
-        setEditUserForm((prev) => ({ ...prev, role_id: "" }))
-      }
-      return
-    }
-
-    if (!editUserForm.role_id) return
-
-    const stillValid = editAvailableRoles.some((r) => r.id === editUserForm.role_id)
-    if (!stillValid) {
-      setEditUserForm((prev) => ({ ...prev, role_id: "" }))
-    }
-  }, [editUserForm.department, editUserForm.role_id, editAvailableRoles]);
-
-  // Effect to update department when role changes in create form
-  useEffect(() => {
-    if (createUserForm.role_id) {
-      // Find the selected role
-      const selectedRole = roles.find(role => role.id === createUserForm.role_id);
-      if (selectedRole) {
-        // Find the associated department name
-        const departmentName = selectedRole.department_id 
-          ? departments.find(dept => dept.id === selectedRole.department_id)?.name || ""
-          : "";
-        
-        // Update the department if it's different
-        if (createUserForm.department !== departmentName) {
-          setCreateUserForm(prev => ({ 
-            ...prev, 
-            department: departmentName
-          }));
-        }
-      }
-    }
-  }, [createUserForm.role_id, roles, departments, createUserForm.department]);
 
   const pageSize = 6;
 
@@ -402,7 +366,6 @@ export function SupabaseUserManagement() {
           password: createUserForm.password,
           name: createUserForm.name.trim(),
           role_id: createUserForm.role_id,
-          department_id: createUserForm.department ? departments.find(d => d.name === createUserForm.department)?.id || null : null,
         }),
       });
 
@@ -419,7 +382,6 @@ export function SupabaseUserManagement() {
         password: "",
         confirmPassword: "",
         role_id: USER_ROLE_ID,
-        department: "",
       });
       setFormErrors({});
       setShowPassword(false);
@@ -449,10 +411,6 @@ export function SupabaseUserManagement() {
       errors.email = "Email is already in use by another user";
     }
 
-    if (!editUserForm.department) {
-      errors.department = "Department is required";
-    }
-
     if (!editUserForm.role_id) {
       errors.role_id = "Role is required";
     }
@@ -480,7 +438,6 @@ export function SupabaseUserManagement() {
           user_id: editingUser.id,
           name: editUserForm.name.trim(),
           email: editUserForm.email.trim().toLowerCase(),
-          department_id: editUserForm.department ? departments.find(d => d.name === editUserForm.department)?.id || null : null,
           role_id: editUserForm.role_id,
           is_active: editUserForm.is_active,
         }),
@@ -631,7 +588,7 @@ export function SupabaseUserManagement() {
     const userRoleId = user.profile?.role_id;
     const isCurrentUserSuperAdmin = currentProfile?.role_id === SUPER_ADMIN_ROLE_ID;
     
-    if ((userRoleId === ADMIN_ROLE_ID || userRoleId === SUPER_ADMIN_ROLE_ID) && !isCurrentUserSuperAdmin) {
+    if ((userRoleId === ADMIN_ROLE_ID || userRoleId === SYSTEM_ADMIN_ROLE_ID || userRoleId === SUPER_ADMIN_ROLE_ID) && !isCurrentUserSuperAdmin) {
       toast.error("You do not have permission to delete admin accounts");
       setShowDeleteDialog(false);
       setUserToDelete(null);
@@ -747,7 +704,9 @@ export function SupabaseUserManagement() {
 
   const getRoleBadgeVariant = (roleName: string) => {
     switch (roleName) {
+      case "super-admin": return "destructive";
       case "admin": return "destructive";
+      case "system-admin": return "default";
       case "user": return "secondary";
       default: return "outline";
     }
@@ -820,6 +779,7 @@ export function SupabaseUserManagement() {
                   <SelectItem value={SUPER_ADMIN_ROLE_ID}>Super Admin</SelectItem>
                 )}
                 <SelectItem value={ADMIN_ROLE_ID}>Admin</SelectItem>
+                <SelectItem value={SYSTEM_ADMIN_ROLE_ID}>System Admin</SelectItem>
                 <SelectItem value={USER_ROLE_ID}>User</SelectItem>
               </>
             )}
@@ -949,7 +909,6 @@ export function SupabaseUserManagement() {
                                 setEditUserForm({
                                   name: user.profile?.name || "",
                                   email: user.email,
-                                  department: user.profile?.department_id ? departments.find(d => d.id === user.profile?.department_id)?.name || "" : "",
                                   role_id: user.profile?.role_id || USER_ROLE_ID,
                                   is_active: user.profile?.is_active ?? true,
                                   email_verified: !!user.email_confirmed_at,
@@ -999,10 +958,13 @@ export function SupabaseUserManagement() {
                               disabled={
                                 user.id === currentUser?.id ||
                                 user.profile?.role_id === ADMIN_ROLE_ID ||
+                                user.profile?.role_id === SYSTEM_ADMIN_ROLE_ID ||
                                 user.profile?.role_id === SUPER_ADMIN_ROLE_ID
                               }
                               title={
-                                user.profile?.role_id === ADMIN_ROLE_ID || user.profile?.role_id === SUPER_ADMIN_ROLE_ID
+                                user.profile?.role_id === ADMIN_ROLE_ID ||
+                                user.profile?.role_id === SYSTEM_ADMIN_ROLE_ID ||
+                                user.profile?.role_id === SUPER_ADMIN_ROLE_ID
                                   ? "Cannot delete admin accounts"
                                   : "Delete user"
                               }
@@ -1162,62 +1124,34 @@ export function SupabaseUserManagement() {
                 <p className="text-sm text-destructive">{formErrors.confirmPassword}</p>
               )}
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="role">Role</Label>
-                <Select
-                  value={createUserForm.role_id}
-                  onValueChange={(value) => {
-                    // When a role is selected, automatically set the department
-                    const selectedRole = roles.find(role => role.id === value);
-                    const departmentName = selectedRole?.department_id 
-                      ? departments.find(dept => dept.id === selectedRole.department_id)?.name || ""
-                      : "";
-                    
-                    setCreateUserForm(prev => ({ 
-                      ...prev, 
-                      role_id: value,
-                      department: departmentName
-                    }));
-                  }}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a role" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {roles.length > 0 ? (
-                      roles
-                        .filter(role => isSuperAdmin || role.id !== SUPER_ADMIN_ROLE_ID)
-                        .map((role) => (
-                        <SelectItem key={role.id} value={role.id}>
-                          <div className="flex flex-col">
-                            <span className="font-medium">{role.name}</span>
-                            {role.description && (
-                              <span className="text-xs text-muted-foreground">
-                                {role.description}
-                              </span>
-                            )}
-                          </div>
-                        </SelectItem>
-                      ))
-                    ) : (
-                      <>
-                        {isSuperAdmin && (
-                          <SelectItem value={SUPER_ADMIN_ROLE_ID}>Super Admin</SelectItem>
-                        )}
-                        <SelectItem value={USER_ROLE_ID}>User</SelectItem>
-                        <SelectItem value={ADMIN_ROLE_ID}>Admin</SelectItem>
-                      </>
-                    )}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="department">Department</Label>
-                <div className="p-3 bg-muted rounded-md min-h-10 flex items-center">
-                  {createUserForm.department || "No department (will be set based on role)"}
-                </div>
-              </div>
+            <div className="space-y-2">
+              <Label htmlFor="role">Role</Label>
+              <Select
+                value={createUserForm.role_id}
+                onValueChange={(value) => {
+                  setCreateUserForm(prev => ({ 
+                    ...prev, 
+                    role_id: value,
+                  }));
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a role" />
+                </SelectTrigger>
+                <SelectContent>
+                  {editSystemRoles.map((role) => (
+                    <SelectItem 
+                      key={role.id} 
+                      value={role.id}
+                      disabled={!isSuperAdmin && role.id === SUPER_ADMIN_ROLE_ID}
+                    >
+                      <div className="flex flex-col">
+                        <span className="font-medium capitalize">{role.name.replace(/-/g, ' ')}</span>
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
           <DialogFooter>
@@ -1282,55 +1216,24 @@ export function SupabaseUserManagement() {
                 </span>
               )}
             </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="edit-department">Department</Label>
-                <Select
-                  value={editUserForm.department}
-                  onValueChange={(value) => {
-                    setEditUserForm((prev) => ({
-                      ...prev,
-                      department: value,
-                      role_id: "",
-                    }))
-                  }}
-                >
-                  <SelectTrigger id="edit-department">
-                    <SelectValue placeholder="Select a department" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {departmentsWithRoles.map((dept) => (
-                      <SelectItem key={dept.id} value={dept.name}>
-                        {dept.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {editFormErrors.department && (
-                  <p className="text-sm text-destructive">{editFormErrors.department}</p>
-                )}
-              </div>
+            <div className="grid grid-cols-1 gap-4">
               <div className="space-y-2">
                 <Label htmlFor="edit-role">Role</Label>
                 <Select
                   value={editUserForm.role_id}
                   onValueChange={(value) => setEditUserForm((prev) => ({ ...prev, role_id: value }))}
-                  disabled={!editUserForm.department}
                 >
                   <SelectTrigger id="edit-role">
-                    <SelectValue placeholder={editUserForm.department ? "Select a role" : "Select department first"} />
+                    <SelectValue placeholder="Select a role" />
                   </SelectTrigger>
                   <SelectContent>
-                    {editAvailableRoles.map((role) => (
-                      <SelectItem key={role.id} value={role.id}>
-                        <div className="flex flex-col">
-                          <span className="font-medium">{role.name}</span>
-                          {role.description && (
-                            <span className="text-xs text-muted-foreground">{role.description}</span>
-                          )}
-                        </div>
-                      </SelectItem>
-                    ))}
+                    {editSystemRoles
+                      .filter((role) => isSuperAdmin || role.id !== SUPER_ADMIN_ROLE_ID)
+                      .map((role) => (
+                        <SelectItem key={role.id} value={role.id}>
+                          {role.name}
+                        </SelectItem>
+                      ))}
                   </SelectContent>
                 </Select>
                 {editFormErrors.role_id && (

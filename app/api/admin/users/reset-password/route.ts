@@ -8,6 +8,7 @@ export const dynamic = 'force-dynamic'
 
 const SUPER_ADMIN_ROLE_ID = '00000000-0000-0000-0000-000000000000'
 const ADMIN_ROLE_ID = '00000000-0000-0000-0000-000000000001'
+const SYSTEM_ADMIN_ROLE_ID = '00000000-0000-0000-0000-000000000010'
 
 // Helper to verify admin or super admin access
 async function verifyAdmin() {
@@ -29,7 +30,7 @@ async function verifyAdmin() {
   }
 
   const isSuperAdmin = profile.role_id === SUPER_ADMIN_ROLE_ID
-  const isAdmin = profile.role_id === ADMIN_ROLE_ID
+  const isAdmin = profile.role_id === ADMIN_ROLE_ID || profile.role_id === SYSTEM_ADMIN_ROLE_ID
 
   if (!isSuperAdmin && !isAdmin) {
     return { isAdmin: false, error: 'Admin access required' }

@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react"
 import { useAuth } from "@/contexts/auth-context"
-import { useRBAC } from "@/hooks/use-rbac.tsx"
+import { useRBAC } from "@/hooks/use-rbac"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -69,7 +69,7 @@ export function UserManagementDialog({ onClose }: { onClose: () => void }) {
     email: "",
     password: "",
     confirmPassword: "",
-    role: "user" as const,
+    role: "viewer" as const,
     department: "",
     isActive: true,
   })
@@ -170,7 +170,7 @@ export function UserManagementDialog({ onClose }: { onClose: () => void }) {
         email: "",
         password: "",
         confirmPassword: "",
-        role: "user",
+        role: "viewer",
         department: "",
         isActive: true,
       })
@@ -186,7 +186,7 @@ export function UserManagementDialog({ onClose }: { onClose: () => void }) {
     }
   }
 
-  const handleUpdateUserRole = async (user: User, newRole: string) => {
+  const handleUpdateUserRole = async (user: User, newRole: Role['name']) => {
     if (!currentUser || !canManageUser(user)) {
       toast.error("Insufficient permissions to manage this user")
       return
@@ -197,7 +197,7 @@ export function UserManagementDialog({ onClose }: { onClose: () => void }) {
         u.id === user.id 
           ? { 
               ...u, 
-              role: newRole as any, 
+              role: newRole, 
               updatedAt: new Date().toISOString(),
               metadata: {
                 ...u.metadata,
