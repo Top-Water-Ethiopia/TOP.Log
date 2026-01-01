@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { CalendarView } from "./calendar-view"
 import { EntryFormMultistep } from "./entry-form-multistep"
 import { EntryDetails } from "./entry-details"
@@ -67,12 +67,20 @@ export function MainLayout() {
   const [showProfileDialog, setShowProfileDialog] = useState(false)
   const [editingDate, setEditingDate] = useState<string | undefined>(undefined)
 
+  const departmentId = (supabaseProfile as any)?.department_id as string | undefined
+  const entriesForDepartment = useMemo(() => {
+    if (!departmentId) return []
+    return entries.filter((e: any) => e.department_id === departmentId)
+  }, [entries, departmentId])
+
   const canCreateEntry = isAuthenticated && !!user
 
   const handleDateSelect = (date: string) => {
     setSelectedDate(date)
     // Check if entry exists for this date (without creating audit logs)
-    const existingEntry = entries.find(entry => entry.date === date)
+    const existingEntry = departmentId
+      ? entries.find((entry: any) => entry.date === date && entry.department_id === departmentId)
+      : undefined
     // If entry exists, show details (read mode), otherwise show form (edit mode)
     if (existingEntry) {
       setViewMode("details")
@@ -122,7 +130,7 @@ export function MainLayout() {
             <div className="flex gap-2">
               {/* Primary Navigation - Left side */}
               <div className="flex gap-2">
-                <SearchDialog onSelectEntry={handleSearchSelect} />
+                <SearchDialog onSelectEntry={handleSearchSelect} entries={entriesForDepartment} />
                 
                 {/* Admin - Permission based or Super Admin */}
                 {(canAccessAdmin || isSuperAdmin) && (
@@ -249,17 +257,20 @@ export function MainLayout() {
           </div>
         ) : viewMode === "form" ? (
           <div className="h-full overflow-y-auto">
-            <EntryFormMultistep
-              date={editingDate}
-              onSave={() => {
-                setEditingDate(undefined)
-                setViewMode("thankYou")
-              }}
-              onCancel={() => {
-                setEditingDate(undefined)
-                setViewMode("landing")
-              }}
-            />
+            {departmentId && (
+              <EntryFormMultistep
+                departmentId={departmentId}
+                date={editingDate}
+                onSave={() => {
+                  setEditingDate(undefined)
+                  setViewMode("thankYou")
+                }}
+                onCancel={() => {
+                  setEditingDate(undefined)
+                  setViewMode("landing")
+                }}
+              />
+            )}
           </div>
         ) : viewMode === "details" ? (
           <div className="flex gap-6 h-full">
@@ -269,24 +280,28 @@ export function MainLayout() {
                 <CalendarView
                   selectedDate={selectedDate}
                   onDateSelect={handleDateSelect}
+                  entries={entriesForDepartment}
                 />
               </div>
             </div>
 
             {/* Right: Entry Details */}
             <div className="flex-1 min-w-0 overflow-y-auto">
-              <EntryDetails
-                date={selectedDate}
-                onEdit={() => {
-                  setEditingDate(selectedDate)
-                  setViewMode("form")
-                }}
-                onBack={() => setViewMode("calendar")}
-                onViewEntry={(date) => {
-                  setSelectedDate(date)
-                  setViewMode("details")
-                }}
-              />
+              {departmentId && (
+                <EntryDetails
+                  date={selectedDate}
+                  departmentId={departmentId}
+                  onEdit={() => {
+                    setEditingDate(selectedDate)
+                    setViewMode("form")
+                  }}
+                  onBack={() => setViewMode("calendar")}
+                  onViewEntry={(date) => {
+                    setSelectedDate(date)
+                    setViewMode("details")
+                  }}
+                />
+              )}
             </div>
           </div>
         ) : viewMode === "calendar" ? (
@@ -314,6 +329,7 @@ export function MainLayout() {
                 <CalendarView
                   selectedDate={selectedDate}
                   onDateSelect={handleDateSelect}
+                  entries={entriesForDepartment}
                 />
               </div>
             </div>

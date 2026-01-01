@@ -24,17 +24,19 @@ import {
 
 interface EntryFormMultistepProps {
   date?: string
+  departmentId: string
   onSave: () => void
   onCancel: () => void
   initialRoleQuestions?: any[]
 }
 
-export function EntryFormMultistep({ date: initialDate, onSave, onCancel, initialRoleQuestions }: EntryFormMultistepProps) {
+export function EntryFormMultistep({ date: initialDate, departmentId, onSave, onCancel, initialRoleQuestions }: EntryFormMultistepProps) {
   const { entries, addEntry, updateEntry } = useCaptainLog()
   const { isAuthenticated, user } = useAuth()
   const { user: supabaseUser } = useSupabaseAuth() // Supabase authentication
   const { validateResponse, processResponses } = useRBAC()
-  const { questions: roleQuestions } = useRoleQuestions(initialRoleQuestions)
+  const { questions: roleQuestions } = useRoleQuestions(initialRoleQuestions, departmentId)
+  const entriesForDepartment = useMemo(() => entries.filter((e) => e.department_id === departmentId), [entries, departmentId])
   const [currentStep, setCurrentStep] = useState(1)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [selectedDate, setSelectedDate] = useState<string>(initialDate || new Date().toISOString().split("T")[0])
@@ -80,7 +82,7 @@ export function EntryFormMultistep({ date: initialDate, onSave, onCancel, initia
 
   // Load existing entry if it exists, otherwise reset form
   useEffect(() => {
-    const existingEntry = entries.find(entry => entry.date === selectedDate)
+    const existingEntry = entriesForDepartment.find(entry => entry.date === selectedDate)
 
     if (existingEntry) {
       setFormData({
@@ -122,7 +124,7 @@ export function EntryFormMultistep({ date: initialDate, onSave, onCancel, initia
     // Always restart the wizard from the first step when the date changes
     setCurrentStep(1)
     setCustomErrors({})
-  }, [selectedDate, entries])
+  }, [selectedDate, entriesForDepartment])
 
   // Steps: Date -> each role question -> Preview
   const steps = useMemo(() => {
@@ -310,7 +312,7 @@ export function EntryFormMultistep({ date: initialDate, onSave, onCancel, initia
       }
 
       // Check if we're updating an existing entry or creating a new one
-      const existingEntry = entries.find(entry => entry.date === selectedDate)
+      const existingEntry = entriesForDepartment.find(entry => entry.date === selectedDate)
       
       // Validate date before submission
       const dateValidation = existingEntry 
@@ -351,6 +353,7 @@ export function EntryFormMultistep({ date: initialDate, onSave, onCancel, initia
         const now = new Date().toISOString()
         await addEntry({
           date: selectedDate,
+          department_id: departmentId,
           ...formData,
           customResponses: processedCustom.processedResponses,
           createdAt: now,
@@ -398,7 +401,7 @@ export function EntryFormMultistep({ date: initialDate, onSave, onCancel, initia
   const hasCustomErrors = useMemo(() => Object.values(customErrors).some(Boolean), [customErrors])
 
   return (
-    <div className="flex flex-col h-full space-y-4">
+    <div className="mx-auto flex h-full w-full max-w-3xl flex-col space-y-4">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>

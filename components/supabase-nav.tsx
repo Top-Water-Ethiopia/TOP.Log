@@ -42,6 +42,7 @@ import {
 
 // Role IDs from schema
 const SUPER_ADMIN_ROLE_ID = '00000000-0000-0000-0000-000000000000';
+const SYSTEM_ADMIN_ROLE_ID = '00000000-0000-0000-0000-000000000010';
 
 export function SupabaseNav() {
   const pathname = usePathname();
@@ -55,6 +56,7 @@ export function SupabaseNav() {
   
   // Check if current user is super admin
   const isSuperAdmin = profile?.role_id === SUPER_ADMIN_ROLE_ID;
+  const isSystemAdmin = profile?.role_id === SYSTEM_ADMIN_ROLE_ID;
 
   useEffect(() => {
     setMounted(true);
@@ -99,7 +101,7 @@ export function SupabaseNav() {
                   <span>Profile</span>
                 </Link>
               </DropdownMenuItem>
-              {isSuperAdmin && (
+              {(isSuperAdmin || isSystemAdmin) && (
                 <DropdownMenuItem asChild>
                   <Link href="/admin">
                     <LayoutDashboard className="h-4 w-4 mr-2" />
@@ -107,7 +109,7 @@ export function SupabaseNav() {
                   </Link>
                 </DropdownMenuItem>
               )}
-              {canAccessAdmin && !isSuperAdmin && (
+              {canAccessAdmin && !isSuperAdmin && !isSystemAdmin && (
                 <DropdownMenuItem asChild>
                   <Link href="/admin">
                     <LockIcon className="h-4 w-4 mr-2" />

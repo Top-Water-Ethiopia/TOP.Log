@@ -75,12 +75,6 @@ export function MobileNavigation() {
       active: pathname === "/admin",
     },
     {
-      name: "Reports",
-      href: "/admin/reports",
-      icon: FileText,
-      active: pathname.startsWith("/admin/reports"),
-    },
-    {
       name: "Users",
       href: "/admin/users",
       icon: User,
@@ -97,6 +91,15 @@ export function MobileNavigation() {
       href: "/admin/roles",
       icon: Shield,
       active: pathname.startsWith("/admin/roles"),
+    },
+  ]
+
+  const adminReportsItems = [
+    {
+      name: "Reports",
+      href: "/admin/reports",
+      icon: FileText,
+      active: pathname.startsWith("/admin/reports"),
     },
   ]
 
@@ -166,6 +169,27 @@ export function MobileNavigation() {
             {/* Admin Section - Only shown when user is logged in */}
             {user && (isSuperAdmin || canAccessAdmin) && (
               <div className="px-2 pt-4">
+                <h3 className="text-muted-foreground px-3 text-xs font-semibold tracking-wider uppercase">
+                  Reports
+                </h3>
+                <div className="space-y-1 pt-2">
+                  {adminReportsItems.map((item) => (
+                    <Link
+                      key={item.name}
+                      href={item.href}
+                      onClick={() => setIsOpen(false)}
+                      className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ${
+                        item.active
+                          ? "bg-primary text-primary-foreground"
+                          : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                      }`}
+                    >
+                      <item.icon className="h-4 w-4" />
+                      {item.name}
+                    </Link>
+                  ))}
+                </div>
+
                 <h3 className="text-muted-foreground px-3 text-xs font-semibold tracking-wider uppercase">
                   Management
                 </h3>

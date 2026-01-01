@@ -40,9 +40,20 @@ export function SupabaseSandbox() {
     try {
       await addEntry({
         date,
+        department_id: profile?.department_id ?? null,
+        metadata: null,
         objectives,
-        key_results: keyResults,
+        keyResults,
         challenges,
+        developmentTasks: "",
+        featuresCompleted: "",
+        challengesAndBlockers: "",
+        codeAndPriorities: "",
+        systemImprovements: "",
+        projectUpdates: "",
+        createdAt: "",
+        updatedAt: "",
+        customResponses: [],
       });
       
       // Reset form
@@ -212,7 +223,7 @@ export function SupabaseSandbox() {
                             <div>
                               <h4 className="font-medium">{entry.date}</h4>
                               <p className="text-sm text-muted-foreground line-clamp-1">
-                                {entry.objectives || entry.development_tasks}
+                                {entry.objectives || entry.developmentTasks}
                               </p>
                             </div>
                             <Button variant="ghost" size="sm">View</Button>

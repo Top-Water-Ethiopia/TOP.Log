@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context";
 import { useSupabaseRbac } from "@/hooks/use-supabase-rbac";
 import { Button } from "@/components/ui/button";
@@ -12,14 +12,44 @@ import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 import Link from "next/link";
+import { supabase } from "@/lib/supabase/client";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+
+interface Department {
+  id: string
+  name: string
+}
 
 export default function ProfilePage() {
   const { user, profile, updateProfile, logout, isLoading } = useSupabaseAuth();
   const { permissions } = useSupabaseRbac();
   
   const [name, setName] = useState(profile?.name || "");
-  const [department, setDepartment] = useState(profile?.department || "");
+  const [departmentId, setDepartmentId] = useState(profile?.department_id || "");
   const [isUpdating, setIsUpdating] = useState(false);
+  const [departments, setDepartments] = useState<Department[]>([])
+  const [loadingDepartments, setLoadingDepartments] = useState(false)
+
+  useEffect(() => {
+    const loadDepartments = async () => {
+      try {
+        setLoadingDepartments(true)
+        const { data, error } = await supabase
+          .from('departments')
+          .select('id, name')
+          .eq('is_active', true)
+          .order('name', { ascending: true })
+        if (error) throw error
+        setDepartments((data || []) as Department[])
+      } catch {
+        setDepartments([])
+      } finally {
+        setLoadingDepartments(false)
+      }
+    }
+
+    loadDepartments()
+  }, [])
 
   // Function to update user profile
   const handleUpdateProfile = async (e: React.FormEvent) => {
@@ -31,7 +61,7 @@ export default function ProfilePage() {
     try {
       await updateProfile({
         name,
-        department,
+        department_id: departmentId || null,
       });
       toast.success("Profile updated successfully");
     } catch (error) {
@@ -119,12 +149,18 @@ export default function ProfilePage() {
 
               <div className="space-y-2">
                 <Label htmlFor="department">Department</Label>
-                <Input
-                  id="department"
-                  value={department || ""}
-                  onChange={(e) => setDepartment(e.target.value)}
-                  placeholder="Your department (e.g., Engineering)"
-                />
+                <Select value={departmentId} onValueChange={setDepartmentId} disabled={loadingDepartments}>
+                  <SelectTrigger id="department">
+                    <SelectValue placeholder={loadingDepartments ? "Loading departments..." : "Select department"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {departments.map((dept) => (
+                      <SelectItem key={dept.id} value={dept.id}>
+                        {dept.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               <Button type="submit" disabled={isUpdating}>

@@ -23,7 +23,7 @@ const ibmPlexMono = IBM_Plex_Mono({
 })
 
 export const metadata: Metadata = {
-  title: "TOP Log - IT Department Daily Tracker",
+  title: "Logs - IT Department Daily Tracker",
   description: 'A modern IT Department Daily Tracker for documenting daily activities and maintaining comprehensive work records',
   keywords: ['daily log', 'it tracker', 'developer journal', 'work log'],
 }

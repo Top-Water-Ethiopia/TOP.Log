@@ -25,7 +25,7 @@ export default function RegisterPage() {
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [name, setName] = useState("");
-  const [department, setDepartment] = useState("");
+  const [departmentId, setDepartmentId] = useState("");
   const [validationError, setValidationError] = useState("");
   const [departments, setDepartments] = useState<Department[]>([]);
   const [loadingDepartments, setLoadingDepartments] = useState(true);
@@ -82,7 +82,7 @@ export default function RegisterPage() {
     }
     
     try {
-      await register(email, password, name, department);
+      await register(email, password, name, departmentId);
       // Redirect happens in the auth context after successful registration
     } catch (error) {
       // Error handling is done in the auth context
@@ -161,14 +161,14 @@ export default function RegisterPage() {
             
             <div className="space-y-2">
               <Label htmlFor="department">Department</Label>
-              <Select value={department} onValueChange={setDepartment} disabled={loadingDepartments}>
+              <Select value={departmentId} onValueChange={setDepartmentId} disabled={loadingDepartments}>
                 <SelectTrigger>
                   <SelectValue placeholder={loadingDepartments ? "Loading departments..." : "Select department"} />
                 </SelectTrigger>
                 <SelectContent>
                   {departments.length > 0 ? (
                     departments.map((dept) => (
-                      <SelectItem key={dept.id} value={dept.name}>
+                      <SelectItem key={dept.id} value={dept.id}>
                         {dept.name}
                       </SelectItem>
                     ))

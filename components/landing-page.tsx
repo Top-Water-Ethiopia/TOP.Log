@@ -5,22 +5,30 @@ import { FileText, History } from "lucide-react"
 
 interface LandingPageProps {
   canCreateNewReport?: boolean
+  newReportDisabledReason?: string
+  hasSubmittedReports?: boolean
   onNewReport: () => void
   onViewReports: () => void
 }
 
-export function LandingPage({ canCreateNewReport = true, onNewReport, onViewReports }: LandingPageProps) {
+export function LandingPage({
+  canCreateNewReport = true,
+  newReportDisabledReason,
+  hasSubmittedReports = true,
+  onNewReport,
+  onViewReports,
+}: LandingPageProps) {
   return (
-    <div className="h-full flex items-center justify-center">
-      <div className="max-w-2xl w-full text-center space-y-12 px-6">
+    <div className="h-full">
+      <div className="mx-auto flex h-full w-full max-w-3xl flex-col justify-center space-y-8">
         {/* Heading */}
-        <div className="space-y-4">
-          <h2 className="text-5xl font-bold text-foreground tracking-tight">
+        <div className="space-y-2">
+          <h2 className="text-2xl font-bold tracking-tight text-foreground">
             {canCreateNewReport
               ? "What do you want to do?"
               : "View your daily reports"}
           </h2>
-          <p className="text-lg text-muted-foreground">
+          <p className="text-sm text-muted-foreground">
             {canCreateNewReport
               ? "Create a new daily log or browse your existing reports"
               : "Your role is not yet configured with role-specific questions. You can still review your existing reports."}
@@ -28,54 +36,61 @@ export function LandingPage({ canCreateNewReport = true, onNewReport, onViewRepo
         </div>
 
         {/* Action Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-4xl mx-auto">
-          <div 
-            onClick={onNewReport}
-            className="group cursor-pointer rounded-xl border border-border bg-card p-6 shadow-sm transition-all hover:shadow-md hover:border-primary/20 hover:bg-card/80"
+        <div
+          className={
+            hasSubmittedReports
+              ? "grid grid-cols-1 gap-4 md:grid-cols-2"
+              : "grid grid-cols-1 gap-4"
+          }
+        >
+          <div
+            onClick={canCreateNewReport ? onNewReport : undefined}
+            aria-disabled={!canCreateNewReport}
+            className={
+              canCreateNewReport
+                ? "group cursor-pointer rounded-xl border border-border bg-card p-5 shadow-sm transition-colors hover:bg-accent"
+                : "rounded-xl border border-border bg-card p-5 shadow-sm opacity-60"
+            }
           >
             <div className="flex flex-col items-center text-center h-full">
-              <div className="flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 text-primary mb-4 group-hover:bg-primary/20 transition-colors">
-                <FileText className="h-8 w-8" />
+              <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+                <FileText className="h-6 w-6" />
               </div>
-              <h3 className="text-xl font-semibold mb-2">Add Report</h3>
-              <p className="text-muted-foreground text-sm">
-                Start a new daily report to log your activities and updates
-              </p>
+              <h3 className="text-base font-semibold">New Report</h3>
+              {!canCreateNewReport && (
+                <p className="text-muted-foreground text-sm">
+                  Start a new daily report to log your activities and updates
+                </p>
+              )}
+              {!canCreateNewReport && newReportDisabledReason && (
+                <p className="mt-2 text-xs text-muted-foreground">
+                  {newReportDisabledReason}
+                </p>
+              )}
             </div>
           </div>
           
-          <div 
-            onClick={onViewReports}
-            className="group cursor-pointer rounded-xl border border-border bg-card p-6 shadow-sm transition-all hover:shadow-md hover:border-primary/20 hover:bg-card/80"
-          >
-            <div className="flex flex-col items-center text-center h-full">
-              <div className="flex items-center justify-center w-16 h-16 rounded-full bg-primary/10 text-primary mb-4 group-hover:bg-primary/20 transition-colors">
-                <History className="h-8 w-8" />
+          {hasSubmittedReports && (
+            <div 
+              onClick={onViewReports}
+              className="group cursor-pointer rounded-xl border border-border bg-card p-5 shadow-sm transition-colors hover:bg-accent"
+            >
+              <div className="flex flex-col items-center text-center h-full">
+                <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+                  <History className="h-6 w-6" />
+                </div>
+                <h3 className="text-base font-semibold">View Reports</h3>
+                <p className="text-muted-foreground text-sm">
+                  Browse and search through your previously submitted reports
+                </p>
               </div>
-              <h3 className="text-xl font-semibold mb-2">View Reports</h3>
-              <p className="text-muted-foreground text-sm">
-                Browse and search through your previously submitted reports
-              </p>
             </div>
-          </div>
+          )}
         </div>
 
         {/* Optional description */}
-        <div className="pt-8 space-y-2">
-          <div className="flex items-center justify-center gap-4 text-sm text-muted-foreground">
-            <div className="flex items-center gap-2">
-              <div className="h-2 w-2 rounded-full bg-primary" />
-              <span>Track daily activities</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="h-2 w-2 rounded-full bg-primary" />
-              <span>Monitor progress</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="h-2 w-2 rounded-full bg-primary" />
-              <span>Review history</span>
-            </div>
-          </div>
+        <div className="pt-2 text-center text-sm text-muted-foreground">
+          Track daily activities. Monitor progress. Review history.
         </div>
       </div>
     </div>

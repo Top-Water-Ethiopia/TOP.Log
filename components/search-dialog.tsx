@@ -18,10 +18,12 @@ import { Badge } from "@/components/ui/badge"
 
 interface SearchDialogProps {
   onSelectEntry?: (date: string) => void
+  entries?: CaptainLogEntry[]
 }
 
-export function SearchDialog({ onSelectEntry }: SearchDialogProps) {
-  const { entries } = useCaptainLog()
+export function SearchDialog({ onSelectEntry, entries: entriesProp }: SearchDialogProps) {
+  const { entries: contextEntries } = useCaptainLog()
+  const entries = entriesProp ?? contextEntries
   const [isOpen, setIsOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
 

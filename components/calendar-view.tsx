@@ -3,16 +3,18 @@
 import { useState, useMemo } from "react"
 import { ChevronLeft, ChevronRight } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { useCaptainLog } from "@/contexts/supabase-log-context"
+import { useCaptainLog, type CaptainLogEntry } from "@/contexts/supabase-log-context"
 import { isDateInAllowedRange } from "@/lib/date-restrictions"
 
 interface CalendarViewProps {
   selectedDate: string
   onDateSelect: (date: string) => void
+  entries?: CaptainLogEntry[]
 }
 
-export function CalendarView({ selectedDate, onDateSelect }: CalendarViewProps) {
-  const { entries } = useCaptainLog()
+export function CalendarView({ selectedDate, onDateSelect, entries: entriesProp }: CalendarViewProps) {
+  const { entries: contextEntries } = useCaptainLog()
+  const entries = entriesProp ?? contextEntries
   const [currentMonth, setCurrentMonth] = useState(new Date())
 
   // Create a set of dates with entries for quick lookup

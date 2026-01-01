@@ -11,17 +11,21 @@ import { canUpdateEntryForDate } from "@/lib/date-restrictions"
 
 interface EntryDetailsProps {
   date: string
+  departmentId: string
   onEdit: () => void
   onBack: () => void
   onViewEntry?: (date: string) => void
 }
 
-export function EntryDetails({ date, onEdit, onBack }: EntryDetailsProps) {
+export function EntryDetails({ date, departmentId, onEdit, onBack }: EntryDetailsProps) {
   const { deleteEntry, entries } = useCaptainLog()
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
 
   // Use useMemo to avoid re-creating on every render and prevent audit log spam
-  const currentEntry = useMemo(() => entries.find(entry => entry.date === date), [entries, date])
+  const currentEntry = useMemo(
+    () => entries.find(entry => entry.date === date && entry.department_id === departmentId),
+    [entries, date, departmentId],
+  )
 
   const formatCustomResponseValue = (response: QuestionResponse) => {
     const questionType = response.questionType ?? "text"
