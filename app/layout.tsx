@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { Analytics } from '@vercel/analytics/next'
 import { Toaster } from 'sonner'
+import { Toaster as ShadcnToaster } from '@/components/ui/toaster'
 import { AppWrapper } from '@/components/app-wrapper'
 import './globals.css'
 
@@ -38,6 +39,7 @@ export default function RootLayout({
       <body className={`${inter.className} ${ibmPlexMono.variable} antialiased`}>
         <AppWrapper>
           {children}
+          <ShadcnToaster />
           <Toaster position="bottom-right" richColors />
           <Analytics />
         </AppWrapper>

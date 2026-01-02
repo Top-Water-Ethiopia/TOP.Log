@@ -2771,7 +2771,7 @@ export function RoleQuestionsManager({ externalSearchQuery, refreshKey }: RoleQu
                   paginatedQuestions.map((question) => (
                     <TableRow 
                       key={question.id}
-                      className="hover:bg-muted/50 transition-colors"
+                      className={`hover:bg-muted/50 transition-colors ${!question.is_active ? "opacity-70" : ""}`}
                     >
                       <TableCell>
                         <Checkbox
@@ -2784,7 +2784,7 @@ export function RoleQuestionsManager({ externalSearchQuery, refreshKey }: RoleQu
                     </TableCell>
                       <TableCell>
                         <div className="space-y-1">
-                          <div className="font-medium">{question.question_label}</div>
+                          <div className={`font-medium ${!question.is_active ? "line-through" : ""}`}>{question.question_label}</div>
                           <div className="text-xs text-muted-foreground font-mono">
                             {question.question_key}
                           </div>

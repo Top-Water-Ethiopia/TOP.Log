@@ -39,7 +39,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { Plus, Pencil, Trash2, Users, Briefcase, UserPlus, X as XIcon } from "lucide-react"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { Minus, Plus, Pencil, Trash2, Users, Briefcase, UserPlus, X as XIcon } from "lucide-react"
 
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
 const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
@@ -222,9 +223,7 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
   useEffect(() => {
     if (!user || !isAdmin) return
     if (!departmentId) return
-    loadRoles()
-    loadAssignments()
-    loadDepartmentName()
+    void Promise.all([loadRoles(), loadAssignments(), loadDepartmentName()])
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, isAdmin, departmentId])
 
@@ -646,7 +645,7 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
             ) : (
               <div className="space-y-2">
                 {sortedRoles.map((r) => (
-                  <div key={r.id} className="flex items-center justify-between rounded-md border p-3">
+                  <div key={r.id} className="flex items-center justify-between rounded-md border px-3 py-2">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <div className="font-medium truncate">{r.name}</div>
@@ -655,16 +654,21 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
                       <div className="text-sm text-muted-foreground truncate">{r.description || "-"}</div>
                     </div>
                     <div className="flex items-center gap-1">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="gap-1.5 text-xs h-8"
-                        onClick={() => setRoleToViewMembers(r)}
-                        disabled={assignmentsLoading}
-                      >
-                        <Users className="h-3.5 w-3.5" />
-                        <span>View members</span>
-                      </Button>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8"
+                            aria-label="Show members"
+                            onClick={() => setRoleToViewMembers(r)}
+                            disabled={assignmentsLoading}
+                          >
+                            <Users className="h-3.5 w-3.5" />
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent sideOffset={6}>Show members</TooltipContent>
+                      </Tooltip>
                       <Button 
                         variant="outline" 
                         size="sm" 
@@ -853,12 +857,49 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
 
             <div className="space-y-2">
               <Label htmlFor="profession_role_level">Level</Label>
-              <Input
-                id="profession_role_level"
-                value={roleForm.level}
-                onChange={(e) => setRoleForm((p) => ({ ...p, level: e.target.value }))}
-                placeholder="Optional numeric priority (smaller = higher priority)"
-              />
+              <div className="text-xs text-muted-foreground">Defines the hierarchy weight of this role</div>
+              <div className="flex items-center gap-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="h-9 w-9"
+                  aria-label="Decrease level"
+                  onClick={() => {
+                    const current = Number.parseInt(roleForm.level || "0", 10)
+                    const safe = Number.isFinite(current) ? current : 0
+                    const next = Math.max(0, safe - 1)
+                    setRoleForm((p) => ({ ...p, level: String(next) }))
+                  }}
+                >
+                  <Minus className="h-4 w-4" />
+                </Button>
+                <Input
+                  id="profession_role_level"
+                  type="number"
+                  inputMode="numeric"
+                  min={0}
+                  step={1}
+                  value={roleForm.level}
+                  onChange={(e) => setRoleForm((p) => ({ ...p, level: e.target.value }))}
+                  placeholder="Optional"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="h-9 w-9"
+                  aria-label="Increase level"
+                  onClick={() => {
+                    const current = Number.parseInt(roleForm.level || "0", 10)
+                    const safe = Number.isFinite(current) ? current : 0
+                    const next = safe + 1
+                    setRoleForm((p) => ({ ...p, level: String(next) }))
+                  }}
+                >
+                  <Plus className="h-4 w-4" />
+                </Button>
+              </div>
               {roleFormErrors.level && <div className="text-sm text-destructive">{roleFormErrors.level}</div>}
             </div>
           </div>
@@ -868,7 +909,7 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
               Cancel
             </Button>
             <Button onClick={saveRole} disabled={roleSaving}>
-              Save
+              {editingRole ? "Update role" : "Add role"}
             </Button>
           </DialogFooter>
         </DialogContent>

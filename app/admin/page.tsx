@@ -9,6 +9,12 @@ import { Button } from "@/components/ui/button"
 import { Icons } from "@/components/icons"
 import { Users, Shield, Settings, Activity, Database, Clock, FileText, RefreshCw, Building2 } from "lucide-react"
 import { getAdminStats } from "@/lib/admin-stats"
+import {
+  Breadcrumb,
+  BreadcrumbItem,
+  BreadcrumbList,
+  BreadcrumbPage,
+} from "@/components/ui/breadcrumb"
 
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
 const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
@@ -160,6 +166,13 @@ export default function AdminPage() {
     <div className="py-6">
       <div className="mb-8 flex items-center justify-between">
         <div>
+          <Breadcrumb>
+            <BreadcrumbList>
+              <BreadcrumbItem>
+                <BreadcrumbPage>Overview</BreadcrumbPage>
+              </BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
           <h1 className="text-3xl font-bold tracking-tight">Admin Dashboard</h1>
           <p className="text-muted-foreground mt-1">Overview of your application's performance and quick actions</p>
         </div>

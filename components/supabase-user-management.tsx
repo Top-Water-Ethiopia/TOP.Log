@@ -115,6 +115,7 @@ export function SupabaseUserManagement() {
   const { user: currentUser, profile: currentProfile } = useSupabaseAuth();
   const [users, setUsers] = useState<UserWithProfile[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
+  const [userDepartmentsByUserId, setUserDepartmentsByUserId] = useState<Record<string, string[]>>({});
   const [roles, setRoles] = useState<Role[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
@@ -192,6 +193,21 @@ export function SupabaseUserManagement() {
     }
   };
 
+  const loadUserDepartmentMemberships = async () => {
+    try {
+      const response = await fetch('/api/admin/users/memberships');
+      const result = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(result.message || result.error || `HTTP ${response.status}`);
+      }
+
+      setUserDepartmentsByUserId((result.data || {}) as Record<string, string[]>);
+    } catch (error: any) {
+      console.error("Failed to load user department memberships:", error);
+      setUserDepartmentsByUserId({});
+    }
+  }
+
   // Load all users
   const loadUsers = async () => {
     setIsLoading(true);
@@ -244,9 +260,20 @@ export function SupabaseUserManagement() {
     if (isAdmin) {
       loadDepartments();
       loadRoles();
+      loadUserDepartmentMemberships();
       loadUsers();
     }
   }, [isAdmin]);
+
+  const departmentNameById = (departmentId: string) => {
+    return departments.find((d) => d.id === departmentId)?.name || departmentId
+  }
+
+  const getUserDepartmentNames = (userId: string, profileDepartmentId?: string | null) => {
+    const fromMemberships = userDepartmentsByUserId[userId] || []
+    const ids = profileDepartmentId ? Array.from(new Set([profileDepartmentId, ...fromMemberships])) : fromMemberships
+    return ids.map(departmentNameById).filter(Boolean)
+  }
 
   const editSystemRoles = (() => {
     const order = ["super-admin", "admin", SYSTEM_ADMIN_ROLE_NAME, "user"]
@@ -303,10 +330,11 @@ export function SupabaseUserManagement() {
 
   // Filter users
   const filteredUsers = users.filter(user => {
+    const departmentNames = getUserDepartmentNames(user.id, user.profile?.department_id)
     const matchesSearch = 
       user.profile?.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
       user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (user.profile?.department_id && departments.find(d => d.id === user.profile?.department_id)?.name.toLowerCase().includes(searchTerm.toLowerCase()));
+      (departmentNames.length > 0 && departmentNames.join(" ").toLowerCase().includes(searchTerm.toLowerCase()));
     
     const matchesRole = roleFilter === "all" || user.profile?.role_id === roleFilter;
     const matchesStatus = statusFilter === "all" || 
@@ -874,9 +902,11 @@ export function SupabaseUserManagement() {
                           </div>
                         </TableCell>
                         <TableCell>
-                          {user.profile?.department_id ? (
-                            departments.find(d => d.id === user.profile?.department_id)?.name || "-"
-                          ) : "-"}
+                          {(() => {
+                            const names = getUserDepartmentNames(user.id, user.profile?.department_id)
+                            if (names.length === 0) return "-"
+                            return names.join(", ")
+                          })()}
                         </TableCell>
                         <TableCell>
                           <Badge variant={getRoleBadgeVariant(user.profile?.role_name || "user")}>

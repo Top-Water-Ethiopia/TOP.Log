@@ -27,7 +27,7 @@ export default function AdminDepartmentProfessionsPage() {
       return
     }
 
-    router.replace(`/admin/departments/${departmentId}/members?tab=professions`)
+    router.replace(`/admin/departments/${departmentId}?tab=roles`)
   }, [user, isAdmin, isLoading, router, departmentId])
 
   if (isLoading || !user || !profile) {

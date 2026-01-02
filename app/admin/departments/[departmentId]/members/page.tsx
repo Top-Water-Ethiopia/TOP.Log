@@ -1,7 +1,7 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
-import { useParams, useRouter, useSearchParams } from "next/navigation"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { useParams, usePathname, useRouter } from "next/navigation"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -9,10 +9,17 @@ import { Input } from "@/components/ui/input"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
-import { DepartmentProfessionsManager } from "@/components/department-professions-manager"
 import { useToast } from "@/components/ui/use-toast"
 import { ToastAction } from "@/components/ui/toast"
-import { Briefcase, Pencil, Trash2, Users, X as XIcon } from "lucide-react"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { ChevronDown, Pencil, Trash2, X as XIcon } from "lucide-react"
 import {
   Dialog,
   DialogContent,
@@ -59,20 +66,15 @@ type SearchUser = {
   name: string | null
 }
 
-type Department = {
-  id: string
-  name: string
-}
-
- type ProfessionRoleRow = {
+type ProfessionRoleRow = {
   id: string
   name: string
   description: string | null
   department_id: string | null
   level?: number
- }
+}
 
- type ProfessionAssignmentRow = {
+type ProfessionAssignmentRow = {
   id: string
   user_id: string
   department_id: string
@@ -108,12 +110,9 @@ export default function AdminDepartmentMembersPage() {
   const { user, profile, isLoading } = useSupabaseAuth()
   const router = useRouter()
   const params = useParams<{ departmentId: string }>()
-  const searchParams = useSearchParams()
+  const pathname = usePathname()
   const departmentId = params.departmentId
   const { toast } = useToast()
-
-  const initialTab = searchParams.get("tab") === "professions" ? "professions" : "members"
-  const [tab, setTab] = useState<"members" | "professions">(initialTab)
 
   const isSuperAdmin = profile?.role_id === SUPER_ADMIN_ROLE_ID
   const isAdmin =
@@ -121,8 +120,6 @@ export default function AdminDepartmentMembersPage() {
 
   const [loading, setLoading] = useState(true)
   const [memberships, setMemberships] = useState<MembershipRow[]>([])
-
-  const [departmentName, setDepartmentName] = useState<string | null>(null)
 
   const [professionRolesLoading, setProfessionRolesLoading] = useState(true)
   const [professionRoles, setProfessionRoles] = useState<ProfessionRoleRow[]>([])
@@ -132,6 +129,7 @@ export default function AdminDepartmentMembersPage() {
   const [userQuery, setUserQuery] = useState("")
   const [searchLoading, setSearchLoading] = useState(false)
   const [searchResults, setSearchResults] = useState<SearchUser[]>([])
+  const [selectedUser, setSelectedUser] = useState<SearchUser | null>(null)
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null)
   const [selectedRole, setSelectedRole] = useState<DeptRole>("contributor")
   const [selectedActive, setSelectedActive] = useState(true)
@@ -184,9 +182,14 @@ export default function AdminDepartmentMembersPage() {
   }, [user, isAdmin, isLoading, router])
 
   useEffect(() => {
-    const nextTab = searchParams.get("tab") === "professions" ? "professions" : "members"
-    setTab(nextTab)
-  }, [searchParams])
+    if (isLoading) return
+    if (!user || !isAdmin) return
+    if (!departmentId) return
+
+    if (pathname.endsWith(`/admin/departments/${departmentId}/members`)) {
+      router.replace(`/admin/departments/${departmentId}?tab=members`)
+    }
+  }, [pathname, isLoading, user, isAdmin, router, departmentId])
 
   const loadMemberships = async () => {
     try {
@@ -203,24 +206,6 @@ export default function AdminDepartmentMembersPage() {
       })
     } finally {
       setLoading(false)
-    }
-  }
-
-  const loadDepartmentName = async () => {
-    try {
-      const res = await fetch("/api/admin/departments")
-      const json = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(json.message || json.error || `HTTP ${res.status}`)
-
-      const depts = (json.data || []) as Department[]
-      const dept = depts.find((d) => d.id === departmentId)
-      setDepartmentName(dept?.name || null)
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error?.message || "Failed to load department",
-        variant: "destructive",
-      })
     }
   }
 
@@ -328,10 +313,7 @@ export default function AdminDepartmentMembersPage() {
   useEffect(() => {
     if (!user || !isAdmin) return
     if (!departmentId) return
-    loadMemberships()
-    loadDepartmentName()
-    loadProfessionRoles()
-    loadProfessionAssignments()
+    void Promise.all([loadMemberships(), loadProfessionRoles(), loadProfessionAssignments()])
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, isAdmin, departmentId])
 
@@ -355,33 +337,68 @@ export default function AdminDepartmentMembersPage() {
     setShowAssignDialog(true)
     setUserQuery("")
     setSearchResults([])
+    setSelectedUser(null)
     setSelectedUserId(null)
     setSelectedRole("contributor")
     setSelectedActive(true)
-    setSelectedProfessionRoleId(professionRoles[0]?.id || PROFESSION_ROLE_NONE)
+    setSelectedProfessionRoleId(PROFESSION_ROLE_NONE)
     setSelectedProfessionActive(true)
   }
 
-  const runUserSearch = async () => {
-    const q = userQuery.trim()
+  const userSearchAbortRef = useRef<AbortController | null>(null)
+  const userSearchRequestIdRef = useRef(0)
+
+  const runUserSearch = async (query: string) => {
+    const q = query.trim()
     if (!q) return
+
+    userSearchAbortRef.current?.abort()
+    const controller = new AbortController()
+    userSearchAbortRef.current = controller
+    const requestId = ++userSearchRequestIdRef.current
 
     try {
       setSearchLoading(true)
-      const res = await fetch(`/api/admin/users/search?query=${encodeURIComponent(q)}`)
+      const res = await fetch(`/api/admin/users/search?query=${encodeURIComponent(q)}`, {
+        signal: controller.signal,
+      })
       const json = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(json.message || json.error || `HTTP ${res.status}`)
+
+      if (requestId !== userSearchRequestIdRef.current) return
       setSearchResults((json.data || []) as SearchUser[])
     } catch (error: any) {
+      if (controller.signal.aborted) return
       toast({
         title: "Error",
         description: error?.message || "Failed to search users",
         variant: "destructive",
       })
     } finally {
-      setSearchLoading(false)
+      if (requestId === userSearchRequestIdRef.current) {
+        setSearchLoading(false)
+      }
     }
   }
+
+  useEffect(() => {
+    if (!showAssignDialog) return
+    const q = userQuery.trim()
+
+    if (!q) {
+      userSearchAbortRef.current?.abort()
+      setSearchLoading(false)
+      setSearchResults([])
+      return
+    }
+
+    const handle = setTimeout(() => {
+      runUserSearch(q)
+    }, 300)
+
+    return () => clearTimeout(handle)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userQuery, showAssignDialog])
 
   const saveMembership = async () => {
     if (!selectedUserId) {
@@ -393,7 +410,73 @@ export default function AdminDepartmentMembersPage() {
       return
     }
 
+    const prevMemberships = memberships
+    const prevProfessionAssignments = professionAssignments
+
     try {
+      const nowIso = new Date().toISOString()
+      const existingMembership = memberships.find((m) => m.user_id === selectedUserId)
+
+      const optimisticMembership: MembershipRow = existingMembership
+        ? {
+            ...existingMembership,
+            role: selectedRole,
+            is_active: selectedActive,
+            updated_at: nowIso,
+          }
+        : {
+            id: `temp-${selectedUserId}`,
+            user_id: selectedUserId,
+            department_id: departmentId,
+            role: selectedRole,
+            is_active: selectedActive,
+            created_at: nowIso,
+            updated_at: nowIso,
+            user: {
+              user_id: selectedUserId,
+              email: selectedUser?.email || null,
+              name: selectedUser?.name || null,
+            },
+          }
+
+      setMemberships((prev) => {
+        const without = prev.filter((m) => m.user_id !== selectedUserId)
+        return [optimisticMembership, ...without]
+      })
+
+      const effectiveProfessionRoleId =
+        selectedProfessionRoleId !== PROFESSION_ROLE_NONE && !professionRolesById.has(selectedProfessionRoleId)
+          ? PROFESSION_ROLE_NONE
+          : selectedProfessionRoleId
+
+      setProfessionAssignments((prev) => {
+        if (effectiveProfessionRoleId === PROFESSION_ROLE_NONE) {
+          return prev.filter((a) => a.user_id !== selectedUserId)
+        }
+
+        const existing = prev.find((a) => a.user_id === selectedUserId)
+        const optimistic: ProfessionAssignmentRow = existing
+          ? {
+              ...existing,
+              role_id: effectiveProfessionRoleId,
+              is_active: selectedProfessionActive,
+              updated_at: nowIso,
+            }
+          : {
+              id: `temp-pa-${selectedUserId}`,
+              user_id: selectedUserId,
+              department_id: departmentId,
+              role_id: effectiveProfessionRoleId,
+              is_active: selectedProfessionActive,
+              created_at: nowIso,
+              updated_at: nowIso,
+              role: professionRolesById.get(effectiveProfessionRoleId) || null,
+            }
+
+        const without = prev.filter((a) => a.user_id !== selectedUserId)
+        return [optimistic, ...without]
+      })
+
       setSaving(true)
       const res = await fetch(`/api/admin/departments/${departmentId}/memberships`, {
         method: "POST",
@@ -407,10 +490,26 @@ export default function AdminDepartmentMembersPage() {
       const json = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(json.message || json.error || `HTTP ${res.status}`)
 
-      const effectiveProfessionRoleId =
-        selectedProfessionRoleId !== PROFESSION_ROLE_NONE && !professionRolesById.has(selectedProfessionRoleId)
-          ? PROFESSION_ROLE_NONE
-          : selectedProfessionRoleId
+      const savedMembership = json?.data as
+        | { id: string; user_id: string; department_id: string; role: string; is_active: boolean; created_at: string; updated_at: string }
+        | undefined
+
+      if (savedMembership?.id) {
+        setMemberships((prev) =>
+          prev.map((m) =>
+            m.user_id === selectedUserId
+              ? {
+                  ...m,
+                  id: savedMembership.id,
+                  role: savedMembership.role,
+                  is_active: savedMembership.is_active,
+                  created_at: savedMembership.created_at,
+                  updated_at: savedMembership.updated_at,
+                }
+              : m,
+          ),
+        )
+      }
 
       if (effectiveProfessionRoleId === PROFESSION_ROLE_NONE) {
         const delRes = await fetch(
@@ -438,6 +537,8 @@ export default function AdminDepartmentMembersPage() {
       await loadMemberships()
       await loadProfessionAssignments()
     } catch (error: any) {
+      setMemberships(prevMemberships)
+      setProfessionAssignments(prevProfessionAssignments)
       toast({
         title: "Error",
         description: error?.message || "Failed to save membership",
@@ -486,120 +587,121 @@ export default function AdminDepartmentMembersPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-3 rounded-xl border bg-background p-5 shadow-sm sm:flex-row sm:items-start sm:justify-between sm:p-6">
-        <div className="space-y-1">
-          <h1 className="text-3xl font-bold tracking-tight">
-            {departmentName ? departmentName : "Department"}
-          </h1>
-          <p className="text-muted-foreground mt-1">Manage members and profession roles for this department.</p>
-        </div>
-        <div className="flex gap-2">
-          <Button
-            variant={tab === "members" ? "default" : "outline"}
-            onClick={() => {
-              setTab("members")
-              router.replace(`/admin/departments/${departmentId}/members`)
-            }}
-          >
-            <Users className="mr-2 h-4 w-4" />
-            Members
-          </Button>
-          <Button
-            variant={tab === "professions" ? "default" : "outline"}
-            onClick={() => {
-              setTab("professions")
-              router.replace(`/admin/departments/${departmentId}/members?tab=professions`)
-            }}
-          >
-            <Briefcase className="mr-2 h-4 w-4" />
-            Profession roles
-          </Button>
-        </div>
+      <div className="flex items-center justify-end gap-4">
+        <Button onClick={openAssign}>Assign user</Button>
       </div>
 
-      <div className="flex items-center justify-between gap-4">
-        <Button variant="outline" onClick={() => router.push("/admin/departments")}>Back</Button>
-        {tab === "members" && <Button onClick={openAssign}>Assign user</Button>}
-      </div>
-
-      {tab === "members" ? (
-        <Card>
-          <CardHeader>
-            <CardTitle>Members</CardTitle>
-            <CardDescription>Active and inactive assignments for this department.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <div className="space-y-3">
-                {[...Array(6)].map((_, i) => (
-                  <Skeleton key={i} className="h-10 w-full bg-gray-200/60 dark:bg-gray-800" />
-                ))}
-              </div>
-            ) : sorted.length === 0 ? (
-              <div className="text-sm text-muted-foreground">No members yet.</div>
-            ) : (
-              <div className="space-y-2">
-                {sorted.map((m) => (
-                  <div key={m.id} className="flex items-center justify-between rounded-md border p-3">
-                    <div className="min-w-0">
-                      <div className="font-medium truncate">{m.user?.name || "Unknown"}</div>
-                      <div className="text-sm text-muted-foreground truncate">{m.user?.email || m.user_id}</div>
+      <Card>
+        <CardHeader>
+          <CardTitle>Members</CardTitle>
+          <CardDescription>Active and inactive assignments for this department.</CardDescription>
+        </CardHeader>
+        <CardContent>
+          {loading ? (
+            <div className="space-y-3">
+              {[...Array(6)].map((_, i) => (
+                <Skeleton key={i} className="h-10 w-full bg-gray-200/60 dark:bg-gray-800" />
+              ))}
+            </div>
+          ) : sorted.length === 0 ? (
+            <div className="text-sm text-muted-foreground">No members yet.</div>
+          ) : (
+            <div className="space-y-2">
+              {sorted.map((m) => (
+                <div
+                  key={m.id}
+                  className={`flex items-center justify-between rounded-md border p-3 ${
+                    !m.is_active ? "opacity-70 bg-muted/30" : ""
+                  }`}
+                >
+                  <div className="min-w-0">
+                    <div className={`font-medium truncate ${!m.is_active ? "line-through" : ""}`}>
+                      {m.user?.name || "Unknown"}
                     </div>
-                    <div className="flex items-center gap-2">
-                      {(() => {
-                        const prof = professionAssignmentByUserId.get(m.user_id)
-                        const profRoleName =
-                          prof?.role?.name || (prof?.role_id ? professionRolesById.get(prof.role_id)?.name : null) || null
-                        const profLabel = profRoleName ? profRoleName : "unassigned"
-                        const profSuffix = prof && !prof.is_active ? " (inactive)" : ""
-                        return (
-                          <>
-                            <Badge variant={m.is_active ? "secondary" : "outline"}>{m.role}</Badge>
-                            <Badge variant={prof?.is_active ? "secondary" : "outline"}>{`${profLabel}${profSuffix}`}</Badge>
-                          </>
-                        )
-                      })()}
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        aria-label="Edit membership"
-                        onClick={() => {
-                          setShowAssignDialog(true)
-                          setSelectedUserId(m.user_id)
-                          setSelectedRole(m.role as DeptRole)
-                          setSelectedActive(m.is_active)
-                          const prof = professionAssignmentByUserId.get(m.user_id)
-                          const nextProfessionRoleId =
-                            prof?.role_id && professionRolesById.has(prof.role_id)
-                              ? prof.role_id
-                              : professionRoles[0]?.id || PROFESSION_ROLE_NONE
-                          setSelectedProfessionRoleId(nextProfessionRoleId)
-                          setSelectedProfessionActive(prof?.is_active ?? true)
-                          setUserQuery(m.user?.email || m.user?.name || "")
-                          setSearchResults([])
-                        }}
-                      >
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        disabled={!!removingUserId && removingUserId === m.user_id}
-                        aria-label="Remove member"
-                        onClick={() => confirmRemoveMember(m)}
-                      >
-                        <Trash2 className="h-4 w-4 text-destructive" />
-                      </Button>
-                    </div>
+                    <div className="text-sm text-muted-foreground truncate">{m.user?.email || m.user_id}</div>
                   </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      ) : (
-        <DepartmentProfessionsManager departmentId={departmentId} embedded defaultTab="roles" />
-      )}
+                  <div className="flex items-center gap-2">
+                    {(() => {
+                      const prof = professionAssignmentByUserId.get(m.user_id)
+                      const profRoleName =
+                        prof?.role?.name || (prof?.role_id ? professionRolesById.get(prof.role_id)?.name : null) || null
+                      const profLabel = profRoleName ? profRoleName : "unassigned"
+                      const profSuffix = prof && !prof.is_active ? " (inactive)" : ""
+                      return (
+                        <>
+                          <Badge variant={m.is_active ? "secondary" : "outline"}>{m.role}</Badge>
+                          {!m.is_active && (
+                            <Badge variant="outline" className="border-dashed">
+                              Inactive
+                            </Badge>
+                          )}
+                          <Badge variant={prof?.is_active ? "secondary" : "outline"}>{`${profLabel}${profSuffix}`}</Badge>
+                        </>
+                      )
+                    })()}
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="gap-2"
+                          disabled={!!removingUserId && removingUserId === m.user_id}
+                        >
+                          Manage
+                          <ChevronDown className="h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuLabel>{m.user?.name || m.user?.email || "Member"}</DropdownMenuLabel>
+                        <DropdownMenuSeparator />
+                        <DropdownMenuItem
+                          onClick={() => {
+                            setShowAssignDialog(true)
+                            setSelectedUserId(m.user_id)
+                            setSelectedRole(m.role as DeptRole)
+                            setSelectedActive(m.is_active)
+                            const prof = professionAssignmentByUserId.get(m.user_id)
+                            const nextProfessionRoleId =
+                              prof?.role_id && professionRolesById.has(prof.role_id)
+                                ? prof.role_id
+                                : professionRoles[0]?.id || PROFESSION_ROLE_NONE
+                            setSelectedProfessionRoleId(nextProfessionRoleId)
+                            setSelectedProfessionActive(prof?.is_active ?? true)
+                            setUserQuery(m.user?.email || m.user?.name || "")
+                            setSearchResults([])
+                          }}
+                        >
+                          <Pencil className="mr-2 h-4 w-4" />
+                          Edit
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => confirmRemoveMember(m)} className="text-destructive">
+                          <Trash2 className="mr-2 h-4 w-4" />
+                          Remove
+                        </DropdownMenuItem>
+                        {isSuperAdmin && (
+                          <>
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem
+                              onClick={() => {
+                                setMemberToHardDelete(m)
+                                setHardDeleteConfirmText("")
+                              }}
+                              className="text-destructive"
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              Permanently delete
+                            </DropdownMenuItem>
+                          </>
+                        )}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Dialog open={showAssignDialog} onOpenChange={setShowAssignDialog}>
         <DialogContent>
@@ -616,12 +718,6 @@ export default function AdminDepartmentMembersPage() {
                   <Input
                     value={userQuery}
                     onChange={(e) => setUserQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault()
-                        runUserSearch()
-                      }
-                    }}
                     placeholder="Search by email, name, or username"
                     className={userQuery ? "pr-8" : undefined}
                   />
@@ -631,6 +727,7 @@ export default function AdminDepartmentMembersPage() {
                       onClick={() => {
                         setUserQuery("")
                         setSelectedUserId(null)
+                        setSelectedUser(null)
                         setSearchResults([])
                       }}
                       className="absolute inset-y-0 right-2 my-auto flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground hover:text-foreground focus:outline-none"
@@ -640,10 +737,11 @@ export default function AdminDepartmentMembersPage() {
                     </button>
                   )}
                 </div>
-                <Button variant="outline" onClick={runUserSearch} disabled={searchLoading}>
-                  Search
-                </Button>
               </div>
+
+              {searchLoading && userQuery.trim() && (
+                <div className="text-xs text-muted-foreground">Searching...</div>
+              )}
 
               {searchResults.length > 0 && (
                 <div className="max-h-48 overflow-auto rounded-md border">
@@ -654,7 +752,10 @@ export default function AdminDepartmentMembersPage() {
                       className={`w-full text-left px-3 py-2 text-sm hover:bg-muted ${
                         selectedUserId === u.user_id ? "bg-muted" : ""
                       }`}
-                      onClick={() => setSelectedUserId(u.user_id)}
+                      onClick={() => {
+                        setSelectedUserId(u.user_id)
+                        setSelectedUser(u)
+                      }}
                     >
                       <div className="font-medium">{u.name || "Unknown"}</div>
                       <div className="text-muted-foreground">{u.email || u.user_id}</div>

@@ -8,7 +8,14 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
 import {
   Dialog,
   DialogContent,
@@ -31,7 +38,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/components/ui/use-toast"
 import { toast as sonnerToast } from "sonner"
-import { Plus, Pencil, Trash2, Loader2, Users, Briefcase } from "lucide-react"
+import { ChevronDown, Plus, Pencil, Trash2, Loader2, Users, Briefcase } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
 import { Skeleton } from "@/components/ui/skeleton"
 
@@ -254,7 +261,7 @@ export function DepartmentManager() {
               "Cannot delete department. It has roles assigned. Please remove all roles first.",
             action: {
               label: "Manage roles",
-              onClick: () => router.push(`/admin/departments/${departmentToDelete.id}/members?tab=professions`),
+              onClick: () => router.push(`/admin/departments/${departmentToDelete.id}?tab=roles`),
             },
           })
 
@@ -390,50 +397,43 @@ export function DepartmentManager() {
                     </Badge>
                   </TableCell>
                   <TableCell className="text-right">
-                    <div className="flex justify-end gap-2">
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button variant="ghost" size="sm" asChild>
-                            <Link href={`/admin/departments/${department.id}/members`}>
-                              <Users className="h-4 w-4" />
-                              <span className="sr-only">Manage members</span>
+                    <div className="flex justify-end">
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="outline" size="sm" className="gap-2">
+                            Manage
+                            <ChevronDown className="h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end">
+                          <DropdownMenuLabel>{department.name}</DropdownMenuLabel>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem asChild>
+                            <Link href={`/admin/departments/${department.id}?tab=members`} className="flex items-center">
+                              <Users className="mr-2 h-4 w-4" />
+                              Members
                             </Link>
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent sideOffset={6}>Manage members</TooltipContent>
-                      </Tooltip>
-
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button variant="ghost" size="sm" asChild>
-                            <Link href={`/admin/departments/${department.id}/members?tab=professions`}>
-                              <Briefcase className="h-4 w-4" />
-                              <span className="sr-only">Manage profession roles</span>
+                          </DropdownMenuItem>
+                          <DropdownMenuItem asChild>
+                            <Link
+                              href={`/admin/departments/${department.id}?tab=roles`}
+                              className="flex items-center"
+                            >
+                              <Briefcase className="mr-2 h-4 w-4" />
+                              Roles
                             </Link>
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent sideOffset={6}>Manage profession roles</TooltipContent>
-                      </Tooltip>
-
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button variant="ghost" size="sm" onClick={() => openEditDialog(department)}>
-                            <Pencil className="h-4 w-4" />
-                            <span className="sr-only">Edit department</span>
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent sideOffset={6}>Edit department</TooltipContent>
-                      </Tooltip>
-
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button variant="ghost" size="sm" onClick={() => openDeleteDialog(department)}>
-                            <Trash2 className="text-destructive h-4 w-4" />
-                            <span className="sr-only">Delete department</span>
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent sideOffset={6}>Delete department</TooltipContent>
-                      </Tooltip>
+                          </DropdownMenuItem>
+                          <DropdownMenuSeparator />
+                          <DropdownMenuItem onClick={() => openEditDialog(department)}>
+                            <Pencil className="mr-2 h-4 w-4" />
+                            Edit
+                          </DropdownMenuItem>
+                          <DropdownMenuItem onClick={() => openDeleteDialog(department)} className="text-destructive">
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Delete
+                          </DropdownMenuItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </div>
                   </TableCell>
                 </TableRow>
