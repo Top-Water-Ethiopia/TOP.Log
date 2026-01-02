@@ -13,6 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
 import { useToast } from "@/components/ui/use-toast"
 import { ToastAction } from "@/components/ui/toast"
+import { toast as sonnerToast } from "sonner"
 import {
   Dialog,
   DialogContent,
@@ -89,9 +90,11 @@ type AssignmentRow = {
 
 type Props = {
   departmentId: string
+  embedded?: boolean
+  defaultTab?: "roles" | "assignments"
 }
 
-export function DepartmentProfessionsManager({ departmentId }: Props) {
+export function DepartmentProfessionsManager({ departmentId, embedded = false, defaultTab = "roles" }: Props) {
   const { user, profile, isLoading } = useSupabaseAuth()
   const router = useRouter()
   const { toast } = useToast()
@@ -100,13 +103,14 @@ export function DepartmentProfessionsManager({ departmentId }: Props) {
   const isAdmin =
     profile?.role_id === ADMIN_ROLE_ID || profile?.role_id === SYSTEM_ADMIN_ROLE_ID || isSuperAdmin
 
-  const [tab, setTab] = useState<"roles" | "assignments">("roles")
+  const [tab, setTab] = useState<"roles" | "assignments">(defaultTab)
 
   const [rolesLoading, setRolesLoading] = useState(true)
   const [roles, setRoles] = useState<RoleRow[]>([])
 
   const [assignmentsLoading, setAssignmentsLoading] = useState(true)
   const [assignments, setAssignments] = useState<AssignmentRow[]>([])
+  const [showInactive, setShowInactive] = useState(false)
 
   const [departmentName, setDepartmentName] = useState<string | null>(null)
 
@@ -137,6 +141,8 @@ export function DepartmentProfessionsManager({ departmentId }: Props) {
   const [assignmentToRemove, setAssignmentToRemove] = useState<AssignmentRow | null>(null)
   const [assignmentToHardDelete, setAssignmentToHardDelete] = useState<AssignmentRow | null>(null)
   const [hardDeleteConfirmText, setHardDeleteConfirmText] = useState("")
+
+  const [roleToViewMembers, setRoleToViewMembers] = useState<RoleRow | null>(null)
 
   useEffect(() => {
     if (!isLoading && (!user || !isAdmin)) {
@@ -241,6 +247,16 @@ export function DepartmentProfessionsManager({ departmentId }: Props) {
     })
   }, [assignments])
 
+  const membersForViewedRole = useMemo(() => {
+    if (!roleToViewMembers) return []
+    const relevant = assignments.filter((a) => a.role_id === roleToViewMembers.id)
+    return [...relevant].sort((a, b) => {
+      const an = a.user?.name || a.user?.email || a.user_id
+      const bn = b.user?.name || b.user?.email || b.user_id
+      return an.localeCompare(bn)
+    })
+  }, [assignments, roleToViewMembers])
+
   const openCreateRole = () => {
     setEditingRole(null)
     setRoleForm({ name: "", description: "", level: "" })
@@ -319,7 +335,18 @@ export function DepartmentProfessionsManager({ departmentId }: Props) {
         { method: "DELETE" },
       )
       const json = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(json.message || json.error || `HTTP ${res.status}`)
+      if (!res.ok) {
+        if (res.status === 409) {
+          sonnerToast.error("Cannot delete role", {
+            description:
+              json?.message ||
+              json?.error ||
+              "Cannot delete role. It may have users assigned or role questions. Please remove dependencies first.",
+          })
+          return
+        }
+        throw new Error(json.message || json.error || `HTTP ${res.status}`)
+      }
 
       toast({ title: "Deleted", description: "Profession role deleted" })
       setShowDeleteRoleDialog(false)
@@ -399,7 +426,9 @@ export function DepartmentProfessionsManager({ departmentId }: Props) {
       const json = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(json.message || json.error || `HTTP ${res.status}`)
 
-      toast({ title: "Saved", description: "Profession assignment updated" })
+      sonnerToast.success("Saved", {
+        description: "Profession assignment updated",
+      })
       setShowAssignDialog(false)
       await loadAssignments()
     } catch (error: any) {
@@ -432,49 +461,55 @@ export function DepartmentProfessionsManager({ departmentId }: Props) {
       const removedUserId = assignmentToRemove.user_id
       const removedDisplayName = assignmentToRemove.user?.name || assignmentToRemove.user?.email || removedUserId
 
-      toast({
-        title: "Removed",
-        description: `${removedDisplayName} removed from profession role`,
-        action: (
-          <ToastAction
-            altText="Undo"
-            onClick={async () => {
-              try {
-                const prevRoleId = assignmentToRemove.role_id
-                const undoRes = await fetch(`/api/admin/departments/${departmentId}/profession-assignments`, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    user_id: removedUserId,
-                    role_id: prevRoleId,
-                    is_active: true,
-                  }),
-                })
-                const undoJson = await undoRes.json().catch(() => ({}))
-                if (!undoRes.ok) throw new Error(undoJson.message || undoJson.error || `HTTP ${undoRes.status}`)
-                toast({ title: "Restored", description: "Profession assignment restored" })
-                await loadAssignments()
-              } catch (e: any) {
-                toast({
-                  title: "Error",
-                  description: e?.message || "Failed to undo",
-                  variant: "destructive",
-                })
-              }
-            }}
-          >
-            Undo
-          </ToastAction>
-        ),
+      // Update the assignment's is_active status instead of removing it
+      setAssignments((prev) =>
+        prev.map((a) =>
+          a.user_id === removedUserId ? { ...a, is_active: false } : a
+        )
+      )
+
+      sonnerToast.success("Deactivated", {
+        description: `${removedDisplayName} was deactivated from this role`,
+        action: {
+          label: "Undo",
+          onClick: async () => {
+            try {
+              const prevRoleId = assignmentToRemove.role_id
+              const undoRes = await fetch(`/api/admin/departments/${departmentId}/profession-assignments`, {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  user_id: removedUserId,
+                  role_id: prevRoleId,
+                  is_active: true,
+                }),
+              })
+              const undoJson = await undoRes.json().catch(() => ({}))
+              if (!undoRes.ok) throw new Error(undoJson.message || undoJson.error || `HTTP ${undoRes.status}`)
+              
+              // Update the assignment's is_active status
+              setAssignments((prev) =>
+                prev.map((a) =>
+                  a.user_id === removedUserId ? { ...a, is_active: true } : a
+                )
+              )
+              
+              sonnerToast.success("Restored", {
+                description: `${removedDisplayName}'s access has been restored`,
+              })
+            } catch (e: any) {
+              sonnerToast.error("Error", {
+                description: e?.message || "Failed to restore assignment",
+              })
+            }
+          },
+        },
       })
 
       setAssignmentToRemove(null)
-      await loadAssignments()
     } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error?.message || "Failed to remove assignment",
-        variant: "destructive",
+      sonnerToast.error("Error", {
+        description: error?.message || "Failed to deactivate assignment",
       })
     } finally {
       setRemovingUserId(null)
@@ -493,15 +528,22 @@ export function DepartmentProfessionsManager({ departmentId }: Props) {
       const json = await res.json().catch(() => ({}))
       if (!res.ok) throw new Error(json.message || json.error || `HTTP ${res.status}`)
 
-      toast({ title: "Deleted", description: "Assignment permanently deleted" })
+      const removedUserId = assignmentToHardDelete.user_id
+      const removedDisplayName =
+        assignmentToHardDelete.user?.name || assignmentToHardDelete.user?.email || removedUserId
+
+      // Remove the assignment from the list entirely
+      setAssignments((prev) => prev.filter((a) => a.user_id !== removedUserId))
+
+      sonnerToast.success("Permanently deleted", {
+        description: `${removedDisplayName}'s assignment was permanently deleted`,
+      })
+
       setAssignmentToHardDelete(null)
       setHardDeleteConfirmText("")
-      await loadAssignments()
     } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error?.message || "Failed to permanently delete assignment",
-        variant: "destructive",
+      sonnerToast.error("Error", {
+        description: error?.message || "Failed to delete assignment",
       })
     } finally {
       setRemovingUserId(null)
@@ -546,26 +588,39 @@ export function DepartmentProfessionsManager({ departmentId }: Props) {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-3 rounded-xl border bg-background p-5 shadow-sm sm:flex-row sm:items-start sm:justify-between sm:p-6">
-        <div className="space-y-1">
-          <h1 className="text-3xl font-bold tracking-tight">
-            {departmentName ? `${departmentName} profession roles` : "Profession roles"}
-          </h1>
-          <p className="text-muted-foreground mt-1">
-            Define profession roles for this department, then assign each user to one role.
-          </p>
-        </div>
-        <div className="flex gap-2">
+      {embedded ? (
+        <div className="flex items-center justify-end gap-2">
           <Button variant={tab === "roles" ? "default" : "outline"} onClick={() => setTab("roles")}>
             <Briefcase className="mr-2 h-4 w-4" />
             Roles
           </Button>
           <Button variant={tab === "assignments" ? "default" : "outline"} onClick={() => setTab("assignments")}>
             <Users className="mr-2 h-4 w-4" />
-            Members
+            Role members
           </Button>
         </div>
-      </div>
+      ) : (
+        <div className="flex flex-col gap-3 rounded-xl border bg-background p-5 shadow-sm sm:flex-row sm:items-start sm:justify-between sm:p-6">
+          <div className="space-y-1">
+            <h1 className="text-3xl font-bold tracking-tight">
+              {departmentName ? `${departmentName} profession roles` : "Profession roles"}
+            </h1>
+            <p className="text-muted-foreground mt-1">
+              Define profession roles for this department, then assign each user to one role.
+            </p>
+          </div>
+          <div className="flex gap-2">
+            <Button variant={tab === "roles" ? "default" : "outline"} onClick={() => setTab("roles")}>
+              <Briefcase className="mr-2 h-4 w-4" />
+              Roles
+            </Button>
+            <Button variant={tab === "assignments" ? "default" : "outline"} onClick={() => setTab("assignments")}>
+              <Users className="mr-2 h-4 w-4" />
+              Members
+            </Button>
+          </div>
+        </div>
+      )}
 
       {tab === "roles" ? (
         <Card>
@@ -600,6 +655,16 @@ export function DepartmentProfessionsManager({ departmentId }: Props) {
                       <div className="text-sm text-muted-foreground truncate">{r.description || "-"}</div>
                     </div>
                     <div className="flex items-center gap-1">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="gap-1.5 text-xs h-8"
+                        onClick={() => setRoleToViewMembers(r)}
+                        disabled={assignmentsLoading}
+                      >
+                        <Users className="h-3.5 w-3.5" />
+                        <span>View members</span>
+                      </Button>
                       <Button 
                         variant="outline" 
                         size="sm" 
@@ -622,7 +687,7 @@ export function DepartmentProfessionsManager({ departmentId }: Props) {
                         variant="ghost"
                         size="icon"
                         className="h-8 w-8 text-destructive hover:text-destructive/90"
-                        onClick={() => setRoleToDelete(r)}
+                        onClick={() => confirmDeleteRole(r)}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                         <span className="sr-only">Delete</span>
@@ -659,45 +724,95 @@ export function DepartmentProfessionsManager({ departmentId }: Props) {
               <div className="text-sm text-muted-foreground">No members assigned to roles yet.</div>
             ) : (
               <div className="space-y-2">
-                {sortedAssignments.map((a) => {
-                  const role = a.role || rolesById.get(a.role_id) || null
-                  const roleName = role?.name || a.role_id
-                  return (
-                    <div key={a.id} className="flex items-center justify-between rounded-md border p-3">
-                      <div className="min-w-0">
-                        <div className="font-medium truncate">{a.user?.name || "Unknown"}</div>
-                        <div className="text-sm text-muted-foreground truncate">{a.user?.email || a.user_id}</div>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-sm text-muted-foreground">
+                    {sortedAssignments.length} assignment{sortedAssignments.length !== 1 ? 's' : ''} • {assignments.filter(a => !a.is_active).length} inactive
+                  </div>
+                  <div className="flex items-center space-x-2">
+                    <label htmlFor="show-inactive" className="text-sm font-medium text-muted-foreground">
+                      Show inactive
+                    </label>
+                    <Switch
+                      id="show-inactive"
+                      checked={showInactive}
+                      onCheckedChange={setShowInactive}
+                    />
+                  </div>
+                </div>
+                {sortedAssignments
+                  .filter(a => showInactive || a.is_active)
+                  .map((a) => {
+                    const role = a.role || rolesById.get(a.role_id) || null
+                    const roleName = role?.name || a.role_id
+                    return (
+                      <div 
+                        key={a.id} 
+                        className={`flex items-center justify-between rounded-md border p-3 ${
+                          !a.is_active ? 'opacity-70 bg-muted/30' : ''
+                        }`}
+                      >
+                        <div className="min-w-0">
+                          <div className="flex items-center gap-2">
+                            <div className="font-medium truncate">
+                              {a.user?.name || "Unknown"}
+                            </div>
+                            {!a.is_active && (
+                              <Badge variant="outline" className="border-dashed">
+                                Inactive
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="text-sm text-muted-foreground truncate">
+                            {a.user?.email || a.user_id}
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          <Badge variant={a.is_active ? "secondary" : "outline"}>
+                            {roleName}
+                          </Badge>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            aria-label="Edit assignment"
+                            onClick={() => {
+                              setShowAssignDialog(true)
+                              setSelectedUserId(a.user_id)
+                              setSelectedRoleId(a.role_id)
+                              setSelectedActive(a.is_active)
+                              setUserQuery(a.user?.email || a.user?.name || "")
+                              setSearchResults([])
+                            }}
+                          >
+                            <Pencil className="h-4 w-4" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            aria-label={a.is_active ? "Deactivate assignment" : "Delete assignment"}
+                            disabled={!!removingUserId && removingUserId === a.user_id}
+                            onClick={() => confirmRemoveAssignment(a)}
+                          >
+                            {a.is_active ? (
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            ) : (
+                              <Trash2 className="h-4 w-4 text-destructive/60" />
+                            )}
+                          </Button>
+                        </div>
                       </div>
-                      <div className="flex items-center gap-2">
-                        <Badge variant={a.is_active ? "secondary" : "outline"}>{roleName}</Badge>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          aria-label="Edit assignment"
-                          onClick={() => {
-                            setShowAssignDialog(true)
-                            setSelectedUserId(a.user_id)
-                            setSelectedRoleId(a.role_id)
-                            setSelectedActive(a.is_active)
-                            setUserQuery(a.user?.email || a.user?.name || "")
-                            setSearchResults([])
-                          }}
-                        >
-                          <Pencil className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          aria-label="Remove assignment"
-                          disabled={!!removingUserId && removingUserId === a.user_id}
-                          onClick={() => confirmRemoveAssignment(a)}
-                        >
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
-                      </div>
-                    </div>
-                  )
-                })}
+                    )
+                  })}
+                {!showInactive && assignments.some(a => !a.is_active) && (
+                  <div className="text-center text-sm text-muted-foreground pt-2">
+                    {assignments.filter(a => !a.is_active).length} inactive assignment{assignments.filter(a => !a.is_active).length !== 1 ? 's' : ''} hidden. {' '}
+                    <button 
+                      onClick={() => setShowInactive(true)}
+                      className="text-primary hover:underline"
+                    >
+                      Show all
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </CardContent>
@@ -707,9 +822,9 @@ export function DepartmentProfessionsManager({ departmentId }: Props) {
       <Dialog open={showRoleDialog} onOpenChange={setShowRoleDialog}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{editingRole ? "Edit role" : "Create role"}</DialogTitle>
+            <DialogTitle>{editingRole ? "Edit profession role" : "Create profession role"}</DialogTitle>
             <DialogDescription>
-              Role name must be lowercase with hyphens (example: `deckhand`).
+              Profession roles are department-specific and used to determine which report questions a user sees.
             </DialogDescription>
           </DialogHeader>
 
@@ -759,7 +874,52 @@ export function DepartmentProfessionsManager({ departmentId }: Props) {
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={showDeleteRoleDialog} onOpenChange={setShowDeleteRoleDialog}>
+      <Dialog open={!!roleToViewMembers} onOpenChange={(open) => !open && setRoleToViewMembers(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{roleToViewMembers ? `Members: ${roleToViewMembers.name}` : "Members"}</DialogTitle>
+            <DialogDescription>Users assigned to this profession role in this department.</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-2">
+            {assignmentsLoading ? (
+              <div className="space-y-3">
+                {[...Array(6)].map((_, i) => (
+                  <Skeleton key={i} className="h-10 w-full bg-gray-200/60 dark:bg-gray-800" />
+                ))}
+              </div>
+            ) : membersForViewedRole.length === 0 ? (
+              <div className="text-sm text-muted-foreground">No members assigned to this role.</div>
+            ) : (
+              <div className="space-y-2">
+                {membersForViewedRole.map((a) => (
+                  <div key={a.id} className="flex items-center justify-between rounded-md border p-3">
+                    <div className="min-w-0">
+                      <div className="font-medium truncate">{a.user?.name || "Unknown"}</div>
+                      <div className="text-sm text-muted-foreground truncate">{a.user?.email || a.user_id}</div>
+                    </div>
+                    <Badge variant={a.is_active ? "secondary" : "outline"}>{a.is_active ? "active" : "inactive"}</Badge>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setRoleToViewMembers(null)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog
+        open={showDeleteRoleDialog}
+        onOpenChange={(open) => {
+          setShowDeleteRoleDialog(open)
+          if (!open) setRoleToDelete(null)
+        }}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete role</AlertDialogTitle>
@@ -882,14 +1042,20 @@ export function DepartmentProfessionsManager({ departmentId }: Props) {
       <AlertDialog open={!!assignmentToRemove} onOpenChange={(open) => !open && setAssignmentToRemove(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Remove assignment</AlertDialogTitle>
+            <AlertDialogTitle>
+              {assignmentToRemove?.is_active ? 'Deactivate assignment' : 'Delete assignment'}
+            </AlertDialogTitle>
             <AlertDialogDescription>
-              This will remove the user's profession role for this department. You can re-enable later.
+              {assignmentToRemove?.is_active ? (
+                'This will deactivate the assignment. The user will no longer have access to this role, but the history will be preserved.'
+              ) : (
+                'This will permanently delete the assignment. This action cannot be undone.'
+              )}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={!!removingUserId}>Cancel</AlertDialogCancel>
-            {isSuperAdmin && (
+            {isSuperAdmin && assignmentToRemove?.is_active && (
               <Button
                 variant="destructive"
                 disabled={!!removingUserId}
@@ -902,8 +1068,12 @@ export function DepartmentProfessionsManager({ departmentId }: Props) {
                 Permanently delete
               </Button>
             )}
-            <AlertDialogAction disabled={!!removingUserId} onClick={removeAssignment}>
-              Remove
+            <AlertDialogAction 
+              disabled={!!removingUserId} 
+              onClick={assignmentToRemove?.is_active ? removeAssignment : hardDeleteAssignment}
+              className={!assignmentToRemove?.is_active ? "bg-destructive text-destructive-foreground hover:bg-destructive/90" : ""}
+            >
+              {assignmentToRemove?.is_active ? 'Deactivate' : 'Permanently delete'}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

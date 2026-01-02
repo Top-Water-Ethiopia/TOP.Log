@@ -191,7 +191,6 @@ export async function GET(request: Request) {
           ? `admin/super admin (department ${departmentId})`
           : "admin/super admin (all roles)"
         : `department ${departmentId}, role ${resolvedRoleId}`
-    console.log(`✅ Fetched ${processedQuestions.length || 0} questions for ${context}`)
     
     return NextResponse.json(processedQuestions)
   } catch (error) {

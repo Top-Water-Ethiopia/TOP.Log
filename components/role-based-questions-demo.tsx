@@ -67,7 +67,6 @@ export function RoleBasedQuestionsDemo() {
     const result = processResponses(questions, responses)
     if (result.valid) {
       // Here you would normally save the responses to your log entry
-      console.log("Processed responses:", result.processedResponses)
       toast.success("Log entry saved successfully!")
       setIsPreview(true)
     } else {

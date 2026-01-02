@@ -20,6 +20,13 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import {
   Dialog,
   DialogContent,
   DialogDescription,
@@ -59,6 +66,7 @@ import {
   Key,
   MailCheck,
   FilePlus,
+  MoreHorizontal,
 } from "lucide-react";
 import { toast } from "sonner";
 import { UsersTableSkeleton } from "@/components/skeletons/users-table-skeleton"
@@ -900,77 +908,101 @@ export function SupabaseUserManagement() {
                           </div>
                         </TableCell>
                         <TableCell>
-                          <div className="flex items-center gap-2">
+                          <div className="flex items-center justify-end gap-2">
                             <Button
                               variant="outline"
-                              size="sm"
+                              size="icon"
+                              className="h-8 w-8"
                               onClick={() => {
-                                setEditingUser(user);
+                                setEditingUser(user)
                                 setEditUserForm({
                                   name: user.profile?.name || "",
                                   email: user.email,
                                   role_id: user.profile?.role_id || USER_ROLE_ID,
                                   is_active: user.profile?.is_active ?? true,
                                   email_verified: !!user.email_confirmed_at,
-                                });
-                                setShowEditUser(true);
+                                })
+                                setShowEditUser(true)
                               }}
-                              title="Edit user"
                             >
                               <Edit className="h-4 w-4" />
+                              <span className="sr-only">Edit user</span>
                             </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => handleToggleUserStatus(user)}
-                              disabled={user.id === currentUser?.id || togglingUserId === user.id}
-                              title={user.profile?.is_active ? "Lock/Deactivate user" : "Unlock/Activate user"}
-                            >
-                              {togglingUserId === user.id ? (
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                              ) : user.profile?.is_active ? (
-                                <Lock className="h-4 w-4" />
-                              ) : (
-                                <Unlock className="h-4 w-4" />
-                              )}
-                            </Button>
-                            <Button
-                              variant="outline"
-                              size="sm"
-                              onClick={() => {
-                                setUserToResetPassword(user);
-                                setResetPasswordMode("email");
-                                setNewPassword("");
-                                setConfirmNewPassword("");
-                                setShowResetPasswordDialog(true);
-                              }}
-                              title="Reset password"
-                            >
-                              <Key className="h-4 w-4" />
-                            </Button>
-                            <Button
-                              variant="destructive"
-                              size="sm"
-                              onClick={() => {
-                                setUserToDelete(user);
-                                setShowDeleteDialog(true);
-                              }}
-                              disabled={
-                                user.id === currentUser?.id ||
-                                user.profile?.role_id === ADMIN_ROLE_ID ||
-                                user.profile?.role_id === SYSTEM_ADMIN_ROLE_ID ||
-                                user.profile?.role_id === SUPER_ADMIN_ROLE_ID
-                              }
-                              title={
-                                user.profile?.role_id === ADMIN_ROLE_ID ||
-                                user.profile?.role_id === SYSTEM_ADMIN_ROLE_ID ||
-                                user.profile?.role_id === SUPER_ADMIN_ROLE_ID
-                                  ? "Cannot delete admin accounts"
-                                  : "Delete user"
-                              }
-                            >
-                              <Trash2 className="h-4 w-4" />
-                            </Button>
+
+                            <DropdownMenu>
+                              <DropdownMenuTrigger asChild>
+                                <Button variant="outline" size="icon" className="h-8 w-8">
+                                  <MoreHorizontal className="h-4 w-4" />
+                                  <span className="sr-only">More actions</span>
+                                </Button>
+                              </DropdownMenuTrigger>
+                              <DropdownMenuContent align="end" className="w-52">
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    if (togglingUserId === user.id) return
+                                    handleToggleUserStatus(user)
+                                  }}
+                                  disabled={user.id === currentUser?.id || togglingUserId === user.id}
+                                  title={
+                                    user.id === currentUser?.id
+                                      ? "You cannot change your own status"
+                                      : user.profile?.is_active
+                                        ? "Deactivate user"
+                                        : "Activate user"
+                                  }
+                                >
+                                  {togglingUserId === user.id ? (
+                                    <Loader2 className="h-4 w-4 animate-spin" />
+                                  ) : user.profile?.is_active ? (
+                                    <Lock className="h-4 w-4" />
+                                  ) : (
+                                    <Unlock className="h-4 w-4" />
+                                  )}
+                                  <span>{user.profile?.is_active ? "Deactivate" : "Activate"}</span>
+                                </DropdownMenuItem>
+
+                                <DropdownMenuItem
+                                  onClick={() => {
+                                    setUserToResetPassword(user)
+                                    setResetPasswordMode("email")
+                                    setNewPassword("")
+                                    setConfirmNewPassword("")
+                                    setShowResetPasswordDialog(true)
+                                  }}
+                                >
+                                  <Key className="h-4 w-4" />
+                                  <span>Reset password</span>
+                                </DropdownMenuItem>
+
+                                <DropdownMenuSeparator />
+
+                                <DropdownMenuItem
+                                  variant="destructive"
+                                  onClick={() => {
+                                    setUserToDelete(user)
+                                    setShowDeleteDialog(true)
+                                  }}
+                                  disabled={
+                                    user.id === currentUser?.id ||
+                                    user.profile?.role_id === ADMIN_ROLE_ID ||
+                                    user.profile?.role_id === SYSTEM_ADMIN_ROLE_ID ||
+                                    user.profile?.role_id === SUPER_ADMIN_ROLE_ID
+                                  }
+                                  title={
+                                    user.id === currentUser?.id
+                                      ? "You cannot delete your own account"
+                                      : user.profile?.role_id === ADMIN_ROLE_ID ||
+                                          user.profile?.role_id === SYSTEM_ADMIN_ROLE_ID ||
+                                          user.profile?.role_id === SUPER_ADMIN_ROLE_ID
+                                        ? "Cannot delete admin accounts"
+                                        : "Delete user"
+                                  }
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                  <span>Delete user</span>
+                                </DropdownMenuItem>
+                              </DropdownMenuContent>
+                            </DropdownMenu>
                           </div>
                         </TableCell>
                       </TableRow>

@@ -245,19 +245,14 @@ export function RoleQuestionsManager({ externalSearchQuery, refreshKey }: RoleQu
       const timeSinceLastFetch = now - lastFetchTimeRef.current
       
       if (!forceRefresh && dataLoadedRef.current && timeSinceLastFetch < CACHE_DURATION) {
-        console.log("⏭️ Skipping data load - cache is still fresh")
         return
       }
 
       setIsLoading(true)
       
       // First, verify we can access the database
-      console.log("🔍 Starting data load...", forceRefresh ? "(forced)" : "")
-      console.log("👤 User ID:", currentUser?.id)
-      console.log("🔑 Profile Role ID:", currentProfile?.role_id)
       
       // Load roles using direct Supabase query
-      console.log("📥 Loading roles...")
       const { data: roleData, error: roleError } = await supabase
         .from("roles")
         .select("*")
@@ -325,30 +320,20 @@ export function RoleQuestionsManager({ externalSearchQuery, refreshKey }: RoleQu
         setRoles([])
       } else {
         setRoles(roleDataWithDept)
-        console.log("✅ Loaded roles:", roleDataWithDept.length)
-        if (roleDataWithDept.length > 0) {
-          console.log("📋 Roles:", roleDataWithDept.map((r: any) => `${r.name} (${r.id})`).join(", "))
-        } else {
-          console.warn("⚠️ No roles found in database")
-        }
       }
 
       // Load questions using API route (ensures all questions are fetched, bypasses RLS issues)
       let questionData: any[] = []
       let questionError: any = null
       
-      console.log("📥 Loading role questions via API...")
-      console.log("🌐 Making fetch request to /api/role-questions")
       try {
         const apiUrl = '/api/role-questions'
-        console.log("📡 Fetch URL:", apiUrl)
         const response = await fetch(apiUrl, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
           },
         })
-        console.log("📥 API Response status:", response.status, response.statusText)
         if (!response.ok) {
           const errorData = await response.json().catch(() => ({}))
           console.error("❌ API Error Response:", errorData)
@@ -358,15 +343,12 @@ export function RoleQuestionsManager({ externalSearchQuery, refreshKey }: RoleQu
         }
         
         const questionsFromAPI = await response.json()
-        console.log("✅ Successfully loaded questions from API:", questionsFromAPI?.length || 0)
 
         // Join with roles data - use existing role if present, otherwise find from loaded roles
         questionData = (questionsFromAPI || []).map((q: any) => ({
           ...q,
           role: q.role || roleDataWithDept.find((r: any) => r.id === q.role_id) || null
         }))
-        
-        console.log("📋 Questions with roles:", questionData)
       } catch (apiError: any) {
         console.error("❌ Error loading questions from API:", apiError)
         console.error("API Error Details:", {
@@ -407,7 +389,6 @@ export function RoleQuestionsManager({ externalSearchQuery, refreshKey }: RoleQu
         }
         
         // Fallback: Try direct Supabase query with explicit limit removal
-        console.log("🔄 Trying fallback: direct Supabase query...")
         try {
           // Fetch all questions without limit (Supabase default is 1000, but we'll handle pagination if needed)
           const { data: questionsWithRoles, error: joinError } = await supabase
@@ -420,7 +401,6 @@ export function RoleQuestionsManager({ externalSearchQuery, refreshKey }: RoleQu
             .limit(10000) // Set a high limit to ensure we get all questions
 
           if (joinError) {
-            console.warn("⚠️ Fallback join also failed:", joinError)
             
             // Try without join
             const { data: questionsOnly, error: questionsOnlyError } = await supabase
@@ -432,14 +412,12 @@ export function RoleQuestionsManager({ externalSearchQuery, refreshKey }: RoleQu
             if (questionsOnlyError) {
               questionError = questionsOnlyError
             } else {
-              console.log("✅ Fallback successful - loaded questions without join")
               questionData = (questionsOnly || []).map((q: any) => ({
                 ...q,
                 role: roleData?.find((r: any) => r.id === q.role_id) || null
               }))
             }
           } else {
-            console.log("✅ Fallback successful - loaded questions with role join")
             questionData = (questionsWithRoles || []).map((q: any) => ({
               ...q,
               role: q.role || roleData?.find((r: any) => r.id === q.role_id) || null
@@ -484,30 +462,6 @@ export function RoleQuestionsManager({ externalSearchQuery, refreshKey }: RoleQu
         return
       }
       
-      console.log("✅ Loaded questions:", questionData?.length || 0)
-      console.log("📋 Questions data:", questionData)
-
-      if (questionData && questionData.length === 0) {
-        console.warn("⚠️ No questions found. Check if questions were created successfully.")
-        console.log("💡 Debug info:", {
-          isAdmin,
-          isSuperAdmin,
-          currentUser: currentUser?.id,
-          currentProfile: currentProfile?.role_id,
-          rolesLoaded: roleData?.length || 0
-        })
-      }
-
-      // Debug role assignment
-      if (questionData && questionData.length > 0) {
-        const questionsWithRoles = questionData.filter(q => q.role)
-        const questionsWithoutRoles = questionData.filter(q => !q.role)
-        console.log(`📊 Role assignment: ${questionsWithRoles.length} with roles, ${questionsWithoutRoles.length} without roles`)
-        if (questionsWithoutRoles.length > 0) {
-          console.log("❌ Questions without roles:", questionsWithoutRoles.map(q => ({ id: q.id, role_id: q.role_id, question_key: q.question_key })))
-        }
-      }
-      
       setQuestions(questionData || [])
       
       // Mark data as loaded and update timestamp
@@ -526,43 +480,29 @@ export function RoleQuestionsManager({ externalSearchQuery, refreshKey }: RoleQu
   }, [currentUser, currentProfile, isAdmin, isSuperAdmin, toast])
 
   useEffect(() => {
-    // Load data when component mounts and user is admin
-    console.log("🔄 useEffect triggered", {
-      currentUser: currentUser?.id,
-      currentProfile: currentProfile?.role_id,
-      isAdmin,
-      isSuperAdmin,
-      profileLoaded: currentProfile !== undefined
-    })
-
     // Only proceed if we have a user
     if (!currentUser) {
-      console.log("⏳ Waiting for user...")
       return
     }
 
     // If profile is explicitly null (not loading), user is not admin
     if (currentProfile === null) {
-      console.warn("❌ Profile loaded but user is not an admin")
       setIsLoading(false)
       return
     }
 
     // If profile is still loading (undefined), wait for it
     if (currentProfile === undefined) {
-      console.log("⏳ Waiting for profile to load...")
       return
     }
 
     // If user is admin, load data (only if not already loaded recently)
     if (isAdmin) {
-      console.log("✅ Admin access confirmed, loading data...")
       // Call loadData directly without including it in dependencies
       loadData(false).catch((error) => {
         console.error("Error loading data:", error)
       })
     } else {
-      console.warn("❌ User is not an admin")
       setIsLoading(false)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -840,13 +780,9 @@ export function RoleQuestionsManager({ externalSearchQuery, refreshKey }: RoleQu
   }
 
   const handleCreate = async () => {
-    console.log("🔵 handleCreate called", { formData, editingQuestion })
-    
     const isValid = validateForm()
-    console.log("🔵 Validation result:", isValid, { formErrors })
     
     if (!isValid) {
-      console.warn("❌ Validation failed, not sending API request", formErrors)
       return
     }
 

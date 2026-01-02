@@ -2,11 +2,13 @@
 
 import { useState, useEffect } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import {
   Dialog,
   DialogContent,
@@ -28,6 +30,7 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/components/ui/use-toast"
+import { toast as sonnerToast } from "sonner"
 import { Plus, Pencil, Trash2, Loader2, Users, Briefcase } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -47,6 +50,7 @@ interface Department {
 
 export function DepartmentManager() {
   const { profile: currentProfile } = useSupabaseAuth()
+  const router = useRouter()
   const [departments, setDepartments] = useState<Department[]>([])
   const [isLoading, setIsLoading] = useState(true)
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -215,6 +219,7 @@ export function DepartmentManager() {
         description: "Department updated successfully",
       })
 
+      setShowCreateDialog(false)
       setEditingDepartment(null)
       resetForm()
       loadData()
@@ -238,9 +243,25 @@ export function DepartmentManager() {
         method: "DELETE",
       })
 
-      const result = await response.json()
+      const result = await response.json().catch(() => ({}))
 
       if (!response.ok) {
+        if (response.status === 409) {
+          sonnerToast.error("Cannot Delete Department", {
+            description:
+              result?.message ||
+              result?.error ||
+              "Cannot delete department. It has roles assigned. Please remove all roles first.",
+            action: {
+              label: "Manage roles",
+              onClick: () => router.push(`/admin/departments/${departmentToDelete.id}/members?tab=professions`),
+            },
+          })
+
+          setShowDeleteDialog(false)
+          setDepartmentToDelete(null)
+          return
+        }
         if (result.code === '23503') { // Foreign key violation
           throw new Error("Cannot delete department. It has roles assigned. Please remove all roles first.")
         }
@@ -370,26 +391,49 @@ export function DepartmentManager() {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end gap-2">
-                      <Button variant="ghost" size="sm" asChild>
-                        <Link href={`/admin/departments/${department.id}/members`}>
-                          <Users className="h-4 w-4" />
-                          <span className="sr-only">Manage members</span>
-                        </Link>
-                      </Button>
-                      <Button variant="ghost" size="sm" asChild>
-                        <Link href={`/admin/departments/${department.id}/professions`}>
-                          <Briefcase className="h-4 w-4" />
-                          <span className="sr-only">Manage profession roles</span>
-                        </Link>
-                      </Button>
-                      <Button variant="ghost" size="sm" onClick={() => openEditDialog(department)}>
-                        <Pencil className="h-4 w-4" />
-                        <span className="sr-only">Edit department</span>
-                      </Button>
-                      <Button variant="ghost" size="sm" onClick={() => openDeleteDialog(department)}>
-                        <Trash2 className="text-destructive h-4 w-4" />
-                        <span className="sr-only">Delete department</span>
-                      </Button>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button variant="ghost" size="sm" asChild>
+                            <Link href={`/admin/departments/${department.id}/members`}>
+                              <Users className="h-4 w-4" />
+                              <span className="sr-only">Manage members</span>
+                            </Link>
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent sideOffset={6}>Manage members</TooltipContent>
+                      </Tooltip>
+
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button variant="ghost" size="sm" asChild>
+                            <Link href={`/admin/departments/${department.id}/members?tab=professions`}>
+                              <Briefcase className="h-4 w-4" />
+                              <span className="sr-only">Manage profession roles</span>
+                            </Link>
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent sideOffset={6}>Manage profession roles</TooltipContent>
+                      </Tooltip>
+
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button variant="ghost" size="sm" onClick={() => openEditDialog(department)}>
+                            <Pencil className="h-4 w-4" />
+                            <span className="sr-only">Edit department</span>
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent sideOffset={6}>Edit department</TooltipContent>
+                      </Tooltip>
+
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Button variant="ghost" size="sm" onClick={() => openDeleteDialog(department)}>
+                            <Trash2 className="text-destructive h-4 w-4" />
+                            <span className="sr-only">Delete department</span>
+                          </Button>
+                        </TooltipTrigger>
+                        <TooltipContent sideOffset={6}>Delete department</TooltipContent>
+                      </Tooltip>
                     </div>
                   </TableCell>
                 </TableRow>
@@ -449,7 +493,16 @@ export function DepartmentManager() {
       </div>
 
       {/* Create/Edit Dialog */}
-      <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+      <Dialog
+        open={showCreateDialog}
+        onOpenChange={(open) => {
+          setShowCreateDialog(open)
+          if (!open) {
+            setEditingDepartment(null)
+            resetForm()
+          }
+        }}
+      >
         <DialogContent className="sm:max-w-[500px]">
           <DialogHeader>
             <DialogTitle>{editingDepartment ? "Edit department" : "Create department"}</DialogTitle>
@@ -459,55 +512,71 @@ export function DepartmentManager() {
                 : "Create a department so you can assign roles and manage access."}
             </DialogDescription>
           </DialogHeader>
-          <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="name">
-                Name <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                id="name"
-                value={formData.name}
-                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                placeholder="e.g., Engineering"
-              />
-              {formErrors.name && <p className="text-destructive text-sm">{formErrors.name}</p>}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault()
+              if (editingDepartment) {
+                handleUpdate()
+              } else {
+                handleCreate()
+              }
+            }}
+          >
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="name">
+                  Name <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  id="name"
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  placeholder="e.g., Engineering"
+                />
+                {formErrors.name && <p className="text-destructive text-sm">{formErrors.name}</p>}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="description">Description</Label>
+                <Textarea
+                  id="description"
+                  value={formData.description}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  placeholder="Department description"
+                  rows={3}
+                />
+              </div>
+              <div className="flex items-center space-x-2">
+                <Switch
+                  id="is_active"
+                  checked={formData.is_active}
+                  onCheckedChange={(checked) => setFormData({ ...formData, is_active: checked })}
+                />
+                <Label htmlFor="is_active">Active</Label>
+              </div>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="description">Description</Label>
-              <Textarea
-                id="description"
-                value={formData.description}
-                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                placeholder="Department description"
-                rows={3}
-              />
-            </div>
-            <div className="flex items-center space-x-2">
-              <Switch
-                id="is_active"
-                checked={formData.is_active}
-                onCheckedChange={(checked) => setFormData({ ...formData, is_active: checked })}
-              />
-              <Label htmlFor="is_active">Active</Label>
-            </div>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setShowCreateDialog(false)} disabled={isSubmitting}>
-              Cancel
-            </Button>
-            <Button onClick={editingDepartment ? handleUpdate : handleCreate} disabled={isSubmitting}>
-              {isSubmitting ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  {editingDepartment ? "Updating..." : "Creating..."}
-                </>
-              ) : editingDepartment ? (
-                "Update"
-              ) : (
-                "Create"
-              )}
-            </Button>
-          </DialogFooter>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setShowCreateDialog(false)}
+                disabled={isSubmitting}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" disabled={isSubmitting}>
+                {isSubmitting ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    {editingDepartment ? "Updating..." : "Creating..."}
+                  </>
+                ) : editingDepartment ? (
+                  "Update"
+                ) : (
+                  "Create"
+                )}
+              </Button>
+            </DialogFooter>
+          </form>
         </DialogContent>
       </Dialog>
 

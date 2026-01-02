@@ -45,13 +45,7 @@ export async function GET() {
       error: authError,
     } = userData || { data: { user: null }, error: "Unknown error" }
 
-    console.log("=== AUTH DEBUG ===")
-    console.log("Auth error:", authError)
-    console.log("User data:", user)
-    console.log("==================")
-
     if (authError || !user) {
-      console.log("Authentication failed - returning 401")
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
@@ -72,25 +66,13 @@ export async function GET() {
 
     const { data: profile, error: profileError } = profileData || { data: null, error: "Unknown error" }
 
-    console.log("=== PROFILE DEBUG ===")
-    console.log("Profile error:", profileError)
-    console.log("Profile data:", profile)
-    console.log("=====================")
-
     if (profileError || !profile) {
-      console.log("Profile not found or error occurred - returning 404")
       return NextResponse.json({ error: "Profile not found" }, { status: 404 })
     }
 
     const isAdmin = (profile as any).role_id === ADMIN_ROLE_ID || (profile as any).role_id === SYSTEM_ADMIN_ROLE_ID || (profile as any).role_id === SUPER_ADMIN_ROLE_ID
 
-    console.log("=== ROLE DEBUG ===")
-    console.log("User role_id:", (profile as any).role_id)
-    console.log("Is admin check:", isAdmin)
-    console.log("==================")
-
     if (!isAdmin) {
-      console.log("User is not admin - returning 403")
       return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
     }
 
@@ -154,8 +136,6 @@ export async function GET() {
       }
     }
 
-    console.log("✅ Fetched users for dropdown:", allUsers?.length || 0)
-
     // Fetch ALL roles (for dropdown)
     // Use adminSupabase to bypass RLS
     const { data: allRoles, error: allRolesError } = await adminSupabase.from("roles").select("id, name").order("name")
@@ -164,7 +144,6 @@ export async function GET() {
       console.error("Error fetching all roles:", allRolesError)
     }
 
-    console.log("✅ Fetched roles for dropdown:", allRoles?.length || 0)
 
     // Fetch ALL departments (for dropdown)
     // Use adminSupabase to bypass RLS
@@ -177,7 +156,6 @@ export async function GET() {
       console.error("Error fetching all departments:", allDeptsError)
     }
 
-    console.log("✅ Fetched departments for dropdown:", allDepartments?.length || 0)
 
     const roleMap = new Map((allRoles as any[])?.map((r) => [r.id, r.name]) || [])
     const deptMap = new Map((allDepartments as any[])?.map((d) => [d.id, d.name]) || [])
@@ -203,18 +181,6 @@ export async function GET() {
 
     const userMap = new Map(normalizedUsers.map((u) => [u.user_id, u]))
 
-    console.log("UserMap created with", userMap.size, "entries")
-    console.log("Sample user IDs in userMap:", Array.from(userMap.keys()).slice(0, 5))
-
-    // Check if entries have matching user profiles
-    console.log("Checking user ID matches:")
-    const entryUserIds = new Set(entries.map((e) => e.user_id))
-    const userProfileIds = new Set((allUsers as any[])?.map((u) => u.user_id) || [])
-    console.log("Entry user IDs:", Array.from(entryUserIds))
-    console.log("User profile IDs:", Array.from(userProfileIds))
-
-    const missingUserIds = Array.from(entryUserIds).filter((id) => !userProfileIds.has(id))
-    console.log("Missing user IDs in profiles:", missingUserIds)
 
     // Fetch custom responses for all entries
     // Use adminSupabase to bypass RLS
@@ -229,9 +195,6 @@ export async function GET() {
       console.error("Error fetching custom responses:", responsesError)
     }
 
-    console.log(
-      `Fetched ${entries.length} entries, ${allUsers?.length || 0} users, ${allRoles?.length || 0} roles, ${allDepartments?.length || 0} departments, ${customResponses?.length || 0} responses`
-    )
 
     // Create responses lookup map
     const responsesMap = new Map<string, any[]>()
@@ -253,11 +216,6 @@ export async function GET() {
       user_profile: userMap.get(entry.user_id) || null,
       custom_responses: responsesMap.get(entry.id) || [],
     }))
-
-    console.log("Enriched entries count:", enrichedEntries.length)
-    console.log("Sample enriched entry:", enrichedEntries[0])
-    console.log("Entry user_id:", enrichedEntries[0]?.user_id)
-    console.log("User profile found:", !!enrichedEntries[0]?.user_profile)
 
     // Return enriched entries along with filter options
     return NextResponse.json({
