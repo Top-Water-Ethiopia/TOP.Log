@@ -45,6 +45,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
+import useSWR from "swr"
+import { apiFetch, getErrorMessage } from "@/lib/api-client"
 
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
 const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
@@ -83,13 +85,18 @@ type ProfessionAssignmentRow = {
   created_at: string
   updated_at: string
   role?: {
-   id: string
-   name: string
-   description: string | null
-   department_id: string | null
-   level?: number
+    id: string
+    name: string
+    description: string | null
+    department_id: string | null
+    level?: number
   } | null
- }
+  user?: {
+    user_id: string
+    email: string | null
+    name: string | null
+  }
+}
 
 type MembershipRow = {
   id: string
@@ -118,12 +125,39 @@ export default function AdminDepartmentMembersPage() {
   const isAdmin =
     profile?.role_id === ADMIN_ROLE_ID || profile?.role_id === SYSTEM_ADMIN_ROLE_ID || isSuperAdmin
 
-  const [loading, setLoading] = useState(true)
-  const [memberships, setMemberships] = useState<MembershipRow[]>([])
+  const membershipsKey = isAdmin && departmentId ? `/api/admin/departments/${departmentId}/memberships` : null
+  const professionRolesKey = isAdmin && departmentId ? `/api/admin/departments/${departmentId}/profession-roles` : null
+  const professionAssignmentsKey =
+    isAdmin && departmentId ? `/api/admin/departments/${departmentId}/profession-assignments` : null
 
-  const [professionRolesLoading, setProfessionRolesLoading] = useState(true)
-  const [professionRoles, setProfessionRoles] = useState<ProfessionRoleRow[]>([])
-  const [professionAssignments, setProfessionAssignments] = useState<ProfessionAssignmentRow[]>([])
+  const {
+    data: membershipsResponse,
+    error: membershipsError,
+    isLoading: isMembershipsLoading,
+    mutate: mutateMemberships,
+  } = useSWR<{ data: MembershipRow[] }>(membershipsKey)
+
+  const {
+    data: professionRolesResponse,
+    error: professionRolesError,
+    isLoading: isProfessionRolesLoading,
+  } = useSWR<{ data: ProfessionRoleRow[] }>(professionRolesKey)
+
+  const {
+    data: professionAssignmentsResponse,
+    error: professionAssignmentsError,
+    isLoading: isProfessionAssignmentsLoading,
+    mutate: mutateProfessionAssignments,
+  } = useSWR<{ data: ProfessionAssignmentRow[] }>(professionAssignmentsKey)
+
+  const loading = isMembershipsLoading || isProfessionAssignmentsLoading
+  const professionRolesLoading = isProfessionRolesLoading
+
+  const memberships = Array.isArray(membershipsResponse?.data) ? membershipsResponse.data : []
+  const professionRoles = Array.isArray(professionRolesResponse?.data) ? professionRolesResponse.data : []
+  const professionAssignments = Array.isArray(professionAssignmentsResponse?.data)
+    ? professionAssignmentsResponse.data
+    : []
 
   const [showAssignDialog, setShowAssignDialog] = useState(false)
   const [userQuery, setUserQuery] = useState("")
@@ -142,38 +176,33 @@ export default function AdminDepartmentMembersPage() {
   const [memberToHardDelete, setMemberToHardDelete] = useState<MembershipRow | null>(null)
   const [hardDeleteConfirmText, setHardDeleteConfirmText] = useState("")
 
-  const loadProfessionRoles = async () => {
-    try {
-      setProfessionRolesLoading(true)
-      const res = await fetch(`/api/admin/departments/${departmentId}/profession-roles`)
-      const json = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(json.message || json.error || `HTTP ${res.status}`)
-      setProfessionRoles((json.data || []) as ProfessionRoleRow[])
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error?.message || "Failed to load profession roles",
-        variant: "destructive",
-      })
-    } finally {
-      setProfessionRolesLoading(false)
-    }
-  }
+  const lastMembershipsErrorRef = useRef<string | null>(null)
+  const lastProfessionRolesErrorRef = useRef<string | null>(null)
+  const lastProfessionAssignmentsErrorRef = useRef<string | null>(null)
 
-  const loadProfessionAssignments = async () => {
-    try {
-      const res = await fetch(`/api/admin/departments/${departmentId}/profession-assignments`)
-      const json = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(json.message || json.error || `HTTP ${res.status}`)
-      setProfessionAssignments((json.data || []) as ProfessionAssignmentRow[])
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error?.message || "Failed to load profession assignments",
-        variant: "destructive",
-      })
-    }
-  }
+  useEffect(() => {
+    if (!membershipsError) return
+    const message = getErrorMessage(membershipsError, "Failed to load members")
+    if (message === lastMembershipsErrorRef.current) return
+    lastMembershipsErrorRef.current = message
+    toast({ title: "Error", description: message, variant: "destructive" })
+  }, [membershipsError, toast])
+
+  useEffect(() => {
+    if (!professionRolesError) return
+    const message = getErrorMessage(professionRolesError, "Failed to load profession roles")
+    if (message === lastProfessionRolesErrorRef.current) return
+    lastProfessionRolesErrorRef.current = message
+    toast({ title: "Error", description: message, variant: "destructive" })
+  }, [professionRolesError, toast])
+
+  useEffect(() => {
+    if (!professionAssignmentsError) return
+    const message = getErrorMessage(professionAssignmentsError, "Failed to load profession assignments")
+    if (message === lastProfessionAssignmentsErrorRef.current) return
+    lastProfessionAssignmentsErrorRef.current = message
+    toast({ title: "Error", description: message, variant: "destructive" })
+  }, [professionAssignmentsError, toast])
 
   useEffect(() => {
     if (!isLoading && (!user || !isAdmin)) {
@@ -191,37 +220,42 @@ export default function AdminDepartmentMembersPage() {
     }
   }, [pathname, isLoading, user, isAdmin, router, departmentId])
 
-  const loadMemberships = async () => {
-    try {
-      setLoading(true)
-      const res = await fetch(`/api/admin/departments/${departmentId}/memberships`)
-      const json = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(json.message || json.error || `HTTP ${res.status}`)
-      setMemberships((json.data || []) as MembershipRow[])
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error?.message || "Failed to load members",
-        variant: "destructive",
-      })
-    } finally {
-      setLoading(false)
-    }
-  }
-
   const hardDeleteMember = async () => {
     if (!memberToHardDelete) return
 
+    const prevMembershipsResponse = membershipsResponse
+    const prevProfessionAssignmentsResponse = professionAssignmentsResponse
+
     try {
       setRemovingUserId(memberToHardDelete.user_id)
-      const res = await fetch(
-        `/api/admin/departments/${departmentId}/memberships/${memberToHardDelete.user_id}?mode=hard`,
-        {
-          method: "DELETE",
+
+      mutateMemberships(
+        (current) => {
+          const rows = Array.isArray(current?.data) ? current.data : []
+          return { data: rows.filter((m) => m.user_id !== memberToHardDelete.user_id) }
         },
+        { revalidate: false },
       )
-      const json = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(json.message || json.error || `HTTP ${res.status}`)
+
+      mutateProfessionAssignments(
+        (current) => {
+          const rows = Array.isArray(current?.data) ? current.data : []
+          return { data: rows.filter((a) => a.user_id !== memberToHardDelete.user_id) }
+        },
+        { revalidate: false },
+      )
+
+      const json = await apiFetch<{ data: { deleted: boolean } | null }>(
+        `/api/admin/departments/${departmentId}/memberships/${memberToHardDelete.user_id}?mode=hard`,
+        { method: "DELETE" },
+      )
+
+      if (!json?.data) {
+        await apiFetch<{ data: unknown }>(
+          `/api/admin/departments/${departmentId}/profession-assignments/${memberToHardDelete.user_id}?mode=hard`,
+          { method: "DELETE" },
+        )
+      }
 
       toast({
         title: "Deleted",
@@ -230,15 +264,28 @@ export default function AdminDepartmentMembersPage() {
 
       setMemberToHardDelete(null)
       setHardDeleteConfirmText("")
-      await loadMemberships()
     } catch (error: any) {
+      if (prevMembershipsResponse) {
+        mutateMemberships(prevMembershipsResponse, { revalidate: false })
+      } else {
+        mutateMemberships()
+      }
+
+      if (prevProfessionAssignmentsResponse) {
+        mutateProfessionAssignments(prevProfessionAssignmentsResponse, { revalidate: false })
+      } else {
+        mutateProfessionAssignments()
+      }
+
       toast({
         title: "Error",
-        description: error?.message || "Failed to permanently delete membership",
+        description: getErrorMessage(error, "Failed to permanently delete membership"),
         variant: "destructive",
       })
     } finally {
       setRemovingUserId(null)
+      mutateMemberships()
+      mutateProfessionAssignments()
     }
   }
 
@@ -249,19 +296,46 @@ export default function AdminDepartmentMembersPage() {
   const removeMember = async () => {
     if (!memberToRemove) return
 
+    const prevMembershipsResponse = membershipsResponse
+    const prevProfessionAssignmentsResponse = professionAssignmentsResponse
+
     try {
       setRemovingUserId(memberToRemove.user_id)
-      const res = await fetch(
-        `/api/admin/departments/${departmentId}/memberships/${memberToRemove.user_id}`,
-        {
-          method: "DELETE",
-        },
-      )
-      const json = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(json.message || json.error || `HTTP ${res.status}`)
-
+      const nowIso = new Date().toISOString()
       const removedUserId = memberToRemove.user_id
       const removedDisplayName = memberToRemove.user?.name || memberToRemove.user?.email || removedUserId
+
+      mutateMemberships(
+        (current) => {
+          const rows = Array.isArray(current?.data) ? current.data : []
+          return {
+            data: rows.map((m) => (m.user_id === removedUserId ? { ...m, is_active: false, updated_at: nowIso } : m)),
+          }
+        },
+        { revalidate: false },
+      )
+
+      mutateProfessionAssignments(
+        (current) => {
+          const rows = Array.isArray(current?.data) ? current.data : []
+          return {
+            data: rows.map((a) => (a.user_id === removedUserId ? { ...a, is_active: false, updated_at: nowIso } : a)),
+          }
+        },
+        { revalidate: false },
+      )
+
+      const json = await apiFetch<{ data: unknown }>(
+        `/api/admin/departments/${departmentId}/memberships/${memberToRemove.user_id}`,
+        { method: "DELETE" },
+      )
+
+      if (!json?.data) {
+        await apiFetch<{ data: unknown }>(
+          `/api/admin/departments/${departmentId}/profession-assignments/${memberToRemove.user_id}`,
+          { method: "DELETE" },
+        )
+      }
 
       toast({
         title: "Removed",
@@ -270,25 +344,48 @@ export default function AdminDepartmentMembersPage() {
           <ToastAction
             altText="Undo"
             onClick={async () => {
+              const prevUndoMembershipsResponse = membershipsResponse
               try {
-                const undoRes = await fetch(`/api/admin/departments/${departmentId}/memberships`, {
-                  method: "POST",
-                  headers: { "Content-Type": "application/json" },
-                  body: JSON.stringify({
-                    user_id: removedUserId,
-                    is_active: true,
-                  }),
-                })
-                const undoJson = await undoRes.json().catch(() => ({}))
-                if (!undoRes.ok) throw new Error(undoJson.message || undoJson.error || `HTTP ${undoRes.status}`)
+                const nowIso = new Date().toISOString()
+
+                mutateMemberships(
+                  (current) => {
+                    const rows = Array.isArray(current?.data) ? current.data : []
+                    return {
+                      data: rows.map((m) =>
+                        m.user_id === removedUserId ? { ...m, is_active: true, updated_at: nowIso } : m,
+                      ),
+                    }
+                  },
+                  { revalidate: false },
+                )
+
+                await apiFetch<{ data: { id: string; user_id: string; department_id: string; role: string; is_active: boolean; created_at: string; updated_at: string } }>(
+                  `/api/admin/departments/${departmentId}/memberships`,
+                  {
+                    method: "POST",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      user_id: removedUserId,
+                      is_active: true,
+                    }),
+                  },
+                )
                 toast({ title: "Restored", description: "Membership restored" })
-                await loadMemberships()
               } catch (e: any) {
+                if (prevUndoMembershipsResponse) {
+                  mutateMemberships(prevUndoMembershipsResponse, { revalidate: false })
+                } else {
+                  mutateMemberships()
+                }
+
                 toast({
                   title: "Error",
-                  description: e?.message || "Failed to undo",
+                  description: getErrorMessage(e, "Failed to undo"),
                   variant: "destructive",
                 })
+              } finally {
+                mutateMemberships()
               }
             }}
           >
@@ -298,24 +395,30 @@ export default function AdminDepartmentMembersPage() {
       })
 
       setMemberToRemove(null)
-      await loadMemberships()
     } catch (error: any) {
+      if (prevMembershipsResponse) {
+        mutateMemberships(prevMembershipsResponse, { revalidate: false })
+      } else {
+        mutateMemberships()
+      }
+
+      if (prevProfessionAssignmentsResponse) {
+        mutateProfessionAssignments(prevProfessionAssignmentsResponse, { revalidate: false })
+      } else {
+        mutateProfessionAssignments()
+      }
+
       toast({
         title: "Error",
-        description: error?.message || "Failed to remove member",
+        description: getErrorMessage(error, "Failed to remove member"),
         variant: "destructive",
       })
     } finally {
       setRemovingUserId(null)
+      mutateMemberships()
+      mutateProfessionAssignments()
     }
   }
-
-  useEffect(() => {
-    if (!user || !isAdmin) return
-    if (!departmentId) return
-    void Promise.all([loadMemberships(), loadProfessionRoles(), loadProfessionAssignments()])
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, isAdmin, departmentId])
 
   const professionRolesById = useMemo(() => {
     return new Map(professionRoles.map((r) => [r.id, r]))
@@ -325,13 +428,34 @@ export default function AdminDepartmentMembersPage() {
     return new Map(professionAssignments.map((a) => [a.user_id, a]))
   }, [professionAssignments])
 
-  const sorted = useMemo(() => {
-    return [...memberships].sort((a, b) => {
+  const people = useMemo(() => {
+    const byUserId = new Map(memberships.map((m) => [m.user_id, m]))
+
+    for (const a of professionAssignments) {
+      if (byUserId.has(a.user_id)) continue
+
+      byUserId.set(a.user_id, {
+        id: `implicit-${a.user_id}`,
+        user_id: a.user_id,
+        department_id: a.department_id,
+        role: "viewer",
+        is_active: a.is_active,
+        created_at: a.created_at,
+        updated_at: a.updated_at,
+        user: {
+          user_id: a.user_id,
+          email: a.user?.email || null,
+          name: a.user?.name || null,
+        },
+      })
+    }
+
+    return [...byUserId.values()].sort((a, b) => {
       const an = a.user?.name || a.user?.email || a.user_id
       const bn = b.user?.name || b.user?.email || b.user_id
       return an.localeCompare(bn)
     })
-  }, [memberships])
+  }, [memberships, professionAssignments])
 
   const openAssign = () => {
     setShowAssignDialog(true)
@@ -359,11 +483,9 @@ export default function AdminDepartmentMembersPage() {
 
     try {
       setSearchLoading(true)
-      const res = await fetch(`/api/admin/users/search?query=${encodeURIComponent(q)}`, {
+      const json = await apiFetch<{ data: SearchUser[] }>(`/api/admin/users/search?query=${encodeURIComponent(q)}`, {
         signal: controller.signal,
       })
-      const json = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(json.message || json.error || `HTTP ${res.status}`)
 
       if (requestId !== userSearchRequestIdRef.current) return
       setSearchResults((json.data || []) as SearchUser[])
@@ -371,7 +493,7 @@ export default function AdminDepartmentMembersPage() {
       if (controller.signal.aborted) return
       toast({
         title: "Error",
-        description: error?.message || "Failed to search users",
+        description: getErrorMessage(error, "Failed to search users"),
         variant: "destructive",
       })
     } finally {
@@ -410,8 +532,8 @@ export default function AdminDepartmentMembersPage() {
       return
     }
 
-    const prevMemberships = memberships
-    const prevProfessionAssignments = professionAssignments
+    const prevMembershipsResponse = membershipsResponse
+    const prevProfessionAssignmentsResponse = professionAssignmentsResponse
 
     try {
       const nowIso = new Date().toISOString()
@@ -439,46 +561,66 @@ export default function AdminDepartmentMembersPage() {
             },
           }
 
-      setMemberships((prev) => {
-        const without = prev.filter((m) => m.user_id !== selectedUserId)
-        return [optimisticMembership, ...without]
-      })
+      mutateMemberships(
+        (current) => {
+          const prev = Array.isArray(current?.data) ? current.data : []
+          const without = prev.filter((m) => m.user_id !== selectedUserId)
+          return { data: [optimisticMembership, ...without] }
+        },
+        { revalidate: false },
+      )
 
       const effectiveProfessionRoleId =
         selectedProfessionRoleId !== PROFESSION_ROLE_NONE && !professionRolesById.has(selectedProfessionRoleId)
           ? PROFESSION_ROLE_NONE
           : selectedProfessionRoleId
 
-      setProfessionAssignments((prev) => {
-        if (effectiveProfessionRoleId === PROFESSION_ROLE_NONE) {
-          return prev.filter((a) => a.user_id !== selectedUserId)
-        }
+      mutateProfessionAssignments(
+        (current) => {
+          const prev = Array.isArray(current?.data) ? current.data : []
+          if (effectiveProfessionRoleId === PROFESSION_ROLE_NONE) {
+            return { data: prev.filter((a) => a.user_id !== selectedUserId) }
+          }
 
-        const existing = prev.find((a) => a.user_id === selectedUserId)
-        const optimistic: ProfessionAssignmentRow = existing
-          ? {
-              ...existing,
-              role_id: effectiveProfessionRoleId,
-              is_active: selectedProfessionActive,
-              updated_at: nowIso,
-            }
-          : {
-              id: `temp-pa-${selectedUserId}`,
-              user_id: selectedUserId,
-              department_id: departmentId,
-              role_id: effectiveProfessionRoleId,
-              is_active: selectedProfessionActive,
-              created_at: nowIso,
-              updated_at: nowIso,
-              role: professionRolesById.get(effectiveProfessionRoleId) || null,
-            }
+          const existing = prev.find((a) => a.user_id === selectedUserId)
+          const optimistic: ProfessionAssignmentRow = existing
+            ? {
+                ...existing,
+                role_id: effectiveProfessionRoleId,
+                is_active: selectedProfessionActive,
+                updated_at: nowIso,
+              }
+            : {
+                id: `temp-pa-${selectedUserId}`,
+                user_id: selectedUserId,
+                department_id: departmentId,
+                role_id: effectiveProfessionRoleId,
+                is_active: selectedProfessionActive,
+                created_at: nowIso,
+                updated_at: nowIso,
+                role: professionRolesById.get(effectiveProfessionRoleId) || null,
+              }
 
-        const without = prev.filter((a) => a.user_id !== selectedUserId)
-        return [optimistic, ...without]
-      })
+          const without = prev.filter((a) => a.user_id !== selectedUserId)
+          return { data: [optimistic, ...without] }
+        },
+        { revalidate: false },
+      )
 
       setSaving(true)
-      const res = await fetch(`/api/admin/departments/${departmentId}/memberships`, {
+      const json = await apiFetch<{
+        data:
+          | {
+              id: string
+              user_id: string
+              department_id: string
+              role: string
+              is_active: boolean
+              created_at: string
+              updated_at: string
+            }
+          | undefined
+      }>(`/api/admin/departments/${departmentId}/memberships`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -487,39 +629,39 @@ export default function AdminDepartmentMembersPage() {
           is_active: selectedActive,
         }),
       })
-      const json = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(json.message || json.error || `HTTP ${res.status}`)
 
-      const savedMembership = json?.data as
-        | { id: string; user_id: string; department_id: string; role: string; is_active: boolean; created_at: string; updated_at: string }
-        | undefined
+      const savedMembership = json?.data
 
       if (savedMembership?.id) {
-        setMemberships((prev) =>
-          prev.map((m) =>
-            m.user_id === selectedUserId
-              ? {
-                  ...m,
-                  id: savedMembership.id,
-                  role: savedMembership.role,
-                  is_active: savedMembership.is_active,
-                  created_at: savedMembership.created_at,
-                  updated_at: savedMembership.updated_at,
-                }
-              : m,
-          ),
+        mutateMemberships(
+          (current) => {
+            const prev = Array.isArray(current?.data) ? current.data : []
+            return {
+              data: prev.map((m) =>
+                m.user_id === selectedUserId
+                  ? {
+                      ...m,
+                      id: savedMembership.id,
+                      role: savedMembership.role,
+                      is_active: savedMembership.is_active,
+                      created_at: savedMembership.created_at,
+                      updated_at: savedMembership.updated_at,
+                    }
+                  : m,
+              ),
+            }
+          },
+          { revalidate: false },
         )
       }
 
       if (effectiveProfessionRoleId === PROFESSION_ROLE_NONE) {
-        const delRes = await fetch(
+        await apiFetch<{ data: unknown }>(
           `/api/admin/departments/${departmentId}/profession-assignments/${selectedUserId}`,
           { method: "DELETE" },
         )
-        const delJson = await delRes.json().catch(() => ({}))
-        if (!delRes.ok) throw new Error(delJson.message || delJson.error || `HTTP ${delRes.status}`)
       } else {
-        const paRes = await fetch(`/api/admin/departments/${departmentId}/profession-assignments`, {
+        await apiFetch<{ data: unknown }>(`/api/admin/departments/${departmentId}/profession-assignments`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -528,24 +670,32 @@ export default function AdminDepartmentMembersPage() {
             is_active: selectedProfessionActive,
           }),
         })
-        const paJson = await paRes.json().catch(() => ({}))
-        if (!paRes.ok) throw new Error(paJson.message || paJson.error || `HTTP ${paRes.status}`)
       }
 
       toast({ title: "Saved", description: "Department membership updated" })
       setShowAssignDialog(false)
-      await loadMemberships()
-      await loadProfessionAssignments()
     } catch (error: any) {
-      setMemberships(prevMemberships)
-      setProfessionAssignments(prevProfessionAssignments)
+      if (prevMembershipsResponse) {
+        mutateMemberships(prevMembershipsResponse, { revalidate: false })
+      } else {
+        mutateMemberships()
+      }
+
+      if (prevProfessionAssignmentsResponse) {
+        mutateProfessionAssignments(prevProfessionAssignmentsResponse, { revalidate: false })
+      } else {
+        mutateProfessionAssignments()
+      }
+
       toast({
         title: "Error",
-        description: error?.message || "Failed to save membership",
+        description: getErrorMessage(error, "Failed to save membership"),
         variant: "destructive",
       })
     } finally {
       setSaving(false)
+      mutateMemberships()
+      mutateProfessionAssignments()
     }
   }
 
@@ -593,8 +743,8 @@ export default function AdminDepartmentMembersPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Members</CardTitle>
-          <CardDescription>Active and inactive assignments for this department.</CardDescription>
+          <CardTitle>People</CardTitle>
+          <CardDescription>Department access and profession role for each person.</CardDescription>
         </CardHeader>
         <CardContent>
           {loading ? (
@@ -603,11 +753,11 @@ export default function AdminDepartmentMembersPage() {
                 <Skeleton key={i} className="h-10 w-full bg-gray-200/60 dark:bg-gray-800" />
               ))}
             </div>
-          ) : sorted.length === 0 ? (
-            <div className="text-sm text-muted-foreground">No members yet.</div>
+          ) : people.length === 0 ? (
+            <div className="text-sm text-muted-foreground">No people yet.</div>
           ) : (
             <div className="space-y-2">
-              {sorted.map((m) => (
+              {people.map((m) => (
                 <div
                   key={m.id}
                   className={`flex items-center justify-between rounded-md border p-3 ${

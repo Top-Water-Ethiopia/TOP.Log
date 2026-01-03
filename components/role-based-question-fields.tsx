@@ -10,7 +10,7 @@ import { Badge } from "@/components/ui/badge"
 import type { CustomQuestion } from "@/lib/rbac/types"
 
 interface RoleBasedQuestionFieldsProps {
-  questions: (CustomQuestion | { key: string; label: string; type: string; description?: string; placeholder?: string; options?: any; required: boolean; order: number; validation?: any; defaultValue?: any })[]
+  questions: (CustomQuestion | { id?: string; key: string; label: string; type: string; description?: string; placeholder?: string; options?: any; required: boolean; order: number; category?: string; validation?: any; defaultValue?: any })[]
   responses: Record<string, any>
   errors?: Record<string, string>
   onChange: (questionKey: string, value: any) => void
@@ -26,10 +26,9 @@ export function RoleBasedQuestionFields({
     return null
   }
 
-  const renderField = (question: CustomQuestion, value: any, error?: string) => {
-    // Type assertion for extended validation properties
-    const validation = question.validation as any
-    
+  const renderField = (question: any, value: any, error?: string) => {
+    const validation = question?.validation as any
+
     switch (question.type) {
       case "text":
         return (
@@ -87,16 +86,19 @@ export function RoleBasedQuestionFields({
 
       case "number":
         return (
-          <Input
-            type="number"
-            value={value ?? ""}
-            onChange={(event) => onChange(question.key, event.target.value)}
-            placeholder={question.placeholder}
-            min={question.validation?.min}
-            max={question.validation?.max}
-            step={question.validation?.step}
-            className={error ? "border-destructive" : ""}
-          />
+          <div className="relative">
+            <Input
+              type="number"
+              value={value ?? ""}
+              onChange={(event) => onChange(question.key, event.target.value)}
+              placeholder={question.placeholder}
+              min={validation?.min ?? 0}
+              max={validation?.max ?? 100}
+              step={validation?.step ?? 1}
+              className={error ? "border-destructive" : ""}
+            />
+            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">/100</span>
+          </div>
         )
 
       case "currency":
@@ -108,9 +110,9 @@ export function RoleBasedQuestionFields({
               value={value ?? ""}
               onChange={(event) => onChange(question.key, event.target.value)}
               placeholder={question.placeholder || "0.00"}
-              min={question.validation?.min ?? 0}
-              max={question.validation?.max}
-              step={question.validation?.step ?? "0.01"}
+              min={validation?.min ?? 0}
+              max={validation?.max}
+              step={validation?.step ?? "0.01"}
               className={`pl-7 ${error ? "border-destructive" : ""}`}
             />
           </div>
@@ -124,9 +126,9 @@ export function RoleBasedQuestionFields({
               value={value ?? ""}
               onChange={(event) => onChange(question.key, event.target.value)}
               placeholder={question.placeholder || "0"}
-              min={question.validation?.min ?? 0}
-              max={question.validation?.max ?? 100}
-              step={question.validation?.step ?? 1}
+              min={validation?.min ?? 0}
+              max={validation?.max ?? 100}
+              step={validation?.step ?? 1}
               className={`pr-7 ${error ? "border-destructive" : ""}`}
             />
             <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">%</span>
@@ -139,8 +141,8 @@ export function RoleBasedQuestionFields({
             type="date"
             value={value ?? ""}
             onChange={(event) => onChange(question.key, event.target.value)}
-            min={question.validation?.min_date}
-            max={question.validation?.max_date}
+            min={validation?.min_date}
+            max={validation?.max_date}
             className={error ? "border-destructive" : ""}
           />
         )
@@ -161,8 +163,8 @@ export function RoleBasedQuestionFields({
             type="datetime-local"
             value={value ?? ""}
             onChange={(event) => onChange(question.key, event.target.value)}
-            min={question.validation?.min_date}
-            max={question.validation?.max_date}
+            min={validation?.min_date}
+            max={validation?.max_date}
             className={error ? "border-destructive" : ""}
           />
         )
@@ -176,8 +178,8 @@ export function RoleBasedQuestionFields({
                 type="date"
                 value={value?.start ?? ""}
                 onChange={(event) => onChange(question.key, { ...value, start: event.target.value })}
-                min={question.validation?.min_date}
-                max={value?.end || question.validation?.max_date}
+                min={validation?.min_date}
+                max={value?.end || validation?.max_date}
                 className={error ? "border-destructive" : ""}
               />
             </div>
@@ -187,8 +189,8 @@ export function RoleBasedQuestionFields({
                 type="date"
                 value={value?.end ?? ""}
                 onChange={(event) => onChange(question.key, { ...value, end: event.target.value })}
-                min={value?.start || question.validation?.min_date}
-                max={question.validation?.max_date}
+                min={value?.start || validation?.min_date}
+                max={validation?.max_date}
                 className={error ? "border-destructive" : ""}
               />
             </div>
@@ -236,7 +238,7 @@ export function RoleBasedQuestionFields({
               <SelectValue placeholder={question.placeholder || "Select an option"} />
             </SelectTrigger>
             <SelectContent>
-              {question.options?.map((option) => (
+              {question.options?.map((option: string) => (
                 <SelectItem key={option} value={option}>
                   {option}
                 </SelectItem>
@@ -248,7 +250,7 @@ export function RoleBasedQuestionFields({
       case "radio":
         return (
           <div className="space-y-2">
-            {question.options?.map((option) => (
+            {question.options?.map((option: string) => (
               <div key={option} className="flex items-center space-x-2">
                 <input
                   type="radio"
@@ -271,7 +273,7 @@ export function RoleBasedQuestionFields({
       case "tags":
         return (
           <div className="space-y-2">
-            {question.options?.map((option) => {
+            {question.options?.map((option: string) => {
               const currentValues = Array.isArray(value) ? value : []
               const checkboxId = `${question.key}-${option}`
 
@@ -321,7 +323,7 @@ export function RoleBasedQuestionFields({
               <SelectValue placeholder="Select rating" />
             </SelectTrigger>
             <SelectContent>
-              {question.options?.map((option) => (
+              {question.options?.map((option: string) => (
                 <SelectItem key={option} value={option}>
                   {option}
                 </SelectItem>

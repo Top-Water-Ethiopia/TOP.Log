@@ -394,7 +394,7 @@ export function UserManagementDialog({ onClose }: { onClose: () => void }) {
                           {canManageUser(user) && assignableRoles.length > 0 ? (
                             <Select
                               value={user.role}
-                              onValueChange={(newRole) => handleUpdateUserRole(user, newRole)}
+                              onValueChange={(newRole) => handleUpdateUserRole(user, newRole as Role["name"])}
                               disabled={user.id === currentUser?.id}
                             >
                               <SelectTrigger className="w-[120px]">

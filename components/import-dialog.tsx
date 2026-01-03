@@ -73,23 +73,30 @@ export function ImportDialog() {
       const duplicates = importedEntries.length - newEntries.length
 
       // Add new entries
-      newEntries.forEach((entry) => {
+      const nowIso = new Date().toISOString()
+      for (const entry of newEntries) {
         const entryData = entry as any
-        addEntry({
+        await addEntry({
           date: entry.date,
+          department_id: entryData.department_id ?? null,
+          metadata: entryData.metadata ?? null,
           // New fields (v2.4.0)
           objectives: entryData.objectives || "",
           keyResults: entryData.keyResults || "",
           challenges: entryData.challenges || "",
           // Legacy fields
-          developmentTasks: entry.developmentTasks,
-          featuresCompleted: entry.featuresCompleted,
-          challengesAndBlockers: entry.challengesAndBlockers,
-          codeAndPriorities: entry.codeAndPriorities,
-          systemImprovements: entry.systemImprovements,
-          projectUpdates: entry.projectUpdates,
+          developmentTasks: entryData.developmentTasks || "",
+          featuresCompleted: entryData.featuresCompleted || "",
+          challengesAndBlockers: entryData.challengesAndBlockers || "",
+          codeAndPriorities: entryData.codeAndPriorities || "",
+          systemImprovements: entryData.systemImprovements || "",
+          projectUpdates: entryData.projectUpdates || "",
+          // Required by context type
+          createdAt: entryData.createdAt || nowIso,
+          updatedAt: entryData.updatedAt || nowIso,
+          customResponses: entryData.customResponses || [],
         })
-      })
+      }
 
       toast.success(
         `Imported ${newEntries.length} entries successfully!${duplicates > 0 ? ` (${duplicates} duplicates skipped)` : ""}`

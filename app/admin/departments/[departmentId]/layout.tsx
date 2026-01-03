@@ -1,12 +1,15 @@
 "use client"
 
-import { useEffect, useMemo, useState, type ReactNode } from "react"
+import { useEffect, useMemo, useRef, type ReactNode } from "react"
 import Link from "next/link"
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
+import { useToast } from "@/components/ui/use-toast"
+import useSWR from "swr"
+import { getErrorMessage } from "@/lib/api-client"
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -23,11 +26,13 @@ const SUPER_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000000"
 type Department = {
   id: string
   name: string
+  description?: string | null
 }
 
 export default function AdminDepartmentLayout({ children }: { children: ReactNode }) {
   const { user, profile, isLoading } = useSupabaseAuth()
   const router = useRouter()
+  const { toast } = useToast()
   const params = useParams<{ departmentId: string }>()
   const pathname = usePathname()
   const searchParams = useSearchParams()
@@ -37,14 +42,38 @@ export default function AdminDepartmentLayout({ children }: { children: ReactNod
   const isAdmin = profile?.role_id === ADMIN_ROLE_ID || profile?.role_id === SYSTEM_ADMIN_ROLE_ID || isSuperAdmin
 
   const activeTab = useMemo(() => {
-    const t = searchParams.get("tab")
-    if (t === "members" || t === "roles" || t === "about") return t
+    const t = searchParams.get("tab") ?? searchParams.get("tabs")
+    if (t === "members" || t === "roles") return t
     if (pathname.endsWith(`/admin/departments/${departmentId}/members`)) return "members"
     if (pathname.endsWith(`/admin/departments/${departmentId}/professions`)) return "roles"
-    return "about"
+    return "members"
   }, [searchParams, pathname, departmentId])
 
-  const [departmentName, setDepartmentName] = useState<string | null>(null)
+  const departmentsKey = isAdmin ? "/api/admin/departments" : null
+
+  const { data: departmentsResponse, error: departmentsError } = useSWR<{ data: Department[] }>(departmentsKey)
+
+  const department = useMemo(() => {
+    const depts = Array.isArray(departmentsResponse?.data) ? departmentsResponse.data : []
+    return depts.find((d) => d.id === departmentId) || null
+  }, [departmentsResponse, departmentId])
+
+  const departmentName = department?.name || null
+  const departmentDescription = department?.description || null
+
+  const lastDepartmentsErrorRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (!departmentsError) return
+    const message = getErrorMessage(departmentsError, "Failed to load department")
+    if (message === lastDepartmentsErrorRef.current) return
+    lastDepartmentsErrorRef.current = message
+    toast({
+      title: "Error",
+      description: message,
+      variant: "destructive",
+    })
+  }, [departmentsError, toast])
 
   useEffect(() => {
     if (!isLoading && (!user || !isAdmin)) {
@@ -52,36 +81,10 @@ export default function AdminDepartmentLayout({ children }: { children: ReactNod
     }
   }, [user, isAdmin, isLoading, router])
 
-  useEffect(() => {
-    if (!user || !isAdmin) return
-    if (!departmentId) return
-
-    const controller = new AbortController()
-
-    const loadDepartmentName = async () => {
-      try {
-        const res = await fetch("/api/admin/departments", { signal: controller.signal })
-        const json = await res.json().catch(() => ({}))
-        if (!res.ok) throw new Error(json.message || json.error || `HTTP ${res.status}`)
-
-        const depts = (json.data || []) as Department[]
-        const dept = depts.find((d) => d.id === departmentId)
-        setDepartmentName(dept?.name || null)
-      } catch (e) {
-        if (controller.signal.aborted) return
-        setDepartmentName(null)
-      }
-    }
-
-    loadDepartmentName()
-
-    return () => controller.abort()
-  }, [user?.id, isAdmin, departmentId])
-
   if (isLoading || !user || !profile) {
     return (
       <div className="space-y-6">
-        <div className="sticky top-0 z-20 rounded-xl border bg-background p-5 shadow-sm sm:p-6">
+        <div className="sticky top-0 z-20 rounded-xl border bg-background p-6 shadow-sm">
           <div className="space-y-2">
             <Skeleton className="h-4 w-80 bg-gray-200/70 dark:bg-gray-800" />
             <Skeleton className="h-9 w-64 bg-gray-200/80 dark:bg-gray-800" />
@@ -120,8 +123,8 @@ export default function AdminDepartmentLayout({ children }: { children: ReactNod
   return (
     <div className="space-y-6">
       <div className="sticky top-0 z-20">
-        <div className="flex flex-col gap-3 rounded-xl border bg-background p-5 shadow-sm sm:flex-row sm:items-start sm:justify-between sm:p-6">
-          <div className="space-y-1">
+        <div className="flex flex-col gap-4 rounded-xl border bg-background p-6 shadow-sm sm:flex-row sm:items-start sm:justify-between">
+          <div className="space-y-2">
             <Breadcrumb>
               <BreadcrumbList>
                 <BreadcrumbItem>
@@ -141,18 +144,18 @@ export default function AdminDepartmentLayout({ children }: { children: ReactNod
                 </BreadcrumbItem>
               </BreadcrumbList>
             </Breadcrumb>
-            <h1 className="text-3xl font-bold tracking-tight">{departmentName ? departmentName : "Department"}</h1>
+            <h1 className="text-3xl font-semibold tracking-tight">{departmentName ? departmentName : "Department"}</h1>
+            {departmentDescription ? (
+              <div className="text-sm text-muted-foreground">{departmentDescription}</div>
+            ) : null}
           </div>
 
           <div className="flex gap-2">
-            <Button asChild variant={activeTab === "about" ? "default" : "outline"}>
-              <Link href={`/admin/departments/${departmentId}?tab=about`}>About</Link>
-            </Button>
             <Button asChild variant={activeTab === "members" ? "default" : "outline"}>
-              <Link href={`/admin/departments/${departmentId}?tab=members`}>Members</Link>
+              <Link href={`/admin/departments/${departmentId}?tab=members`}>People</Link>
             </Button>
             <Button asChild variant={activeTab === "roles" ? "default" : "outline"}>
-              <Link href={`/admin/departments/${departmentId}?tab=roles`}>Roles</Link>
+              <Link href={`/admin/departments/${departmentId}?tab=roles`}>Profession roles</Link>
             </Button>
           </div>
         </div>

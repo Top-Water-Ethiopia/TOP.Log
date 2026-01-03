@@ -1,7 +1,7 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
-import { useRouter } from "next/navigation"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -12,8 +12,10 @@ import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
 import { useToast } from "@/components/ui/use-toast"
-import { ToastAction } from "@/components/ui/toast"
 import { toast as sonnerToast } from "sonner"
+import useSWR from "swr"
+import { ApiError, apiFetch, getErrorMessage } from "@/lib/api-client"
+import { RightSidePanel } from "@/components/ui/right-side-panel"
 import {
   Dialog,
   DialogContent,
@@ -98,6 +100,7 @@ type Props = {
 export function DepartmentProfessionsManager({ departmentId, embedded = false, defaultTab = "roles" }: Props) {
   const { user, profile, isLoading } = useSupabaseAuth()
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { toast } = useToast()
 
   const isSuperAdmin = profile?.role_id === SUPER_ADMIN_ROLE_ID
@@ -106,14 +109,56 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
 
   const [tab, setTab] = useState<"roles" | "assignments">(defaultTab)
 
-  const [rolesLoading, setRolesLoading] = useState(true)
-  const [roles, setRoles] = useState<RoleRow[]>([])
+  const setTabAndUrl = (next: "roles" | "assignments") => {
+    setTab(next)
+    if (!embedded) return
+    const rolesTab = next === "assignments" ? "assignments" : "roles"
+    router.replace(`/admin/departments/${departmentId}?tab=roles&rolesTab=${rolesTab}`)
+  }
 
-  const [assignmentsLoading, setAssignmentsLoading] = useState(true)
-  const [assignments, setAssignments] = useState<AssignmentRow[]>([])
+  useEffect(() => {
+    if (!embedded) return
+    const rolesTab = searchParams.get("rolesTab")
+    setTab(rolesTab === "assignments" || rolesTab === "members" ? "assignments" : "roles")
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [embedded, searchParams])
+
+  const rolesKey = isAdmin && departmentId ? `/api/admin/departments/${departmentId}/profession-roles` : null
+  const assignmentsKey = isAdmin && departmentId ? `/api/admin/departments/${departmentId}/profession-assignments` : null
+  const departmentsKey = isAdmin ? "/api/admin/departments" : null
+
+  const {
+    data: rolesResponse,
+    error: rolesError,
+    isLoading: isRolesLoading,
+    mutate: mutateRoles,
+  } = useSWR<{ data: RoleRow[] }>(rolesKey)
+
+  const {
+    data: assignmentsResponse,
+    error: assignmentsError,
+    isLoading: isAssignmentsLoading,
+    mutate: mutateAssignments,
+  } = useSWR<{ data: AssignmentRow[] }>(assignmentsKey)
+
+  const {
+    data: departmentsResponse,
+    error: departmentsError,
+  } = useSWR<{ data: Department[] }>(departmentsKey)
+
+  const rolesLoading = isRolesLoading
+  const assignmentsLoading = isAssignmentsLoading
+
+  const roles = Array.isArray(rolesResponse?.data) ? rolesResponse?.data : []
+  const assignments = Array.isArray(assignmentsResponse?.data) ? assignmentsResponse?.data : []
+
   const [showInactive, setShowInactive] = useState(false)
 
-  const [departmentName, setDepartmentName] = useState<string | null>(null)
+  const departmentName = useMemo(() => {
+    const depts = Array.isArray(departmentsResponse?.data) ? departmentsResponse.data : []
+    const dept = depts.find((d) => d.id === departmentId)
+    return dept?.name || null
+  }, [departmentsResponse, departmentId])
 
   const [showRoleDialog, setShowRoleDialog] = useState(false)
   const [roleSaving, setRoleSaving] = useState(false)
@@ -145,6 +190,46 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
 
   const [roleToViewMembers, setRoleToViewMembers] = useState<RoleRow | null>(null)
 
+  const lastRolesErrorRef = useRef<string | null>(null)
+  const lastAssignmentsErrorRef = useRef<string | null>(null)
+  const lastDepartmentsErrorRef = useRef<string | null>(null)
+
+  useEffect(() => {
+    if (!rolesError) return
+    const message = getErrorMessage(rolesError, "Failed to load profession roles")
+    if (message === lastRolesErrorRef.current) return
+    lastRolesErrorRef.current = message
+    toast({
+      title: "Error",
+      description: message,
+      variant: "destructive",
+    })
+  }, [rolesError, toast])
+
+  useEffect(() => {
+    if (!assignmentsError) return
+    const message = getErrorMessage(assignmentsError, "Failed to load profession assignments")
+    if (message === lastAssignmentsErrorRef.current) return
+    lastAssignmentsErrorRef.current = message
+    toast({
+      title: "Error",
+      description: message,
+      variant: "destructive",
+    })
+  }, [assignmentsError, toast])
+
+  useEffect(() => {
+    if (!departmentsError) return
+    const message = getErrorMessage(departmentsError, "Failed to load department")
+    if (message === lastDepartmentsErrorRef.current) return
+    lastDepartmentsErrorRef.current = message
+    toast({
+      title: "Error",
+      description: message,
+      variant: "destructive",
+    })
+  }, [departmentsError, toast])
+
   useEffect(() => {
     if (!isLoading && (!user || !isAdmin)) {
       router.push("/")
@@ -165,67 +250,6 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
     setRoleFormErrors(errors)
     return Object.keys(errors).length === 0
   }
-
-  const loadRoles = async () => {
-    try {
-      setRolesLoading(true)
-      const res = await fetch(`/api/admin/departments/${departmentId}/profession-roles`)
-      const json = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(json.message || json.error || `HTTP ${res.status}`)
-      setRoles((json.data || []) as RoleRow[])
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error?.message || "Failed to load profession roles",
-        variant: "destructive",
-      })
-    } finally {
-      setRolesLoading(false)
-    }
-  }
-
-  const loadDepartmentName = async () => {
-    try {
-      const res = await fetch("/api/admin/departments")
-      const json = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(json.message || json.error || `HTTP ${res.status}`)
-
-      const depts = (json.data || []) as Department[]
-      const dept = depts.find((d) => d.id === departmentId)
-      setDepartmentName(dept?.name || null)
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error?.message || "Failed to load department",
-        variant: "destructive",
-      })
-    }
-  }
-
-  const loadAssignments = async () => {
-    try {
-      setAssignmentsLoading(true)
-      const res = await fetch(`/api/admin/departments/${departmentId}/profession-assignments`)
-      const json = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(json.message || json.error || `HTTP ${res.status}`)
-      setAssignments((json.data || []) as AssignmentRow[])
-    } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error?.message || "Failed to load profession assignments",
-        variant: "destructive",
-      })
-    } finally {
-      setAssignmentsLoading(false)
-    }
-  }
-
-  useEffect(() => {
-    if (!user || !isAdmin) return
-    if (!departmentId) return
-    void Promise.all([loadRoles(), loadAssignments(), loadDepartmentName()])
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, isAdmin, departmentId])
 
   const rolesById = useMemo(() => new Map(roles.map((r) => [r.id, r])), [roles])
 
@@ -277,28 +301,125 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
   const saveRole = async () => {
     if (!validateRoleForm() || roleSaving) return
 
+    const prevRolesResponse = rolesResponse
+    const prevAssignmentsResponse = assignmentsResponse
+
     try {
       setRoleSaving(true)
-      const payload: any = {
-        name: roleForm.name.trim(),
+      const payload: { name: string; description: string | null; level?: number } = {
+        name: roleForm.name.trim().toLowerCase(),
         description: roleForm.description.trim() || null,
       }
       if (roleForm.level.trim()) payload.level = Number(roleForm.level)
+      const nowIso = new Date().toISOString()
 
-      const res = await fetch(`/api/admin/departments/${departmentId}/profession-roles`, {
+      let optimisticRoleId: string | null = null
+
+      if (rolesKey) {
+        if (editingRole) {
+          mutateRoles(
+            (current) => {
+              const rows = Array.isArray(current?.data) ? current.data : []
+              const nextRows = rows.map((r) =>
+                r.id === editingRole.id
+                  ? {
+                      ...r,
+                      ...payload,
+                      updated_at: nowIso,
+                    }
+                  : r,
+              )
+              return { data: nextRows }
+            },
+            { revalidate: false },
+          )
+
+          mutateAssignments(
+            (current) => {
+              const rows = Array.isArray(current?.data) ? current.data : []
+              const nextRows = rows.map((a) => {
+                if (a.role_id !== editingRole.id) return a
+                if (!a.role) return a
+                return {
+                  ...a,
+                  role: {
+                    ...a.role,
+                    name: payload.name,
+                    description: payload.description,
+                    level: payload.level,
+                  },
+                }
+              })
+              return { data: nextRows }
+            },
+            { revalidate: false },
+          )
+        } else {
+          optimisticRoleId = `temp-${Date.now()}`
+          const optimistic: RoleRow = {
+            id: optimisticRoleId,
+            name: payload.name,
+            description: payload.description,
+            department_id: departmentId,
+            level: payload.level,
+            created_at: nowIso,
+            updated_at: nowIso,
+          }
+
+          mutateRoles(
+            (current) => {
+              const rows = Array.isArray(current?.data) ? current.data : []
+              return { data: [...rows, optimistic] }
+            },
+            { revalidate: false },
+          )
+        }
+      }
+
+      const saved = await apiFetch<{ data: RoleRow }>(`/api/admin/departments/${departmentId}/profession-roles`, {
         method: editingRole ? "PUT" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(editingRole ? { ...payload, id: editingRole.id } : payload),
       })
 
-      const json = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        toast({
-          title: "Error",
-          description: json.message || json.error || `HTTP ${res.status}`,
-          variant: "destructive",
-        })
-        return
+      if (saved?.data?.id && rolesKey) {
+        mutateRoles(
+          (current) => {
+            const rows = Array.isArray(current?.data) ? current.data : []
+            const nextRows = editingRole
+              ? rows.map((r) => (r.id === editingRole.id ? saved.data : r))
+              : optimisticRoleId
+                ? rows.map((r) => (r.id === optimisticRoleId ? saved.data : r))
+                : [...rows, saved.data]
+            return { data: nextRows }
+          },
+          { revalidate: false },
+        )
+      }
+
+      if (editingRole && saved?.data?.id) {
+        mutateAssignments(
+          (current) => {
+            const rows = Array.isArray(current?.data) ? current.data : []
+            const nextRows = rows.map((a) => {
+              if (a.role_id !== saved.data.id) return a
+              if (!a.role) return a
+              return {
+                ...a,
+                role: {
+                  ...a.role,
+                  id: saved.data.id,
+                  name: saved.data.name,
+                  description: saved.data.description,
+                  department_id: saved.data.department_id,
+                  level: saved.data.level,
+                },
+              }
+            })
+            return { data: nextRows }
+          },
+          { revalidate: false },
+        )
       }
 
       toast({
@@ -307,15 +428,28 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
       })
 
       setShowRoleDialog(false)
-      await loadRoles()
     } catch (error: any) {
+      const apiError = error instanceof ApiError ? error : null
+      if (prevRolesResponse) {
+        mutateRoles(prevRolesResponse, { revalidate: false })
+      } else {
+        mutateRoles()
+      }
+
+      if (prevAssignmentsResponse) {
+        mutateAssignments(prevAssignmentsResponse, { revalidate: false })
+      } else {
+        mutateAssignments()
+      }
+
       toast({
         title: "Error",
-        description: error?.message || "Failed to save role",
+        description: apiError ? apiError.message : getErrorMessage(error, "Failed to save role"),
         variant: "destructive",
       })
     } finally {
       setRoleSaving(false)
+      mutateRoles()
     }
   }
 
@@ -327,38 +461,50 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
   const deleteRole = async () => {
     if (!roleToDelete || roleDeleting) return
 
+    const prevRolesResponse = rolesResponse
+
     try {
       setRoleDeleting(true)
-      const res = await fetch(
+
+      mutateRoles(
+        (current) => {
+          const rows = Array.isArray(current?.data) ? current.data : []
+          const nextRows = rows.filter((r) => r.id !== roleToDelete.id)
+          return { data: nextRows }
+        },
+        { revalidate: false },
+      )
+
+      await apiFetch<{ success: boolean }>(
         `/api/admin/departments/${departmentId}/profession-roles?id=${encodeURIComponent(roleToDelete.id)}`,
         { method: "DELETE" },
       )
-      const json = await res.json().catch(() => ({}))
-      if (!res.ok) {
-        if (res.status === 409) {
-          sonnerToast.error("Cannot delete role", {
-            description:
-              json?.message ||
-              json?.error ||
-              "Cannot delete role. It may have users assigned or role questions. Please remove dependencies first.",
-          })
-          return
-        }
-        throw new Error(json.message || json.error || `HTTP ${res.status}`)
-      }
 
       toast({ title: "Deleted", description: "Profession role deleted" })
       setShowDeleteRoleDialog(false)
       setRoleToDelete(null)
-      await loadRoles()
     } catch (error: any) {
-      toast({
-        title: "Error",
-        description: error?.message || "Failed to delete role",
-        variant: "destructive",
-      })
+      if (error instanceof ApiError && error.status === 409) {
+        sonnerToast.error("Cannot delete role", {
+          description:
+            error.message ||
+            "Cannot delete role. It may have users assigned or role questions. Please remove dependencies first.",
+        })
+      } else {
+        toast({
+          title: "Error",
+          description: getErrorMessage(error, "Failed to delete role"),
+          variant: "destructive",
+        })
+      }
+      if (prevRolesResponse) {
+        mutateRoles(prevRolesResponse, { revalidate: false })
+      } else {
+        mutateRoles()
+      }
     } finally {
       setRoleDeleting(false)
+      mutateRoles()
     }
   }
 
@@ -377,14 +523,12 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
 
     try {
       setSearchLoading(true)
-      const res = await fetch(`/api/admin/users/search?query=${encodeURIComponent(q)}`)
-      const json = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(json.message || json.error || `HTTP ${res.status}`)
+      const json = await apiFetch<{ data: SearchUser[] }>(`/api/admin/users/search?query=${encodeURIComponent(q)}`)
       setSearchResults((json.data || []) as SearchUser[])
     } catch (error: any) {
       toast({
         title: "Error",
-        description: error?.message || "Failed to search users",
+        description: getErrorMessage(error, "Failed to search users"),
         variant: "destructive",
       })
     } finally {
@@ -411,33 +555,118 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
       return
     }
 
+    const prevAssignmentsResponse = assignmentsResponse
+
     try {
       setAssignSaving(true)
-      const res = await fetch(`/api/admin/departments/${departmentId}/profession-assignments`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          user_id: selectedUserId,
-          role_id: selectedRoleId,
-          is_active: selectedActive,
-        }),
-      })
-      const json = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(json.message || json.error || `HTTP ${res.status}`)
+      const role = rolesById.get(selectedRoleId)
+      const selectedUser = searchResults.find((u) => u.user_id === selectedUserId) || null
+      const nowIso = new Date().toISOString()
+      const existing = assignments.find((a) => a.user_id === selectedUserId) || null
+
+      mutateAssignments(
+        (current) => {
+          const rows = Array.isArray(current?.data) ? current.data : []
+          const optimistic: AssignmentRow = existing
+            ? {
+                ...existing,
+                role_id: selectedRoleId,
+                is_active: selectedActive,
+                updated_at: nowIso,
+                role: role
+                  ? {
+                      id: role.id,
+                      name: role.name,
+                      description: role.description,
+                      department_id: role.department_id,
+                      level: role.level,
+                    }
+                  : existing.role,
+                user: existing.user ||
+                  (selectedUser
+                    ? { user_id: selectedUser.user_id, email: selectedUser.email, name: selectedUser.name }
+                    : { user_id: selectedUserId, email: null, name: null }),
+              }
+            : {
+                id: `temp-${Date.now()}`,
+                user_id: selectedUserId,
+                department_id: departmentId,
+                role_id: selectedRoleId,
+                is_active: selectedActive,
+                created_at: nowIso,
+                updated_at: nowIso,
+                role: role
+                  ? {
+                      id: role.id,
+                      name: role.name,
+                      description: role.description,
+                      department_id: role.department_id,
+                      level: role.level,
+                    }
+                  : null,
+                user: selectedUser
+                  ? { user_id: selectedUser.user_id, email: selectedUser.email, name: selectedUser.name }
+                  : { user_id: selectedUserId, email: null, name: null },
+              }
+
+          const nextRows = existing
+            ? rows.map((a) => (a.user_id === selectedUserId ? optimistic : a))
+            : [...rows.filter((a) => a.user_id !== selectedUserId), optimistic]
+
+          return { data: nextRows }
+        },
+        { revalidate: false },
+      )
+
+      const saved = await apiFetch<{ data: { id: string; user_id: string; department_id: string; role_id: string; is_active: boolean; created_at: string; updated_at: string } }>(
+        `/api/admin/departments/${departmentId}/profession-assignments`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            user_id: selectedUserId,
+            role_id: selectedRoleId,
+            is_active: selectedActive,
+          }),
+        },
+      )
+
+      if (saved?.data?.id) {
+        mutateAssignments(
+          (current) => {
+            const rows = Array.isArray(current?.data) ? current.data : []
+            const nextRows = rows.map((a) => {
+              if (a.user_id !== selectedUserId) return a
+              return {
+                ...a,
+                ...saved.data,
+              }
+            })
+            return { data: nextRows }
+          },
+          { revalidate: false },
+        )
+      }
 
       sonnerToast.success("Saved", {
         description: "Profession assignment updated",
       })
       setShowAssignDialog(false)
-      await loadAssignments()
     } catch (error: any) {
+      if (prevAssignmentsResponse) {
+        mutateAssignments(prevAssignmentsResponse, { revalidate: false })
+      } else {
+        mutateAssignments()
+      }
+
       toast({
         title: "Error",
-        description: error?.message || "Failed to save assignment",
+        description: getErrorMessage(error, "Failed to save assignment"),
         variant: "destructive",
       })
     } finally {
       setAssignSaving(false)
+      mutateAssignments()
     }
   }
 
@@ -448,23 +677,28 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
   const removeAssignment = async () => {
     if (!assignmentToRemove) return
 
+    const prevAssignmentsResponse = assignmentsResponse
+
     try {
       setRemovingUserId(assignmentToRemove.user_id)
-      const res = await fetch(
-        `/api/admin/departments/${departmentId}/profession-assignments/${assignmentToRemove.user_id}`,
-        { method: "DELETE" },
-      )
-      const json = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(json.message || json.error || `HTTP ${res.status}`)
-
       const removedUserId = assignmentToRemove.user_id
       const removedDisplayName = assignmentToRemove.user?.name || assignmentToRemove.user?.email || removedUserId
+      const prevRoleId = assignmentToRemove.role_id
 
       // Update the assignment's is_active status instead of removing it
-      setAssignments((prev) =>
-        prev.map((a) =>
-          a.user_id === removedUserId ? { ...a, is_active: false } : a
-        )
+      mutateAssignments(
+        (current) => {
+          const rows = Array.isArray(current?.data) ? current.data : []
+          return {
+            data: rows.map((a) => (a.user_id === removedUserId ? { ...a, is_active: false } : a)),
+          }
+        },
+        { revalidate: false },
+      )
+
+      await apiFetch<{ data: unknown }>(
+        `/api/admin/departments/${departmentId}/profession-assignments/${removedUserId}`,
+        { method: "DELETE" },
       )
 
       sonnerToast.success("Deactivated", {
@@ -473,8 +707,18 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
           label: "Undo",
           onClick: async () => {
             try {
-              const prevRoleId = assignmentToRemove.role_id
-              const undoRes = await fetch(`/api/admin/departments/${departmentId}/profession-assignments`, {
+              // Update the assignment's is_active status
+              mutateAssignments(
+                (current) => {
+                  const rows = Array.isArray(current?.data) ? current.data : []
+                  return {
+                    data: rows.map((a) => (a.user_id === removedUserId ? { ...a, is_active: true } : a)),
+                  }
+                },
+                { revalidate: false },
+              )
+
+              await apiFetch<{ data: unknown }>(`/api/admin/departments/${departmentId}/profession-assignments`, {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
@@ -483,23 +727,17 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
                   is_active: true,
                 }),
               })
-              const undoJson = await undoRes.json().catch(() => ({}))
-              if (!undoRes.ok) throw new Error(undoJson.message || undoJson.error || `HTTP ${undoRes.status}`)
-              
-              // Update the assignment's is_active status
-              setAssignments((prev) =>
-                prev.map((a) =>
-                  a.user_id === removedUserId ? { ...a, is_active: true } : a
-                )
-              )
               
               sonnerToast.success("Restored", {
                 description: `${removedDisplayName}'s access has been restored`,
               })
             } catch (e: any) {
+              mutateAssignments()
               sonnerToast.error("Error", {
-                description: e?.message || "Failed to restore assignment",
+                description: getErrorMessage(e, "Failed to restore assignment"),
               })
+            } finally {
+              mutateAssignments()
             }
           },
         },
@@ -507,32 +745,45 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
 
       setAssignmentToRemove(null)
     } catch (error: any) {
+      if (prevAssignmentsResponse) {
+        mutateAssignments(prevAssignmentsResponse, { revalidate: false })
+      } else {
+        mutateAssignments()
+      }
+
       sonnerToast.error("Error", {
-        description: error?.message || "Failed to deactivate assignment",
+        description: getErrorMessage(error, "Failed to deactivate assignment"),
       })
     } finally {
       setRemovingUserId(null)
+      mutateAssignments()
     }
   }
 
   const hardDeleteAssignment = async () => {
     if (!assignmentToHardDelete) return
 
+    const prevAssignmentsResponse = assignmentsResponse
+
     try {
       setRemovingUserId(assignmentToHardDelete.user_id)
-      const res = await fetch(
-        `/api/admin/departments/${departmentId}/profession-assignments/${assignmentToHardDelete.user_id}?mode=hard`,
-        { method: "DELETE" },
-      )
-      const json = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(json.message || json.error || `HTTP ${res.status}`)
-
       const removedUserId = assignmentToHardDelete.user_id
       const removedDisplayName =
         assignmentToHardDelete.user?.name || assignmentToHardDelete.user?.email || removedUserId
 
       // Remove the assignment from the list entirely
-      setAssignments((prev) => prev.filter((a) => a.user_id !== removedUserId))
+      mutateAssignments(
+        (current) => {
+          const rows = Array.isArray(current?.data) ? current.data : []
+          return { data: rows.filter((a) => a.user_id !== removedUserId) }
+        },
+        { revalidate: false },
+      )
+
+      await apiFetch<{ data: unknown }>(
+        `/api/admin/departments/${departmentId}/profession-assignments/${removedUserId}?mode=hard`,
+        { method: "DELETE" },
+      )
 
       sonnerToast.success("Permanently deleted", {
         description: `${removedDisplayName}'s assignment was permanently deleted`,
@@ -541,11 +792,18 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
       setAssignmentToHardDelete(null)
       setHardDeleteConfirmText("")
     } catch (error: any) {
+      if (prevAssignmentsResponse) {
+        mutateAssignments(prevAssignmentsResponse, { revalidate: false })
+      } else {
+        mutateAssignments()
+      }
+
       sonnerToast.error("Error", {
-        description: error?.message || "Failed to delete assignment",
+        description: getErrorMessage(error, "Failed to delete assignment"),
       })
     } finally {
       setRemovingUserId(null)
+      mutateAssignments()
     }
   }
 
@@ -559,7 +817,7 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
             <Skeleton className="h-5 w-40 bg-gray-200/70 dark:bg-gray-800" />
             <Skeleton className="h-4 w-56 bg-gray-200/60 dark:bg-gray-800" />
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="space-y-4">
             {[...Array(6)].map((_, i) => (
               <Skeleton key={i} className="h-10 w-full bg-gray-200/60 dark:bg-gray-800" />
             ))}
@@ -589,22 +847,22 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
     <div className="space-y-6">
       {embedded ? (
         <div className="flex items-center justify-end gap-2">
-          <Button variant={tab === "roles" ? "default" : "outline"} onClick={() => setTab("roles")}>
+          <Button variant={tab === "roles" ? "default" : "outline"} onClick={() => setTabAndUrl("roles")}>
             <Briefcase className="mr-2 h-4 w-4" />
             Roles
           </Button>
-          <Button variant={tab === "assignments" ? "default" : "outline"} onClick={() => setTab("assignments")}>
+          <Button variant={tab === "assignments" ? "default" : "outline"} onClick={() => setTabAndUrl("assignments")}>
             <Users className="mr-2 h-4 w-4" />
-            Role members
+            Assignments
           </Button>
         </div>
       ) : (
-        <div className="flex flex-col gap-3 rounded-xl border bg-background p-5 shadow-sm sm:flex-row sm:items-start sm:justify-between sm:p-6">
-          <div className="space-y-1">
-            <h1 className="text-3xl font-bold tracking-tight">
+        <div className="flex flex-col gap-4 rounded-xl border bg-background p-6 shadow-sm sm:flex-row sm:items-start sm:justify-between">
+          <div className="space-y-2">
+            <h1 className="text-3xl font-semibold tracking-tight">
               {departmentName ? `${departmentName} profession roles` : "Profession roles"}
             </h1>
-            <p className="text-muted-foreground mt-1">
+            <p className="text-muted-foreground mt-2">
               Define profession roles for this department, then assign each user to one role.
             </p>
           </div>
@@ -615,7 +873,7 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
             </Button>
             <Button variant={tab === "assignments" ? "default" : "outline"} onClick={() => setTab("assignments")}>
               <Users className="mr-2 h-4 w-4" />
-              Members
+              Assignments
             </Button>
           </div>
         </div>
@@ -635,7 +893,7 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
           </CardHeader>
           <CardContent>
             {rolesLoading ? (
-              <div className="space-y-3">
+              <div className="space-y-4">
                 {[...Array(6)].map((_, i) => (
                   <Skeleton key={i} className="h-10 w-full bg-gray-200/60 dark:bg-gray-800" />
                 ))}
@@ -645,7 +903,7 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
             ) : (
               <div className="space-y-2">
                 {sortedRoles.map((r) => (
-                  <div key={r.id} className="flex items-center justify-between rounded-md border px-3 py-2">
+                  <div key={r.id} className="flex items-center justify-between rounded-md border px-4 py-2">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
                         <div className="font-medium truncate">{r.name}</div>
@@ -672,7 +930,7 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
                       <Button 
                         variant="outline" 
                         size="sm" 
-                        className="gap-1.5 text-xs h-8"
+                        className="gap-2 text-xs h-8"
                         onClick={() => openAssign(r.id)}
                       >
                         <UserPlus className="h-3.5 w-3.5" />
@@ -719,7 +977,7 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
             {sortedRoles.length === 0 ? (
               <div className="text-sm text-muted-foreground">Create at least one role before assigning members.</div>
             ) : assignmentsLoading ? (
-              <div className="space-y-3">
+              <div className="space-y-4">
                 {[...Array(6)].map((_, i) => (
                   <Skeleton key={i} className="h-10 w-full bg-gray-200/60 dark:bg-gray-800" />
                 ))}
@@ -823,97 +1081,94 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
         </Card>
       )}
 
-      <Dialog open={showRoleDialog} onOpenChange={setShowRoleDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{editingRole ? "Edit profession role" : "Create profession role"}</DialogTitle>
-            <DialogDescription>
-              Profession roles are department-specific and used to determine which report questions a user sees.
-            </DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="profession_role_name">Role name</Label>
-              <Input
-                id="profession_role_name"
-                value={roleForm.name}
-                onChange={(e) => setRoleForm((p) => ({ ...p, name: e.target.value }))}
-                placeholder="e.g. deckhand"
-              />
-              {roleFormErrors.name && <div className="text-sm text-destructive">{roleFormErrors.name}</div>}
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="profession_role_description">Description</Label>
-              <Textarea
-                id="profession_role_description"
-                value={roleForm.description}
-                onChange={(e) => setRoleForm((p) => ({ ...p, description: e.target.value }))}
-                placeholder="Optional"
-                rows={3}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="profession_role_level">Level</Label>
-              <div className="text-xs text-muted-foreground">Defines the hierarchy weight of this role</div>
-              <div className="flex items-center gap-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  className="h-9 w-9"
-                  aria-label="Decrease level"
-                  onClick={() => {
-                    const current = Number.parseInt(roleForm.level || "0", 10)
-                    const safe = Number.isFinite(current) ? current : 0
-                    const next = Math.max(0, safe - 1)
-                    setRoleForm((p) => ({ ...p, level: String(next) }))
-                  }}
-                >
-                  <Minus className="h-4 w-4" />
-                </Button>
-                <Input
-                  id="profession_role_level"
-                  type="number"
-                  inputMode="numeric"
-                  min={0}
-                  step={1}
-                  value={roleForm.level}
-                  onChange={(e) => setRoleForm((p) => ({ ...p, level: e.target.value }))}
-                  placeholder="Optional"
-                />
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="icon"
-                  className="h-9 w-9"
-                  aria-label="Increase level"
-                  onClick={() => {
-                    const current = Number.parseInt(roleForm.level || "0", 10)
-                    const safe = Number.isFinite(current) ? current : 0
-                    const next = safe + 1
-                    setRoleForm((p) => ({ ...p, level: String(next) }))
-                  }}
-                >
-                  <Plus className="h-4 w-4" />
-                </Button>
-              </div>
-              {roleFormErrors.level && <div className="text-sm text-destructive">{roleFormErrors.level}</div>}
-            </div>
-          </div>
-
-          <DialogFooter>
+      <RightSidePanel
+        open={showRoleDialog}
+        onOpenChange={setShowRoleDialog}
+        title={editingRole ? "Edit profession role" : "Create profession role"}
+        description="Profession roles are department-specific and used to determine which report questions a user sees."
+        footer={
+          <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setShowRoleDialog(false)} disabled={roleSaving}>
               Cancel
             </Button>
             <Button onClick={saveRole} disabled={roleSaving}>
               {editingRole ? "Update role" : "Add role"}
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </div>
+        }
+      >
+        <div className="space-y-4 pt-4">
+          <div className="space-y-2">
+            <Label htmlFor="profession_role_name">Role name</Label>
+            <Input
+              id="profession_role_name"
+              value={roleForm.name}
+              onChange={(e) => setRoleForm((p) => ({ ...p, name: e.target.value }))}
+              placeholder="e.g. deckhand"
+            />
+            {roleFormErrors.name && <div className="text-sm text-destructive">{roleFormErrors.name}</div>}
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="profession_role_description">Description</Label>
+            <Textarea
+              id="profession_role_description"
+              value={roleForm.description}
+              onChange={(e) => setRoleForm((p) => ({ ...p, description: e.target.value }))}
+              placeholder="Optional"
+              rows={3}
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="profession_role_level">Level</Label>
+            <div className="text-xs text-muted-foreground">Defines the hierarchy weight of this role</div>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="h-9 w-9"
+                aria-label="Decrease level"
+                onClick={() => {
+                  const current = Number.parseInt(roleForm.level || "0", 10)
+                  const safe = Number.isFinite(current) ? current : 0
+                  const next = Math.max(0, safe - 1)
+                  setRoleForm((p) => ({ ...p, level: String(next) }))
+                }}
+              >
+                <Minus className="h-4 w-4" />
+              </Button>
+              <Input
+                id="profession_role_level"
+                type="number"
+                inputMode="numeric"
+                min={0}
+                step={1}
+                value={roleForm.level}
+                onChange={(e) => setRoleForm((p) => ({ ...p, level: e.target.value }))}
+                placeholder="Optional"
+              />
+              <Button
+                type="button"
+                variant="outline"
+                size="icon"
+                className="h-9 w-9"
+                aria-label="Increase level"
+                onClick={() => {
+                  const current = Number.parseInt(roleForm.level || "0", 10)
+                  const safe = Number.isFinite(current) ? current : 0
+                  const next = safe + 1
+                  setRoleForm((p) => ({ ...p, level: String(next) }))
+                }}
+              >
+                <Plus className="h-4 w-4" />
+              </Button>
+            </div>
+            {roleFormErrors.level && <div className="text-sm text-destructive">{roleFormErrors.level}</div>}
+          </div>
+        </div>
+      </RightSidePanel>
 
       <Dialog open={!!roleToViewMembers} onOpenChange={(open) => !open && setRoleToViewMembers(null)}>
         <DialogContent>
@@ -1027,7 +1282,7 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
                     <button
                       key={u.user_id}
                       type="button"
-                      className={`w-full text-left px-3 py-2 text-sm hover:bg-muted ${
+                      className={`w-full text-left px-4 py-2 text-sm hover:bg-muted ${
                         selectedUserId === u.user_id ? "bg-muted" : ""
                       }`}
                       onClick={() => setSelectedUserId(u.user_id)}

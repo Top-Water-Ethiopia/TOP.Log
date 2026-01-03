@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo } from "react"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { DepartmentProfessionsManager } from "@/components/department-professions-manager"
 import AdminDepartmentMembersPage from "./members/page"
 
@@ -13,16 +12,16 @@ export default function AdminDepartmentPage() {
   const searchParams = useSearchParams()
 
   const tab = useMemo(() => {
-    const t = searchParams.get("tab")
-    if (t === "about" || t === "members" || t === "roles") return t
-    return "about"
+    const t = searchParams.get("tab") ?? searchParams.get("tabs")
+    if (t === "members" || t === "roles") return t
+    return "members"
   }, [searchParams])
 
   useEffect(() => {
     if (!departmentId) return
-    const t = searchParams.get("tab")
-    if (!t || (t !== "about" && t !== "members" && t !== "roles")) {
-      router.replace(`/admin/departments/${departmentId}?tab=about`)
+    const t = searchParams.get("tab") ?? searchParams.get("tabs")
+    if (!t || (t !== "members" && t !== "roles")) {
+      router.replace(`/admin/departments/${departmentId}?tab=members`)
     }
   }, [departmentId, router, searchParams])
 
@@ -31,18 +30,10 @@ export default function AdminDepartmentPage() {
   }
 
   if (tab === "roles") {
-    return <DepartmentProfessionsManager departmentId={departmentId} embedded defaultTab="roles" />
+    const rolesTab = searchParams.get("rolesTab")
+    const defaultTab = rolesTab === "assignments" || rolesTab === "members" ? "assignments" : "roles"
+    return <DepartmentProfessionsManager departmentId={departmentId} embedded defaultTab={defaultTab} />
   }
 
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>About</CardTitle>
-        <CardDescription>Overview and details for this department.</CardDescription>
-      </CardHeader>
-      <CardContent>
-        <div className="text-sm text-muted-foreground">Department ID: {departmentId}</div>
-      </CardContent>
-    </Card>
-  )
+  return <AdminDepartmentMembersPage />
 }

@@ -84,6 +84,19 @@ export async function DELETE(
         return NextResponse.json({ error: "Failed to permanently delete membership", message: error.message }, { status: 500 })
       }
 
+      const { error: professionDeleteError } = await adminSupabase
+        .from("user_department_professions")
+        .delete()
+        .eq("department_id", departmentId)
+        .eq("user_id", userId)
+
+      if (professionDeleteError) {
+        return NextResponse.json(
+          { error: "Failed to permanently delete profession assignment", message: professionDeleteError.message },
+          { status: 500 },
+        )
+      }
+
       return NextResponse.json({ data: { deleted: true } })
     }
 
@@ -100,6 +113,24 @@ export async function DELETE(
 
     if (error) {
       return NextResponse.json({ error: "Failed to remove membership", message: error.message }, { status: 500 })
+    }
+
+    const nowIso = new Date().toISOString()
+    const { error: professionDeactivateError } = await adminSupabase
+      .from("user_department_professions")
+      .update({
+        is_active: false,
+        updated_by: adminUserId,
+        updated_at: nowIso,
+      } as any)
+      .eq("department_id", departmentId)
+      .eq("user_id", userId)
+
+    if (professionDeactivateError) {
+      return NextResponse.json(
+        { error: "Failed to remove profession assignment", message: professionDeactivateError.message },
+        { status: 500 },
+      )
     }
 
     return NextResponse.json({ data })

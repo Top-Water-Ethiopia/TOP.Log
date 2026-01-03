@@ -141,6 +141,53 @@ export async function POST(request: Request, { params }: { params: Promise<{ dep
       return NextResponse.json({ error: "Invalid role selected" }, { status: 400 })
     }
 
+    const nowIso = new Date().toISOString()
+
+    const { data: existingMembership, error: membershipError } = await adminSupabase
+      .from("user_department_roles")
+      .select("id, is_active")
+      .eq("department_id", departmentId)
+      .eq("user_id", user_id)
+      .maybeSingle()
+
+    if (membershipError) {
+      return NextResponse.json({ error: "Failed to validate membership", message: membershipError.message }, { status: 500 })
+    }
+
+    if (!existingMembership) {
+      const { error: insertMembershipError } = await adminSupabase
+        .from("user_department_roles")
+        .insert({
+          user_id,
+          department_id: departmentId,
+          role: "viewer",
+          is_active: true,
+          created_by: adminUserId,
+          updated_by: adminUserId,
+          updated_at: nowIso,
+        } as any)
+
+      if (insertMembershipError) {
+        return NextResponse.json(
+          { error: "Failed to ensure membership", message: insertMembershipError.message },
+          { status: 500 },
+        )
+      }
+    } else if (is_active && !existingMembership.is_active) {
+      const { error: reactivateError } = await adminSupabase
+        .from("user_department_roles")
+        .update({
+          is_active: true,
+          updated_by: adminUserId,
+          updated_at: nowIso,
+        } as any)
+        .eq("id", existingMembership.id)
+
+      if (reactivateError) {
+        return NextResponse.json({ error: "Failed to reactivate membership", message: reactivateError.message }, { status: 500 })
+      }
+    }
+
     const { data: existing, error: existingError } = await adminSupabase
       .from("user_department_professions")
       .select("id")
