@@ -149,7 +149,7 @@ export function AdminSidebar() {
 
   return (
     <Sidebar>
-      <SidebarHeader className="border-b px-4 py-3">
+      <SidebarHeader className="border-b px-4 py-4">
         <div className="flex items-center gap-2">
           <div className="bg-primary text-primary-foreground flex h-8 w-8 items-center justify-center rounded-lg text-sm font-bold">
             A
@@ -159,24 +159,24 @@ export function AdminSidebar() {
       </SidebarHeader>
       <SidebarContent className="gap-6 py-6">
         {/* Reports */}
-        <SidebarGroup className="px-3">
-          <SidebarGroupLabel className="text-muted-foreground mb-2 px-3 text-xs font-semibold tracking-wider uppercase">
+        <SidebarGroup className="px-4">
+          <SidebarGroupLabel className="text-muted-foreground mb-2 px-4 text-xs font-semibold tracking-wider uppercase">
             Reports
           </SidebarGroupLabel>
           <SidebarMenu>{reportsNavItems.map(renderNavItem)}</SidebarMenu>
         </SidebarGroup>
 
         {/* Main Navigation */}
-        <SidebarGroup className="px-3">
-          <SidebarGroupLabel className="text-muted-foreground mb-2 px-3 text-xs font-semibold tracking-wider uppercase">
+        <SidebarGroup className="px-4">
+          <SidebarGroupLabel className="text-muted-foreground mb-2 px-4 text-xs font-semibold tracking-wider uppercase">
             Management
           </SidebarGroupLabel>
           <SidebarMenu>{mainNavItems.map(renderNavItem)}</SidebarMenu>
         </SidebarGroup>
 
         {/* Questions Configuration */}
-        <SidebarGroup className="px-3">
-          <SidebarGroupLabel className="text-muted-foreground mb-2 px-3 text-xs font-semibold tracking-wider uppercase">
+        <SidebarGroup className="px-4">
+          <SidebarGroupLabel className="text-muted-foreground mb-2 px-4 text-xs font-semibold tracking-wider uppercase">
             Questions
           </SidebarGroupLabel>
           <SidebarMenu>{questionsNavItems.map(renderNavItem)}</SidebarMenu>
@@ -184,8 +184,8 @@ export function AdminSidebar() {
 
         {/* Settings - hidden on mobile */}
         {!isMobile && (
-          <SidebarGroup className="px-3">
-            <SidebarGroupLabel className="text-muted-foreground mb-2 px-3 text-xs font-semibold tracking-wider uppercase">
+          <SidebarGroup className="px-4">
+            <SidebarGroupLabel className="text-muted-foreground mb-2 px-4 text-xs font-semibold tracking-wider uppercase">
               Configuration
             </SidebarGroupLabel>
             <SidebarMenu>{settingsNavItems.map(renderNavItem)}</SidebarMenu>
@@ -222,7 +222,7 @@ export function AdminSidebar() {
           <span>Logout</span>
         </Button>
         <div className="border-t pt-2">
-          <div className="flex items-center gap-3 px-2 py-2">
+          <div className="flex items-center gap-4 px-2 py-2">
             <div className="bg-muted flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold">
               {getInitials(displayName)}
             </div>

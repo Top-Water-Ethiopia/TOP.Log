@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useMemo } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
@@ -19,8 +19,6 @@ import {
   Calendar,
   CalendarDays,
   FileText,
-  TrendingUp,
-  TrendingDown,
   BarChart3,
   Users,
   Eye,
@@ -51,6 +49,11 @@ import {
 import { toast } from "sonner"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
+import { apiFetch, getErrorMessage } from "@/lib/api-client"
+import useSWR from "swr"
+import {
+  AdminReportsDashboardTab,
+} from "@/components/features/admin-reports/admin-reports-dashboard-tab"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -70,7 +73,7 @@ interface CustomResponse {
   question_key: string
   question_label: string | null
   question_type: string | null
-  value: any
+  value: unknown
 }
 
 interface CaptainLogEntry {
@@ -80,7 +83,7 @@ interface CaptainLogEntry {
   created_at: string
   updated_at: string
   version: number
-  metadata: any
+  metadata: unknown
   custom_responses: CustomResponse[]
 }
 
@@ -94,6 +97,13 @@ interface UserProfile {
 
 interface EnrichedEntry extends CaptainLogEntry {
   user_profile: UserProfile | null
+}
+
+type AdminCaptainLogEntriesResponse = {
+  entries: EnrichedEntry[]
+  users: UserProfile[]
+  roles: { id: string; name: string }[]
+  departments: { id: string; name: string }[]
 }
 
 interface DashboardStats {
@@ -113,12 +123,7 @@ interface DashboardStats {
 export function AdminReportsView() {
   const { user, profile } = useSupabaseAuth()
   const router = useRouter()
-  const [entries, setEntries] = useState<EnrichedEntry[]>([])
-  const [isLoading, setIsLoading] = useState(true)
   const [selectedView, setSelectedView] = useState<"dashboard" | "entries" | "calendar">("dashboard")
-  const [allUsers, setAllUsers] = useState<UserProfile[]>([])
-  const [allRoles, setAllRoles] = useState<{ id: string; name: string }[]>([])
-  const [allDepartments, setAllDepartments] = useState<{ id: string; name: string }[]>([])
   const [expandedEntries, setExpandedEntries] = useState<Set<string>>(new Set())
 
   const [calendarMonth, setCalendarMonth] = useState<Date>(() => startOfMonth(new Date()))
@@ -132,82 +137,73 @@ export function AdminReportsView() {
   const [dateRange, setDateRange] = useState<string>("all")
   const [selectedDepartment, setSelectedDepartment] = useState<string>("all")
   const [selectedRole, setSelectedRole] = useState<string>("all")
-  const [filteredUsers, setFilteredUsers] = useState<UserProfile[]>(allUsers)
-  const [filteredRoles, setFilteredRoles] = useState<{id: string, name: string}[]>(allRoles)
+  const [filteredUsers, setFilteredUsers] = useState<UserProfile[]>([])
+  const [filteredRoles, setFilteredRoles] = useState<{id: string, name: string}[]>([])
+
+  const lastLoadErrorRef = useRef<string | null>(null)
+
+  const {
+    data,
+    error: loadError,
+    isLoading,
+    isValidating,
+    mutate,
+  } = useSWR<AdminCaptainLogEntriesResponse>("/api/admin/captain-log-entries")
+
+  const entries = useMemo(() => data?.entries ?? [], [data?.entries])
+  const allUsers = useMemo(() => data?.users ?? [], [data?.users])
+  const allRoles = useMemo(() => data?.roles ?? [], [data?.roles])
+  const allDepartments = useMemo(() => data?.departments ?? [], [data?.departments])
 
   const isSuperAdmin = useMemo(() => {
     return profile?.role_id === "00000000-0000-0000-0000-000000000000"
   }, [profile?.role_id])
 
-  const deleteEntry = async (entryId: string) => {
-    try {
-      const res = await fetch(`/api/admin/captain-log-entries/${entryId}`, { method: "DELETE" })
-      const data = await res.json().catch(() => ({}))
-
-      if (!res.ok) {
-        throw new Error(data.error || `HTTP ${res.status}`)
-      }
-
-      setEntries((prev) => prev.filter((e) => e.id !== entryId))
-      setExpandedEntries((prev) => {
-        const next = new Set(prev)
-        next.delete(entryId)
-        return next
-      })
-      toast.success("Report deleted")
-    } catch (error) {
-      toast.error(error instanceof Error ? error.message : "Failed to delete report")
-    }
-  }
-
-  // Load all entries with user profiles
   useEffect(() => {
-    loadEntries()
-  }, [])
+    if (!loadError) {
+      lastLoadErrorRef.current = null
+      return
+    }
 
-  const loadEntries = async () => {
+    const message = getErrorMessage(loadError, "Failed to load entries")
+    if (lastLoadErrorRef.current !== message) {
+      toast.error(message)
+      lastLoadErrorRef.current = message
+    }
+  }, [loadError])
+
+  const deleteEntry = async (entryId: string) => {
+    const prevExpanded = expandedEntries
+    setExpandedEntries((prev) => {
+      const next = new Set(prev)
+      next.delete(entryId)
+      return next
+    })
+
+    const prevData = data
+    mutate(
+      (current) => {
+        if (!current) return current
+        return {
+          ...current,
+          entries: (current.entries || []).filter((e) => e.id !== entryId),
+        }
+      },
+      { revalidate: false },
+    )
+
     try {
-      setIsLoading(true)
-      const response = await fetch("/api/admin/captain-log-entries")
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: "Unknown error" }))
-        throw new Error(errorData.error || `HTTP ${response.status}`)
-      }
-
-      const data = await response.json()
-
-      // Handle new API response structure
-      setEntries(data.entries || [])
-      const normalizedUsers: UserProfile[] = (Array.isArray(data.users) ? data.users : [])
-        .map((u: any) => {
-          const user_id = String(u.user_id ?? u.id ?? "").trim()
-          if (!user_id) return null
-
-          return {
-            user_id,
-            name: u.name ?? "Unknown User",
-            email: u.email ?? "",
-            role_name: u.role_name ?? "Unknown",
-            department_name: u.department_name ?? null,
-          } satisfies UserProfile
-        })
-        .filter(Boolean) as UserProfile[]
-
-      setAllUsers(normalizedUsers)
-      setAllRoles(data.roles || [])
-      setAllDepartments(data.departments || [])
-
-      toast.success(`Loaded ${data.entries?.length || 0} entries, ${data.users?.length || 0} users`)
+      await apiFetch(`/api/admin/captain-log-entries/${entryId}`, { method: "DELETE" })
+      toast.success("Report deleted")
+      await mutate()
     } catch (error) {
-      console.error("Error loading entries:", error)
-      toast.error(error instanceof Error ? error.message : "Failed to load entries")
-      setEntries([])
-      setAllUsers([])
-      setAllRoles([])
-      setAllDepartments([])
-    } finally {
-      setIsLoading(false)
+      setExpandedEntries(prevExpanded)
+      if (prevData) {
+        mutate(prevData, { revalidate: false })
+      } else {
+        mutate()
+      }
+      toast.error(getErrorMessage(error, "Failed to delete report"))
     }
   }
 
@@ -482,7 +478,7 @@ export function AdminReportsView() {
 
         <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
           {[...Array(4)].map((_, i) => (
-            <div key={i} className="bg-card space-y-3 rounded-lg border p-6">
+            <div key={i} className="bg-card space-y-4 rounded-lg border p-6">
               <Skeleton className="h-4 w-28 bg-gray-200/70 dark:bg-gray-800" />
               <Skeleton className="h-8 w-20 bg-gray-200/80 dark:bg-gray-800" />
               <Skeleton className="h-3 w-32 bg-gray-200/60 dark:bg-gray-800" />
@@ -492,12 +488,12 @@ export function AdminReportsView() {
 
         <div className="bg-card space-y-4 rounded-lg border p-6">
           <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
+            <div className="flex items-center gap-4">
               <Skeleton className="h-5 w-44 bg-gray-200/80 dark:bg-gray-800" />
             </div>
             <Skeleton className="h-9 w-28 bg-gray-200/80 dark:bg-gray-800" />
           </div>
-          <div className="space-y-3">
+          <div className="space-y-4">
             {[...Array(6)].map((_, i) => (
               <div key={i} className="flex items-center justify-between">
                 <Skeleton className="h-4 w-64 bg-gray-200/70 dark:bg-gray-800" />
@@ -516,15 +512,22 @@ export function AdminReportsView() {
       <div className="flex justify-end">
      
         <div className="flex gap-2">
-          <Button onClick={loadEntries} disabled={isLoading} variant="outline" size="sm" className="gap-2">
-            {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+          <Button onClick={() => mutate()} disabled={isLoading} variant="outline" size="sm" className="gap-2">
+            {isValidating ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
             Refresh Data
           </Button>
         </div>
       </div>
 
       {/* View Tabs */}
-      <Tabs value={selectedView} onValueChange={(v) => setSelectedView(v as any)}>
+      <Tabs
+        value={selectedView}
+        onValueChange={(v) => {
+          if (v === "dashboard" || v === "entries" || v === "calendar") {
+            setSelectedView(v)
+          }
+        }}
+      >
         <TabsList className="grid w-full max-w-lg grid-cols-3">
           <TabsTrigger value="dashboard" className="gap-2">
             <BarChart3 className="h-4 w-4" />
@@ -542,117 +545,11 @@ export function AdminReportsView() {
 
         {/* Dashboard Tab */}
         <TabsContent value="dashboard" className="space-y-6">
-          {/* Key Metrics */}
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            <Card className="border border-gray-200 shadow-sm transition-shadow duration-200 hover:shadow-md">
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-muted-foreground text-sm font-medium">Total Entries</CardTitle>
-                <FileText className="text-muted-foreground h-4 w-4" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{stats.totalEntries}</div>
-                <p className="text-muted-foreground mt-1 text-xs">From {stats.totalUsers} users</p>
-              </CardContent>
-            </Card>
-
-            <Card className="border border-gray-200 shadow-sm transition-shadow duration-200 hover:shadow-md">
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-muted-foreground text-sm font-medium">This Week</CardTitle>
-                <CalendarDays className="text-muted-foreground h-4 w-4" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{stats.entriesThisWeek}</div>
-                <p className="text-muted-foreground mt-1 flex items-center gap-1 text-xs">
-                  {stats.entryTrend === "up" && (
-                    <>
-                      <TrendingUp className="h-3 w-3 text-green-600" />
-                      <span className="text-green-600">Increasing</span>
-                    </>
-                  )}
-                  {stats.entryTrend === "down" && (
-                    <>
-                      <TrendingDown className="h-3 w-3 text-red-600" />
-                      <span className="text-red-600">Decreasing</span>
-                    </>
-                  )}
-                  {stats.entryTrend === "stable" && <span>Stable trend</span>}
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card className="border border-gray-200 shadow-sm transition-shadow duration-200 hover:shadow-md">
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-muted-foreground text-sm font-medium">This Month</CardTitle>
-                <Calendar className="text-muted-foreground h-4 w-4" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{stats.entriesThisMonth}</div>
-                <p className="text-muted-foreground mt-1 text-xs">Last 30 days</p>
-              </CardContent>
-            </Card>
-
-            <Card className="border border-gray-200 shadow-sm transition-shadow duration-200 hover:shadow-md">
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-muted-foreground text-sm font-medium">Avg Responses</CardTitle>
-                <BarChart3 className="text-muted-foreground h-4 w-4" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{stats.avgResponsesPerEntry.toFixed(1)}</div>
-                <p className="text-muted-foreground mt-1 text-xs">Per entry</p>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Most Active Users */}
-          <Card className="border border-gray-200 shadow-sm transition-shadow duration-200 hover:shadow-md">
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Users className="text-muted-foreground h-5 w-5" />
-                <span className="text-muted-foreground">Most Active Contributors</span>
-              </CardTitle>
-              <CardDescription>Top users by number of entries submitted</CardDescription>
-            </CardHeader>
-            <CardContent>
-              {stats.mostActiveUsers.length > 0 ? (
-                <div className="space-y-3">
-                  {stats.mostActiveUsers.map((user, index) => (
-                    <div
-                      key={index}
-                      className="flex items-center justify-between border-b border-gray-100 py-2 last:border-0"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="bg-primary/10 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-xs font-semibold">
-                          {index + 1}
-                        </div>
-                        <span className="font-medium">{user.name}</span>
-                      </div>
-                      <Badge variant="secondary">{user.count} entries</Badge>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-muted-foreground py-4 text-center text-sm">No data available</p>
-              )}
-            </CardContent>
-          </Card>
-
-          {/* Quick Actions */}
-          <Card className="border border-gray-200 shadow-sm transition-shadow duration-200 hover:shadow-md">
-            <CardHeader>
-              <CardTitle className="text-muted-foreground">Quick Actions</CardTitle>
-              <CardDescription>Export and analyze data</CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-wrap gap-3">
-              <Button onClick={exportToCSV} variant="outline" className="gap-2">
-                <TableIcon className="h-4 w-4" />
-                Export CSV
-              </Button>
-              <Button onClick={() => setSelectedView("entries")} variant="default" className="gap-2">
-                <Eye className="h-4 w-4" />
-                View All Entries
-              </Button>
-            </CardContent>
-          </Card>
+          <AdminReportsDashboardTab
+            stats={stats}
+            onExportCsv={exportToCSV}
+            onViewEntries={() => setSelectedView("entries")}
+          />
         </TabsContent>
 
         {/* Entries Tab */}
@@ -679,13 +576,13 @@ export function AdminReportsView() {
               <div className="space-y-2">
                 <Label htmlFor="search">Search</Label>
                 <div className="relative">
-                  <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 transform" />
+                  <Search className="text-muted-foreground absolute top-1/2 left-4 h-4 w-4 -translate-y-1/2 transform" />
                   <Input
                     id="search"
                     placeholder="Search by user, email, or content..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
-                    className="pl-9"
+                    className="pl-12"
                   />
                 </div>
               </div>
@@ -725,7 +622,7 @@ export function AdminReportsView() {
                   <Label htmlFor="role-filter">
                     Role
                     {selectedDepartment === "all" && (
-                      <span className="ml-1 text-xs text-muted-foreground">(select department first)</span>
+                      <span className="ml-2 text-xs text-muted-foreground">(select department first)</span>
                     )}
                   </Label>
                   <Select 
@@ -760,7 +657,7 @@ export function AdminReportsView() {
                   <Label htmlFor="user-filter">
                     User
                     {selectedDepartment === "all" && (
-                      <span className="ml-1 text-xs text-muted-foreground">(select department first)</span>
+                      <span className="ml-2 text-xs text-muted-foreground">(select department first)</span>
                     )}
                   </Label>
                   <Select 
@@ -825,7 +722,7 @@ export function AdminReportsView() {
 
               {/* Export Actions */}
               <Separator />
-              <div className="flex flex-wrap gap-3">
+              <div className="flex flex-wrap gap-4">
                 <Button
                   onClick={exportToCSV}
                   variant="outline"
@@ -856,7 +753,7 @@ export function AdminReportsView() {
 
                 {entries.length === 0 && (
                   <div className="bg-muted mx-auto mb-6 max-w-2xl rounded-lg p-6 text-left">
-                    <h4 className="mb-3 flex items-center gap-2 font-semibold">
+                    <h4 className="mb-4 flex items-center gap-2 font-semibold">
                       <Info className="h-5 w-5" />
                       How users create entries:
                     </h4>
@@ -885,7 +782,7 @@ export function AdminReportsView() {
                   </div>
                 )}
 
-                <div className="flex justify-center gap-3">
+                <div className="flex justify-center gap-4">
                   {entries.length === 0 ? (
                     <>
                       <Link href="/">
@@ -922,13 +819,13 @@ export function AdminReportsView() {
                     className="overflow-hidden border border-gray-200 shadow-sm transition-shadow duration-200 hover:shadow-md"
                   >
                     <CardHeader
-                      className="cursor-pointer p-4 transition-colors hover:bg-gray-50"
+                      className="cursor-pointer p-4 transition-colors duration-150 ease-in-out hover:bg-gray-50"
                       onClick={() => toggleEntry(entry.id)}
                     >
                       <div className="flex items-start justify-between">
                         <div className="min-w-0 flex-1">
                           {/* User Info - MODIFIED FOR INITIALS AND SIMPLIFIED LAYOUT */}
-                          <div className="mb-2 flex items-center gap-3">
+                          <div className="mb-2 flex items-center gap-4">
                             {/* Replaced generic User icon with Initials placeholder (similar to Image 2) */}
                             <div className="bg-muted text-primary/80 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full text-sm font-semibold">
                               {entry.user_profile?.name
@@ -956,16 +853,16 @@ export function AdminReportsView() {
                           </div>
 
                           {/* Metadata - MODIFIED FOR IMAGE 2 LAYOUT */}
-                          <div className="text-muted-foreground flex flex-wrap items-center gap-3 text-xs">
+                          <div className="text-muted-foreground flex flex-wrap items-center gap-4 text-xs">
                             {/* Entry Date (no icon) */}
-                            <div className="flex items-center gap-1">
+                            <div className="flex items-center gap-2">
                               <span>{format(entryDate, "MMM d, yyyy")}</span>
                             </div>
 
                             {/* Entry Time (no icon) - Assuming this is the '11:27' time shown in Image 2. */}
                             {/* Note: The format in the original code's Clock element was 'MMM d, yyyy HH:mm', 
                        but Image 2 shows only the time/date next to the first date. We'll show the time here. */}
-                            <div className="flex items-center gap-1">
+                            <div className="flex items-center gap-2">
                               <span>{format(createdDate, "HH:mm")}</span>
                             </div>
 
@@ -1048,7 +945,7 @@ export function AdminReportsView() {
                                 <h4 className="text-foreground text-sm font-semibold">
                                   {response.question_label || response.question_key}
                                 </h4>
-                                <div className="text-muted-foreground bg-muted/50 max-h-40 overflow-y-auto rounded-md p-3 text-sm">
+                                <div className="text-muted-foreground bg-muted/50 max-h-40 overflow-y-auto rounded-md p-4 text-sm">
                                   {typeof response.value === "string" ? (
                                     <p className="whitespace-pre-wrap">{response.value}</p>
                                   ) : (
@@ -1083,9 +980,9 @@ export function AdminReportsView() {
                   variant="outline"
                   size="sm"
                   className="h-9 border-gray-300 bg-white text-gray-700 shadow-sm hover:bg-gray-50"
-                  onClick={loadEntries}
+                  onClick={() => mutate()}
                 >
-                  <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
+                  <RefreshCw className={`mr-2 h-4 w-4 ${isValidating ? "animate-spin" : ""}`} />
                   <span className="xs:inline hidden">Refresh Data</span>
                   <span className="xs:hidden">Refresh</span>
                 </Button>
@@ -1095,7 +992,7 @@ export function AdminReportsView() {
               {/* Advanced Calendar Filters - Responsive */}
               <div className={`${styles.filterPanel} ${styles.animateSlideIn}`}>
                 <h3 className={styles.filterTitle}>Advanced Filters</h3>
-                <div className="flex flex-wrap items-center gap-2 sm:gap-3">
+                <div className="flex flex-wrap items-center gap-2 sm:gap-4">
                   {/* Department Filter - Always shown */}
                   <div className="flex items-center space-x-2">
                     <Label htmlFor="cal-dept-filter" className="hidden text-sm text-gray-700 sm:block">
@@ -1212,14 +1109,12 @@ export function AdminReportsView() {
                             No users match your search
                           </SelectItem>
                         ) : (
-                          <div className={enableUserScroll ? "max-h-[280px] overflow-y-auto pr-1" : undefined}>
+                          <div className={enableUserScroll ? "max-h-[280px] overflow-y-auto pr-2" : undefined}>
                             {filteredUserOptions.map((user, index) => (
                               <SelectItem key={`${user.user_id}-${index}`} value={user.user_id}>
                                 <div className="min-w-0">
-                                  <div className="truncate">{user.name}</div>
-                                  {selectedDepartment === "all" && user.department_name && (
-                                    <div className="text-muted-foreground truncate text-xs">{user.department_name}</div>
-                                  )}
+                                  <div className="truncate font-semibold text-gray-900">{user.name}</div>
+                                  <div className="text-muted-foreground truncate text-xs">{user.department_name}</div>
                                 </div>
                               </SelectItem>
                             ))}
@@ -1253,14 +1148,14 @@ export function AdminReportsView() {
                   </div>
 
                   {/* Export Buttons - Stacked on mobile */}
-                  <div className="flex items-center space-x-1">
+                  <div className="flex items-center space-x-2">
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <Button
                           onClick={exportToCSV}
                           variant="outline"
                           size="sm"
-                          className="h-8 gap-1 border-gray-300 px-2 text-xs"
+                          className="h-8 gap-2 border-gray-300 px-2 text-xs"
                           disabled={filteredEntries.length === 0}
                         >
                           <TableIcon className="h-3 w-3" />
@@ -1282,7 +1177,7 @@ export function AdminReportsView() {
                           variant="ghost"
                           size="sm"
                           onClick={clearFilters}
-                          className="h-8 gap-1 px-2 text-xs"
+                          className="h-8 gap-2 px-2 text-xs"
                         >
                           <Filter className="h-3 w-3" />
                           <span className="xs:inline hidden">Clear</span>
@@ -1311,17 +1206,17 @@ export function AdminReportsView() {
                       ? "There are no reports to display. Reports will appear here once submitted by team members."
                       : "Try adjusting your filters to see reports for other users, departments, roles, or time periods."}
                   </p>
-                  <div className="flex space-x-3 sm:space-x-4">
+                  <div className="flex space-x-4 sm:space-x-4">
                     <Button
                       variant="outline"
-                      onClick={loadEntries}
+                      onClick={() => mutate()}
                       className="h-8 border-gray-300 text-gray-700 sm:h-9"
                     >
-                      <RefreshCw className="mr-1 h-3 w-3 sm:mr-2 sm:h-4 sm:w-4" />
+                      <RefreshCw className="mr-2 h-3 w-3 sm:mr-2 sm:h-4 sm:w-4" />
                       <span className="text-xs sm:text-sm">Refresh</span>
                     </Button>
                     <Button className="h-8 bg-indigo-600 text-white hover:bg-indigo-700 sm:h-9">
-                      <PlusCircle className="mr-1 h-3 w-3 sm:mr-2 sm:h-4 sm:w-4" />
+                      <PlusCircle className="mr-2 h-3 w-3 sm:mr-2 sm:h-4 sm:w-4" />
                       <span className="text-xs sm:text-sm">Create Report</span>
                     </Button>
                   </div>
@@ -1361,7 +1256,7 @@ export function AdminReportsView() {
 
                   return (
                     <div className="overflow-hidden rounded-xl border border-gray-300 bg-transparent shadow-lg">
-                      <div className="flex items-center justify-between border-b border-gray-200 bg-transparent px-4 py-3">
+                      <div className="flex items-center justify-between border-b border-gray-200 bg-transparent px-4 py-4">
                         <Button
                           variant="outline"
                           size="icon"
@@ -1477,7 +1372,7 @@ export function AdminReportsView() {
                                 No reports for this date.
                               </div>
                             ) : (
-                              <div className="space-y-3">
+                              <div className="space-y-4">
                                 <Input
                                   value={sidebarUserSearch}
                                   onChange={(e) => setSidebarUserSearch(e.target.value)}
@@ -1515,7 +1410,7 @@ export function AdminReportsView() {
                                       <button
                                         key={entry.user_id}
                                         type="button"
-                                        className="hover:bg-muted/30 flex w-full items-center justify-between gap-3 rounded-xl border bg-white px-3 py-3 text-left shadow-sm focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                                        className="hover:bg-muted/30 flex w-full items-center justify-between gap-4 rounded-xl border bg-white px-4 py-4 text-left shadow-sm focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
                                         onClick={() => {
                                           setIsDetailsOpen(false)
                                           setSelectedDate(null)
@@ -1523,7 +1418,7 @@ export function AdminReportsView() {
                                           router.push(`/admin/reports/${entry.id}`)
                                         }}
                                       >
-                                        <div className="flex min-w-0 items-center gap-3">
+                                        <div className="flex min-w-0 items-center gap-4">
                                           <div className="bg-muted text-primary/80 flex h-10 w-10 items-center justify-center rounded-full text-sm font-semibold">
                                             {initials || "??"}
                                           </div>
