@@ -65,6 +65,7 @@ import {
 } from "@/components/ui/dropdown-menu"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
+import { ApiError, apiFetch, getErrorMessage } from "@/lib/api-client"
 
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
 const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
@@ -259,7 +260,7 @@ export function RoleQuestionsManager({ externalSearchQuery, refreshKey }: RoleQu
         .order("name", { ascending: true })
         .limit(1000)
 
-      const roleDataWithDept = (roleData || []).map((r: any) => ({
+      const roleDataWithDept: Role[] = ((roleData as unknown as Role[]) || []).map((r) => ({
         ...r,
         department_id: r.department_id ?? null,
       }))
@@ -323,37 +324,28 @@ export function RoleQuestionsManager({ externalSearchQuery, refreshKey }: RoleQu
       }
 
       // Load questions using API route (ensures all questions are fetched, bypasses RLS issues)
-      let questionData: any[] = []
-      let questionError: any = null
+      let questionData: RoleQuestionWithRole[] = []
+      let questionError: unknown = null
       
       try {
         const apiUrl = '/api/role-questions'
-        const response = await fetch(apiUrl, {
+        const questionsFromAPI = await apiFetch<RoleQuestionWithRole[]>(apiUrl, {
           method: 'GET',
           headers: {
             'Content-Type': 'application/json',
           },
         })
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({}))
-          console.error("❌ API Error Response:", errorData)
-          const errorMessage = errorData.error || `HTTP ${response.status}: ${response.statusText}`
-          const errorDetails = errorData.details ? ` - ${errorData.details}` : ''
-          throw new Error(errorMessage + errorDetails)
-        }
-        
-        const questionsFromAPI = await response.json()
 
         // Join with roles data - use existing role if present, otherwise find from loaded roles
-        questionData = (questionsFromAPI || []).map((q: any) => ({
+        questionData = (Array.isArray(questionsFromAPI) ? questionsFromAPI : []).map((q) => ({
           ...q,
-          role: q.role || roleDataWithDept.find((r: any) => r.id === q.role_id) || null
+          role: q.role || roleDataWithDept.find((r) => r.id === q.role_id) || null,
         }))
-      } catch (apiError: any) {
+      } catch (apiError: unknown) {
         console.error("❌ Error loading questions from API:", apiError)
         console.error("API Error Details:", {
-          message: apiError.message,
-          stack: apiError.stack,
+          message: getErrorMessage(apiError, "Failed to load role questions"),
+          stack: apiError instanceof Error ? apiError.stack : undefined,
           isAdmin,
           isSuperAdmin,
           currentUser: currentUser?.id,
@@ -362,11 +354,19 @@ export function RoleQuestionsManager({ externalSearchQuery, refreshKey }: RoleQu
         questionError = apiError
         
         // Check if it's an authentication/authorization error
-        const isAuthError = apiError.message?.toLowerCase().includes('unauthorized') || 
-                           apiError.message?.toLowerCase().includes('401')
-        const isForbiddenError = apiError.message?.toLowerCase().includes('forbidden') || 
-                                apiError.message?.toLowerCase().includes('403') ||
-                                apiError.message?.toLowerCase().includes('user profile not found')
+        const isAuthError = apiError instanceof ApiError
+          ? apiError.status === 401
+          : apiError instanceof Error
+            ? apiError.message?.toLowerCase().includes('unauthorized') || apiError.message?.toLowerCase().includes('401')
+            : false
+
+        const isForbiddenError = apiError instanceof ApiError
+          ? apiError.status === 403
+          : apiError instanceof Error
+            ? apiError.message?.toLowerCase().includes('forbidden') ||
+              apiError.message?.toLowerCase().includes('403') ||
+              apiError.message?.toLowerCase().includes('user profile not found')
+            : false
         
         if (isAuthError) {
           toast({
@@ -412,18 +412,18 @@ export function RoleQuestionsManager({ externalSearchQuery, refreshKey }: RoleQu
             if (questionsOnlyError) {
               questionError = questionsOnlyError
             } else {
-              questionData = (questionsOnly || []).map((q: any) => ({
+              questionData = (((questionsOnly as unknown as RoleQuestionWithRole[]) || [])).map((q) => ({
                 ...q,
-                role: roleData?.find((r: any) => r.id === q.role_id) || null
+                role: roleDataWithDept.find((r) => r.id === q.role_id) || null,
               }))
             }
           } else {
-            questionData = (questionsWithRoles || []).map((q: any) => ({
+            questionData = (((questionsWithRoles as unknown as RoleQuestionWithRole[]) || [])).map((q) => ({
               ...q,
-              role: q.role || roleData?.find((r: any) => r.id === q.role_id) || null
+              role: q.role || roleDataWithDept.find((r) => r.id === q.role_id) || null,
             }))
           }
-        } catch (fallbackError: any) {
+        } catch (fallbackError: unknown) {
           console.error("❌ Fallback also failed:", fallbackError)
           questionError = fallbackError
         }
@@ -431,18 +431,17 @@ export function RoleQuestionsManager({ externalSearchQuery, refreshKey }: RoleQu
 
       if (questionError && questionData.length === 0) {
         console.error("❌ Error loading questions:", questionError)
-        console.error("Error details:", {
-          message: questionError.message,
-          code: questionError.code,
-          details: questionError.details,
-          hint: questionError.hint
-        })
+        console.error("Error details:", questionError)
         
         // Check if it's an RLS policy error
-        const isRLSError = questionError.code === '42501' || 
-                          questionError.message?.toLowerCase().includes('permission') ||
-                          questionError.message?.toLowerCase().includes('policy') ||
-                          questionError.message?.toLowerCase().includes('row-level security')
+        const isRLSError =
+          typeof questionError === "object" &&
+          questionError !== null &&
+          ((questionError as any).code === "42501" ||
+            (typeof (questionError as any).message === "string" &&
+              ((questionError as any).message.toLowerCase().includes("permission") ||
+                (questionError as any).message.toLowerCase().includes("policy") ||
+                (questionError as any).message.toLowerCase().includes("row-level security"))))
         
         if (isRLSError) {
           toast({
@@ -453,7 +452,7 @@ export function RoleQuestionsManager({ externalSearchQuery, refreshKey }: RoleQu
         } else {
           toast({
             title: "Error Loading Questions",
-            description: questionError.message || "Failed to load questions. Check console for details.",
+            description: getErrorMessage(questionError, "Failed to load questions. Check console for details."),
             variant: "destructive",
           })
         }
@@ -2389,7 +2388,7 @@ export function RoleQuestionsManager({ externalSearchQuery, refreshKey }: RoleQu
       {/* Bulk Actions Bar */}
       {showBulkActions && (
         <Card className="bg-primary/5 border-primary/20">
-          <CardContent className="py-3">
+          <CardContent className="py-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4">
                 <span className="text-sm font-medium">
@@ -2454,10 +2453,10 @@ export function RoleQuestionsManager({ externalSearchQuery, refreshKey }: RoleQu
               
               return (
                 <Card key={role.id} className="overflow-hidden">
-                  <CardHeader className="pb-3">
+                  <CardHeader className="pb-4">
                     <div className="flex items-center justify-between">
                       <div 
-                        className="flex items-center gap-3 flex-1 cursor-pointer hover:opacity-80 transition-opacity"
+                        className="flex items-center gap-4 flex-1 cursor-pointer hover:opacity-80 transition-opacity duration-150 ease-in-out"
                         onClick={() => {
                           const newExpanded = new Set(expandedRoles)
                           if (newExpanded.has(role.id)) {
@@ -2477,7 +2476,7 @@ export function RoleQuestionsManager({ externalSearchQuery, refreshKey }: RoleQu
                           <CardTitle className="text-lg font-semibold">
                             {role.name.charAt(0).toUpperCase() + role.name.slice(1).replace(/-/g, ' ')}
                           </CardTitle>
-                          <CardDescription className="mt-1">
+                          <CardDescription className="mt-2">
                             {role.description || `${roleQuestions.length} question${roleQuestions.length !== 1 ? "s" : ""}`}
                           </CardDescription>
                         </div>
@@ -2496,7 +2495,7 @@ export function RoleQuestionsManager({ externalSearchQuery, refreshKey }: RoleQu
                             e.stopPropagation()
                             openCreateDialogForRole(role.id, roleQuestions.length)
                           }}
-                          className="gap-1.5"
+                          className="gap-2"
                         >
                           <Plus className="h-4 w-4" />
                           Add Question
@@ -2506,7 +2505,7 @@ export function RoleQuestionsManager({ externalSearchQuery, refreshKey }: RoleQu
                   </CardHeader>
                   {isExpanded && (
                     <CardContent className="pt-0">
-                      <div className="space-y-3">
+                      <div className="space-y-4">
                         {roleQuestions.map((question, index) => (
                           <Card
                             key={question.id}
@@ -2524,7 +2523,7 @@ export function RoleQuestionsManager({ externalSearchQuery, refreshKey }: RoleQu
                             }}
                           >
                             <CardContent className="pt-4">
-                              <div className="flex items-start gap-3">
+                              <div className="flex items-start gap-4">
                                 <div className="pt-0.5">
                                   <button
                                     type="button"
@@ -2573,7 +2572,7 @@ export function RoleQuestionsManager({ externalSearchQuery, refreshKey }: RoleQu
                                     </p>
                                   )}
                                   {question.options && question.options.length > 0 && (
-                                    <div className="flex flex-wrap gap-1 mt-2">
+                                    <div className="flex flex-wrap gap-2 mt-2">
                                       {question.options.slice(0, 5).map((opt, idx) => (
                                         <Badge key={idx} variant="outline" className="text-xs">
                                           {opt}
@@ -2589,7 +2588,7 @@ export function RoleQuestionsManager({ externalSearchQuery, refreshKey }: RoleQu
                                 </div>
                                 <div className="flex items-center gap-1">
                                   {isSuperAdmin && (
-                                    <div className="flex flex-col items-center mr-1">
+                                    <div className="flex flex-col items-center mr-2">
                                       <Button
                                         variant="ghost"
                                         size="icon"
@@ -2668,7 +2667,7 @@ export function RoleQuestionsManager({ externalSearchQuery, refreshKey }: RoleQu
                         ))}
 
                         <Card className="border-dashed bg-muted/20">
-                          <CardContent className="py-3">
+                          <CardContent className="py-4">
                             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                               <div className="flex-1">
                                 <Input
@@ -3776,7 +3775,7 @@ export function RoleQuestionsManager({ externalSearchQuery, refreshKey }: RoleQu
                   )}
                   
                   {formData.help_text && (
-                    <p className="text-xs text-muted-foreground mt-1">
+                    <p className="text-xs text-muted-foreground mt-2">
                       {formData.help_text}
                     </p>
                   )}
@@ -3888,7 +3887,7 @@ export function RoleQuestionsManager({ externalSearchQuery, refreshKey }: RoleQu
                   {previewQuestion.options && previewQuestion.options.length > 0 && (
                     <div className="col-span-2">
                       <span className="text-muted-foreground">Options:</span>
-                      <div className="flex flex-wrap gap-2 mt-1">
+                      <div className="flex flex-wrap gap-2 mt-2">
                         {previewQuestion.options.map((opt, idx) => (
                           <Badge key={idx} variant="outline">{opt}</Badge>
                         ))}

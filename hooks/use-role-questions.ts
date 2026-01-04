@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { useSupabaseAuth } from '@/contexts/supabase-auth-context'
+import { toast } from 'sonner'
+import { apiFetch, getErrorMessage } from '@/lib/api-client'
 
 export interface RoleQuestion {
   id: string
@@ -26,6 +28,7 @@ export function useRoleQuestions(initialQuestions?: RoleQuestion[], departmentId
   const [error, setError] = useState<string | null>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
   const lastFetchRef = useRef<{ userId: string | undefined; roleId: string | undefined; departmentId?: string } | null>(null)
+  const lastToastKeyRef = useRef<string | null>(null)
 
   useEffect(() => {
     if (initialQuestions && initialQuestions.length > 0) {
@@ -85,33 +88,27 @@ export function useRoleQuestions(initialQuestions?: RoleQuestion[], departmentId
 
         const url = qs.toString() ? `/api/role-questions?${qs.toString()}` : '/api/role-questions'
 
-        const response = await fetch(url, {
+        const data = await apiFetch<RoleQuestion[]>(url, {
           signal: abortController.signal,
         })
-        
-        if (!response.ok) {
-          if (response.status === 401) {
-            throw new Error('Please sign in to view questions')
-          }
-          const errorBody = await response.json().catch(() => null)
-          const serverMessage =
-            errorBody && typeof errorBody === 'object' && 'message' in errorBody && typeof (errorBody as any).message === 'string'
-              ? (errorBody as any).message
-              : null
-          throw new Error(serverMessage || `Failed to load questions: ${response.status}`)
-        }
-
-        const data = await response.json()
         const fetchedQuestions = Array.isArray(data) ? data : []
         setQuestions(fetchedQuestions)
         lastFetchRef.current = currentKey
+        lastToastKeyRef.current = null
       } catch (err) {
         // Don't set error if request was aborted
         if (err instanceof Error && err.name === 'AbortError') {
           return
         }
         console.error('Error fetching role questions:', err)
-        setError(err instanceof Error ? err.message : 'Failed to load questions')
+
+        const key = `${user.id}:${profile.role_id}:${departmentId || ''}`
+        const message = getErrorMessage(err, 'Failed to load questions')
+        setError(message)
+        if (lastToastKeyRef.current !== key) {
+          toast.error(message)
+          lastToastKeyRef.current = key
+        }
         setQuestions([])
       } finally {
         if (!abortController.signal.aborted) {

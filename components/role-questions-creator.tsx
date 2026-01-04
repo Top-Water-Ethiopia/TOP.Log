@@ -499,7 +499,7 @@ export function RoleQuestionsCreator() {
             <h3 className="font-semibold">Created Questions:</h3>
             <div className="space-y-2 max-h-96 overflow-y-auto">
               {createdQuestions.map((q, index) => (
-                <div key={q.id} className="p-3 border rounded-lg">
+                <div key={q.id} className="p-4 border rounded-lg">
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
@@ -507,7 +507,7 @@ export function RoleQuestionsCreator() {
                         <span className="font-medium">{q.question_label}</span>
                         <Badge variant="secondary">{q.question_type}</Badge>
                       </div>
-                      <p className="text-sm text-muted-foreground mt-1">
+                      <p className="text-sm text-muted-foreground mt-2">
                         Key: <code className="text-xs">{q.question_key}</code>
                       </p>
                     </div>
@@ -936,11 +936,11 @@ function QuestionForm({ question, index, onUpdate, onRemove, canRemove }: Questi
             <TabsList className="grid w-full grid-cols-3">
               <TabsTrigger value="basic">Basic</TabsTrigger>
               <TabsTrigger value="validation">
-                <Shield className="h-4 w-4 mr-1" />
+                <Shield className="h-4 w-4 mr-2" />
                 Validation
               </TabsTrigger>
               <TabsTrigger value="advanced">
-                <Settings className="h-4 w-4 mr-1" />
+                <Settings className="h-4 w-4 mr-2" />
                 Advanced
               </TabsTrigger>
             </TabsList>
@@ -1250,14 +1250,14 @@ function QuestionPreview({ question, isPreviewMode = false }: QuestionPreviewPro
   }
 
   return (
-    <div className={`space-y-3 ${isPreviewMode ? "" : ""}`}>
+    <div className={`space-y-4 ${isPreviewMode ? "" : ""}`}>
       {/* Question Label with Required Indicator */}
       <Label 
         htmlFor={isPreviewMode ? `preview-${question.question_key || "question"}` : undefined}
         className={`${isPreviewMode ? "text-base" : "text-sm"} font-medium block`}
       >
         {question.question_label || "Question Label"}
-        {question.is_required && <span className="text-destructive ml-1">*</span>}
+        {question.is_required && <span className="text-destructive ml-2">*</span>}
       </Label>
 
       {/* Question Description */}
@@ -1433,7 +1433,7 @@ function QuestionPreview({ question, isPreviewMode = false }: QuestionPreviewPro
       )}
 
       {question.question_type === "multiselect" && question.options && (
-        <div className="space-y-3">
+        <div className="space-y-4">
           {question.options.map((option) => {
             const selectedValues = getMultiselectValue()
             const isChecked = selectedValues.includes(option)
@@ -1512,7 +1512,7 @@ function QuestionPreview({ question, isPreviewMode = false }: QuestionPreviewPro
 
       {/* Validation Error Message - Only show in preview mode when there's an error */}
       {isPreviewMode && touched && previewError && (
-        <p className="text-sm text-destructive flex items-center gap-1 mt-2">
+        <p className="text-sm text-destructive flex items-center gap-2 mt-2">
           <AlertCircle className="h-4 w-4" />
           {previewError}
         </p>
@@ -1520,7 +1520,7 @@ function QuestionPreview({ question, isPreviewMode = false }: QuestionPreviewPro
 
       {/* Validation Success Indicator - Only in edit mode, not in clean preview */}
       {!isPreviewMode && touched && !previewError && previewValue && (
-        <p className="text-sm text-green-600 flex items-center gap-1">
+        <p className="text-sm text-green-600 flex items-center gap-2">
           <CheckCircle2 className="h-4 w-4" />
           Valid
         </p>

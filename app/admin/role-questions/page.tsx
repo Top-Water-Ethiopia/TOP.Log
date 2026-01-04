@@ -15,6 +15,7 @@ import Link from "next/link"
 import { Plus } from "lucide-react"
 import { supabase } from "@/lib/supabase/client"
 import { useToast } from "@/components/ui/use-toast"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -51,8 +52,40 @@ export default function AdminRoleQuestionsPage() {
 
   if (isLoading || !user || !profile) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
-        <Icons.spinner className="h-8 w-8 animate-spin" />
+      <div className="space-y-6">
+        <div className="space-y-2">
+          <Skeleton className="h-8 w-72 bg-gray-200/80 dark:bg-gray-800" />
+          <Skeleton className="h-4 w-[520px] bg-gray-200/70 dark:bg-gray-800" />
+        </div>
+
+        <div className="flex items-center justify-between">
+          <Skeleton className="h-10 w-[420px] bg-gray-200/70 dark:bg-gray-800" />
+          <div className="flex gap-2">
+            <Skeleton className="h-10 w-32 bg-gray-200/80 dark:bg-gray-800" />
+            <Skeleton className="h-10 w-48 bg-gray-200/80 dark:bg-gray-800" />
+          </div>
+        </div>
+
+        <div className="rounded-xl border bg-card p-6">
+          <div className="space-y-3">
+            {[...Array(6)].map((_, i) => (
+              <div key={i} className="flex items-center justify-between">
+                <div className="space-y-2">
+                  <Skeleton className="h-4 w-56 bg-gray-200/70 dark:bg-gray-800" />
+                  <Skeleton className="h-3 w-80 bg-gray-200/60 dark:bg-gray-800" />
+                </div>
+                <div className="flex gap-2">
+                  <Skeleton className="h-8 w-8 rounded bg-gray-200/70 dark:bg-gray-800" />
+                  <Skeleton className="h-8 w-8 rounded bg-gray-200/70 dark:bg-gray-800" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex items-center justify-center">
+          <Icons.spinner className="h-5 w-5 animate-spin text-muted-foreground" />
+        </div>
       </div>
     )
   }
@@ -68,12 +101,7 @@ export default function AdminRoleQuestionsPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <button
-              onClick={() => router.push("/")}
-              className="w-full px-4 py-2 text-sm font-medium text-white bg-primary rounded-md hover:bg-primary/90"
-            >
-              Go to Home
-            </button>
+            <Button className="w-full" onClick={() => router.push("/")}>Go to Home</Button>
           </CardContent>
         </Card>
       </div>
@@ -82,9 +110,9 @@ export default function AdminRoleQuestionsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 rounded-xl border bg-background p-5 shadow-sm sm:p-6">
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-          <div className="space-y-1">
+      <div className="flex flex-col gap-4 rounded-xl border bg-background p-6 shadow-sm">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="space-y-2">
             <Breadcrumb>
               <BreadcrumbList>
                 <BreadcrumbItem>
@@ -98,8 +126,8 @@ export default function AdminRoleQuestionsPage() {
                 </BreadcrumbItem>
               </BreadcrumbList>
             </Breadcrumb>
-            <h1 className="text-3xl font-bold tracking-tight">Role Question Management</h1>
-            <p className="text-muted-foreground mt-1">
+            <h1 className="text-3xl font-semibold tracking-tight">Role Question Management</h1>
+            <p className="text-muted-foreground mt-2">
               Manage and refine the survey questions assigned to each crew role. Changes apply to future logs immediately.
             </p>
           </div>
@@ -122,7 +150,7 @@ export default function AdminRoleQuestionsPage() {
           </div>
         </div>
 
-        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="relative w-full max-w-xl">
             <div className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-muted-foreground">
               <Icons.search className="h-4 w-4" />
