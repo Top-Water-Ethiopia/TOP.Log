@@ -113,7 +113,7 @@ export function MainLayout() {
           <div className="flex items-center justify-between">
             <div 
               onClick={() => setViewMode("landing")} 
-              className="cursor-pointer hover:opacity-80 transition-opacity"
+              className="cursor-pointer hover:opacity-80 transition-opacity duration-150 ease-in-out"
               role="button"
               tabIndex={0}
               onKeyDown={(e) => {

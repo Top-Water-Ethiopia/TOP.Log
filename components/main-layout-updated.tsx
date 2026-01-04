@@ -11,6 +11,7 @@ import { AnalyticsDashboard } from "./analytics-dashboard"
 import { SupabaseNav } from "./supabase-nav"
 import { Button } from "./ui/button"
 import { useRoleQuestions } from "@/hooks/use-role-questions"
+import { toast } from "sonner"
 import { 
   Shield, 
   FileText,
@@ -20,6 +21,7 @@ import Link from "next/link"
 import { useCaptainLog } from "@/contexts/supabase-log-context"
 import { useRBAC } from "@/hooks/use-rbac"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
+import { apiFetch, getErrorMessage } from "@/lib/api-client"
 import {
   Select,
   SelectContent,
@@ -65,15 +67,14 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
     const loadDepartments = async () => {
       try {
         setIsLoadingDepartments(true)
-        const res = await fetch("/api/departments")
-        const json = await res.json().catch(() => ({}))
-        if (!res.ok) throw new Error(json.message || json.error || `HTTP ${res.status}`)
+        const json = await apiFetch<{ data: DepartmentMembership[] }>("/api/departments")
         const rows = (json.data || []) as DepartmentMembership[]
         setMemberships(rows)
         if (!activeDepartmentId && rows.length > 0) {
           setActiveDepartmentId(rows[0].department_id)
         }
-      } catch {
+      } catch (error) {
+        toast.error(getErrorMessage(error, "Failed to load departments"))
         setMemberships([])
       } finally {
         setIsLoadingDepartments(false)
@@ -144,7 +145,7 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
             <button
               type="button"
               onClick={() => setViewMode("landing")}
-              className="text-left hover:opacity-80 transition-opacity"
+              className="text-left hover:opacity-80 transition-opacity duration-150 ease-in-out"
             >
               <h1 className="text-3xl font-bold tracking-tight">Logs</h1>
               <p className="text-muted-foreground mt-1 text-sm">Daily Tracker</p>
