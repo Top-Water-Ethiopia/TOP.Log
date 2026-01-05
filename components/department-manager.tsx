@@ -41,6 +41,7 @@ import { toast as sonnerToast } from "sonner"
 import { ChevronDown, Plus, Pencil, Trash2, Loader2, Users, Briefcase } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
 import { Skeleton } from "@/components/ui/skeleton"
+import { apiFetch, ApiError, getErrorMessage } from "@/lib/api-client"
 
 const SUPER_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000000"
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
@@ -122,20 +123,14 @@ export function DepartmentManager() {
     try {
       setIsLoading(true)
 
-      const response = await fetch("/api/admin/departments")
-      const result = await response.json()
-
-      if (!response.ok) {
-        throw new Error(result.message || result.error || "Failed to load departments")
-      }
-
+      const result = await apiFetch<{ data: Department[] }>("/api/admin/departments")
       setDepartments(result.data || [])
       setPage(1)
     } catch (error: any) {
       console.error("Error loading data:", error)
       toast({
         title: "Error",
-        description: error?.message || "Failed to load departments",
+        description: getErrorMessage(error, "Failed to load departments"),
         variant: "destructive",
       })
     } finally {
@@ -157,9 +152,28 @@ export function DepartmentManager() {
   const handleCreate = async () => {
     if (!validateForm() || isSubmitting) return
 
+    const prevDepartments = departments
     setIsSubmitting(true)
     try {
-      const response = await fetch("/api/admin/departments", {
+      const nowIso = new Date().toISOString()
+      const tempId = `temp-${Date.now()}`
+      const optimistic: Department = {
+        id: tempId,
+        name: formData.name.trim(),
+        description: formData.description.trim() || null,
+        is_active: formData.is_active,
+        created_at: nowIso,
+        updated_at: nowIso,
+      }
+
+      setDepartments((prev) => {
+        const next = [...prev, optimistic]
+        next.sort((a, b) => a.name.localeCompare(b.name))
+        return next
+      })
+      setPage(1)
+
+      const created = await apiFetch<{ data: Department }>("/api/admin/departments", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -171,10 +185,12 @@ export function DepartmentManager() {
         }),
       })
 
-      const result = await response.json()
-
-      if (!response.ok) {
-        throw new Error(result.message || result.error || "Failed to create department")
+      if (created?.data?.id) {
+        setDepartments((prev) => {
+          const next = prev.map((d) => (d.id === tempId ? created.data : d))
+          next.sort((a, b) => a.name.localeCompare(b.name))
+          return next
+        })
       }
 
       toast({
@@ -184,12 +200,12 @@ export function DepartmentManager() {
 
       setShowCreateDialog(false)
       resetForm()
-      loadData()
     } catch (error: any) {
+      setDepartments(prevDepartments)
       console.error("Error creating department:", error)
       toast({
         title: "Error",
-        description: error?.message || "Failed to create department",
+        description: getErrorMessage(error, "Failed to create department"),
         variant: "destructive",
       })
     } finally {
@@ -200,9 +216,27 @@ export function DepartmentManager() {
   const handleUpdate = async () => {
     if (!editingDepartment || !validateForm() || isSubmitting) return
 
+    const prevDepartments = departments
     setIsSubmitting(true)
     try {
-      const response = await fetch("/api/admin/departments", {
+      const id = editingDepartment.id
+      const prevDepartment = prevDepartments.find((d) => d.id === id) || null
+      const nowIso = new Date().toISOString()
+      const optimistic: Department = {
+        ...(prevDepartment || editingDepartment),
+        name: formData.name.trim(),
+        description: formData.description.trim() || null,
+        is_active: formData.is_active,
+        updated_at: nowIso,
+      }
+
+      setDepartments((prev) => {
+        const next = prev.map((d) => (d.id === id ? optimistic : d))
+        next.sort((a, b) => a.name.localeCompare(b.name))
+        return next
+      })
+
+      const updated = await apiFetch<{ data: Department }>("/api/admin/departments", {
         method: "PUT",
         headers: {
           "Content-Type": "application/json",
@@ -215,10 +249,12 @@ export function DepartmentManager() {
         }),
       })
 
-      const result = await response.json()
-
-      if (!response.ok) {
-        throw new Error(result.message || result.error || "Failed to update department")
+      if (updated?.data?.id) {
+        setDepartments((prev) => {
+          const next = prev.map((d) => (d.id === id ? updated.data : d))
+          next.sort((a, b) => a.name.localeCompare(b.name))
+          return next
+        })
       }
 
       toast({
@@ -229,12 +265,13 @@ export function DepartmentManager() {
       setShowCreateDialog(false)
       setEditingDepartment(null)
       resetForm()
-      loadData()
     } catch (error: any) {
+      // Rollback to the exact previous snapshot
+      setDepartments(prevDepartments)
       console.error("Error updating department:", error)
       toast({
         title: "Error",
-        description: error?.message || "Failed to update department",
+        description: getErrorMessage(error, "Failed to update department"),
         variant: "destructive",
       })
     } finally {
@@ -245,35 +282,14 @@ export function DepartmentManager() {
   const handleDelete = async () => {
     if (!departmentToDelete) return
 
+    const prevDepartments = departments
     try {
-      const response = await fetch(`/api/admin/departments?id=${departmentToDelete.id}`, {
+      const deleting = departmentToDelete
+      setDepartments((prev) => prev.filter((d) => d.id !== deleting.id))
+
+      await apiFetch(`/api/admin/departments?id=${departmentToDelete.id}`, {
         method: "DELETE",
       })
-
-      const result = await response.json().catch(() => ({}))
-
-      if (!response.ok) {
-        if (response.status === 409) {
-          sonnerToast.error("Cannot Delete Department", {
-            description:
-              result?.message ||
-              result?.error ||
-              "Cannot delete department. It has roles assigned. Please remove all roles first.",
-            action: {
-              label: "Manage roles",
-              onClick: () => router.push(`/admin/departments/${departmentToDelete.id}?tab=roles`),
-            },
-          })
-
-          setShowDeleteDialog(false)
-          setDepartmentToDelete(null)
-          return
-        }
-        if (result.code === '23503') { // Foreign key violation
-          throw new Error("Cannot delete department. It has roles assigned. Please remove all roles first.")
-        }
-        throw new Error(result.message || result.error || "Failed to delete department")
-      }
 
       toast({
         title: "Success",
@@ -282,12 +298,32 @@ export function DepartmentManager() {
 
       setShowDeleteDialog(false)
       setDepartmentToDelete(null)
-      loadData()
     } catch (error: any) {
       console.error("Error deleting department:", error)
+
+      if (error instanceof ApiError && error.status === 409) {
+        setDepartments(prevDepartments)
+
+        sonnerToast.error("Cannot Delete Department", {
+          description: getErrorMessage(
+            error,
+            "Cannot delete department. It has roles assigned. Please remove all roles first.",
+          ),
+          action: {
+            label: "Manage roles",
+            onClick: () => router.push(`/admin/departments/${departmentToDelete.id}?tab=roles`),
+          },
+        })
+        setShowDeleteDialog(false)
+        setDepartmentToDelete(null)
+        return
+      }
+
+      setDepartments(prevDepartments)
+
       toast({
         title: "Cannot Delete Department",
-        description: error?.message || "Failed to delete department. Please try again.",
+        description: getErrorMessage(error, "Failed to delete department. Please try again."),
         variant: "destructive",
       })
     }

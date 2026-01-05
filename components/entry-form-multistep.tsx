@@ -406,7 +406,7 @@ export function EntryFormMultistep({ date: initialDate, departmentId, onSave, on
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-semibold text-foreground">Daily Log Entry</h2>
-          <p className="text-sm text-muted-foreground mt-1">{formatDate(selectedDate)}</p>
+          <p className="text-sm text-muted-foreground mt-2">{formatDate(selectedDate)}</p>
         </div>
         <Button variant="outline" size="sm" onClick={onCancel} className="gap-2">
           <ArrowLeft className="h-4 w-4" />
@@ -427,11 +427,11 @@ export function EntryFormMultistep({ date: initialDate, departmentId, onSave, on
             <div className="space-y-4">
               {/* Date Restriction Info Banner */}
               <div className="rounded-lg border border-blue-500/50 bg-blue-500/10 p-4">
-                <div className="flex items-start gap-3">
+                <div className="flex items-start gap-4">
                   <AlertCircle className="h-5 w-5 text-blue-500 mt-0.5 flex-shrink-0" />
                   <div>
                     <p className="text-sm font-medium text-foreground">Date Restrictions</p>
-                    <p className="text-xs text-muted-foreground mt-1">
+                    <p className="text-xs text-muted-foreground mt-2">
                       {getDateRestrictionMessage()}
                     </p>
                   </div>
@@ -461,12 +461,12 @@ export function EntryFormMultistep({ date: initialDate, departmentId, onSave, on
                   }}
                   min={getMinAllowedDate()}
                   max={getMaxAllowedDate()}
-                  className="w-full px-4 py-3 text-lg rounded-md border border-input bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
+                  className="w-full px-4 py-4 text-lg rounded-md border border-input bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
                   required
                   autoFocus
                 />
                 {dateError && (
-                  <div className="rounded-md border border-red-500/50 bg-red-500/10 p-3 mt-2">
+                  <div className="rounded-md border border-red-500/50 bg-red-500/10 p-4 mt-2">
                     <p className="text-sm text-red-600 dark:text-red-400 flex items-center gap-2">
                       <AlertCircle className="h-4 w-4 flex-shrink-0" />
                       {dateError}
@@ -481,11 +481,11 @@ export function EntryFormMultistep({ date: initialDate, departmentId, onSave, on
               {/* Check if entry exists for selected date */}
               {entries.find(entry => entry.date === selectedDate) && (
                 <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-4">
-                  <div className="flex items-start gap-3">
+                  <div className="flex items-start gap-4">
                     <AlertCircle className="h-5 w-5 text-amber-500 mt-0.5" />
                     <div>
                       <p className="text-sm font-medium text-foreground">Entry Already Exists</p>
-                      <p className="text-xs text-muted-foreground mt-1">
+                      <p className="text-xs text-muted-foreground mt-2">
                         An entry for this date already exists. Continuing will update the existing entry.
                       </p>
                     </div>
@@ -530,7 +530,7 @@ export function EntryFormMultistep({ date: initialDate, departmentId, onSave, on
                   <h3 className="text-xl font-semibold text-foreground flex items-center gap-2">
                     <ListChecks className="h-5 w-5" /> Role-Specific Responses
                   </h3>
-                  <div className="space-y-3">
+                  <div className="space-y-4">
                     {roleQuestions.map((question) => {
                       const value = customResponses[question.key]
                       const displayValue = Array.isArray(value)
@@ -545,18 +545,18 @@ export function EntryFormMultistep({ date: initialDate, departmentId, onSave, on
                       return (
                         <div
                           key={question.key}
-                          className="bg-muted/30 p-4 rounded-lg border border-border/40 flex items-start justify-between gap-3"
+                          className="bg-muted/30 p-4 rounded-lg border border-border/40 flex items-start justify-between gap-4"
                         >
                           <div>
                             <button
                               type="button"
                               onClick={() => questionStepNumber && handleStepClick(questionStepNumber)}
-                              className="text-left text-sm font-medium text-foreground hover:text-primary transition-colors cursor-pointer disabled:cursor-default"
+                              className="text-left text-sm font-medium text-foreground hover:text-primary transition-colors duration-150 ease-in-out cursor-pointer disabled:cursor-default"
                               disabled={!questionStepNumber}
                             >
                               {question.label}
                             </button>
-                            <p className="text-sm text-muted-foreground whitespace-pre-wrap mt-1">
+                            <p className="text-sm text-muted-foreground whitespace-pre-wrap mt-2">
                               {displayValue}
                             </p>
                           </div>

@@ -115,7 +115,7 @@ export default function DepartmentDetailsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">Department</h1>
+          <h1 className="text-3xl font-semibold tracking-tight">Department</h1>
           <p className="text-muted-foreground mt-2">Reports and members</p>
         </div>
         <Button variant="outline" onClick={() => router.push("/departments")}>Back</Button>
@@ -134,7 +134,7 @@ export default function DepartmentDetailsPage() {
                 <Skeleton className="h-5 w-40 bg-gray-200/70 dark:bg-gray-800" />
                 <Skeleton className="h-4 w-56 bg-gray-200/60 dark:bg-gray-800" />
               </CardHeader>
-              <CardContent className="space-y-3">
+              <CardContent className="space-y-4">
                 {[...Array(6)].map((_, i) => (
                   <Skeleton key={i} className="h-10 w-full bg-gray-200/60 dark:bg-gray-800" />
                 ))}
@@ -148,7 +148,7 @@ export default function DepartmentDetailsPage() {
               </CardHeader>
             </Card>
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-4">
               {sortedEntries.map((e) => {
                 const dateLabel = (() => {
                   try {
@@ -162,7 +162,7 @@ export default function DepartmentDetailsPage() {
 
                 return (
                   <Card key={e.id} className="border border-gray-200 shadow-sm">
-                    <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
+                    <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
                       <div>
                         <CardTitle className="text-base">{dateLabel || "Report"}</CardTitle>
                         <CardDescription className="break-all">
@@ -185,7 +185,7 @@ export default function DepartmentDetailsPage() {
                 <Skeleton className="h-5 w-40 bg-gray-200/70 dark:bg-gray-800" />
                 <Skeleton className="h-4 w-56 bg-gray-200/60 dark:bg-gray-800" />
               </CardHeader>
-              <CardContent className="space-y-3">
+              <CardContent className="space-y-4">
                 {[...Array(6)].map((_, i) => (
                   <Skeleton key={i} className="h-10 w-full bg-gray-200/60 dark:bg-gray-800" />
                 ))}
@@ -199,10 +199,10 @@ export default function DepartmentDetailsPage() {
               </CardHeader>
             </Card>
           ) : (
-            <div className="space-y-3">
+            <div className="space-y-4">
               {sortedMembers.map((m) => (
                 <Card key={m.user_id} className="border border-gray-200 shadow-sm">
-                  <CardHeader className="flex flex-row items-start justify-between gap-3 space-y-0">
+                  <CardHeader className="flex flex-row items-start justify-between gap-4 space-y-0">
                     <div>
                       <CardTitle className="text-base">{m.profile?.name || "Unknown"}</CardTitle>
                       <CardDescription className="break-all">{m.user_id}</CardDescription>
