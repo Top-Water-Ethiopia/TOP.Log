@@ -147,13 +147,13 @@ export function MobileNavigation() {
           {/* Navigation */}
           <nav className="flex-1 overflow-y-auto py-4">
             {false && (
-              <div className="space-y-1 px-2">
+              <div className="space-y-2 px-2">
                 {navItems.map((item) => (
                   <Link
                     key={item.name}
                     href={item.href}
                     onClick={() => setIsOpen(false)}
-                    className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ${
+                    className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm transition-colors duration-150 ease-in-out ${
                       item.active
                         ? "bg-primary text-primary-foreground"
                         : "text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -169,7 +169,7 @@ export function MobileNavigation() {
             {/* Admin Section - Only shown when user is logged in */}
             {user && (isSuperAdmin || canAccessAdmin) && (
               <div className="px-2 pt-4">
-                <h3 className="text-muted-foreground px-3 text-xs font-semibold tracking-wider uppercase">
+                <h3 className="text-muted-foreground px-4 text-xs font-semibold tracking-wider uppercase">
                   Reports
                 </h3>
                 <div className="space-y-1 pt-2">
@@ -178,7 +178,7 @@ export function MobileNavigation() {
                       key={item.name}
                       href={item.href}
                       onClick={() => setIsOpen(false)}
-                      className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ${
+                      className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm transition-colors duration-150 ease-in-out ${
                         item.active
                           ? "bg-primary text-primary-foreground"
                           : "text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -190,7 +190,7 @@ export function MobileNavigation() {
                   ))}
                 </div>
 
-                <h3 className="text-muted-foreground px-3 text-xs font-semibold tracking-wider uppercase">
+                <h3 className="text-muted-foreground px-4 text-xs font-semibold tracking-wider uppercase">
                   Management
                 </h3>
                 <div className="space-y-1 pt-2">
@@ -199,7 +199,7 @@ export function MobileNavigation() {
                       key={item.name}
                       href={item.href}
                       onClick={() => setIsOpen(false)}
-                      className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ${
+                      className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm transition-colors duration-150 ease-in-out ${
                         item.active
                           ? "bg-primary text-primary-foreground"
                           : "text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -211,7 +211,7 @@ export function MobileNavigation() {
                   ))}
                 </div>
 
-                <h3 className="text-muted-foreground px-3 pt-4 text-xs font-semibold tracking-wider uppercase">
+                <h3 className="text-muted-foreground px-4 pt-4 text-xs font-semibold tracking-wider uppercase">
                   Questions
                 </h3>
                 <div className="space-y-1 pt-2">
@@ -220,7 +220,7 @@ export function MobileNavigation() {
                       key={item.name}
                       href={item.href}
                       onClick={() => setIsOpen(false)}
-                      className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ${
+                      className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm transition-colors duration-150 ease-in-out ${
                         item.active
                           ? "bg-primary text-primary-foreground"
                           : "text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -232,7 +232,7 @@ export function MobileNavigation() {
                   ))}
                 </div>
 
-                <h3 className="text-muted-foreground px-3 pt-4 text-xs font-semibold tracking-wider uppercase">
+                <h3 className="text-muted-foreground px-4 pt-4 text-xs font-semibold tracking-wider uppercase">
                   Configuration
                 </h3>
                 <div className="space-y-1 pt-2">
@@ -241,7 +241,7 @@ export function MobileNavigation() {
                       key={item.name}
                       href={item.href}
                       onClick={() => setIsOpen(false)}
-                      className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ${
+                      className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm transition-colors duration-150 ease-in-out ${
                         item.active
                           ? "bg-primary text-primary-foreground"
                           : "text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -261,7 +261,7 @@ export function MobileNavigation() {
                 <Link
                   href="#"
                   onClick={() => setIsOpen(false)}
-                  className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors ${
+                  className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm transition-colors duration-150 ease-in-out ${
                     pathname.startsWith("/analytics")
                       ? "bg-primary text-primary-foreground"
                       : "text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -285,7 +285,7 @@ export function MobileNavigation() {
                       <Link
                         href="/profile"
                         onClick={() => setIsOpen(false)}
-                        className="text-muted-foreground hover:bg-muted hover:text-foreground flex items-center gap-3 rounded-lg px-3 py-2 text-sm"
+                        className="text-muted-foreground hover:bg-muted hover:text-foreground flex items-center gap-2 rounded-lg px-4 py-2 text-sm transition-colors duration-150 ease-in-out"
                       >
                         <User className="h-4 w-4" />
                         Profile
@@ -293,7 +293,7 @@ export function MobileNavigation() {
                       <Link
                         href="/settings"
                         onClick={() => setIsOpen(false)}
-                        className="text-muted-foreground hover:bg-muted hover:text-foreground flex items-center gap-3 rounded-lg px-3 py-2 text-sm"
+                        className="text-muted-foreground hover:bg-muted hover:text-foreground flex items-center gap-2 rounded-lg px-4 py-2 text-sm transition-colors duration-150 ease-in-out"
                       >
                         <Settings className="h-4 w-4" />
                         Settings
@@ -302,7 +302,7 @@ export function MobileNavigation() {
                   )}
                   <Button
                     variant="ghost"
-                    className="text-muted-foreground hover:bg-muted hover:text-foreground w-full justify-start gap-3 px-3 py-2 text-sm"
+                    className="text-muted-foreground hover:bg-muted hover:text-foreground w-full justify-start gap-2 px-4 py-2 text-sm"
                     onClick={handleLogout}
                   >
                     <LogOut className="h-4 w-4" />
@@ -314,7 +314,7 @@ export function MobileNavigation() {
                   <Link
                     href="/login"
                     onClick={() => setIsOpen(false)}
-                    className="text-muted-foreground hover:bg-muted hover:text-foreground flex items-center gap-3 rounded-lg px-3 py-2 text-sm"
+                    className="text-muted-foreground hover:bg-muted hover:text-foreground flex items-center gap-2 rounded-lg px-4 py-2 text-sm transition-colors duration-150 ease-in-out"
                   >
                     <User className="h-4 w-4" />
                     Login
@@ -322,7 +322,7 @@ export function MobileNavigation() {
                   <Link
                     href="/register"
                     onClick={() => setIsOpen(false)}
-                    className="text-muted-foreground hover:bg-muted hover:text-foreground flex items-center gap-3 rounded-lg px-3 py-2 text-sm"
+                    className="text-muted-foreground hover:bg-muted hover:text-foreground flex items-center gap-2 rounded-lg px-4 py-2 text-sm transition-colors duration-150 ease-in-out"
                   >
                     <Settings className="h-4 w-4" />
                     Register
