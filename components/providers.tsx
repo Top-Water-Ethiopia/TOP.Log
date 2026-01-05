@@ -1,8 +1,10 @@
 'use client';
 
 import { ReactNode } from 'react';
+import { SWRConfig } from 'swr';
 import { ThemeProvider } from '@/components/theme-provider';
 import { SupabaseProviders } from '@/components/supabase-providers';
+import { apiFetch } from '@/lib/api-client';
 
 interface ProvidersProps {
   children: ReactNode;
@@ -19,9 +21,17 @@ export function Providers({ children }: ProvidersProps) {
       enableSystem
       disableTransitionOnChange
     >
-      <SupabaseProviders>
-        {children}
-      </SupabaseProviders>
+      <SWRConfig
+        value={{
+          fetcher: (resource: string) => apiFetch(resource),
+          revalidateOnFocus: false,
+          shouldRetryOnError: false,
+        }}
+      >
+        <SupabaseProviders>
+          {children}
+        </SupabaseProviders>
+      </SWRConfig>
     </ThemeProvider>
   );
 }

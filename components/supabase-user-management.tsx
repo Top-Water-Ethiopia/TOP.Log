@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context";
 import { supabase } from "@/lib/supabase-client";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -70,6 +70,9 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { UsersTableSkeleton } from "@/components/skeletons/users-table-skeleton"
+import { apiFetch, getErrorMessage } from "@/lib/api-client";
+import { RightSidePanel } from "@/components/ui/right-side-panel";
+import useSWR from "swr";
 
 // Role IDs from schema
 const SUPER_ADMIN_ROLE_ID = '00000000-0000-0000-0000-000000000000';
@@ -95,6 +98,43 @@ interface UserWithProfile {
   } | null;
 }
 
+type AdminUsersApiUser = {
+  id: string
+  email: string
+  email_confirmed_at: string | null
+  created_at: string
+  profile: NonNullable<UserWithProfile["profile"]>
+}
+
+type AdminUsersResponse = {
+  data: AdminUsersApiUser[]
+  pagination?: {
+    page: number
+    perPage: number
+    totalCount: number
+    totalPages: number
+  }
+}
+
+type AdminCreateUserResponse = {
+  user: {
+    id: string
+    email: string | null
+    created_at: string | null
+  }
+  profile: {
+    id: string
+    user_id: string
+    name: string
+    department_id: string | null
+    role_id: string
+    is_active: boolean
+    created_at: string
+    updated_at?: string
+    last_login?: string | null
+  }
+}
+
 interface Department {
   id: string;
   name: string;
@@ -117,7 +157,6 @@ export function SupabaseUserManagement() {
   const [departments, setDepartments] = useState<Department[]>([]);
   const [userDepartmentsByUserId, setUserDepartmentsByUserId] = useState<Record<string, string[]>>({});
   const [roles, setRoles] = useState<Role[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
   const [roleFilter, setRoleFilter] = useState<string>("all");
   const [statusFilter, setStatusFilter] = useState<string>("all");
@@ -165,105 +204,144 @@ export function SupabaseUserManagement() {
     email_verified: false,
   });
 
-  // Load departments
-  const loadDepartments = async () => {
-    try {
-      const response = await fetch('/api/admin/departments');
-      const result = await response.json();
-      
-      if (response.ok && result.data) {
-        setDepartments(result.data.filter((d: Department) => d.is_active));
-      }
-    } catch (error) {
-      console.error("Failed to load departments:", error);
-    }
-  };
+  const lastUsersErrorRef = useRef<string | null>(null)
+  const lastRolesErrorRef = useRef<string | null>(null)
+  const lastDepartmentsErrorRef = useRef<string | null>(null)
+  const lastMembershipsErrorRef = useRef<string | null>(null)
 
-  // Load all roles
-  const loadRoles = async () => {
-    try {
-      const response = await fetch('/api/admin/roles');
-      const result = await response.json();
-      
-      if (response.ok && result.data) {
-        setRoles(result.data || []);
-      }
-    } catch (error) {
-      console.error("Failed to load roles:", error);
-    }
-  };
+  const usersKey = isAdmin ? "/api/admin/users?per_page=1000" : null
+  const rolesKey = isAdmin ? "/api/admin/roles" : null
+  const departmentsKey = isAdmin ? "/api/admin/departments" : null
+  const membershipsKey = isAdmin ? "/api/admin/users/memberships" : null
 
-  const loadUserDepartmentMemberships = async () => {
-    try {
-      const response = await fetch('/api/admin/users/memberships');
-      const result = await response.json().catch(() => ({}));
-      if (!response.ok) {
-        throw new Error(result.message || result.error || `HTTP ${response.status}`);
-      }
+  const {
+    data: usersResponse,
+    error: usersError,
+    isLoading: isUsersLoading,
+    isValidating: isUsersValidating,
+    mutate: mutateUsers,
+  } = useSWR<AdminUsersResponse>(usersKey)
 
-      setUserDepartmentsByUserId((result.data || {}) as Record<string, string[]>);
-    } catch (error: any) {
-      console.error("Failed to load user department memberships:", error);
-      setUserDepartmentsByUserId({});
-    }
-  }
+  const {
+    data: rolesResponse,
+    error: rolesError,
+    isLoading: isRolesLoading,
+    mutate: mutateRoles,
+  } = useSWR<{ data: Role[] }>(rolesKey)
 
-  // Load all users
-  const loadUsers = async () => {
-    setIsLoading(true);
-    try {
-      // Use the API route which fetches users with emails from auth.users using admin client
-      // This ensures every user has an email from auth.users
-      const response = await fetch('/api/admin/users?per_page=1000');
-      
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Failed to fetch users', status: response.status }));
-        console.error('Failed to fetch users:', errorData);
-        throw new Error(`${errorData.error || 'Failed to fetch users'} (Status: ${errorData.status || response.status})`);
-      }
+  const {
+    data: departmentsResponse,
+    error: departmentsError,
+    isLoading: isDepartmentsLoading,
+    mutate: mutateDepartments,
+  } = useSWR<{ data: Department[] }>(departmentsKey)
 
-      const result = await response.json();
-      
-      if (result.data && Array.isArray(result.data)) {
-        // Map the API response to UserWithProfile format
-        const usersWithProfiles: UserWithProfile[] = result.data.map((user: any) => ({
-          id: user.id,
-          email: user.email || 'N/A', // Should always have email from auth.users
-          email_confirmed_at: user.email_confirmed_at || null,
-          created_at: user.created_at,
-          profile: {
-            id: user.profile.id,
-            name: user.profile.name,
-            department_id: user.profile.department_id, // Changed from department to department_id
-            role_id: user.profile.role_id,
-            role_name: user.profile.role_name || 'user',
-            is_active: user.profile.is_active,
-            created_at: user.profile.created_at,
-            last_login: user.profile.last_login,
-          },
-        }));
-        setUsers(usersWithProfiles);
-      } else {
-        setUsers(result.data || []);
-      }
-      setPage(1);
-    } catch (error: any) {
-      console.error("Failed to load users:", error);
-      toast.error("Failed to load users: " + (error.message || "Unknown error"));
-      setUsers([]);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const {
+    data: membershipsResponse,
+    error: membershipsError,
+    isLoading: isMembershipsLoading,
+    mutate: mutateMemberships,
+  } = useSWR<{ data: Record<string, string[]> }>(membershipsKey)
+
+  const isLoading = isUsersLoading || isRolesLoading || isDepartmentsLoading || isMembershipsLoading
 
   useEffect(() => {
-    if (isAdmin) {
-      loadDepartments();
-      loadRoles();
-      loadUserDepartmentMemberships();
-      loadUsers();
+    if (!usersError) {
+      lastUsersErrorRef.current = null
+      return
     }
-  }, [isAdmin]);
+    const message = getErrorMessage(usersError, "Failed to load users")
+    if (lastUsersErrorRef.current !== message) {
+      toast.error(message)
+      lastUsersErrorRef.current = message
+    }
+  }, [usersError])
+
+  useEffect(() => {
+    if (!rolesError) {
+      lastRolesErrorRef.current = null
+      return
+    }
+    const message = getErrorMessage(rolesError, "Failed to load roles")
+    if (lastRolesErrorRef.current !== message) {
+      toast.error(message)
+      lastRolesErrorRef.current = message
+    }
+  }, [rolesError])
+
+  useEffect(() => {
+    if (!departmentsError) {
+      lastDepartmentsErrorRef.current = null
+      return
+    }
+    const message = getErrorMessage(departmentsError, "Failed to load departments")
+    if (lastDepartmentsErrorRef.current !== message) {
+      toast.error(message)
+      lastDepartmentsErrorRef.current = message
+    }
+  }, [departmentsError])
+
+  useEffect(() => {
+    if (!membershipsError) {
+      lastMembershipsErrorRef.current = null
+      return
+    }
+    const message = getErrorMessage(membershipsError, "Failed to load user department memberships")
+    if (lastMembershipsErrorRef.current !== message) {
+      toast.error(message)
+      lastMembershipsErrorRef.current = message
+    }
+  }, [membershipsError])
+
+  const mappedUsers = useMemo<UserWithProfile[]>(() => {
+    const rows = Array.isArray(usersResponse?.data) ? usersResponse!.data : []
+    return rows.map((user) => ({
+      id: user.id,
+      email: user.email || "N/A",
+      email_confirmed_at: user.email_confirmed_at || null,
+      created_at: user.created_at,
+      profile: {
+        id: user.profile.id,
+        name: user.profile.name,
+        department_id: user.profile.department_id,
+        role_id: user.profile.role_id,
+        role_name: user.profile.role_name || "user",
+        is_active: user.profile.is_active,
+        created_at: user.profile.created_at,
+        last_login: user.profile.last_login,
+      },
+    }))
+  }, [usersResponse])
+
+  const activeDepartments = useMemo(() => {
+    const list = departmentsResponse?.data || []
+    return list.filter((d) => d.is_active)
+  }, [departmentsResponse])
+
+  const membershipsByUserId = useMemo(() => {
+    return (membershipsResponse?.data || {}) as Record<string, string[]>
+  }, [membershipsResponse])
+
+  useEffect(() => {
+    setUsers(mappedUsers)
+  }, [mappedUsers])
+
+  useEffect(() => {
+    setDepartments(activeDepartments)
+  }, [activeDepartments])
+
+  useEffect(() => {
+    setRoles(rolesResponse?.data || [])
+  }, [rolesResponse])
+
+  useEffect(() => {
+    setUserDepartmentsByUserId(membershipsByUserId)
+  }, [membershipsByUserId])
+
+  useEffect(() => {
+    if (!isAdmin) return
+    setPage(1)
+  }, [isAdmin])
 
   const departmentNameById = (departmentId: string) => {
     return departments.find((d) => d.id === departmentId)?.name || departmentId
@@ -390,9 +468,40 @@ export function SupabaseUserManagement() {
   const handleCreateUser = async () => {
     if (!validateCreateUserForm()) return;
 
+    const prevUsersResponse = usersResponse
+    const nowIso = new Date().toISOString()
+    const tempId = `temp-${Date.now()}`
+    const roleName = roles.find((r) => r.id === createUserForm.role_id)?.name || "user"
+
+    const optimisticUser: AdminUsersApiUser = {
+      id: tempId,
+      email: createUserForm.email.trim().toLowerCase(),
+      email_confirmed_at: nowIso,
+      created_at: nowIso,
+      profile: {
+        id: tempId,
+        name: createUserForm.name.trim(),
+        department_id: null,
+        role_id: createUserForm.role_id,
+        role_name: roleName,
+        is_active: true,
+        created_at: nowIso,
+        last_login: null,
+      },
+    }
+
+    mutateUsers(
+      (current) => {
+        if (!current) return { data: [optimisticUser] }
+        const next = [optimisticUser, ...(Array.isArray(current.data) ? current.data : [])]
+        return { ...current, data: next }
+      },
+      { revalidate: false },
+    )
+
     try {
       // Create user via API endpoint (uses admin client server-side)
-      const response = await fetch('/api/admin/users', {
+      const created = await apiFetch<AdminCreateUserResponse>('/api/admin/users', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -405,11 +514,36 @@ export function SupabaseUserManagement() {
         }),
       });
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || data.error || "Failed to create user");
+      const createdRoleName = roles.find((r) => r.id === created.profile.role_id)?.name || roleName
+      const createdUser: AdminUsersApiUser = {
+        id: created.user.id,
+        email: created.user.email || optimisticUser.email,
+        email_confirmed_at: nowIso,
+        created_at: created.user.created_at || nowIso,
+        profile: {
+          id: created.profile.id,
+          name: created.profile.name,
+          department_id: created.profile.department_id,
+          role_id: created.profile.role_id,
+          role_name: createdRoleName,
+          is_active: created.profile.is_active,
+          created_at: created.profile.created_at,
+          last_login: created.profile.last_login || null,
+        },
       }
+
+      mutateUsers(
+        (current) => {
+          if (!current) return { data: [createdUser] }
+          const rows = Array.isArray(current.data) ? current.data : []
+          const replaced = rows.map((u) => (u.id === tempId ? createdUser : u))
+          const withoutTemp = replaced.filter((u) => u.id !== tempId)
+          const hasReal = withoutTemp.some((u) => u.id === createdUser.id)
+          const next = hasReal ? withoutTemp : [createdUser, ...withoutTemp]
+          return { ...current, data: next }
+        },
+        { revalidate: false },
+      )
 
       // Reset form
       setCreateUserForm({
@@ -425,10 +559,16 @@ export function SupabaseUserManagement() {
       setShowCreateUser(false);
 
       toast.success("User created successfully");
-      await loadUsers();
+      mutateUsers()
+      mutateMemberships()
     } catch (error: any) {
+      if (prevUsersResponse) {
+        mutateUsers(prevUsersResponse, { revalidate: false })
+      } else {
+        mutateUsers()
+      }
       console.error("Failed to create user:", error);
-      toast.error("Failed to create user: " + (error.message || "Unknown error"));
+      toast.error(getErrorMessage(error, "Failed to create user"))
     }
   };
 
@@ -459,13 +599,44 @@ export function SupabaseUserManagement() {
     if (!validateEditUserForm() || !editingUser || isUpdatingUser) return;
 
     setIsUpdatingUser(true);
+
+    const prevUsersResponse = usersResponse
+    const nextName = editUserForm.name.trim()
+    const nextEmail = editUserForm.email.trim().toLowerCase()
+    const nextRoleId = editUserForm.role_id
+    const nextRoleName = roles.find((r) => r.id === nextRoleId)?.name || "user"
+    const nextIsActive = editUserForm.is_active
+
+    mutateUsers(
+      (current) => {
+        if (!current) return current
+        const rows = Array.isArray(current.data) ? current.data : []
+        const nextRows = rows.map((u) => {
+          if (u.id !== editingUser.id) return u
+          return {
+            ...u,
+            email: nextEmail,
+            profile: {
+              ...u.profile,
+              name: nextName,
+              role_id: nextRoleId,
+              role_name: nextRoleName,
+              is_active: nextIsActive,
+            },
+          }
+        })
+        return { ...current, data: nextRows }
+      },
+      { revalidate: false },
+    )
+
     try {
       // Check if we need to mark email as verified or unverified
       const shouldMarkEmailVerified = editUserForm.email_verified && !editingUser.email_confirmed_at;
       const shouldUnmarkEmailVerified = !editUserForm.email_verified && editingUser.email_confirmed_at && isSuperAdmin;
       
       // Update user details
-      const response = await fetch('/api/admin/users', {
+      await apiFetch('/api/admin/users', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -479,18 +650,12 @@ export function SupabaseUserManagement() {
         }),
       });
 
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.message || result.error || "Failed to update user");
-      }
-
       toast.success("User updated successfully");
       
       // Mark email as verified if requested
       if (shouldMarkEmailVerified) {
         try {
-          const verifyResponse = await fetch('/api/admin/users/mark-email-verified', {
+          await apiFetch('/api/admin/users/mark-email-verified', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -499,12 +664,18 @@ export function SupabaseUserManagement() {
               user_id: editingUser.id,
             }),
           });
-          
-          const verifyResult = await verifyResponse.json();
-          
-          if (!verifyResponse.ok) {
-            throw new Error(verifyResult.message || verifyResult.error || "Failed to mark email as verified");
-          }
+
+          mutateUsers(
+            (current) => {
+              if (!current) return current
+              const rows = Array.isArray(current.data) ? current.data : []
+              const nextRows = rows.map((u) =>
+                u.id === editingUser.id ? { ...u, email_confirmed_at: new Date().toISOString() } : u,
+              )
+              return { ...current, data: nextRows }
+            },
+            { revalidate: false },
+          )
           
           // Update the editingUser state to reflect the new email verification status
           if (editingUser) {
@@ -517,14 +688,14 @@ export function SupabaseUserManagement() {
           toast.success(`Email for ${editUserForm.name || editUserForm.email} marked as verified`);
         } catch (verifyError: any) {
           console.error("Failed to mark email as verified:", verifyError);
-          toast.error("Failed to mark email as verified: " + (verifyError.message || "Unknown error"));
+          toast.error(getErrorMessage(verifyError, "Failed to mark email as verified"))
         }
       }
       
       // Unmark email as verified if requested (superadmin only)
       if (shouldUnmarkEmailVerified) {
         try {
-          const unverifyResponse = await fetch('/api/admin/users/unmark-email-verified', {
+          await apiFetch('/api/admin/users/unmark-email-verified', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
@@ -533,12 +704,18 @@ export function SupabaseUserManagement() {
               user_id: editingUser.id,
             }),
           });
-          
-          const unverifyResult = await unverifyResponse.json();
-          
-          if (!unverifyResponse.ok) {
-            throw new Error(unverifyResult.message || unverifyResult.error || "Failed to unmark email as verified");
-          }
+
+          mutateUsers(
+            (current) => {
+              if (!current) return current
+              const rows = Array.isArray(current.data) ? current.data : []
+              const nextRows = rows.map((u) =>
+                u.id === editingUser.id ? { ...u, email_confirmed_at: null } : u,
+              )
+              return { ...current, data: nextRows }
+            },
+            { revalidate: false },
+          )
           
           // Update the editingUser state to reflect the new email verification status
           if (editingUser) {
@@ -551,17 +728,23 @@ export function SupabaseUserManagement() {
           toast.success(`Email for ${editUserForm.name || editUserForm.email} unmarked as verified`);
         } catch (unverifyError: any) {
           console.error("Failed to unmark email as verified:", unverifyError);
-          toast.error("Failed to unmark email as verified: " + (unverifyError.message || "Unknown error"));
+          toast.error(getErrorMessage(unverifyError, "Failed to unmark email as verified"))
         }
       }
       
       setShowEditUser(false);
       setEditingUser(null);
       setEditFormErrors({});
-      await loadUsers();
+      mutateUsers()
+      mutateMemberships()
     } catch (error: any) {
+      if (prevUsersResponse) {
+        mutateUsers(prevUsersResponse, { revalidate: false })
+      } else {
+        mutateUsers()
+      }
       console.error("Failed to update user:", error);
-      toast.error("Failed to update user: " + (error.message || "Unknown error"));
+      toast.error(getErrorMessage(error, "Failed to update user"))
     } finally {
       setIsUpdatingUser(false);
     }
@@ -578,8 +761,30 @@ export function SupabaseUserManagement() {
     // Set loading state
     setTogglingUserId(user.id);
 
+    const prevUsersResponse = usersResponse
+    const nextIsActive = !user.profile.is_active
+
+    mutateUsers(
+      (current) => {
+        if (!current) return current
+        const rows = Array.isArray(current.data) ? current.data : []
+        const nextRows = rows.map((u) => {
+          if (u.id !== user.id) return u
+          return {
+            ...u,
+            profile: {
+              ...u.profile,
+              is_active: nextIsActive,
+            },
+          }
+        })
+        return { ...current, data: nextRows }
+      },
+      { revalidate: false },
+    )
+
     try {
-      const response = await fetch('/api/admin/users', {
+      await apiFetch('/api/admin/users', {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -590,17 +795,16 @@ export function SupabaseUserManagement() {
         }),
       });
 
-      const result = await response.json();
-
-      if (!response.ok) {
-        throw new Error(result.message || result.error || "Failed to update user status");
-      }
-
       toast.success(`User ${user.profile.is_active ? "deactivated" : "activated"} successfully`);
-      await loadUsers();
+      mutateUsers()
     } catch (error: any) {
+      if (prevUsersResponse) {
+        mutateUsers(prevUsersResponse, { revalidate: false })
+      } else {
+        mutateUsers()
+      }
       console.error("Failed to update user status:", error);
-      toast.error("Failed to update user status: " + (error.message || "Unknown error"));
+      toast.error(getErrorMessage(error, "Failed to update user status"))
     } finally {
       // Clear loading state
       setTogglingUserId(null);
@@ -631,28 +835,39 @@ export function SupabaseUserManagement() {
       return;
     }
 
+    const prevUsersResponse = usersResponse
+
     try {
+      mutateUsers(
+        (current) => {
+          if (!current) return current
+          const rows = Array.isArray(current.data) ? current.data : []
+          return { ...current, data: rows.filter((u) => u.id !== userToDelete.id) }
+        },
+        { revalidate: false },
+      )
+
       // Call the API to delete the user
-      const response = await fetch(`/api/admin/users?user_id=${userToDelete.id}`, {
+      await apiFetch(`/api/admin/users?user_id=${userToDelete.id}`, {
         method: 'DELETE',
         headers: {
           'Content-Type': 'application/json',
         },
       });
 
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.error || 'Failed to delete user');
-      }
-
       toast.success("User deleted successfully");
       setShowDeleteDialog(false);
       setUserToDelete(null);
-      await loadUsers();
+      mutateUsers()
+      mutateMemberships()
     } catch (error: any) {
+      if (prevUsersResponse) {
+        mutateUsers(prevUsersResponse, { revalidate: false })
+      } else {
+        mutateUsers()
+      }
       console.error("Failed to delete user:", error);
-      toast.error(error.message || "Failed to delete user");
+      toast.error(getErrorMessage(error, "Failed to delete user"))
     }
   };
 
@@ -664,7 +879,7 @@ export function SupabaseUserManagement() {
     try {
       if (resetPasswordMode === "email") {
         // Send password reset email
-        const response = await fetch('/api/admin/users/reset-password', {
+        await apiFetch('/api/admin/users/reset-password', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -675,12 +890,6 @@ export function SupabaseUserManagement() {
             mode: 'email',
           }),
         });
-
-        const data = await response.json();
-
-        if (!response.ok) {
-          throw new Error(data.message || data.error || "Failed to send password reset email");
-        }
 
         toast.success(`Password reset email sent to ${userToResetPassword.email}`);
       } else {
@@ -703,7 +912,7 @@ export function SupabaseUserManagement() {
           return;
         }
 
-        const response = await fetch('/api/admin/users/reset-password', {
+        await apiFetch('/api/admin/users/reset-password', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -716,12 +925,6 @@ export function SupabaseUserManagement() {
           }),
         });
 
-        const data = await response.json();
-
-        if (!response.ok) {
-          throw new Error(data.message || data.error || "Failed to reset password");
-        }
-
         toast.success("Password reset successfully");
         setNewPassword("");
         setConfirmNewPassword("");
@@ -732,7 +935,7 @@ export function SupabaseUserManagement() {
       setResetPasswordMode("email");
     } catch (error: any) {
       console.error("Failed to reset password:", error);
-      toast.error("Failed to reset password: " + (error.message || "Unknown error"));
+      toast.error(getErrorMessage(error, "Failed to reset password"))
     } finally {
       setResettingPassword(false);
     }
@@ -772,13 +975,18 @@ export function SupabaseUserManagement() {
       {/* Action Bar */}
       <div className="flex sm:justify-end pb-4">
         <div className="flex flex-wrap gap-3">
-          <Button onClick={loadUsers} variant="outline" size="sm">
-            <RefreshCw className="h-4 w-4 mr-2" />
+          <Button
+            onClick={() => Promise.all([mutateUsers(), mutateRoles(), mutateDepartments(), mutateMemberships()])}
+            variant="outline"
+            size="sm"
+            disabled={isUsersValidating}
+          >
+            <RefreshCw className={`h-4 w-4 mr-2 ${isUsersValidating ? "animate-spin" : ""}`} />
             Refresh
           </Button>
-          <Button onClick={() => setShowCreateUser(true)}>
+          <Button onClick={() => setShowCreateUser(true)} size="sm">
             <UserPlus className="h-4 w-4 mr-2" />
-            Add User
+            Create User
           </Button>
          
         </div>
@@ -1228,117 +1436,142 @@ export function SupabaseUserManagement() {
       </Dialog>
 
       {/* Edit User Dialog */}
-      <Dialog open={showEditUser} onOpenChange={setShowEditUser}>
-        <DialogContent className="sm:max-w-[500px]">
-          <DialogHeader>
-            <DialogTitle>Edit User</DialogTitle>
-            <DialogDescription>
-              Update user information and settings.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <Label htmlFor="edit-name">Full Name</Label>
-              <Input
-                id="edit-name"
-                value={editUserForm.name}
-                onChange={(e) => setEditUserForm(prev => ({ ...prev, name: e.target.value }))}
-                placeholder="Enter full name"
-              />
-              {editFormErrors.name && (
-                <p className="text-sm text-destructive">{editFormErrors.name}</p>
-              )}
+      <RightSidePanel
+        open={showEditUser}
+        onOpenChange={(open) => {
+          setShowEditUser(open)
+          if (!open) {
+            setEditingUser(null)
+            setEditFormErrors({})
+          }
+        }}
+        title={editingUser?.profile?.name || "Edit User"}
+        description={editingUser?.email || "Update user information and settings."}
+        footer={
+          <div className="flex flex-col gap-3">
+            <div className="flex justify-between gap-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  if (!editingUser) return
+                  setUserToResetPassword(editingUser)
+                  setShowResetPasswordDialog(true)
+                }}
+                disabled={!editingUser}
+              >
+                Reset Password
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => {
+                  if (!editingUser) return
+                  setUserToDelete(editingUser)
+                  setShowDeleteDialog(true)
+                }}
+                disabled={!editingUser}
+              >
+                Delete
+              </Button>
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="edit-email">Email</Label>
-              <Input
-                id="edit-email"
-                type="email"
-                value={editUserForm.email}
-                onChange={(e) => setEditUserForm(prev => ({ ...prev, email: e.target.value }))}
-                placeholder="Enter email address"
-              />
-              {editFormErrors.email && (
-                <p className="text-sm text-destructive">{editFormErrors.email}</p>
-              )}
-            </div>
-            <div className="flex items-center justify-between pt-2">
-              <div className="flex items-center space-x-2">
-                <Switch
-                  id="email-verified"
-                  checked={editUserForm.email_verified}
-                  onCheckedChange={(checked) => setEditUserForm(prev => ({ ...prev, email_verified: checked }))}
-                  disabled={!!editingUser && editingUser.email_confirmed_at !== null && !isSuperAdmin}
-                />
-                <Label htmlFor="email-verified">Email Verified</Label>
-              </div>
-              {editingUser?.email_confirmed_at && (
-                <span className="text-xs text-muted-foreground">
-                  Verified: {new Date(editingUser.email_confirmed_at).toLocaleDateString()}
-                </span>
-              )}
-            </div>
-            <div className="grid grid-cols-1 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="edit-role">Role</Label>
-                <Select
-                  value={editUserForm.role_id}
-                  onValueChange={(value) => setEditUserForm((prev) => ({ ...prev, role_id: value }))}
-                >
-                  <SelectTrigger id="edit-role">
-                    <SelectValue placeholder="Select a role" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {editSystemRoles
-                      .filter((role) => isSuperAdmin || role.id !== SUPER_ADMIN_ROLE_ID)
-                      .map((role) => (
-                        <SelectItem key={role.id} value={role.id}>
-                          {role.name}
-                        </SelectItem>
-                      ))}
-                  </SelectContent>
-                </Select>
-                {editFormErrors.role_id && (
-                  <p className="text-sm text-destructive">{editFormErrors.role_id}</p>
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowEditUser(false)
+                  setEditingUser(null)
+                  setEditFormErrors({})
+                }}
+                disabled={isUpdatingUser}
+              >
+                Cancel
+              </Button>
+              <Button onClick={handleUpdateUser} disabled={isUpdatingUser}>
+                {isUpdatingUser ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Updating...
+                  </>
+                ) : (
+                  "Update User"
                 )}
-              </div>
-            </div>
-            <div className="flex items-center space-x-2">
-              <input
-                type="checkbox"
-                id="edit-is-active"
-                checked={editUserForm.is_active}
-                onChange={(e) => setEditUserForm(prev => ({ ...prev, is_active: e.target.checked }))}
-                className="h-4 w-4 rounded border-gray-300"
-              />
-              <Label htmlFor="edit-is-active">Active</Label>
+              </Button>
             </div>
           </div>
-          <DialogFooter>
-            <Button 
-              variant="outline" 
-              onClick={() => {
-                setShowEditUser(false);
-                setEditingUser(null);
-                setEditFormErrors({});
-              }}
-              disabled={isUpdatingUser}
-            >
-              Cancel
-            </Button>
-            <Button onClick={handleUpdateUser} disabled={isUpdatingUser}>
-              {isUpdatingUser ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Updating...
-                </>
-              ) : (
-                "Update User"
-              )}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+        }
+      >
+        <div className="space-y-4">
+          <div className="space-y-2">
+            <Label htmlFor="edit-name">Full Name</Label>
+            <Input
+              id="edit-name"
+              value={editUserForm.name}
+              onChange={(e) => setEditUserForm((prev) => ({ ...prev, name: e.target.value }))}
+              placeholder="Enter full name"
+            />
+            {editFormErrors.name && <p className="text-sm text-destructive">{editFormErrors.name}</p>}
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="edit-email">Email</Label>
+            <Input
+              id="edit-email"
+              type="email"
+              value={editUserForm.email}
+              onChange={(e) => setEditUserForm((prev) => ({ ...prev, email: e.target.value }))}
+              placeholder="Enter email address"
+            />
+            {editFormErrors.email && <p className="text-sm text-destructive">{editFormErrors.email}</p>}
+          </div>
+          <div className="flex items-center justify-between pt-2">
+            <div className="flex items-center space-x-2">
+              <Switch
+                id="email-verified"
+                checked={editUserForm.email_verified}
+                onCheckedChange={(checked) => setEditUserForm((prev) => ({ ...prev, email_verified: checked }))}
+                disabled={!!editingUser && editingUser.email_confirmed_at !== null && !isSuperAdmin}
+              />
+              <Label htmlFor="email-verified">Email Verified</Label>
+            </div>
+            {editingUser?.email_confirmed_at && (
+              <span className="text-xs text-muted-foreground">
+                Verified: {new Date(editingUser.email_confirmed_at).toLocaleDateString()}
+              </span>
+            )}
+          </div>
+          <div className="grid grid-cols-1 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="edit-role">Role</Label>
+              <Select
+                value={editUserForm.role_id}
+                onValueChange={(value) => setEditUserForm((prev) => ({ ...prev, role_id: value }))}
+              >
+                <SelectTrigger id="edit-role">
+                  <SelectValue placeholder="Select a role" />
+                </SelectTrigger>
+                <SelectContent>
+                  {editSystemRoles
+                    .filter((role) => isSuperAdmin || role.id !== SUPER_ADMIN_ROLE_ID)
+                    .map((role) => (
+                      <SelectItem key={role.id} value={role.id}>
+                        {role.name}
+                      </SelectItem>
+                    ))}
+                </SelectContent>
+              </Select>
+              {editFormErrors.role_id && <p className="text-sm text-destructive">{editFormErrors.role_id}</p>}
+            </div>
+          </div>
+          <div className="flex items-center space-x-2">
+            <input
+              type="checkbox"
+              id="edit-is-active"
+              checked={editUserForm.is_active}
+              onChange={(e) => setEditUserForm((prev) => ({ ...prev, is_active: e.target.checked }))}
+              className="h-4 w-4 rounded border-gray-300"
+            />
+            <Label htmlFor="edit-is-active">Active</Label>
+          </div>
+        </div>
+      </RightSidePanel>
 
       {/* Reset Password Dialog */}
       <Dialog open={showResetPasswordDialog} onOpenChange={setShowResetPasswordDialog}>
