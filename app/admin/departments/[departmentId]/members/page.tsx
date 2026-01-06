@@ -11,14 +11,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
 import { useToast } from "@/components/ui/use-toast"
 import { ToastAction } from "@/components/ui/toast"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+import { ActionMenu, type ActionMenuItem } from "@/components/ui/action-menu"
 import { ChevronDown, Pencil, Trash2, X as XIcon } from "lucide-react"
 import {
   Dialog,
@@ -789,8 +782,8 @@ export default function AdminDepartmentMembersPage() {
                         </>
                       )
                     })()}
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
+                    <ActionMenu
+                      trigger={
                         <Button
                           variant="outline"
                           size="sm"
@@ -800,51 +793,59 @@ export default function AdminDepartmentMembersPage() {
                           Manage
                           <ChevronDown className="h-4 w-4" />
                         </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent align="end">
-                        <DropdownMenuLabel>{m.user?.name || m.user?.email || "Member"}</DropdownMenuLabel>
-                        <DropdownMenuSeparator />
-                        <DropdownMenuItem
-                          onClick={() => {
-                            setShowAssignDialog(true)
-                            setSelectedUserId(m.user_id)
-                            setSelectedRole(m.role as DeptRole)
-                            setSelectedActive(m.is_active)
-                            const prof = professionAssignmentByUserId.get(m.user_id)
-                            const nextProfessionRoleId =
-                              prof?.role_id && professionRolesById.has(prof.role_id)
-                                ? prof.role_id
-                                : professionRoles[0]?.id || PROFESSION_ROLE_NONE
-                            setSelectedProfessionRoleId(nextProfessionRoleId)
-                            setSelectedProfessionActive(prof?.is_active ?? true)
-                            setUserQuery(m.user?.email || m.user?.name || "")
-                            setSearchResults([])
-                          }}
-                        >
-                          <Pencil className="mr-2 h-4 w-4" />
-                          Edit
-                        </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => confirmRemoveMember(m)} className="text-destructive">
-                          <Trash2 className="mr-2 h-4 w-4" />
-                          Remove
-                        </DropdownMenuItem>
-                        {isSuperAdmin && (
-                          <>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              onClick={() => {
-                                setMemberToHardDelete(m)
-                                setHardDeleteConfirmText("")
-                              }}
-                              className="text-destructive"
-                            >
-                              <Trash2 className="mr-2 h-4 w-4" />
-                              Permanently delete
-                            </DropdownMenuItem>
-                          </>
-                        )}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
+                      }
+                      items={(
+                        [
+                          {
+                            type: "label",
+                            label: m.user?.name || m.user?.email || "Member",
+                          },
+                          { type: "separator" },
+                          {
+                            type: "item",
+                            label: "Edit",
+                            icon: <Pencil className="mr-2 h-4 w-4" />,
+                            onSelect: () => {
+                              setShowAssignDialog(true)
+                              setSelectedUserId(m.user_id)
+                              setSelectedRole(m.role as DeptRole)
+                              setSelectedActive(m.is_active)
+                              const prof = professionAssignmentByUserId.get(m.user_id)
+                              const nextProfessionRoleId =
+                                prof?.role_id && professionRolesById.has(prof.role_id)
+                                  ? prof.role_id
+                                  : professionRoles[0]?.id || PROFESSION_ROLE_NONE
+                              setSelectedProfessionRoleId(nextProfessionRoleId)
+                              setSelectedProfessionActive(prof?.is_active ?? true)
+                              setUserQuery(m.user?.email || m.user?.name || "")
+                              setSearchResults([])
+                            },
+                          },
+                          {
+                            type: "item",
+                            label: "Remove",
+                            icon: <Trash2 className="mr-2 h-4 w-4" />,
+                            destructive: true,
+                            onSelect: () => confirmRemoveMember(m),
+                          },
+                          ...(isSuperAdmin
+                            ? ([
+                                { type: "separator" },
+                                {
+                                  type: "item",
+                                  label: "Permanently delete",
+                                  icon: <Trash2 className="mr-2 h-4 w-4" />,
+                                  destructive: true,
+                                  onSelect: () => {
+                                    setMemberToHardDelete(m)
+                                    setHardDeleteConfirmText("")
+                                  },
+                                },
+                              ] as const)
+                            : []),
+                        ] satisfies ActionMenuItem[]
+                      )}
+                    />
                   </div>
                 </div>
               ))}

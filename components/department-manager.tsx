@@ -8,22 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
+import { ActionMenu, type ActionMenuItem } from "@/components/ui/action-menu"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -42,6 +27,7 @@ import { ChevronDown, Plus, Pencil, Trash2, Loader2, Users, Briefcase } from "lu
 import { Switch } from "@/components/ui/switch"
 import { Skeleton } from "@/components/ui/skeleton"
 import { apiFetch, ApiError, getErrorMessage } from "@/lib/api-client"
+import { FormDialog } from "@/components/ui/form-dialog"
 
 const SUPER_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000000"
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
@@ -434,42 +420,57 @@ export function DepartmentManager() {
                   </TableCell>
                   <TableCell className="text-right">
                     <div className="flex justify-end">
-                      <DropdownMenu>
-                        <DropdownMenuTrigger asChild>
+                      <ActionMenu
+                        trigger={
                           <Button variant="outline" size="sm" className="gap-2">
                             Manage
                             <ChevronDown className="h-4 w-4" />
                           </Button>
-                        </DropdownMenuTrigger>
-                        <DropdownMenuContent align="end">
-                          <DropdownMenuLabel>{department.name}</DropdownMenuLabel>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem asChild>
-                            <Link href={`/admin/departments/${department.id}?tab=members`} className="flex items-center">
-                              <Users className="mr-2 h-4 w-4" />
-                              Members
-                            </Link>
-                          </DropdownMenuItem>
-                          <DropdownMenuItem asChild>
-                            <Link
-                              href={`/admin/departments/${department.id}?tab=roles`}
-                              className="flex items-center"
-                            >
-                              <Briefcase className="mr-2 h-4 w-4" />
-                              Roles
-                            </Link>
-                          </DropdownMenuItem>
-                          <DropdownMenuSeparator />
-                          <DropdownMenuItem onClick={() => openEditDialog(department)}>
-                            <Pencil className="mr-2 h-4 w-4" />
-                            Edit
-                          </DropdownMenuItem>
-                          <DropdownMenuItem onClick={() => openDeleteDialog(department)} className="text-destructive">
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            Delete
-                          </DropdownMenuItem>
-                        </DropdownMenuContent>
-                      </DropdownMenu>
+                        }
+                        items={(
+                          [
+                            {
+                              type: "label",
+                              label: department.name,
+                            },
+                            { type: "separator" },
+                            {
+                              type: "item",
+                              asChild: true,
+                              node: (
+                                <Link href={`/admin/departments/${department.id}?tab=members`} className="flex items-center">
+                                  <Users className="mr-2 h-4 w-4" />
+                                  Members
+                                </Link>
+                              ),
+                            },
+                            {
+                              type: "item",
+                              asChild: true,
+                              node: (
+                                <Link href={`/admin/departments/${department.id}?tab=roles`} className="flex items-center">
+                                  <Briefcase className="mr-2 h-4 w-4" />
+                                  Roles
+                                </Link>
+                              ),
+                            },
+                            { type: "separator" },
+                            {
+                              type: "item",
+                              label: "Edit",
+                              icon: <Pencil className="mr-2 h-4 w-4" />,
+                              onSelect: () => openEditDialog(department),
+                            },
+                            {
+                              type: "item",
+                              label: "Delete",
+                              icon: <Trash2 className="mr-2 h-4 w-4" />,
+                              destructive: true,
+                              onSelect: () => openDeleteDialog(department),
+                            },
+                          ] satisfies ActionMenuItem[]
+                        )}
+                      />
                     </div>
                   </TableCell>
                 </TableRow>
@@ -529,7 +530,7 @@ export function DepartmentManager() {
       </div>
 
       {/* Create/Edit Dialog */}
-      <Dialog
+      <FormDialog
         open={showCreateDialog}
         onOpenChange={(open) => {
           setShowCreateDialog(open)
@@ -538,83 +539,81 @@ export function DepartmentManager() {
             resetForm()
           }
         }}
+        title={editingDepartment ? "Edit department" : "Create department"}
+        description={
+          editingDepartment
+            ? "Update department details."
+            : "Create a department so you can assign roles and manage access."
+        }
+        contentClassName="sm:max-w-[500px]"
+        form={{
+          onSubmit: (e) => {
+            e.preventDefault()
+            if (editingDepartment) {
+              handleUpdate()
+            } else {
+              handleCreate()
+            }
+          },
+        }}
+        footer={
+          <>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setShowCreateDialog(false)}
+              disabled={isSubmitting}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" disabled={isSubmitting}>
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  {editingDepartment ? "Updating..." : "Creating..."}
+                </>
+              ) : editingDepartment ? (
+                "Update"
+              ) : (
+                "Create"
+              )}
+            </Button>
+          </>
+        }
       >
-        <DialogContent className="sm:max-w-[500px]">
-          <DialogHeader>
-            <DialogTitle>{editingDepartment ? "Edit department" : "Create department"}</DialogTitle>
-            <DialogDescription>
-              {editingDepartment
-                ? "Update department details."
-                : "Create a department so you can assign roles and manage access."}
-            </DialogDescription>
-          </DialogHeader>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault()
-              if (editingDepartment) {
-                handleUpdate()
-              } else {
-                handleCreate()
-              }
-            }}
-          >
-            <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <Label htmlFor="name">
-                  Name <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id="name"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  placeholder="e.g., Engineering"
-                />
-                {formErrors.name && <p className="text-destructive text-sm">{formErrors.name}</p>}
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="description">Description</Label>
-                <Textarea
-                  id="description"
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  placeholder="Department description"
-                  rows={3}
-                />
-              </div>
-              <div className="flex items-center space-x-2">
-                <Switch
-                  id="is_active"
-                  checked={formData.is_active}
-                  onCheckedChange={(checked) => setFormData({ ...formData, is_active: checked })}
-                />
-                <Label htmlFor="is_active">Active</Label>
-              </div>
-            </div>
-            <DialogFooter>
-              <Button
-                type="button"
-                variant="outline"
-                onClick={() => setShowCreateDialog(false)}
-                disabled={isSubmitting}
-              >
-                Cancel
-              </Button>
-              <Button type="submit" disabled={isSubmitting}>
-                {isSubmitting ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    {editingDepartment ? "Updating..." : "Creating..."}
-                  </>
-                ) : editingDepartment ? (
-                  "Update"
-                ) : (
-                  "Create"
-                )}
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
+        <div className="space-y-4 py-4">
+          <div className="space-y-2">
+            <Label htmlFor="name">
+              Name <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              id="name"
+              value={formData.name}
+              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+              placeholder="e.g., Engineering"
+            />
+            {formErrors.name && <p className="text-destructive text-sm">{formErrors.name}</p>}
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="description">Description</Label>
+            <Textarea
+              id="description"
+              value={formData.description}
+              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+              placeholder="Department description"
+              rows={3}
+            />
+          </div>
+          <div className="flex items-center space-x-2">
+            <Switch
+              id="is_active"
+              checked={formData.is_active}
+              onCheckedChange={(checked) => setFormData({ ...formData, is_active: checked })}
+            />
+            <Label htmlFor="is_active">Active</Label>
+          </div>
+        </div>
+      </FormDialog>
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>

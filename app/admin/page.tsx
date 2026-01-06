@@ -7,7 +7,7 @@ import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Icons } from "@/components/icons"
-import { Users, Shield, Settings, Activity, Database, Clock, FileText, RefreshCw, Building2 } from "lucide-react"
+import { Users, Shield, Settings, Activity, Database, Clock, FileText, RefreshCw, Building2, Key } from "lucide-react"
 import { getAdminStats } from "@/lib/admin-stats"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
@@ -54,6 +54,14 @@ const quickActions = [
     href: "/admin/roles",
     iconForeground: "text-purple-700",
     iconBackground: "bg-purple-50",
+  },
+  {
+    name: "Permissions",
+    description: "Assign permissions to roles",
+    icon: Key,
+    href: "/admin/permissions",
+    iconForeground: "text-amber-700",
+    iconBackground: "bg-amber-50",
   },
   {
     name: "Role Questions",

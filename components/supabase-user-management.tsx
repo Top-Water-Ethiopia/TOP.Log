@@ -19,13 +19,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { ActionMenu } from "@/components/ui/action-menu";
 import {
   Dialog,
   DialogContent,
@@ -73,6 +67,7 @@ import { UsersTableSkeleton } from "@/components/skeletons/users-table-skeleton"
 import { apiFetch, getErrorMessage } from "@/lib/api-client";
 import { RightSidePanel } from "@/components/ui/right-side-panel";
 import useSWR from "swr";
+import { DataTable } from "@/components/ui/data-table";
 
 // Role IDs from schema
 const SUPER_ADMIN_ROLE_ID = '00000000-0000-0000-0000-000000000000';
@@ -1053,253 +1048,248 @@ export function SupabaseUserManagement() {
           </CardDescription>
         </CardHeader>
         <CardContent className="p-6">
-          {isLoading ? (
-            <div className="flex items-center justify-center py-12">
-              <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
-            </div>
-          ) : filteredUsers.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground">
-              No users found
-            </div>
-          ) : (
-            <>
-              <div className="overflow-x-auto">
-                <div className="min-w-full inline-block align-middle">
-                  <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>User</TableHead>
-                      <TableHead>Department</TableHead>
-                      <TableHead>Role</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Last Login</TableHead>
-                      <TableHead>Created</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {pagination.pageItems.map((user) => (
-                      <TableRow key={user.id}>
-                        <TableCell>
-                          <div className="flex items-center gap-3">
-                            <Avatar className="h-8 w-8">
-                              <AvatarFallback>
-                                {user.profile?.name.split(" ").map(n => n[0]).join("").toUpperCase() || "U"}
-                              </AvatarFallback>
-                            </Avatar>
-                            <div>
-                              <div className="font-medium">{user.profile?.name || "N/A"}</div>
-                              <button
-                                type="button"
-                                onClick={async () => {
-                                  if (!user.email || user.email === "N/A") return
-                                  try {
-                                    await navigator.clipboard.writeText(user.email)
-                                    toast.success("Email copied to clipboard")
-                                  } catch (error) {
-                                    console.error("Failed to copy email", error)
-                                    toast.error("Failed to copy email")
-                                  }
-                                }}
-                                className="text-sm text-muted-foreground hover:text-primary underline-offset-2 hover:underline focus:outline-none"
-                                title="Click to copy email"
-                              >
-                                {user.email}
-                              </button>
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          {(() => {
-                            const names = getUserDepartmentNames(user.id, user.profile?.department_id)
-                            if (names.length === 0) return "-"
-                            return names.join(", ")
-                          })()}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={getRoleBadgeVariant(user.profile?.role_name || "user")}>
-                            {user.profile?.role_name || "user"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            {user.profile?.is_active ? (
-                              <CheckCircle2 className="h-4 w-4 text-green-500" />
-                            ) : (
-                              <XCircle className="h-4 w-4 text-red-500" />
-                            )}
-                            <span className="text-sm">
-                              {user.profile?.is_active ? "Active" : "Inactive"}
-                            </span>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="text-sm">
-                            {user.profile?.last_login
-                              ? new Date(user.profile.last_login).toLocaleDateString()
-                              : "Never"}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="text-sm">
-                            {new Date(user.created_at).toLocaleDateString()}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center justify-end gap-2">
-                            <Button
-                              variant="outline"
-                              size="icon"
-                              className="h-8 w-8"
-                              onClick={() => {
-                                setEditingUser(user)
-                                setEditUserForm({
-                                  name: user.profile?.name || "",
-                                  email: user.email,
-                                  role_id: user.profile?.role_id || USER_ROLE_ID,
-                                  is_active: user.profile?.is_active ?? true,
-                                  email_verified: !!user.email_confirmed_at,
-                                })
-                                setShowEditUser(true)
+          <DataTable
+            isLoading={isLoading}
+            isEmpty={filteredUsers.length === 0}
+            loadingFallback={
+              <div className="flex items-center justify-center py-12">
+                <RefreshCw className="h-6 w-6 animate-spin text-muted-foreground" />
+              </div>
+            }
+            emptyFallback={<div className="text-center py-12 text-muted-foreground">No users found</div>}
+          >
+            <div className="overflow-x-auto">
+              <div className="min-w-full inline-block align-middle">
+                <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>User</TableHead>
+                    <TableHead>Department</TableHead>
+                    <TableHead>Role</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead>Last Login</TableHead>
+                    <TableHead>Created</TableHead>
+                    <TableHead>Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {pagination.pageItems.map((user) => (
+                    <TableRow key={user.id}>
+                      <TableCell>
+                        <div className="flex items-center gap-3">
+                          <Avatar className="h-8 w-8">
+                            <AvatarFallback>
+                              {user.profile?.name.split(" ").map(n => n[0]).join("").toUpperCase() || "U"}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div>
+                            <div className="font-medium">{user.profile?.name || "N/A"}</div>
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                if (!user.email || user.email === "N/A") return
+                                try {
+                                  await navigator.clipboard.writeText(user.email)
+                                  toast.success("Email copied to clipboard")
+                                } catch (error) {
+                                  console.error("Failed to copy email", error)
+                                  toast.error("Failed to copy email")
+                                }
                               }}
+                              className="text-muted-foreground hover:text-foreground text-sm"
                             >
-                              <Edit className="h-4 w-4" />
-                              <span className="sr-only">Edit user</span>
-                            </Button>
+                              {user.email}
+                            </button>
+                          </div>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        {(() => {
+                          const names = getUserDepartmentNames(user.id, user.profile?.department_id)
+                          if (names.length === 0) return "-"
+                          return names.join(", ")
+                        })()}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={getRoleBadgeVariant(user.profile?.role_name || "user")}>
+                          {user.profile?.role_name || "user"}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center gap-2">
+                          {user.profile?.is_active ? (
+                            <CheckCircle2 className="h-4 w-4 text-green-500" />
+                          ) : (
+                            <XCircle className="h-4 w-4 text-red-500" />
+                          )}
+                          <span className="text-sm">
+                            {user.profile?.is_active ? "Active" : "Inactive"}
+                          </span>
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-sm">
+                          {user.profile?.last_login
+                            ? new Date(user.profile.last_login).toLocaleDateString()
+                            : "Never"}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="text-sm">
+                          {new Date(user.created_at).toLocaleDateString()}
+                        </div>
+                      </TableCell>
+                      <TableCell>
+                        <div className="flex items-center justify-end gap-2">
+                          <Button
+                            variant="outline"
+                            size="icon"
+                            className="h-8 w-8"
+                            onClick={() => {
+                              setEditingUser(user)
+                              setEditUserForm({
+                                name: user.profile?.name || "",
+                                email: user.email,
+                                role_id: user.profile?.role_id || USER_ROLE_ID,
+                                is_active: user.profile?.is_active ?? true,
+                                email_verified: !!user.email_confirmed_at,
+                              })
+                              setShowEditUser(true)
+                            }}
+                          >
+                            <Edit className="h-4 w-4" />
+                            <span className="sr-only">Edit user</span>
+                          </Button>
 
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button variant="outline" size="icon" className="h-8 w-8">
-                                  <MoreHorizontal className="h-4 w-4" />
-                                  <span className="sr-only">More actions</span>
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end" className="w-52">
-                                <DropdownMenuItem
-                                  onClick={() => {
-                                    if (togglingUserId === user.id) return
-                                    handleToggleUserStatus(user)
-                                  }}
-                                  disabled={user.id === currentUser?.id || togglingUserId === user.id}
-                                  title={
-                                    user.id === currentUser?.id
-                                      ? "You cannot change your own status"
-                                      : user.profile?.is_active
-                                        ? "Deactivate user"
-                                        : "Activate user"
-                                  }
-                                >
-                                  {togglingUserId === user.id ? (
+                          <ActionMenu
+                            trigger={
+                              <Button variant="outline" size="icon" className="h-8 w-8">
+                                <MoreHorizontal className="h-4 w-4" />
+                                <span className="sr-only">More actions</span>
+                              </Button>
+                            }
+                            contentClassName="w-52"
+                            items={[
+                              {
+                                type: "item",
+                                label: user.profile?.is_active ? "Deactivate" : "Activate",
+                                icon:
+                                  togglingUserId === user.id ? (
                                     <Loader2 className="h-4 w-4 animate-spin" />
                                   ) : user.profile?.is_active ? (
                                     <Lock className="h-4 w-4" />
                                   ) : (
                                     <Unlock className="h-4 w-4" />
-                                  )}
-                                  <span>{user.profile?.is_active ? "Deactivate" : "Activate"}</span>
-                                </DropdownMenuItem>
+                                  ),
+                                onSelect: () => {
+                                  if (togglingUserId === user.id) return
+                                  handleToggleUserStatus(user)
+                                },
+                                disabled: user.id === currentUser?.id || togglingUserId === user.id,
+                                title:
+                                  user.id === currentUser?.id
+                                    ? "You cannot change your own status"
+                                    : user.profile?.is_active
+                                      ? "Deactivate user"
+                                      : "Activate user",
+                              },
+                              {
+                                type: "item",
+                                label: "Reset password",
+                                icon: <Key className="h-4 w-4" />,
+                                onSelect: () => {
+                                  setUserToResetPassword(user)
+                                  setResetPasswordMode("email")
+                                  setNewPassword("")
+                                  setConfirmNewPassword("")
+                                  setShowResetPasswordDialog(true)
+                                },
+                              },
+                              { type: "separator" },
+                              {
+                                type: "item",
+                                label: "Delete user",
+                                icon: <Trash2 className="h-4 w-4" />,
+                                destructive: true,
+                                onSelect: () => {
+                                  setUserToDelete(user)
+                                  setShowDeleteDialog(true)
+                                },
+                                disabled:
+                                  user.id === currentUser?.id ||
+                                  user.profile?.role_id === ADMIN_ROLE_ID ||
+                                  user.profile?.role_id === SYSTEM_ADMIN_ROLE_ID ||
+                                  user.profile?.role_id === SUPER_ADMIN_ROLE_ID,
+                                title:
+                                  user.id === currentUser?.id
+                                    ? "You cannot delete your own account"
+                                    : user.profile?.role_id === ADMIN_ROLE_ID ||
+                                        user.profile?.role_id === SYSTEM_ADMIN_ROLE_ID ||
+                                        user.profile?.role_id === SUPER_ADMIN_ROLE_ID
+                                      ? "Cannot delete admin accounts"
+                                      : "Delete user",
+                              },
+                            ]}
+                          />
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+                </Table>
+              </div>
+            </div>
 
-                                <DropdownMenuItem
-                                  onClick={() => {
-                                    setUserToResetPassword(user)
-                                    setResetPasswordMode("email")
-                                    setNewPassword("")
-                                    setConfirmNewPassword("")
-                                    setShowResetPasswordDialog(true)
-                                  }}
-                                >
-                                  <Key className="h-4 w-4" />
-                                  <span>Reset password</span>
-                                </DropdownMenuItem>
-
-                                <DropdownMenuSeparator />
-
-                                <DropdownMenuItem
-                                  variant="destructive"
-                                  onClick={() => {
-                                    setUserToDelete(user)
-                                    setShowDeleteDialog(true)
-                                  }}
-                                  disabled={
-                                    user.id === currentUser?.id ||
-                                    user.profile?.role_id === ADMIN_ROLE_ID ||
-                                    user.profile?.role_id === SYSTEM_ADMIN_ROLE_ID ||
-                                    user.profile?.role_id === SUPER_ADMIN_ROLE_ID
-                                  }
-                                  title={
-                                    user.id === currentUser?.id
-                                      ? "You cannot delete your own account"
-                                      : user.profile?.role_id === ADMIN_ROLE_ID ||
-                                          user.profile?.role_id === SYSTEM_ADMIN_ROLE_ID ||
-                                          user.profile?.role_id === SUPER_ADMIN_ROLE_ID
-                                        ? "Cannot delete admin accounts"
-                                        : "Delete user"
-                                  }
-                                >
-                                  <Trash2 className="h-4 w-4" />
-                                  <span>Delete user</span>
-                                </DropdownMenuItem>
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                  </Table>
-                </div>
+            <div className="flex items-center justify-between border-t px-4 py-3 sm:px-6">
+              <div className="hidden sm:block">
+                <p className="text-muted-foreground text-sm">
+                  Showing <span className="text-foreground font-medium">{pagination.start}</span> to{" "}
+                  <span className="text-foreground font-medium">{pagination.end}</span> of{" "}
+                  <span className="text-foreground font-medium">{pagination.total}</span> results
+                </p>
               </div>
 
-              <div className="flex items-center justify-between border-t px-4 py-3 sm:px-6">
-                <div className="hidden sm:block">
-                  <p className="text-muted-foreground text-sm">
-                    Showing <span className="text-foreground font-medium">{pagination.start}</span> to{" "}
-                    <span className="text-foreground font-medium">{pagination.end}</span> of{" "}
-                    <span className="text-foreground font-medium">{pagination.total}</span> results
-                  </p>
+              <div className="ml-auto flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={pagination.total === 0 || pagination.page <= 1}
+                  onClick={() => setPage(pagination.page - 1)}
+                >
+                  Prev
+                </Button>
+
+                <div className="hidden items-center gap-1 sm:flex">
+                  {Array.from({ length: pagination.totalPages }).map((_, i) => {
+                    const p = i + 1;
+                    const active = p === pagination.page;
+                    return (
+                      <Button
+                        key={`user-page-${p}`}
+                        variant="outline"
+                        size="sm"
+                        disabled={pagination.total === 0}
+                        className={active ? "border-primary bg-primary/10 text-primary" : ""}
+                        onClick={() => setPage(p)}
+                      >
+                        {p}
+                      </Button>
+                    );
+                  })}
                 </div>
 
-                <div className="ml-auto flex items-center gap-2">
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={pagination.total === 0 || pagination.page <= 1}
-                    onClick={() => setPage(pagination.page - 1)}
-                  >
-                    Prev
-                  </Button>
-
-                  <div className="hidden items-center gap-1 sm:flex">
-                    {Array.from({ length: pagination.totalPages }).map((_, i) => {
-                      const p = i + 1;
-                      const active = p === pagination.page;
-                      return (
-                        <Button
-                          key={`user-page-${p}`}
-                          variant="outline"
-                          size="sm"
-                          disabled={pagination.total === 0}
-                          className={active ? "border-primary bg-primary/10 text-primary" : ""}
-                          onClick={() => setPage(p)}
-                        >
-                          {p}
-                        </Button>
-                      );
-                    })}
-                  </div>
-
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    disabled={pagination.total === 0 || pagination.page >= pagination.totalPages}
-                    onClick={() => setPage(pagination.page + 1)}
-                  >
-                    Next
-                  </Button>
-                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={pagination.total === 0 || pagination.page >= pagination.totalPages}
+                  onClick={() => setPage(pagination.page + 1)}
+                >
+                  Next
+                </Button>
               </div>
-            </>
-          )}
+            </div>
+
+          </DataTable>
         </CardContent>
       </Card>
 

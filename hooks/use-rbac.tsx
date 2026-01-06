@@ -1,9 +1,10 @@
 "use client"
 
-import { useContext, useCallback, useMemo } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import type { User, Role, Permission, PermissionCheck, CustomQuestion, RoleQuestionSet, QuestionResponse, Department, AccessScope } from "@/lib/rbac/types"
 import { ROLE_HIERARCHY, DEFAULT_ROLES } from "@/lib/rbac/types"
+import { apiFetch } from "@/lib/api-client"
 import {
   hasPermission,
   canPerformAction,
@@ -35,6 +36,43 @@ import { mapSupabaseUserToRbacUser } from "@/lib/supabase/user-mapping"
 export function useRBAC() {
   const { user: supabaseUser, profile } = useSupabaseAuth()
   const user = useMemo(() => mapSupabaseUserToRbacUser(supabaseUser, profile), [supabaseUser, profile])
+
+  const [dbRbac, setDbRbac] = useState<{
+    loaded: boolean
+    permissions: string[]
+    roleName: string | null
+  }>({ loaded: false, permissions: [], roleName: null })
+
+  useEffect(() => {
+    let cancelled = false
+
+    const load = async () => {
+      if (!supabaseUser) {
+        setDbRbac({ loaded: false, permissions: [], roleName: null })
+        return
+      }
+
+      try {
+        const res = await apiFetch<{ role: { name: string }; permissions: string[] }>("/api/rbac/me")
+        if (cancelled) return
+        setDbRbac({
+          loaded: true,
+          permissions: Array.isArray(res.permissions) ? res.permissions : [],
+          roleName: typeof res.role?.name === "string" ? res.role.name : null,
+        })
+      } catch (e) {
+        if (cancelled) return
+        // Fall back to local role defaults if the RBAC endpoint is not available.
+        setDbRbac((prev) => ({ ...prev, loaded: false }))
+      }
+    }
+
+    load()
+
+    return () => {
+      cancelled = true
+    }
+  }, [supabaseUser])
   
   // Load roles from storage (normalize missing access scopes)
   // Always fallback to DEFAULT_ROLES to ensure permissions work even if localStorage is empty
@@ -60,10 +98,15 @@ export function useRBAC() {
     }
   }, [])
   
-  // Get user permissions
+  const effectiveRoleName = useMemo(() => {
+    return dbRbac.roleName || user?.role || null
+  }, [dbRbac.roleName, user])
+
+  // Get user permissions (DB-backed when available)
   const userPermissions = useMemo(() => {
+    if (dbRbac.loaded) return dbRbac.permissions
     return getUserPermissions(user, roles)
-  }, [user, roles])
+  }, [dbRbac.loaded, dbRbac.permissions, user, roles])
   
   // Get questions for current user
   const userQuestions = useMemo(() => {
@@ -72,17 +115,52 @@ export function useRBAC() {
   }, [user])
   
   // Permission checking functions (renamed to avoid conflicts)
-  const checkPermission = useCallback((permission: string) => {
-    return hasPermission(user, permission, roles)
-  }, [user, roles])
+  const checkPermission = useCallback(
+    (permission: string) => {
+      if (!user || !user.isActive) return false
+      if (dbRbac.loaded) return dbRbac.permissions.includes(permission)
+      return hasPermission(user, permission, roles)
+    },
+    [user, roles, dbRbac.loaded, dbRbac.permissions]
+  )
   
-  const checkAction = useCallback((check: PermissionCheck, ownerId?: string) => {
-    return canPerformAction(user, check, roles, ownerId)
-  }, [user, roles])
+  const checkAction = useCallback(
+    (check: PermissionCheck, ownerId?: string) => {
+      if (!user || !user.isActive) return false
+
+      if (dbRbac.loaded) {
+        const permission = `${check.resource}.${check.action}`
+
+        if (dbRbac.permissions.includes(permission)) {
+          return true
+        }
+
+        if (check.ownResource && ownerId === user.id) {
+          const ownPermission = `${permission}.own`
+          if (dbRbac.permissions.includes(ownPermission)) {
+            return true
+          }
+        }
+
+        return false
+      }
+
+      return canPerformAction(user, check, roles, ownerId)
+    },
+    [user, roles, dbRbac.loaded, dbRbac.permissions]
+  )
   
-  const checkRoleLevel = useCallback((requiredLevel: number) => {
-    return hasRoleLevel(user, requiredLevel, ROLE_HIERARCHY)
-  }, [user])
+  const checkRoleLevel = useCallback(
+    (requiredLevel: number) => {
+      if (!user || !user.isActive) return false
+
+      const nameCandidate = effectiveRoleName
+      const effectiveLevel = nameCandidate && nameCandidate in ROLE_HIERARCHY ? ROLE_HIERARCHY[nameCandidate] : ROLE_HIERARCHY[user.role] || 0
+
+      return effectiveLevel >= requiredLevel
+    },
+    [user, effectiveRoleName]
+  )
   
   const checkCanManageUser = useCallback((targetUser: User) => {
     return canManageUser(user, targetUser, ROLE_HIERARCHY)
@@ -132,9 +210,13 @@ export function useRBAC() {
     return getRoleByName(roleName, roles)
   }, [roles])
 
-  const hasRole = useCallback((roleName: string): boolean => {
-    return user?.role === roleName
-  }, [user])
+  const hasRole = useCallback(
+    (roleName: string): boolean => {
+      if (!user) return false
+      return (effectiveRoleName || user.role) === roleName
+    },
+    [user, effectiveRoleName]
+  )
 
   /**
    * Check if a role is a system role
@@ -197,16 +279,16 @@ export function useRBAC() {
   const userInfo = useMemo(() => {
     if (!user) return null
 
-    const userRole = getRoleByName(user.role, roles)
+    const userRole = getRoleByName((effectiveRoleName as any) || user.role, roles)
     
     return {
       ...user,
       role: userRole,
       permissions: userPermissions,
       permissionCategories,
-      level: ROLE_HIERARCHY[user.role] || 0,
+      level: (effectiveRoleName && effectiveRoleName in ROLE_HIERARCHY ? ROLE_HIERARCHY[effectiveRoleName] : ROLE_HIERARCHY[user.role]) || 0,
     }
-  }, [user, roles, userPermissions, permissionCategories])
+  }, [user, roles, userPermissions, permissionCategories, effectiveRoleName])
 
   const getAssignableRolesForUser = useCallback(() => {
     return getAssignableRoles(user, roles, ROLE_HIERARCHY)

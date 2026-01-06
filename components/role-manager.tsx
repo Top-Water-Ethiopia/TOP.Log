@@ -8,14 +8,6 @@ import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import {
   AlertDialog,
   AlertDialogAction,
   AlertDialogCancel,
@@ -33,6 +25,7 @@ import { useToast } from "@/components/ui/use-toast"
 import { Plus, Pencil, Trash2, Shield, Loader2, Search, SlidersHorizontal, ArrowUpDown, RefreshCw } from "lucide-react"
 import { apiFetch, getErrorMessage } from "@/lib/api-client"
 import { RightSidePanel } from "@/components/ui/right-side-panel"
+import { FormDialog } from "@/components/ui/form-dialog"
 import useSWR from "swr"
 
 const SUPER_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000000"
@@ -797,78 +790,24 @@ export function RoleManager() {
           </Tabs>
 
           {/* Create/Edit Dialog */}
-          <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
-            <DialogContent className="sm:max-w-[500px]">
-              <DialogHeader>
-                <DialogTitle>Create Role</DialogTitle>
-                <DialogDescription>
-                  Create a new custom role. Custom roles must be assigned to a department.
-                </DialogDescription>
-              </DialogHeader>
-              <div className="space-y-4 py-4">
-                <div className="space-y-2">
-                  <Label htmlFor="name">
-                    Name <span className="text-destructive">*</span>
-                  </Label>
-                  <Input
-                    id="name"
-                    value={formData.name}
-                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                    placeholder="e.g., senior-engineer"
-                    disabled={
-                      !!editingRole &&
-                      (editingRole.name === "super-admin" ||
-                        editingRole.name === "admin" ||
-                        editingRole.name === "user")
-                    }
-                  />
-                  <p className="text-muted-foreground text-xs">Lowercase alphanumeric with hyphens only</p>
-                  {formErrors.name && <p className="text-destructive text-sm">{formErrors.name}</p>}
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="department">
-                    Department <span className="text-destructive">*</span>
-                  </Label>
-                  <Select
-                    value={formData.department_id || ""}
-                    onValueChange={(value) => setFormData({ ...formData, department_id: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select a department (required)" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {departments.length > 0 ? (
-                        departments.map((dept) => (
-                          <SelectItem key={dept.id} value={dept.id}>
-                            {dept.name}
-                          </SelectItem>
-                        ))
-                      ) : (
-                        <SelectItem value="" disabled>
-                          No departments available
-                        </SelectItem>
-                      )}
-                    </SelectContent>
-                  </Select>
-                  <p className="text-muted-foreground text-xs">Custom roles must be assigned to a department</p>
-                  {formErrors.department_id && <p className="text-destructive text-sm">{formErrors.department_id}</p>}
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="description">Description</Label>
-                  <Textarea
-                    id="description"
-                    value={formData.description}
-                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    placeholder="Role description"
-                    rows={3}
-                  />
-                </div>
-              </div>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setShowCreateDialog(false)} disabled={isSubmitting}>
+          <FormDialog
+            open={showCreateDialog}
+            onOpenChange={setShowCreateDialog}
+            title="Create Role"
+            description="Create a new custom role. Custom roles must be assigned to a department."
+            contentClassName="sm:max-w-[500px]"
+            form={{
+              onSubmit: (e) => {
+                e.preventDefault()
+                handleCreate()
+              },
+            }}
+            footer={
+              <>
+                <Button variant="outline" type="button" onClick={() => setShowCreateDialog(false)} disabled={isSubmitting}>
                   Cancel
                 </Button>
-                <Button onClick={handleCreate} disabled={isSubmitting}>
+                <Button type="submit" disabled={isSubmitting}>
                   {isSubmitting ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -878,9 +817,67 @@ export function RoleManager() {
                     "Create"
                   )}
                 </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+              </>
+            }
+          >
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="name">
+                  Name <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  id="name"
+                  value={formData.name}
+                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                  placeholder="e.g., senior-engineer"
+                  disabled={
+                    !!editingRole &&
+                    (editingRole.name === "super-admin" || editingRole.name === "admin" || editingRole.name === "user")
+                  }
+                />
+                <p className="text-muted-foreground text-xs">Lowercase alphanumeric with hyphens only</p>
+                {formErrors.name && <p className="text-destructive text-sm">{formErrors.name}</p>}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="department">
+                  Department <span className="text-destructive">*</span>
+                </Label>
+                <Select
+                  value={formData.department_id || ""}
+                  onValueChange={(value) => setFormData({ ...formData, department_id: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a department (required)" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {departments.length > 0 ? (
+                      departments.map((dept) => (
+                        <SelectItem key={dept.id} value={dept.id}>
+                          {dept.name}
+                        </SelectItem>
+                      ))
+                    ) : (
+                      <SelectItem value="" disabled>
+                        No departments available
+                      </SelectItem>
+                    )}
+                  </SelectContent>
+                </Select>
+                <p className="text-muted-foreground text-xs">Custom roles must be assigned to a department</p>
+                {formErrors.department_id && <p className="text-destructive text-sm">{formErrors.department_id}</p>}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="description">Description</Label>
+                <Textarea
+                  id="description"
+                  value={formData.description}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  placeholder="Role description"
+                  rows={3}
+                />
+              </div>
+            </div>
+          </FormDialog>
 
           <RightSidePanel
             open={showEditPanel}

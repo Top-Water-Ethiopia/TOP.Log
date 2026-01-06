@@ -14,6 +14,7 @@ import {
   SidebarMenuButton,
   SidebarFooter,
   SidebarHeader,
+  SidebarTrigger,
 } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
 import {
@@ -21,6 +22,7 @@ import {
   Users,
   Building2,
   Shield,
+  Key,
   FileQuestion,
   Settings,
   LogOut,
@@ -55,40 +57,31 @@ export function AdminSidebar() {
     return (parts[0].slice(0, 1) + parts[parts.length - 1].slice(0, 1)).toUpperCase()
   }
 
-  // Main navigation items - organized by category
-  const mainNavItems = [
-    {
-      name: "Overview",
-      icon: LayoutDashboard,
-      path: "/admin",
-    },
+  // Grouped navigation items
+  const userManagementNavItems = [
     {
       name: "Users",
       icon: Users,
       path: "/admin/users",
     },
     {
-      name: "Departments",
-      icon: Building2,
-      path: "/admin/departments",
-    },
-    {
       name: "Roles",
       icon: Shield,
       path: "/admin/roles",
     },
+    {
+      name: "Permissions",
+      icon: Key,
+      path: "/admin/permissions",
+    },
   ]
 
-  const reportsNavItems = [
+  const contentNavItems = [
     {
       name: "Reports",
       icon: FileText,
       path: "/admin/reports",
     },
-  ]
-
-  // Questions configuration items
-  const questionsNavItems = [
     {
       name: "Role Questions",
       icon: FileQuestion,
@@ -96,13 +89,27 @@ export function AdminSidebar() {
     },
   ]
 
-  // Settings - hidden on mobile
-  const settingsNavItems = [
+  const systemNavItems = [
     {
-      name: "Settings",
-      icon: Settings,
-      path: "/admin/settings",
+      name: "Overview",
+      icon: LayoutDashboard,
+      path: "/admin",
     },
+    {
+      name: "Departments",
+      icon: Building2,
+      path: "/admin/departments",
+    },
+    // Settings visible on desktop only
+    ...(!isMobile
+      ? [
+          {
+            name: "Settings",
+            icon: Settings,
+            path: "/admin/settings",
+          },
+        ]
+      : []),
   ]
 
   const handleLogout = async () => {
@@ -127,7 +134,7 @@ export function AdminSidebar() {
     if (item.path === "#") {
       return (
         <SidebarMenuItem key={`${item.name}-${item.path}`}>
-          <SidebarMenuButton className="w-full cursor-pointer justify-start">
+          <SidebarMenuButton className="w-full cursor-pointer justify-start" tooltip={item.name}>
             <Icon className="h-4 w-4" />
             <span>{item.name}</span>
           </SidebarMenuButton>
@@ -138,7 +145,7 @@ export function AdminSidebar() {
     return (
       <SidebarMenuItem key={item.path}>
         <Link href={item.path} className="w-full">
-          <SidebarMenuButton isActive={isActive(item.path)} className="w-full justify-start">
+          <SidebarMenuButton isActive={isActive(item.path)} className="w-full justify-start" tooltip={item.name}>
             <Icon className="h-4 w-4" />
             <span>{item.name}</span>
           </SidebarMenuButton>
@@ -148,51 +155,60 @@ export function AdminSidebar() {
   }
 
   return (
-    <Sidebar>
+    <Sidebar collapsible="icon">
       <SidebarHeader className="border-b px-4 py-4">
-        <div className="flex items-center gap-2">
-          <div className="bg-primary text-primary-foreground flex h-8 w-8 items-center justify-center rounded-lg text-sm font-bold">
-            A
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <div className="bg-primary text-primary-foreground flex h-8 w-8 items-center justify-center rounded-lg text-sm font-bold">
+              A
+            </div>
+            <span className="text-lg font-semibold tracking-tight group-data-[collapsible=icon]:hidden">
+              Admin Panel
+            </span>
           </div>
-          <span className="text-lg font-semibold tracking-tight">Admin Panel</span>
+          <SidebarTrigger />
         </div>
       </SidebarHeader>
       <SidebarContent className="gap-6 py-6">
-        {/* Reports */}
         <SidebarGroup className="px-4">
           <SidebarGroupLabel className="text-muted-foreground mb-2 px-4 text-xs font-semibold tracking-wider uppercase">
-            Reports
+            User Management
           </SidebarGroupLabel>
-          <SidebarMenu>{reportsNavItems.map(renderNavItem)}</SidebarMenu>
+          <SidebarMenu>{userManagementNavItems.map(renderNavItem)}</SidebarMenu>
         </SidebarGroup>
 
-        {/* Main Navigation */}
         <SidebarGroup className="px-4">
           <SidebarGroupLabel className="text-muted-foreground mb-2 px-4 text-xs font-semibold tracking-wider uppercase">
-            Management
+            Content
           </SidebarGroupLabel>
-          <SidebarMenu>{mainNavItems.map(renderNavItem)}</SidebarMenu>
+          <SidebarMenu>{contentNavItems.map(renderNavItem)}</SidebarMenu>
         </SidebarGroup>
 
-        {/* Questions Configuration */}
         <SidebarGroup className="px-4">
           <SidebarGroupLabel className="text-muted-foreground mb-2 px-4 text-xs font-semibold tracking-wider uppercase">
-            Questions
+            System
           </SidebarGroupLabel>
-          <SidebarMenu>{questionsNavItems.map(renderNavItem)}</SidebarMenu>
+          <SidebarMenu>{systemNavItems.map(renderNavItem)}</SidebarMenu>
         </SidebarGroup>
-
-        {/* Settings - hidden on mobile */}
-        {!isMobile && (
-          <SidebarGroup className="px-4">
-            <SidebarGroupLabel className="text-muted-foreground mb-2 px-4 text-xs font-semibold tracking-wider uppercase">
-              Configuration
-            </SidebarGroupLabel>
-            <SidebarMenu>{settingsNavItems.map(renderNavItem)}</SidebarMenu>
-          </SidebarGroup>
-        )}
       </SidebarContent>
       <SidebarFooter className="space-y-2">
+        <div className="border-t px-2 pt-2">
+          <div className="flex items-center justify-between gap-3 py-2">
+            <div className="flex items-center gap-3">
+              <div className="bg-muted flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold">
+                {getInitials(displayName)}
+              </div>
+              <div className="flex min-w-0 flex-col group-data-[collapsible=icon]:hidden">
+                <span className="truncate text-sm font-medium">{displayName || "Signed out"}</span>
+                <span className="text-muted-foreground truncate text-xs">{displayName ? roleLabel : ""}</span>
+              </div>
+            </div>
+            <Button variant="ghost" size="icon" onClick={handleLogout}>
+              <LogOut className="h-4 w-4" />
+              <span className="sr-only">Logout</span>
+            </Button>
+          </div>
+        </div>
         <Button
           variant="ghost"
           className="w-full justify-start"
@@ -217,21 +233,6 @@ export function AdminSidebar() {
             </>
           )}
         </Button>
-        <Button variant="ghost" className="w-full justify-start" onClick={handleLogout}>
-          <LogOut className="mr-2 h-4 w-4" />
-          <span>Logout</span>
-        </Button>
-        <div className="border-t pt-2">
-          <div className="flex items-center gap-4 px-2 py-2">
-            <div className="bg-muted flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold">
-              {getInitials(displayName)}
-            </div>
-            <div className="flex min-w-0 flex-col">
-              <span className="truncate text-sm font-medium">{displayName || "Signed out"}</span>
-              <span className="text-muted-foreground truncate text-xs">{displayName ? roleLabel : ""}</span>
-            </div>
-          </div>
-        </div>
       </SidebarFooter>
     </Sidebar>
   )

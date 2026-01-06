@@ -55,14 +55,7 @@ import {
 } from "lucide-react"
 import { QuestionTemplates, type QuestionTemplate } from "@/components/question-templates"
 import Link from "next/link"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu"
+import { ActionMenu } from "@/components/ui/action-menu"
 import { ScrollArea } from "@/components/ui/scroll-area"
 import { Separator } from "@/components/ui/separator"
 import { ApiError, apiFetch, getErrorMessage } from "@/lib/api-client"
@@ -2225,24 +2218,28 @@ export function RoleQuestionsManager({ externalSearchQuery, refreshKey }: RoleQu
               Table View
             </Button>
           </div>
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
+          <ActionMenu
+            trigger={
               <Button variant="outline">
                 <Download className="mr-2 h-4 w-4" />
                 Export
               </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent>
-              <DropdownMenuItem onClick={() => handleExport("csv")}>
-                <FileText className="mr-2 h-4 w-4" />
-                Export as CSV
-              </DropdownMenuItem>
-              <DropdownMenuItem onClick={() => handleExport("json")}>
-                <FileText className="mr-2 h-4 w-4" />
-                Export as JSON
-              </DropdownMenuItem>
-            </DropdownMenuContent>
-          </DropdownMenu>
+            }
+            items={[
+              {
+                type: "item",
+                label: "Export as CSV",
+                icon: <FileText className="mr-2 h-4 w-4" />,
+                onSelect: () => handleExport("csv"),
+              },
+              {
+                type: "item",
+                label: "Export as JSON",
+                icon: <FileText className="mr-2 h-4 w-4" />,
+                onSelect: () => handleExport("json"),
+              },
+            ]}
+          />
           <Link href="/admin/role-questions/new">
             <Button variant="default">
               <Plus className="mr-2 h-4 w-4" />
@@ -2628,38 +2625,45 @@ export function RoleQuestionsManager({ externalSearchQuery, refreshKey }: RoleQu
                                   >
                                     <Copy className="h-4 w-4" />
                                   </Button>
-                                  <DropdownMenu>
-                                    <DropdownMenuTrigger asChild>
+                                  <ActionMenu
+                                    align="end"
+                                    trigger={
                                       <Button variant="ghost" size="sm">
                                         <MoreVertical className="h-4 w-4" />
                                       </Button>
-                                    </DropdownMenuTrigger>
-                                    <DropdownMenuContent align="end">
-                                      <DropdownMenuItem onClick={() => openEditDialog(question)}>
-                                        <Pencil className="mr-2 h-4 w-4" />
-                                        Edit
-                                      </DropdownMenuItem>
-                                      <DropdownMenuItem onClick={() => {
-                                        setPreviewQuestion(question)
-                                        setShowPreviewModal(true)
-                                      }}>
-                                        <Eye className="mr-2 h-4 w-4" />
-                                        Preview
-                                      </DropdownMenuItem>
-                                      <DropdownMenuItem onClick={() => handleDuplicate(question)}>
-                                        <Copy className="mr-2 h-4 w-4" />
-                                        Duplicate
-                                      </DropdownMenuItem>
-                                      <DropdownMenuSeparator />
-                                      <DropdownMenuItem 
-                                        onClick={() => openDeleteDialog(question)}
-                                        className="text-destructive"
-                                      >
-                                        <Trash2 className="mr-2 h-4 w-4" />
-                                        Delete
-                                      </DropdownMenuItem>
-                                    </DropdownMenuContent>
-                                  </DropdownMenu>
+                                    }
+                                    items={[
+                                      {
+                                        type: "item",
+                                        label: "Edit",
+                                        icon: <Pencil className="mr-2 h-4 w-4" />,
+                                        onSelect: () => openEditDialog(question),
+                                      },
+                                      {
+                                        type: "item",
+                                        label: "Preview",
+                                        icon: <Eye className="mr-2 h-4 w-4" />,
+                                        onSelect: () => {
+                                          setPreviewQuestion(question)
+                                          setShowPreviewModal(true)
+                                        },
+                                      },
+                                      {
+                                        type: "item",
+                                        label: "Duplicate",
+                                        icon: <Copy className="mr-2 h-4 w-4" />,
+                                        onSelect: () => handleDuplicate(question),
+                                      },
+                                      { type: "separator" },
+                                      {
+                                        type: "item",
+                                        label: "Delete",
+                                        icon: <Trash2 className="mr-2 h-4 w-4" />,
+                                        destructive: true,
+                                        onSelect: () => openDeleteDialog(question),
+                                      },
+                                    ]}
+                                  />
                                 </div>
                               </div>
                             </CardContent>
@@ -2836,38 +2840,45 @@ export function RoleQuestionsManager({ externalSearchQuery, refreshKey }: RoleQu
                         >
                             <Copy className="h-4 w-4" />
                         </Button>
-                          <DropdownMenu>
-                            <DropdownMenuTrigger asChild>
+                          <ActionMenu
+                            align="end"
+                            trigger={
                               <Button variant="ghost" size="sm">
                                 <MoreVertical className="h-4 w-4" />
                               </Button>
-                            </DropdownMenuTrigger>
-                            <DropdownMenuContent align="end">
-                              <DropdownMenuItem onClick={() => openEditDialog(question)}>
-                                <Pencil className="mr-2 h-4 w-4" />
-                                Edit
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => {
-                                setPreviewQuestion(question)
-                                setShowPreviewModal(true)
-                              }}>
-                                <Eye className="mr-2 h-4 w-4" />
-                                Preview
-                              </DropdownMenuItem>
-                              <DropdownMenuItem onClick={() => handleDuplicate(question)}>
-                                <Copy className="mr-2 h-4 w-4" />
-                                Duplicate
-                              </DropdownMenuItem>
-                              <DropdownMenuSeparator />
-                              <DropdownMenuItem 
-                                onClick={() => openDeleteDialog(question)}
-                                className="text-destructive"
-                              >
-                                <Trash2 className="mr-2 h-4 w-4" />
-                                Delete
-                              </DropdownMenuItem>
-                            </DropdownMenuContent>
-                          </DropdownMenu>
+                            }
+                            items={[
+                              {
+                                type: "item",
+                                label: "Edit",
+                                icon: <Pencil className="mr-2 h-4 w-4" />,
+                                onSelect: () => openEditDialog(question),
+                              },
+                              {
+                                type: "item",
+                                label: "Preview",
+                                icon: <Eye className="mr-2 h-4 w-4" />,
+                                onSelect: () => {
+                                  setPreviewQuestion(question)
+                                  setShowPreviewModal(true)
+                                },
+                              },
+                              {
+                                type: "item",
+                                label: "Duplicate",
+                                icon: <Copy className="mr-2 h-4 w-4" />,
+                                onSelect: () => handleDuplicate(question),
+                              },
+                              { type: "separator" },
+                              {
+                                type: "item",
+                                label: "Delete",
+                                icon: <Trash2 className="mr-2 h-4 w-4" />,
+                                destructive: true,
+                                onSelect: () => openDeleteDialog(question),
+                              },
+                            ]}
+                          />
                       </div>
                     </TableCell>
                   </TableRow>

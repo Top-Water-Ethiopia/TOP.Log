@@ -2,20 +2,11 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context";
 import { Button } from "@/components/ui/button";
 import { useRBAC } from "@/hooks/use-rbac";
 import { useTheme } from "next-themes";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { ActionMenu, type ActionMenuItem } from "@/components/ui/action-menu";
 import {
   Dialog,
   DialogContent,
@@ -24,7 +15,6 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { Badge } from "@/components/ui/badge";
 import { 
   DatabaseIcon, 
   UserIcon, 
@@ -45,7 +35,6 @@ const SUPER_ADMIN_ROLE_ID = '00000000-0000-0000-0000-000000000000';
 const SYSTEM_ADMIN_ROLE_ID = '00000000-0000-0000-0000-000000000010';
 
 export function SupabaseNav() {
-  const pathname = usePathname();
   const { user, profile, logout, isLoading } = useSupabaseAuth();
   const { canAccessAdmin } = useRBAC();
   const { theme, setTheme } = useTheme();
@@ -83,75 +72,87 @@ export function SupabaseNav() {
   return (
     <>
       {user ? (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
+        <ActionMenu
+          align="end"
+          contentClassName="w-56"
+          trigger={
             <Button variant="outline" size="sm">
               <UserIcon className="h-4 w-4 mr-2" />
               <span className="hidden md:inline mr-1">{profile?.name || user.email}</span>
               <ChevronDownIcon className="h-4 w-4" />
             </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-56">
-            <DropdownMenuLabel>My Account</DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuGroup>
-              <DropdownMenuItem asChild>
-                <Link href="/profile">
-                  <UserIcon className="h-4 w-4 mr-2" />
-                  <span>Profile</span>
-                </Link>
-              </DropdownMenuItem>
-              {(isSuperAdmin || isSystemAdmin) && (
-                <DropdownMenuItem asChild>
-                  <Link href="/admin">
-                    <LayoutDashboard className="h-4 w-4 mr-2" />
-                    <span>Admin Dashboard</span>
+          }
+          items={(
+            [
+              { type: "label", label: "My Account" },
+              { type: "separator" },
+              {
+                type: "item",
+                asChild: true,
+                node: (
+                  <Link href="/profile" className="flex items-center">
+                    <UserIcon className="h-4 w-4 mr-2" />
+                    <span>Profile</span>
                   </Link>
-                </DropdownMenuItem>
-              )}
-              {canAccessAdmin && !isSuperAdmin && !isSystemAdmin && (
-                <DropdownMenuItem asChild>
-                  <Link href="/admin">
-                    <LockIcon className="h-4 w-4 mr-2" />
-                    <span>Admin Dashboard</span>
+                ),
+              },
+              ...(isSuperAdmin || isSystemAdmin
+                ? ([
+                    {
+                      type: "item",
+                      asChild: true,
+                      node: (
+                        <Link href="/admin" className="flex items-center">
+                          <LayoutDashboard className="h-4 w-4 mr-2" />
+                          <span>Admin Dashboard</span>
+                        </Link>
+                      ),
+                    },
+                  ] as const)
+                : []),
+              ...(canAccessAdmin && !isSuperAdmin && !isSystemAdmin
+                ? ([
+                    {
+                      type: "item",
+                      asChild: true,
+                      node: (
+                        <Link href="/admin" className="flex items-center">
+                          <LockIcon className="h-4 w-4 mr-2" />
+                          <span>Admin Dashboard</span>
+                        </Link>
+                      ),
+                    },
+                  ] as const)
+                : []),
+              {
+                type: "item",
+                asChild: true,
+                node: (
+                  <Link href="/supabase-test" className="flex items-center">
+                    <SettingsIcon className="h-4 w-4 mr-2" />
+                    <span>Test Connection</span>
                   </Link>
-                </DropdownMenuItem>
-              )}
-              <DropdownMenuItem asChild>
-                <Link href="/supabase-test">
-                  <SettingsIcon className="h-4 w-4 mr-2" />
-                  <span>Test Connection</span>
-                </Link>
-              </DropdownMenuItem>
-            </DropdownMenuGroup>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => setTheme(theme === "dark" ? "light" : "dark")}>
-              {mounted ? (
-                theme === "dark" ? (
-                  <>
-                    <Sun className="h-4 w-4 mr-2" />
-                    <span>Light Mode</span>
-                  </>
-                ) : (
-                  <>
-                    <Moon className="h-4 w-4 mr-2" />
-                    <span>Dark Mode</span>
-                  </>
-                )
-              ) : (
-                <>
+                ),
+              },
+              { type: "separator" },
+              {
+                type: "item",
+                label: mounted ? (theme === "dark" ? "Light Mode" : "Dark Mode") : "Theme",
+                icon: mounted ? (theme === "dark" ? <Sun className="h-4 w-4 mr-2" /> : <Moon className="h-4 w-4 mr-2" />) : (
                   <Moon className="h-4 w-4 mr-2" />
-                  <span>Theme</span>
-                </>
-              )}
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={handleLogout}>
-              <LogOutIcon className="h-4 w-4 mr-2" />
-              <span>Log out</span>
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+                ),
+                onSelect: () => setTheme(theme === "dark" ? "light" : "dark"),
+              },
+              { type: "separator" },
+              {
+                type: "item",
+                label: "Log out",
+                icon: <LogOutIcon className="h-4 w-4 mr-2" />,
+                onSelect: handleLogout,
+              },
+            ] satisfies ActionMenuItem[]
+          )}
+        />
       ) : (
         <div className="flex items-center gap-2">
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>

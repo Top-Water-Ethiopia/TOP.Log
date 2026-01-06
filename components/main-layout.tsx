@@ -33,14 +33,7 @@ import { useCaptainLog } from "@/contexts/supabase-log-context"
 import { useAuth } from "@/contexts/auth-context"
 import { useRBAC } from "@/hooks/use-rbac"
 import { VersionInfo } from "./version-info"
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "./ui/dropdown-menu"
+import { ActionMenu, type ActionMenuItem } from "./ui/action-menu"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 
 // Role IDs from schema
@@ -164,13 +157,15 @@ export function MainLayout() {
                 {isSupabaseLoggedIn ? (
                   <SupabaseNav />
                 ) : isAuthenticated && user ? (
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
+                  <ActionMenu
+                    align="end"
+                    contentClassName="w-56"
+                    trigger={
                       <Button variant="outline" size="sm" className="gap-2">
                         <Avatar className="h-6 w-6">
                           <AvatarImage src={user.avatar} />
                           <AvatarFallback className="text-xs">
-                            {user.name.split(" ").map(n => n[0]).join("").toUpperCase()}
+                            {user.name.split(" ").map((n) => n[0]).join("").toUpperCase()}
                           </AvatarFallback>
                         </Avatar>
                         {user.name.split(" ")[0]}
@@ -178,36 +173,50 @@ export function MainLayout() {
                           {user.role}
                         </Badge>
                       </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end" className="w-56">
-                      <DropdownMenuLabel className="flex items-center gap-2">
-                        <Avatar className="h-8 w-8">
-                          <AvatarImage src={user.avatar} />
-                          <AvatarFallback>
-                            {user.name.split(" ").map(n => n[0]).join("").toUpperCase()}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div>
-                          <div className="font-medium">{user.name}</div>
-                          <div className="text-sm text-muted-foreground">{user.email}</div>
-                        </div>
-                      </DropdownMenuLabel>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem onClick={() => setShowProfileDialog(true)}>
-                        <User className="mr-2 h-4 w-4" />
-                        Profile
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => setShowProfileDialog(true)}>
-                        <Settings className="mr-2 h-4 w-4" />
-                        Settings
-                      </DropdownMenuItem>
-                      <DropdownMenuSeparator />
-                      <DropdownMenuItem onClick={logout} className="text-red-600">
-                        <LogOut className="mr-2 h-4 w-4" />
-                        Logout
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
+                    }
+                    items={(
+                      [
+                        {
+                          type: "label",
+                          label: (
+                            <div className="flex items-center gap-2">
+                              <Avatar className="h-8 w-8">
+                                <AvatarImage src={user.avatar} />
+                                <AvatarFallback>
+                                  {user.name.split(" ").map((n) => n[0]).join("").toUpperCase()}
+                                </AvatarFallback>
+                              </Avatar>
+                              <div>
+                                <div className="font-medium">{user.name}</div>
+                                <div className="text-sm text-muted-foreground">{user.email}</div>
+                              </div>
+                            </div>
+                          ),
+                        },
+                        { type: "separator" },
+                        {
+                          type: "item",
+                          label: "Profile",
+                          icon: <User className="mr-2 h-4 w-4" />,
+                          onSelect: () => setShowProfileDialog(true),
+                        },
+                        {
+                          type: "item",
+                          label: "Settings",
+                          icon: <Settings className="mr-2 h-4 w-4" />,
+                          onSelect: () => setShowProfileDialog(true),
+                        },
+                        { type: "separator" },
+                        {
+                          type: "item",
+                          label: "Logout",
+                          icon: <LogOut className="mr-2 h-4 w-4" />,
+                          destructive: true,
+                          onSelect: logout,
+                        },
+                      ] satisfies ActionMenuItem[]
+                    )}
+                  />
                 ) : (
                   <>
                     {/* Supabase Auth Nav */}

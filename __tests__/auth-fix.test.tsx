@@ -4,6 +4,7 @@ import "@testing-library/jest-dom"
 import { EntryFormMultistep } from "../components/entry-form-multistep"
 import { AuthProvider } from "../contexts/auth-context"
 import { CaptainLogProvider } from "../contexts/captain-log-context"
+import { SupabaseAuthProvider } from "../contexts/supabase-auth-context"
 
 // Mock the useRouter hook
 jest.mock("next/navigation", () => ({
@@ -15,6 +16,21 @@ jest.mock("next/navigation", () => ({
 // Mock child components that aren't relevant to our test
 jest.mock("../components/role-based-question-fields", () => ({
   RoleBasedQuestionFields: () => <div>Role Based Questions</div>,
+}))
+
+// Mock Supabase Log context used by components to avoid importing 'uuid' ESM in Jest
+jest.mock("@/contexts/supabase-log-context", () => ({
+  SupabaseLogProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  useSupabaseLog: () => ({
+    entries: [],
+    addEntry: jest.fn(),
+    updateEntry: jest.fn(),
+  }),
+  useCaptainLog: () => ({
+    entries: [],
+    addEntry: jest.fn(),
+    updateEntry: jest.fn(),
+  }),
 }))
 
 describe("Authentication Fix", () => {
@@ -48,16 +64,18 @@ describe("Authentication Fix", () => {
   it("should show authentication error when user is not logged in", async () => {
     // Render the component with unauthenticated state
     render(
-      <AuthProvider>
-        <CaptainLogProvider>
-          <EntryFormMultistep 
-            departmentId={"dept-1"}
-            onSave={mockOnSave} 
-            onCancel={mockOnCancel} 
-            initialRoleQuestions={initialRoleQuestions as any}
-          />
-        </CaptainLogProvider>
-      </AuthProvider>
+      <SupabaseAuthProvider>
+        <AuthProvider>
+          <CaptainLogProvider>
+            <EntryFormMultistep 
+              departmentId={"dept-1"}
+              onSave={mockOnSave} 
+              onCancel={mockOnCancel} 
+              initialRoleQuestions={initialRoleQuestions as any}
+            />
+          </CaptainLogProvider>
+        </AuthProvider>
+      </SupabaseAuthProvider>
     )
 
     // Wait for the component to load

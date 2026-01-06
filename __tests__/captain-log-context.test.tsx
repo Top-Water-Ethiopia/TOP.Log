@@ -1,6 +1,7 @@
 import React from "react"
 import { renderHook, act } from "@testing-library/react"
 import { CaptainLogProvider, useCaptainLog } from "@/contexts/captain-log-context"
+import { getToday } from "@/lib/date-restrictions"
 import * as authContext from "@/contexts/auth-context"
 import * as rbacHook from "@/hooks/use-rbac"
 
@@ -124,9 +125,11 @@ describe("CaptainLogProvider addEntry", () => {
 
     const { result } = renderHook(() => useCaptainLog(), { wrapper })
 
+    const today = getToday()
+
     await act(async () => {
       await result.current.addEntry({
-        date: "2025-01-01",
+        date: today,
         objectives: "Ship new feature X",
         keyResults: "Close 5 high-priority tickets",
         challenges: "",
@@ -140,7 +143,10 @@ describe("CaptainLogProvider addEntry", () => {
       } as any)
     })
 
-    const entry = result.current.getEntryByDate("2025-01-01")
+    let entry: any
+    await act(async () => {
+      entry = result.current.getEntryByDate(today)
+    })
     expect(entry).toBeDefined()
     expect(entry?.userId).toBe("user-1")
   })
