@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
 import { CalendarView } from "./calendar-view"
 import { EntryFormMultistep } from "./entry-form-multistep"
 import { EntryDetails } from "./entry-details"
@@ -12,29 +12,20 @@ import { SupabaseNav } from "./supabase-nav"
 import { Button } from "./ui/button"
 import { useRoleQuestions } from "@/hooks/use-role-questions"
 import { toast } from "sonner"
-import { 
-  Shield, 
-  FileText,
-  Building2,
-} from "lucide-react"
+import { Shield, FileText, Building2 } from "lucide-react"
 import Link from "next/link"
 import { useCaptainLog } from "@/contexts/supabase-log-context"
 import { useRBAC } from "@/hooks/use-rbac"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { apiFetch, getErrorMessage } from "@/lib/api-client"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+import { Skeleton } from "@/components/ui/skeleton"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 
 // Role IDs from schema
-const SUPER_ADMIN_ROLE_ID = '00000000-0000-0000-0000-000000000000';
+const SUPER_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000000"
 
 interface MainLayoutUpdatedProps {
-	initialRoleQuestions: any[];
+  initialRoleQuestions: any[]
 }
 
 type DepartmentMembership = {
@@ -93,18 +84,39 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
 
   const { questions: roleQuestions, isLoading: isRoleQuestionsLoading } = useRoleQuestions(
     initialRoleQuestions,
-    activeDepartmentId || undefined,
+    activeDepartmentId || undefined
   )
-  
+
   // Check if current user is super admin
-  const isSuperAdmin = profile?.role_id === SUPER_ADMIN_ROLE_ID;
-  
+  const isSuperAdmin = profile?.role_id === SUPER_ADMIN_ROLE_ID
+
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split("T")[0])
-  const [viewMode, setViewMode] = useState<"landing" | "calendar" | "form" | "details" | "analytics" | "thankYou">("landing")
+  const [viewMode, setViewMode] = useState<"landing" | "calendar" | "form" | "details" | "analytics" | "thankYou">(
+    "landing"
+  )
   const [editingDate, setEditingDate] = useState<string | undefined>(undefined)
 
+  const [logDetail, setLogDetail] = useState<(typeof entries)[number] | null>(null)
+  const [isLogDetailLoading, setIsLogDetailLoading] = useState(false)
+
+  const loadLogDetail = useCallback(
+    async (date: string, departmentId: string) => {
+      setLogDetail(null)
+      setIsLogDetailLoading(true)
+      try {
+        await Promise.resolve()
+        const entry = entries.find((e) => e.date === date && e.department_id === departmentId) ?? null
+        setLogDetail(entry)
+      } finally {
+        setIsLogDetailLoading(false)
+      }
+    },
+    [entries]
+  )
+
   const hasRoleQuestions = roleQuestions.length > 0
-  const canStartNewReport = !!user && !!activeDepartmentId && canCreateEntries && hasRoleQuestions && !isRoleQuestionsLoading
+  const canStartNewReport =
+    !!user && !!activeDepartmentId && canCreateEntries && hasRoleQuestions && !isRoleQuestionsLoading
   const hasSubmittedReports = entriesForDepartment.length > 0
   const newReportDisabledReason = !user
     ? undefined
@@ -117,13 +129,17 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
           : undefined
 
   const handleDateSelect = (date: string) => {
+    setLogDetail(null)
     setSelectedDate(date)
     // Check if entry exists for this date (without creating audit logs)
     const existingEntry = activeDepartmentId
-      ? entries.find(entry => entry.date === date && entry.department_id === activeDepartmentId)
+      ? entries.find((entry) => entry.date === date && entry.department_id === activeDepartmentId)
       : undefined
     // If entry exists, show details (read mode), otherwise show form (edit mode)
     if (existingEntry) {
+      if (activeDepartmentId) {
+        void loadLogDetail(date, activeDepartmentId)
+      }
       setViewMode("details")
     } else {
       setEditingDate(date)
@@ -132,20 +148,30 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
   }
 
   const handleSearchSelect = (date: string) => {
+    setLogDetail(null)
     setSelectedDate(date)
+    if (activeDepartmentId) {
+      void loadLogDetail(date, activeDepartmentId)
+    }
     setViewMode("details")
   }
 
+  useEffect(() => {
+    if (viewMode !== "details") return
+    if (!activeDepartmentId) return
+    void loadLogDetail(selectedDate, activeDepartmentId)
+  }, [activeDepartmentId, loadLogDetail, selectedDate, viewMode])
+
   return (
-    <div className="h-screen bg-background flex flex-col overflow-hidden">
+    <div className="bg-background flex h-screen flex-col overflow-hidden">
       {/* Header */}
-      <header className="border-b border-border bg-background flex-shrink-0">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-4">
+      <header className="border-border bg-background flex-shrink-0 border-b">
+        <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:px-8">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <button
               type="button"
               onClick={() => setViewMode("landing")}
-              className="text-left hover:opacity-80 transition-opacity duration-150 ease-in-out"
+              className="text-left transition-opacity duration-150 ease-in-out hover:opacity-80"
             >
               <h1 className="text-3xl font-bold tracking-tight">Logs</h1>
               <p className="text-muted-foreground mt-1 text-sm">Daily Tracker</p>
@@ -160,6 +186,7 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
                 onValueChange={(value) => {
                   setActiveDepartmentId(value)
                   setSelectedDate(new Date().toISOString().split("T")[0])
+                  setLogDetail(null)
                   setEditingDate(undefined)
                   setViewMode("landing")
                 }}
@@ -225,105 +252,132 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
       </header>
 
       {/* Main Content */}
-      <main className="flex-1 w-full overflow-hidden">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6 lg:px-8 py-6 h-full">
-        {viewMode === "landing" ? (
-          <LandingPage
-            canCreateNewReport={canStartNewReport}
-            newReportDisabledReason={newReportDisabledReason}
-            hasSubmittedReports={hasSubmittedReports}
-            onNewReport={() => {
-              setEditingDate(undefined)
-              setViewMode("form")
-            }}
-            onViewReports={() => setViewMode("calendar")}
-          />
-        ) : viewMode === "thankYou" ? (
-          <ThankYouPage
-            onNewReport={() => {
-              setEditingDate(undefined)
-              setViewMode("form")
-            }}
-            onViewReports={() => setViewMode("calendar")}
-            onBackHome={() => setViewMode("landing")}
-          />
-        ) : viewMode === "analytics" ? (
-          <div className="h-full overflow-y-auto">
-            <AnalyticsDashboard />
-          </div>
-        ) : viewMode === "form" ? (
-          <div className="h-full overflow-y-auto">
-            {activeDepartmentId && (
-              <EntryFormMultistep
-                departmentId={activeDepartmentId}
-                date={editingDate}
-                initialRoleQuestions={initialRoleQuestions}
-                onSave={() => {
-                  setEditingDate(undefined)
-                  setViewMode("thankYou")
-                }}
-                onCancel={() => {
-                  setEditingDate(undefined)
-                  setViewMode("landing")
-                }}
-              />
-            )}
-          </div>
-        ) : viewMode === "details" ? (
-          <div className="flex gap-6 h-full">
-            {/* Left: Calendar - Fixed width, sticky */}
-            <div className="w-[380px] flex-shrink-0">
-              <div className="sticky top-0 h-full flex flex-col">
-                <CalendarView
-                  selectedDate={selectedDate}
-                  onDateSelect={handleDateSelect}
-                  entries={entriesForDepartment}
-                />
-              </div>
+      <main className="w-full flex-1 overflow-hidden">
+        <div className="mx-auto h-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
+          {viewMode === "landing" ? (
+            <LandingPage
+              canCreateNewReport={canStartNewReport}
+              newReportDisabledReason={newReportDisabledReason}
+              hasSubmittedReports={hasSubmittedReports}
+              onNewReport={() => {
+                setEditingDate(undefined)
+                setViewMode("form")
+              }}
+              onViewReports={() => setViewMode("calendar")}
+            />
+          ) : viewMode === "thankYou" ? (
+            <ThankYouPage
+              onNewReport={() => {
+                setEditingDate(undefined)
+                setViewMode("form")
+              }}
+              onViewReports={() => setViewMode("calendar")}
+              onBackHome={() => setViewMode("landing")}
+            />
+          ) : viewMode === "analytics" ? (
+            <div className="h-full overflow-y-auto">
+              <AnalyticsDashboard />
             </div>
-
-            {/* Right: Entry Details */}
-            <div className="flex-1 min-w-0 overflow-y-auto">
+          ) : viewMode === "form" ? (
+            <div className="h-full overflow-y-auto">
               {activeDepartmentId && (
-                <EntryDetails
-                  date={selectedDate}
+                <EntryFormMultistep
                   departmentId={activeDepartmentId}
-                  onEdit={() => {
-                    setEditingDate(selectedDate)
-                    setViewMode("form")
+                  date={editingDate}
+                  initialRoleQuestions={initialRoleQuestions}
+                  onSave={() => {
+                    setEditingDate(undefined)
+                    setViewMode("thankYou")
                   }}
-                  onBack={() => setViewMode("calendar")}
-                  onViewEntry={(date) => {
-                    setSelectedDate(date)
-                    setViewMode("details")
+                  onCancel={() => {
+                    setEditingDate(undefined)
+                    setViewMode("landing")
                   }}
                 />
               )}
             </div>
-          </div>
-        ) : viewMode === "calendar" ? (
-          <div className="h-full flex flex-col">
-            {/* Header */}
-            <div className="mb-6">
-              <h2 className="text-2xl font-bold tracking-tight">Calendar</h2>
-              <p className="text-muted-foreground mt-1 text-sm">Select a date to view or create a report</p>
-            </div>
+          ) : viewMode === "details" ? (
+            <Suspense
+              fallback={
+                <div className="flex h-full gap-6">
+                  <div className="w-[380px] flex-shrink-0">
+                    <div className="rounded-lg border p-8">
+                      <div className="space-y-4">
+                        <Skeleton className="h-8 w-40" />
+                        <Skeleton className="h-10 w-full" />
+                        <Skeleton className="h-10 w-full" />
+                        <Skeleton className="h-10 w-full" />
+                      </div>
+                    </div>
+                  </div>
+                  <div className="min-w-0 flex-1 overflow-y-auto">
+                    <div className="space-y-6">
+                      <Skeleton className="h-8 w-44" />
+                      <Skeleton className="h-6 w-64" />
+                      <Skeleton className="h-[240px] w-full" />
+                    </div>
+                  </div>
+                </div>
+              }
+            >
+              <div className="flex h-full gap-6">
+                <div className="w-[380px] flex-shrink-0">
+                  <div className="sticky top-0 flex h-full flex-col">
+                    <CalendarView
+                      selectedDate={selectedDate}
+                      onDateSelect={handleDateSelect}
+                      entries={entriesForDepartment}
+                    />
+                  </div>
+                </div>
 
-            {/* Centered Calendar */}
-            <div className="flex-1 flex items-start justify-center overflow-y-auto">
-              <div className="w-full max-w-2xl">
-                <CalendarView
-                  selectedDate={selectedDate}
-                  onDateSelect={handleDateSelect}
-                  entries={entriesForDepartment}
-                />
+                <div className="min-w-0 flex-1 overflow-y-auto">
+                  {activeDepartmentId && (
+                    <EntryDetails
+                      date={selectedDate}
+                      departmentId={activeDepartmentId}
+                      entry={logDetail}
+                      isLoading={isLogDetailLoading}
+                      onEdit={() => {
+                        setEditingDate(selectedDate)
+                        setViewMode("form")
+                      }}
+                      onBack={() => setViewMode("calendar")}
+                      onViewEntry={(date) => {
+                        setLogDetail(null)
+                        setSelectedDate(date)
+                        if (activeDepartmentId) {
+                          void loadLogDetail(date, activeDepartmentId)
+                        }
+                        setViewMode("details")
+                      }}
+                    />
+                  )}
+                </div>
+              </div>
+            </Suspense>
+          ) : viewMode === "calendar" ? (
+            <div className="flex h-full flex-col">
+              {/* Header */}
+              <div className="mb-6">
+                <h2 className="text-2xl font-bold tracking-tight">Calendar</h2>
+                <p className="text-muted-foreground mt-1 text-sm">Select a date to view or create a report</p>
+              </div>
+
+              {/* Centered Calendar */}
+              <div className="flex flex-1 items-start justify-center overflow-y-auto">
+                <div className="w-full max-w-2xl">
+                  <CalendarView
+                    selectedDate={selectedDate}
+                    onDateSelect={handleDateSelect}
+                    entries={entriesForDepartment}
+                  />
+                </div>
               </div>
             </div>
-          </div>
-        ) : null}
+          ) : null}
         </div>
       </main>
-
     </div>
   )
 }

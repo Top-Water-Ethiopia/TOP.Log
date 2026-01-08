@@ -1,89 +1,89 @@
-"use client";
+"use client"
 
-import { useEffect, useState } from "react";
-import { useSupabaseAuth } from "@/contexts/supabase-auth-context";
-import { useSupabaseRbac } from "@/hooks/use-supabase-rbac";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Separator } from "@/components/ui/separator";
-import { Badge } from "@/components/ui/badge";
-import { toast } from "sonner";
-import Link from "next/link";
-import { supabase } from "@/lib/supabase/client";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-
-interface Department {
-  id: string
-  name: string
-}
+import { useEffect, useState } from "react"
+import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
+import { useSupabaseRbac } from "@/hooks/use-supabase-rbac"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Label } from "@/components/ui/label"
+import { Skeleton } from "@/components/ui/skeleton"
+import { Separator } from "@/components/ui/separator"
+import { Badge } from "@/components/ui/badge"
+import { toast } from "sonner"
+import { supabase } from "@/lib/supabase/client"
+import { AppPageShell } from "@/components/app-page-shell"
 
 export default function ProfilePage() {
-  const { user, profile, updateProfile, logout, isLoading } = useSupabaseAuth();
-  const { permissions } = useSupabaseRbac();
-  
-  const [name, setName] = useState(profile?.name || "");
-  const [departmentId, setDepartmentId] = useState(profile?.department_id || "");
-  const [isUpdating, setIsUpdating] = useState(false);
-  const [departments, setDepartments] = useState<Department[]>([])
-  const [loadingDepartments, setLoadingDepartments] = useState(false)
+  const { user, profile, updateProfile, logout, isLoading } = useSupabaseAuth()
+  const { permissions } = useSupabaseRbac()
+
+  const [name, setName] = useState(profile?.name || "")
+  const [isUpdating, setIsUpdating] = useState(false)
+  const [departmentName, setDepartmentName] = useState("")
 
   useEffect(() => {
-    const loadDepartments = async () => {
+    const loadDepartment = async () => {
+      if (!profile?.department_id) {
+        setDepartmentName("No department assigned")
+        return
+      }
+
       try {
-        setLoadingDepartments(true)
         const { data, error } = await supabase
-          .from('departments')
-          .select('id, name')
-          .eq('is_active', true)
-          .order('name', { ascending: true })
+          .from("departments")
+          .select("name")
+          .eq("id", profile.department_id)
+          .single()
+
         if (error) throw error
-        setDepartments((data || []) as Department[])
+        setDepartmentName(data?.name || "Unknown department")
       } catch {
-        setDepartments([])
-      } finally {
-        setLoadingDepartments(false)
+        setDepartmentName("Error loading department")
       }
     }
 
-    loadDepartments()
-  }, [])
+    loadDepartment()
+  }, [profile?.department_id])
 
   // Function to update user profile
   const handleUpdateProfile = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (!user) return;
-    
-    setIsUpdating(true);
+    e.preventDefault()
+
+    if (!user) return
+
+    setIsUpdating(true)
     try {
       await updateProfile({
         name,
-        department_id: departmentId || null,
-      });
-      toast.success("Profile updated successfully");
+        // Department ID is not included as it's not updatable from profile
+      })
+      toast.success("Profile updated successfully")
     } catch (error) {
-      console.error("Failed to update profile:", error);
-      toast.error("Failed to update profile");
+      console.error("Failed to update profile:", error)
+      toast.error("Failed to update profile")
     } finally {
-      setIsUpdating(false);
+      setIsUpdating(false)
     }
-  };
+  }
 
   // Function to handle logout
   const handleLogout = async () => {
     try {
-      await logout();
+      await logout()
     } catch (error) {
-      console.error("Logout error:", error);
+      console.error("Logout error:", error)
     }
-  };
+  }
 
   if (isLoading) {
     return (
-      <div className="container max-w-4xl py-10">
+      <AppPageShell
+        title="Profile"
+        description="Manage your personal information and account settings"
+        backHref="/"
+        backLabel="Back"
+      >
         <Card>
           <CardHeader>
             <Skeleton className="h-8 w-1/3" />
@@ -94,29 +94,22 @@ export default function ProfilePage() {
             <Skeleton className="h-12 w-full" />
           </CardContent>
         </Card>
-      </div>
-    );
+      </AppPageShell>
+    )
   }
 
   return (
-    <div className="container max-w-4xl py-10">
-      <div className="mb-10 flex justify-between items-center">
-        <div>
-          <h1 className="text-3xl font-bold">Profile</h1>
-          <p className="text-muted-foreground">
-            Manage your personal information and account settings
-          </p>
-        </div>
-        <div className="flex gap-2">
-          <Link href="/">
-            <Button variant="outline">Dashboard</Button>
-          </Link>
-          <Button variant="outline" onClick={handleLogout}>
-            Sign out
-          </Button>
-        </div>
-      </div>
-
+    <AppPageShell
+      title="Profile"
+      description="Manage your personal information and account settings"
+      backHref="/"
+      backLabel="Back"
+      actions={
+        <Button variant="outline" onClick={handleLogout}>
+          Sign out
+        </Button>
+      }
+    >
       <div className="grid gap-8">
         <Card>
           <CardHeader>
@@ -127,40 +120,19 @@ export default function ProfilePage() {
             <form onSubmit={handleUpdateProfile} className="space-y-4">
               <div className="space-y-2">
                 <Label htmlFor="email">Email</Label>
-                <Input
-                  id="email"
-                  value={user?.email || ""}
-                  disabled
-                />
-                <p className="text-xs text-muted-foreground">
-                  Your email address cannot be changed
-                </p>
+                <Input id="email" value={user?.email || ""} disabled />
+                <p className="text-muted-foreground text-xs">Your email address cannot be changed</p>
               </div>
 
               <div className="space-y-2">
                 <Label htmlFor="name">Full Name</Label>
-                <Input
-                  id="name"
-                  value={name}
-                  onChange={(e) => setName(e.target.value)}
-                  required
-                />
+                <Input id="name" value={name} onChange={(e) => setName(e.target.value)} required />
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="department">Department</Label>
-                <Select value={departmentId} onValueChange={setDepartmentId} disabled={loadingDepartments}>
-                  <SelectTrigger id="department">
-                    <SelectValue placeholder={loadingDepartments ? "Loading departments..." : "Select department"} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {departments.map((dept) => (
-                      <SelectItem key={dept.id} value={dept.id}>
-                        {dept.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <Label>Department</Label>
+                <Input value={departmentName || "Loading..."} disabled className="bg-muted/50" />
+                <p className="text-muted-foreground text-xs">Contact your administrator to change your department</p>
               </div>
 
               <Button type="submit" disabled={isUpdating}>
@@ -178,13 +150,8 @@ export default function ProfilePage() {
           <CardContent>
             <div className="space-y-4">
               <div>
-                <h3 className="font-medium">Account ID</h3>
-                <p className="text-sm text-muted-foreground break-all">{user?.id}</p>
-              </div>
-              
-              <div>
                 <h3 className="font-medium">Role</h3>
-                <div className="flex items-center gap-2 mt-1">
+                <div className="mt-1 flex items-center gap-2">
                   <Badge variant="outline" className="text-xs">
                     {profile?.role_id === "00000000-0000-0000-0000-000000000001" ? "Admin" : "User"}
                   </Badge>
@@ -194,7 +161,7 @@ export default function ProfilePage() {
               <Separator />
 
               <div>
-                <h3 className="font-medium mb-2">Permissions</h3>
+                <h3 className="mb-2 font-medium">Permissions</h3>
                 <div className="grid grid-cols-2 gap-2">
                   {permissions.length > 0 ? (
                     permissions.map((permission, index) => (
@@ -205,7 +172,7 @@ export default function ProfilePage() {
                       </div>
                     ))
                   ) : (
-                    <p className="text-sm text-muted-foreground">No specific permissions assigned</p>
+                    <p className="text-muted-foreground text-sm">No specific permissions assigned</p>
                   )}
                 </div>
               </div>
@@ -213,6 +180,6 @@ export default function ProfilePage() {
           </CardContent>
         </Card>
       </div>
-    </div>
-  );
+    </AppPageShell>
+  )
 }

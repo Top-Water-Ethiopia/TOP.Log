@@ -7,7 +7,7 @@ import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
+import { AppPageShell } from "@/components/app-page-shell"
 
 type Department = {
   id: string
@@ -27,6 +27,7 @@ export default function DepartmentsPage() {
   const router = useRouter()
   const [memberships, setMemberships] = useState<Membership[]>([])
   const [loading, setLoading] = useState(true)
+  const userId = user?.id
 
   useEffect(() => {
     if (!isLoading && !user) {
@@ -35,7 +36,7 @@ export default function DepartmentsPage() {
   }, [user, isLoading, router])
 
   useEffect(() => {
-    if (!user) return
+    if (!userId) return
 
     const load = async () => {
       try {
@@ -50,7 +51,7 @@ export default function DepartmentsPage() {
     }
 
     load()
-  }, [user?.id])
+  }, [userId])
 
   const activeMemberships = useMemo(() => {
     return memberships.filter((m) => m.department?.is_active)
@@ -58,11 +59,12 @@ export default function DepartmentsPage() {
 
   if (isLoading || !user) {
     return (
-      <div className="space-y-6">
-        <div className="space-y-2">
-          <Skeleton className="h-9 w-64 bg-gray-200/80 dark:bg-gray-800" />
-          <Skeleton className="mt-2 h-5 w-80 bg-gray-200/70 dark:bg-gray-800" />
-        </div>
+      <AppPageShell
+        title="Departments"
+        description="Select a department to view reports and members."
+        backHref="/"
+        backLabel="Back"
+      >
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {[...Array(6)].map((_, i) => (
             <Card key={i} className="border border-gray-200 shadow-sm">
@@ -76,22 +78,17 @@ export default function DepartmentsPage() {
             </Card>
           ))}
         </div>
-      </div>
+      </AppPageShell>
     )
   }
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h1 className="text-3xl font-bold tracking-tight">Departments</h1>
-          <p className="text-muted-foreground mt-2">Select a department to view reports and members.</p>
-        </div>
-        <Link href="/">
-          <Button variant="outline">Back</Button>
-        </Link>
-      </div>
-
+    <AppPageShell
+      title="Departments"
+      description="Select a department to view reports and members."
+      backHref="/"
+      backLabel="Back"
+    >
       {loading ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {[...Array(6)].map((_, i) => (
@@ -133,6 +130,6 @@ export default function DepartmentsPage() {
           ))}
         </div>
       )}
-    </div>
+    </AppPageShell>
   )
 }

@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect } from "react"
+import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { Button } from "@/components/ui/button"
@@ -16,8 +17,7 @@ export default function AdminSettingsPage() {
   const router = useRouter()
 
   const isSuperAdmin = profile?.role_id === SUPER_ADMIN_ROLE_ID
-  const isAdmin =
-    profile?.role_id === ADMIN_ROLE_ID || profile?.role_id === SYSTEM_ADMIN_ROLE_ID || isSuperAdmin
+  const isAdmin = profile?.role_id === ADMIN_ROLE_ID || profile?.role_id === SYSTEM_ADMIN_ROLE_ID || isSuperAdmin
 
   useEffect(() => {
     if (!isLoading && (!user || !isAdmin)) {
@@ -119,6 +119,22 @@ export default function AdminSettingsPage() {
             </div>
           </CardContent>
         </Card>
+
+        {isSuperAdmin && (
+          <Card>
+            <CardHeader>
+              <CardTitle>Supabase</CardTitle>
+              <CardDescription>Run diagnostics and verify Supabase connectivity</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <Button asChild variant="outline">
+                  <Link href="/supabase-test">Test Connection</Link>
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        )}
       </div>
     </div>
   )

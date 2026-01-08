@@ -15,6 +15,7 @@ import {
   SidebarFooter,
   SidebarHeader,
   SidebarTrigger,
+  useSidebar,
 } from "@/components/ui/sidebar"
 import { Button } from "@/components/ui/button"
 import {
@@ -29,6 +30,8 @@ import {
   Moon,
   Sun,
   FileText,
+  PanelLeftIcon,
+  type LucideIcon,
 } from "lucide-react"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { useIsMobile } from "@/hooks/use-mobile"
@@ -39,6 +42,8 @@ export function AdminSidebar() {
   const { theme, setTheme } = useTheme()
   const [mounted, setMounted] = useState(false)
   const isMobile = useIsMobile()
+  const { state, toggleSidebar } = useSidebar()
+  const isCollapsed = state === "collapsed"
 
   useEffect(() => {
     setMounted(true)
@@ -89,12 +94,15 @@ export function AdminSidebar() {
     },
   ]
 
-  const systemNavItems = [
+  const overviewNavItems = [
     {
       name: "Overview",
       icon: LayoutDashboard,
       path: "/admin",
     },
+  ]
+
+  const systemNavItems = [
     {
       name: "Departments",
       icon: Building2,
@@ -127,16 +135,25 @@ export function AdminSidebar() {
     return pathname.startsWith(path)
   }
 
-  const renderNavItem = (item: { name: string; icon: any; path: string }) => {
+  type NavItem = {
+    name: string
+    icon: LucideIcon
+    path: string
+  }
+
+  const renderNavItem = (item: NavItem) => {
     const Icon = item.icon
 
     // For placeholder items (path === "#"), don't use Link component
     if (item.path === "#") {
       return (
         <SidebarMenuItem key={`${item.name}-${item.path}`}>
-          <SidebarMenuButton className="w-full cursor-pointer justify-start" tooltip={item.name}>
+          <SidebarMenuButton
+            className="w-full cursor-pointer justify-start group-data-[collapsible=icon]:justify-center"
+            tooltip={item.name}
+          >
             <Icon className="h-4 w-4" />
-            <span>{item.name}</span>
+            <span className="group-data-[collapsible=icon]:hidden">{item.name}</span>
           </SidebarMenuButton>
         </SidebarMenuItem>
       )
@@ -145,9 +162,13 @@ export function AdminSidebar() {
     return (
       <SidebarMenuItem key={item.path}>
         <Link href={item.path} className="w-full">
-          <SidebarMenuButton isActive={isActive(item.path)} className="w-full justify-start" tooltip={item.name}>
+          <SidebarMenuButton
+            isActive={isActive(item.path)}
+            className="w-full justify-start group-data-[collapsible=icon]:justify-center"
+            tooltip={item.name}
+          >
             <Icon className="h-4 w-4" />
-            <span>{item.name}</span>
+            <span className="group-data-[collapsible=icon]:hidden">{item.name}</span>
           </SidebarMenuButton>
         </Link>
       </SidebarMenuItem>
@@ -156,35 +177,57 @@ export function AdminSidebar() {
 
   return (
     <Sidebar collapsible="icon">
-      <SidebarHeader className="border-b px-4 py-4">
+      <SidebarHeader className="border-b px-4 py-4 group-data-[collapsible=icon]:px-2 group-data-[collapsible=icon]:py-3">
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
-            <div className="bg-primary text-primary-foreground flex h-8 w-8 items-center justify-center rounded-lg text-sm font-bold">
-              A
-            </div>
+            {isCollapsed ? (
+              <button
+                type="button"
+                aria-label="Expand sidebar"
+                title="Expand sidebar"
+                onClick={() => {
+                  if (!isMobile) toggleSidebar()
+                }}
+                className="bg-primary text-primary-foreground group/logo focus-visible:ring-ring relative flex h-8 w-8 items-center justify-center rounded-lg text-sm font-bold outline-none focus-visible:ring-2"
+              >
+                <span className="transition-opacity duration-150 ease-linear group-hover/logo:opacity-0 group-focus-visible/logo:opacity-0">
+                  A
+                </span>
+                <PanelLeftIcon className="absolute h-4 w-4 opacity-0 transition-opacity duration-150 ease-linear group-hover/logo:opacity-100 group-focus-visible/logo:opacity-100" />
+              </button>
+            ) : (
+              <div className="bg-primary text-primary-foreground flex h-8 w-8 items-center justify-center rounded-lg text-sm font-bold">
+                A
+              </div>
+            )}
             <span className="text-lg font-semibold tracking-tight group-data-[collapsible=icon]:hidden">
               Admin Panel
             </span>
           </div>
-          <SidebarTrigger />
+
+          <SidebarTrigger className="group-data-[collapsible=icon]:hidden" />
         </div>
       </SidebarHeader>
-      <SidebarContent className="gap-6 py-6">
-        <SidebarGroup className="px-4">
+      <SidebarContent className="gap-6 py-6 group-data-[collapsible=icon]:gap-3 group-data-[collapsible=icon]:py-4">
+        <SidebarGroup className="px-4 group-data-[collapsible=icon]:px-2">
+          <SidebarMenu>{overviewNavItems.map(renderNavItem)}</SidebarMenu>
+        </SidebarGroup>
+
+        <SidebarGroup className="px-4 group-data-[collapsible=icon]:px-2">
           <SidebarGroupLabel className="text-muted-foreground mb-2 px-4 text-xs font-semibold tracking-wider uppercase">
             User Management
           </SidebarGroupLabel>
           <SidebarMenu>{userManagementNavItems.map(renderNavItem)}</SidebarMenu>
         </SidebarGroup>
 
-        <SidebarGroup className="px-4">
+        <SidebarGroup className="px-4 group-data-[collapsible=icon]:px-2">
           <SidebarGroupLabel className="text-muted-foreground mb-2 px-4 text-xs font-semibold tracking-wider uppercase">
             Content
           </SidebarGroupLabel>
           <SidebarMenu>{contentNavItems.map(renderNavItem)}</SidebarMenu>
         </SidebarGroup>
 
-        <SidebarGroup className="px-4">
+        <SidebarGroup className="px-4 group-data-[collapsible=icon]:px-2">
           <SidebarGroupLabel className="text-muted-foreground mb-2 px-4 text-xs font-semibold tracking-wider uppercase">
             System
           </SidebarGroupLabel>
@@ -192,9 +235,9 @@ export function AdminSidebar() {
         </SidebarGroup>
       </SidebarContent>
       <SidebarFooter className="space-y-2">
-        <div className="border-t px-2 pt-2">
-          <div className="flex items-center justify-between gap-3 py-2">
-            <div className="flex items-center gap-3">
+        <div className="border-t px-2 pt-2 group-data-[collapsible=icon]:px-1">
+          <div className="flex items-center justify-between gap-3 py-2 group-data-[collapsible=icon]:flex-col group-data-[collapsible=icon]:gap-2">
+            <div className="flex items-center gap-3 group-data-[collapsible=icon]:flex-col group-data-[collapsible=icon]:gap-1">
               <div className="bg-muted flex h-8 w-8 items-center justify-center rounded-full text-xs font-semibold">
                 {getInitials(displayName)}
               </div>
@@ -203,7 +246,7 @@ export function AdminSidebar() {
                 <span className="text-muted-foreground truncate text-xs">{displayName ? roleLabel : ""}</span>
               </div>
             </div>
-            <Button variant="ghost" size="icon" onClick={handleLogout}>
+            <Button variant="ghost" size="icon" onClick={handleLogout} title="Log out">
               <LogOut className="h-4 w-4" />
               <span className="sr-only">Logout</span>
             </Button>
@@ -211,25 +254,25 @@ export function AdminSidebar() {
         </div>
         <Button
           variant="ghost"
-          className="w-full justify-start"
+          className="w-full justify-start group-data-[collapsible=icon]:justify-center"
           onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
         >
           {mounted ? (
             theme === "dark" ? (
               <>
-                <Sun className="mr-2 h-4 w-4" />
-                <span>Toggle Theme</span>
+                <Sun className="mr-2 h-4 w-4 group-data-[collapsible=icon]:mr-0" />
+                <span className="group-data-[collapsible=icon]:hidden">Toggle Theme</span>
               </>
             ) : (
               <>
-                <Moon className="mr-2 h-4 w-4" />
-                <span>Toggle Theme</span>
+                <Moon className="mr-2 h-4 w-4 group-data-[collapsible=icon]:mr-0" />
+                <span className="group-data-[collapsible=icon]:hidden">Toggle Theme</span>
               </>
             )
           ) : (
             <>
-              <Moon className="mr-2 h-4 w-4" />
-              <span>Toggle Theme</span>
+              <Moon className="mr-2 h-4 w-4 group-data-[collapsible=icon]:mr-0" />
+              <span className="group-data-[collapsible=icon]:hidden">Toggle Theme</span>
             </>
           )}
         </Button>
