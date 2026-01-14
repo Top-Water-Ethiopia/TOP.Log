@@ -21,7 +21,6 @@ import {
 
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
 const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
-const SUPER_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000000"
 
 type Department = {
   id: string
@@ -38,8 +37,7 @@ export default function AdminDepartmentLayout({ children }: { children: ReactNod
   const searchParams = useSearchParams()
   const departmentId = params.departmentId
 
-  const isSuperAdmin = profile?.role_id === SUPER_ADMIN_ROLE_ID
-  const isAdmin = profile?.role_id === ADMIN_ROLE_ID || profile?.role_id === SYSTEM_ADMIN_ROLE_ID || isSuperAdmin
+  const isAdmin = profile?.role_id === ADMIN_ROLE_ID || profile?.role_id === SYSTEM_ADMIN_ROLE_ID
 
   const activeTab = useMemo(() => {
     const t = searchParams.get("tab") ?? searchParams.get("tabs")
@@ -54,7 +52,7 @@ export default function AdminDepartmentLayout({ children }: { children: ReactNod
   const { data: departmentsResponse, error: departmentsError } = useSWR<{ data: Department[] }>(departmentsKey)
 
   const department = useMemo(() => {
-    const depts = Array.isArray(departmentsResponse?.data) ? departmentsResponse.data : []
+    const depts: Department[] = Array.isArray(departmentsResponse?.data) ? (departmentsResponse?.data ?? []) : []
     return depts.find((d) => d.id === departmentId) || null
   }, [departmentsResponse, departmentId])
 
@@ -84,7 +82,7 @@ export default function AdminDepartmentLayout({ children }: { children: ReactNod
   if (isLoading || !user || !profile) {
     return (
       <div className="space-y-6">
-        <div className="sticky top-0 z-20 rounded-xl border bg-background p-6 shadow-sm">
+        <div className="bg-background sticky top-0 z-20 rounded-xl border p-6 shadow-sm">
           <div className="space-y-2">
             <Skeleton className="h-4 w-80 bg-gray-200/70 dark:bg-gray-800" />
             <Skeleton className="h-9 w-64 bg-gray-200/80 dark:bg-gray-800" />
@@ -113,7 +111,9 @@ export default function AdminDepartmentLayout({ children }: { children: ReactNod
             <CardDescription>You don't have permission to access this page.</CardDescription>
           </CardHeader>
           <CardContent>
-            <Button className="w-full" onClick={() => router.push("/")}>Go to Home</Button>
+            <Button className="w-full" onClick={() => router.push("/")}>
+              Go to Home
+            </Button>
           </CardContent>
         </Card>
       </div>
@@ -123,7 +123,7 @@ export default function AdminDepartmentLayout({ children }: { children: ReactNod
   return (
     <div className="space-y-6">
       <div className="sticky top-0 z-20">
-        <div className="flex flex-col gap-4 rounded-xl border bg-background p-6 shadow-sm sm:flex-row sm:items-start sm:justify-between">
+        <div className="bg-background flex flex-col gap-4 rounded-xl border p-6 shadow-sm sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-2">
             <Breadcrumb>
               <BreadcrumbList>
@@ -146,7 +146,7 @@ export default function AdminDepartmentLayout({ children }: { children: ReactNod
             </Breadcrumb>
             <h1 className="text-3xl font-semibold tracking-tight">{departmentName ? departmentName : "Department"}</h1>
             {departmentDescription ? (
-              <div className="text-sm text-muted-foreground">{departmentDescription}</div>
+              <div className="text-muted-foreground text-sm">{departmentDescription}</div>
             ) : null}
           </div>
 

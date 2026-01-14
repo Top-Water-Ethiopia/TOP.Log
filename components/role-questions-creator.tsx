@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -16,24 +16,51 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Separator } from "@/components/ui/separator"
-import { 
-  ArrowLeft, 
-  ArrowRight, 
-  Plus, 
-  Trash2, 
-  CheckCircle2, 
+import {
+  ArrowLeft,
+  ArrowRight,
+  Plus,
+  Trash2,
+  CheckCircle2,
   AlertCircle,
   Loader2,
-  LayoutGrid,
-  List,
   Shield,
-  HelpCircle,
-  Settings,
   Eye,
   Save,
-  X
+  X,
 } from "lucide-react"
 import { toast } from "sonner"
+
+function toQuestionKey(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .replace(/_+/g, "_")
+}
+
+function createEmptyQuestion(displayOrder = 0): QuestionFormData {
+  return {
+    id: `temp-${Date.now()}-${Math.random()}`,
+    question_label: "",
+    question_type: "textarea",
+    question_description: "",
+    placeholder: "",
+    options: null,
+    is_required: false,
+    display_order: displayOrder,
+    min_value: null,
+    max_value: null,
+    min_length: null,
+    max_length: null,
+    pattern: "",
+    step: null,
+    min_date: "",
+    max_date: "",
+    is_active: true,
+  }
+}
 
 interface Role {
   id: string
@@ -44,17 +71,13 @@ interface Role {
 
 interface QuestionFormData {
   id: string // Temporary ID for tracking
-  question_key: string
   question_label: string
-  question_title: string
   question_type: string
   question_description: string
   placeholder: string
   options: string[] | null
   is_required: boolean
   display_order: number
-  help_text: string
-  default_value: string
   min_value: number | null
   max_value: number | null
   min_length: number | null
@@ -66,23 +89,23 @@ interface QuestionFormData {
   is_active: boolean
 }
 
-type CreationMode = "single" | "wizard"
-
-type Step = "role" | "mode" | "questions" | "success"
+type Step = "role" | "questions" | "success"
 
 export function RoleQuestionsCreator() {
   const router = useRouter()
   const { user } = useSupabaseAuth()
-  const [currentStep, setCurrentStep] = useState<Step>("role")
+  const [currentStep, setCurrentStep] = useState<Step>("questions")
   const [selectedRole, setSelectedRole] = useState<Role | null>(null)
+  const selectedRoleId = selectedRole?.id
   const [roles, setRoles] = useState<Role[]>([])
   const [isLoadingRoles, setIsLoadingRoles] = useState(true)
-  const [creationMode, setCreationMode] = useState<CreationMode>("single")
+  const [isLoadingExistingQuestions, setIsLoadingExistingQuestions] = useState(false)
   const [questions, setQuestions] = useState<QuestionFormData[]>([])
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [createdQuestions, setCreatedQuestions] = useState<any[]>([])
   const [roleQuestionCount, setRoleQuestionCount] = useState(0)
+  const [existingRoleQuestionKeys, setExistingRoleQuestionKeys] = useState<string[]>([])
 
   // Load roles
   useEffect(() => {
@@ -93,9 +116,9 @@ export function RoleQuestionsCreator() {
           credentials: "include",
           headers: { "Content-Type": "application/json" },
         })
-        
+
         if (!response.ok) throw new Error("Failed to load roles")
-        
+
         const result = await response.json()
         const professionRoles = (result.data || []).filter((role: Role) => !!role.department_id)
 
@@ -117,70 +140,98 @@ export function RoleQuestionsCreator() {
 
   // Load existing question count for selected role
   useEffect(() => {
-    if (!selectedRole) return
+    if (!selectedRoleId) {
+      setRoleQuestionCount(0)
+      setExistingRoleQuestionKeys([])
+      setIsLoadingExistingQuestions(false)
+      return
+    }
 
-    const loadQuestionCount = async () => {
+    const loadRoleQuestions = async () => {
       try {
+        setIsLoadingExistingQuestions(true)
         const response = await fetch("/api/role-questions", {
           credentials: "include",
         })
-        
-        if (response.ok) {
-          const allQuestions = await response.json()
-          const count = allQuestions.filter((q: any) => q.role_id === selectedRole.id).length
-          setRoleQuestionCount(count)
+
+        if (!response.ok) {
+          setRoleQuestionCount(0)
+          setExistingRoleQuestionKeys([])
+          setQuestions([createEmptyQuestion(0)])
+          setCurrentQuestionIndex(0)
+          return
         }
+
+        const allQuestions = await response.json()
+        const roleQuestions = (Array.isArray(allQuestions) ? allQuestions : [])
+          .filter((q: any) => q?.role_id === selectedRoleId)
+          .sort((a: any, b: any) => (a?.display_order ?? 0) - (b?.display_order ?? 0))
+
+        setRoleQuestionCount(roleQuestions.length)
+        const keys = roleQuestions
+          .map((q: any) => (typeof q.question_key === "string" ? q.question_key : ""))
+          .filter(Boolean)
+        setExistingRoleQuestionKeys(keys)
+
+        if (roleQuestions.length === 0) {
+          setQuestions([createEmptyQuestion(0)])
+          setCurrentQuestionIndex(0)
+          return
+        }
+
+        const mapped: QuestionFormData[] = roleQuestions.map((q: any, index: number) => ({
+          id: typeof q.id === "string" ? q.id : `existing-${Date.now()}-${Math.random()}`,
+          question_label: typeof q.question_label === "string" ? q.question_label : "",
+          question_type: typeof q.question_type === "string" ? q.question_type : "textarea",
+          question_description: typeof q.question_description === "string" ? q.question_description : "",
+          placeholder: typeof q.placeholder === "string" ? q.placeholder : "",
+          options: Array.isArray(q.options) ? q.options : null,
+          is_required: !!q.is_required,
+          display_order: typeof q.display_order === "number" ? q.display_order : index,
+          min_value: typeof q.min_value === "number" ? q.min_value : null,
+          max_value: typeof q.max_value === "number" ? q.max_value : null,
+          min_length: typeof q.min_length === "number" ? q.min_length : null,
+          max_length: typeof q.max_length === "number" ? q.max_length : null,
+          pattern: typeof q.pattern === "string" ? q.pattern : "",
+          step: typeof q.step === "number" ? q.step : null,
+          min_date: typeof q.min_date === "string" ? q.min_date : "",
+          max_date: typeof q.max_date === "string" ? q.max_date : "",
+          is_active: q.is_active !== false,
+        }))
+
+        setQuestions(mapped)
+        setCurrentQuestionIndex(0)
       } catch (error) {
-        console.error("Error loading question count:", error)
+        console.error("Error loading role questions:", error)
+      } finally {
+        setIsLoadingExistingQuestions(false)
       }
     }
 
-    loadQuestionCount()
-  }, [selectedRole])
+    loadRoleQuestions()
+  }, [selectedRoleId])
 
-  // Initialize with one empty question
+  // Initialize with one empty question only after a role is selected
   useEffect(() => {
-    if (currentStep === "questions" && questions.length === 0) {
-      addQuestion()
-    }
-  }, [currentStep])
+    if (!selectedRole) return
+    if (questions.length !== 0) return
+
+    setQuestions([createEmptyQuestion(0)])
+    setCurrentQuestionIndex(0)
+  }, [selectedRole, questions.length])
 
   const addQuestion = () => {
-    const newQuestion: QuestionFormData = {
-      id: `temp-${Date.now()}-${Math.random()}`,
-      question_key: "",
-      question_label: "",
-      question_title: "",
-      question_type: "textarea",
-      question_description: "",
-      placeholder: "",
-      options: null,
-      is_required: false,
-      display_order: questions.length,
-      help_text: "",
-      default_value: "",
-      min_value: null,
-      max_value: null,
-      min_length: null,
-      max_length: null,
-      pattern: "",
-      step: null,
-      min_date: "",
-      max_date: "",
-      is_active: true,
-    }
-    setQuestions([...questions, newQuestion])
+    setQuestions([...questions, createEmptyQuestion(questions.length)])
   }
 
   const removeQuestion = (id: string) => {
     const newQuestions = questions.filter((q) => q.id !== id)
-    // Reorder display_order
     const reordered = newQuestions.map((q, index) => ({
       ...q,
       display_order: index,
     }))
     setQuestions(reordered)
-    if (creationMode === "wizard" && currentQuestionIndex >= reordered.length) {
+    if (currentQuestionIndex >= reordered.length) {
       setCurrentQuestionIndex(Math.max(0, reordered.length - 1))
     }
   }
@@ -192,27 +243,9 @@ export function RoleQuestionsCreator() {
   const handleRoleSelect = (roleId: string) => {
     const role = roles.find((r) => r.id === roleId)
     if (role) {
+      setQuestions([])
+      setCurrentQuestionIndex(0)
       setSelectedRole(role)
-    }
-  }
-
-  const handleNext = () => {
-    if (currentStep === "role") {
-      if (!selectedRole) {
-        toast.error("Please select a role")
-        return
-      }
-      setCurrentStep("mode")
-    } else if (currentStep === "mode") {
-      setCurrentStep("questions")
-    }
-  }
-
-  const handleBack = () => {
-    if (currentStep === "mode") {
-      setCurrentStep("role")
-    } else if (currentStep === "questions") {
-      setCurrentStep("mode")
     }
   }
 
@@ -224,43 +257,27 @@ export function RoleQuestionsCreator() {
 
     for (let i = 0; i < questions.length; i++) {
       const q = questions[i]
-      
-      if (!q.question_key?.trim()) {
-        toast.error(`Question ${i + 1}: Question key is required`)
-        return false
-      }
-      
-      if (!/^[a-z0-9_]+$/.test(q.question_key.trim())) {
-        toast.error(`Question ${i + 1}: Question key must contain only lowercase letters, numbers, and underscores`)
-        return false
-      }
-      
+
       if (!q.question_label?.trim()) {
         toast.error(`Question ${i + 1}: Question label is required`)
         return false
       }
-      
+
       if (!q.question_type) {
         toast.error(`Question ${i + 1}: Question type is required`)
         return false
       }
-      
-      if ((q.question_type === "select" || 
-           q.question_type === "multiselect" || 
-           q.question_type === "radio" ||
-           q.question_type === "rating") && 
-          (!q.options || q.options.length === 0)) {
+
+      if (
+        (q.question_type === "select" ||
+          q.question_type === "multiselect" ||
+          q.question_type === "radio" ||
+          q.question_type === "rating") &&
+        (!q.options || q.options.length === 0)
+      ) {
         toast.error(`Question ${i + 1}: Options are required for this question type`)
         return false
       }
-    }
-
-    // Check for duplicate question keys
-    const keys = questions.map((q) => q.question_key.trim())
-    const duplicates = keys.filter((key, index) => keys.indexOf(key) !== index)
-    if (duplicates.length > 0) {
-      toast.error(`Duplicate question keys found: ${duplicates.join(", ")}`)
-      return false
     }
 
     return true
@@ -272,34 +289,50 @@ export function RoleQuestionsCreator() {
     try {
       setIsSubmitting(true)
 
-      const questionsToSubmit = questions.map((q) => ({
-        role_id: selectedRole.id,
-        question_key: q.question_key.trim(),
-        question_label: q.question_label.trim(),
-        question_title: q.question_title.trim() || q.question_label.trim(),
-        question_type: q.question_type,
-        question_description: q.question_description?.trim() || null,
-        placeholder: q.placeholder?.trim() || null,
-        options: q.options && q.options.length > 0 ? q.options : null,
-        is_required: q.is_required,
-        display_order: q.display_order,
-        validation_rules: null,
-        is_active: q.is_active,
-        help_text: q.help_text?.trim() || null,
-        default_value: q.default_value?.trim() || null,
-        min_value: q.min_value,
-        max_value: q.max_value,
-        min_length: q.min_length,
-        max_length: q.max_length,
-        pattern: q.pattern?.trim() || null,
-        step: q.step,
-        min_date: q.min_date || null,
-        max_date: q.max_date || null,
-        conditional_logic: null,
-      }))
+      const usedKeys = new Set<string>()
+      const existingKeys = new Set(existingRoleQuestionKeys)
+
+      const questionsToSubmit = questions.map((q, index) => {
+        const baseKey = toQuestionKey(q.question_label) || `question_${index + 1}`
+        let uniqueKey = baseKey
+        let suffix = 2
+        while (usedKeys.has(uniqueKey) || existingKeys.has(uniqueKey)) {
+          uniqueKey = `${baseKey}_${suffix}`
+          suffix += 1
+        }
+        usedKeys.add(uniqueKey)
+
+        const includeId = typeof q.id === "string" && !q.id.startsWith("temp-")
+
+        return {
+          ...(includeId ? { id: q.id } : {}),
+          role_id: selectedRole.id,
+          question_label: q.question_label.trim(),
+          question_type: q.question_type,
+          question_description: q.question_description?.trim() || null,
+          placeholder: q.placeholder?.trim() || null,
+          options: q.options && q.options.length > 0 ? q.options : null,
+          is_required: q.is_required,
+          display_order: q.display_order,
+          validation_rules: null,
+          is_active: q.is_active,
+          metadata: {
+            legacy_question_key: uniqueKey,
+          },
+          min_value: q.min_value,
+          max_value: q.max_value,
+          min_length: q.min_length,
+          max_length: q.max_length,
+          pattern: q.pattern?.trim() || null,
+          step: q.step,
+          min_date: q.min_date || null,
+          max_date: q.max_date || null,
+          conditional_logic: null,
+        }
+      })
 
       const response = await fetch("/api/admin/role-questions/bulk", {
-        method: "POST",
+        method: "PUT",
         headers: { "Content-Type": "application/json" },
         credentials: "include",
         body: JSON.stringify({ questions: questionsToSubmit }),
@@ -308,15 +341,17 @@ export function RoleQuestionsCreator() {
       const result = await response.json()
 
       if (!response.ok) {
-        throw new Error(result.error || "Failed to create questions")
+        throw new Error(result.error || "Failed to save questions")
       }
 
       setCreatedQuestions(result.data || [])
       setCurrentStep("success")
-      toast.success(`Successfully created ${result.data?.length || 0} question(s)`)
+      setRoleQuestionCount(result.data?.length || 0)
+      setExistingRoleQuestionKeys(Array.from(existingKeys))
+      toast.success(`Successfully saved ${result.data?.length || 0} question(s)`)
     } catch (error: any) {
-      console.error("Error creating questions:", error)
-      toast.error(error.message || "Failed to create questions")
+      console.error("Error saving questions:", error)
+      toast.error(error.message || "Failed to save questions")
     } finally {
       setIsSubmitting(false)
     }
@@ -335,171 +370,81 @@ export function RoleQuestionsCreator() {
   }
 
   // Render Role Selection Step
-  if (currentStep === "role") {
-    return (
-      <Card className="max-w-2xl mx-auto">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Shield className="h-5 w-5" />
-            Select Role
-          </CardTitle>
-          <CardDescription>
-            Choose the role for which you want to create questions
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {isLoadingRoles ? (
-            <div className="flex items-center justify-center py-8">
-              <Loader2 className="h-6 w-6 animate-spin" />
+  const roleSelection = (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Shield className="h-5 w-5" />
+          Role
+        </CardTitle>
+        <CardDescription>Select the role you want to create questions for</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {isLoadingRoles ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin" />
+          </div>
+        ) : (
+          <>
+            <div className="space-y-2">
+              <Label>Role</Label>
+              <Select value={selectedRole?.id || ""} onValueChange={handleRoleSelect}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a role" />
+                </SelectTrigger>
+                <SelectContent>
+                  {roles.map((role) => (
+                    <SelectItem key={role.id} value={role.id}>
+                      <div className="flex flex-col">
+                        <span className="font-medium">{role.name}</span>
+                        {role.description && <span className="text-muted-foreground text-xs">{role.description}</span>}
+                      </div>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
-          ) : (
-            <>
-              <div className="space-y-2">
-                <Label>Role</Label>
-                <Select
-                  value={selectedRole?.id || ""}
-                  onValueChange={handleRoleSelect}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a role" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {roles.map((role) => (
-                      <SelectItem key={role.id} value={role.id}>
-                        <div className="flex flex-col">
-                          <span className="font-medium">{role.name}</span>
-                          {role.description && (
-                            <span className="text-xs text-muted-foreground">
-                              {role.description}
-                            </span>
-                          )}
-                        </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
 
-              {selectedRole && (
-                <Alert>
-                  <AlertCircle className="h-4 w-4" />
-                  <AlertDescription>
-                    <div className="flex items-center justify-between">
-                      <span>
-                        Selected: <strong>{selectedRole.name}</strong>
-                      </span>
-                      <Badge variant="secondary">
-                        {roleQuestionCount} existing question{roleQuestionCount !== 1 ? "s" : ""}
-                      </Badge>
-                    </div>
-                  </AlertDescription>
-                </Alert>
-              )}
-
-              <div className="flex justify-end gap-2 pt-4">
-                <Button
-                  variant="outline"
-                  onClick={() => router.push("/admin/role-questions")}
-                >
-                  Cancel
-                </Button>
-                <Button onClick={handleNext} disabled={!selectedRole}>
-                  Next
-                  <ArrowRight className="h-4 w-4 ml-2" />
-                </Button>
-              </div>
-            </>
-          )}
-        </CardContent>
-      </Card>
-    )
-  }
-
-  // Render Mode Selection Step
-  if (currentStep === "mode") {
-    return (
-      <Card className="max-w-2xl mx-auto">
-        <CardHeader>
-          <CardTitle>Choose Creation Mode</CardTitle>
-          <CardDescription>
-            Select how you want to create questions
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <Card
-              className={`cursor-pointer transition-all ${
-                creationMode === "single"
-                  ? "ring-2 ring-primary"
-                  : "hover:bg-muted"
-              }`}
-              onClick={() => setCreationMode("single")}
-            >
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <LayoutGrid className="h-5 w-5" />
-                  Single Form
-                </CardTitle>
-                <CardDescription>
-                  See all questions at once. Best for creating multiple questions quickly.
-                </CardDescription>
-              </CardHeader>
-            </Card>
-
-            <Card
-              className={`cursor-pointer transition-all ${
-                creationMode === "wizard"
-                  ? "ring-2 ring-primary"
-                  : "hover:bg-muted"
-              }`}
-              onClick={() => setCreationMode("wizard")}
-            >
-              <CardHeader>
-                <CardTitle className="flex items-center gap-2">
-                  <List className="h-5 w-5" />
-                  Wizard
-                </CardTitle>
-                <CardDescription>
-                  Step through questions one at a time. Best for detailed question creation.
-                </CardDescription>
-              </CardHeader>
-            </Card>
-          </div>
-
-          <div className="flex justify-between gap-2 pt-4">
-            <Button variant="outline" onClick={handleBack}>
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Back
-            </Button>
-            <Button onClick={handleNext}>
-              Next
-              <ArrowRight className="h-4 w-4 ml-2" />
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
-    )
-  }
+            {selectedRole && (
+              <Alert>
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  <div className="flex items-center justify-between">
+                    <span>
+                      Selected: <strong>{selectedRole.name}</strong>
+                    </span>
+                    <Badge variant="secondary">
+                      {roleQuestionCount} existing question{roleQuestionCount !== 1 ? "s" : ""}
+                    </Badge>
+                  </div>
+                </AlertDescription>
+              </Alert>
+            )}
+          </>
+        )}
+      </CardContent>
+    </Card>
+  )
 
   // Render Success Step
   if (currentStep === "success") {
     return (
-      <Card className="max-w-2xl mx-auto">
+      <Card className="mx-auto max-w-2xl">
         <CardHeader>
           <div className="flex items-center gap-2 text-green-600">
             <CheckCircle2 className="h-6 w-6" />
-            <CardTitle>Questions Created Successfully!</CardTitle>
+            <CardTitle>Questions Saved Successfully!</CardTitle>
           </div>
           <CardDescription>
-            {createdQuestions.length} question{createdQuestions.length !== 1 ? "s" : ""} created for {selectedRole?.name}
+            {createdQuestions.length} question{createdQuestions.length !== 1 ? "s" : ""} saved for {selectedRole?.name}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="space-y-2">
-            <h3 className="font-semibold">Created Questions:</h3>
-            <div className="space-y-2 max-h-96 overflow-y-auto">
+            <h3 className="font-semibold">Saved Questions:</h3>
+            <div className="max-h-96 space-y-2 overflow-y-auto">
               {createdQuestions.map((q, index) => (
-                <div key={q.id} className="p-4 border rounded-lg">
+                <div key={q.id} className="rounded-lg border p-4">
                   <div className="flex items-start justify-between">
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
@@ -507,9 +452,6 @@ export function RoleQuestionsCreator() {
                         <span className="font-medium">{q.question_label}</span>
                         <Badge variant="secondary">{q.question_type}</Badge>
                       </div>
-                      <p className="text-sm text-muted-foreground mt-2">
-                        Key: <code className="text-xs">{q.question_key}</code>
-                      </p>
                     </div>
                   </div>
                 </div>
@@ -519,18 +461,20 @@ export function RoleQuestionsCreator() {
 
           <Separator />
 
-          <div className="flex flex-col sm:flex-row gap-2">
+          <div className="flex flex-col gap-2 sm:flex-row">
             <Button
               onClick={() => {
-                setQuestions([])
-                setCurrentQuestionIndex(0)
                 setCreatedQuestions([])
+                setQuestions((prev) => {
+                  const existing = prev.length > 0 ? prev : [createEmptyQuestion(0)]
+                  return [...existing, createEmptyQuestion(existing.length)]
+                })
+                setCurrentQuestionIndex(0)
                 setCurrentStep("questions")
-                addQuestion()
               }}
               className="flex-1"
             >
-              <Plus className="h-4 w-4 mr-2" />
+              <Plus className="mr-2 h-4 w-4" />
               Create More Questions
             </Button>
             <Button
@@ -540,17 +484,13 @@ export function RoleQuestionsCreator() {
                 setQuestions([])
                 setCurrentQuestionIndex(0)
                 setCreatedQuestions([])
-                setCurrentStep("role")
+                setCurrentStep("questions")
               }}
               className="flex-1"
             >
               Create for Another Role
             </Button>
-            <Button
-              variant="outline"
-              onClick={() => router.push("/admin/role-questions")}
-              className="flex-1"
-            >
+            <Button variant="outline" onClick={() => router.push("/admin/role-questions")} className="flex-1">
               View All Questions
             </Button>
           </div>
@@ -559,148 +499,118 @@ export function RoleQuestionsCreator() {
     )
   }
 
-  // Render Questions Step (both modes)
+  // Render Questions Step (wizard mode)
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle>Create Questions for {selectedRole?.name}</CardTitle>
-              <CardDescription>
-                {creationMode === "single"
-                  ? "Add and configure all questions below"
-                  : `Question ${currentQuestionIndex + 1} of ${questions.length}`}
-              </CardDescription>
-            </div>
-            <div className="flex items-center gap-2">
-              <Badge variant="secondary">
-                {questions.length} question{questions.length !== 1 ? "s" : ""}
-              </Badge>
-              {creationMode === "single" && (
-                <Button variant="outline" size="sm" onClick={addQuestion}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add Question
+      {roleSelection}
+
+      {!selectedRole && (
+        <Card>
+          <CardContent className="py-10">
+            <div className="mx-auto flex max-w-xl flex-col items-center gap-3 text-center">
+              <div className="bg-muted flex h-12 w-12 items-center justify-center rounded-full">
+                <Shield className="h-5 w-5" />
+              </div>
+              <div className="space-y-1">
+                <p className="text-base font-medium">Select a role to start</p>
+                <p className="text-muted-foreground text-sm">
+                  Choose the role above. Then you’ll create the questions users for that role will answer when
+                  submitting reports.
+                </p>
+              </div>
+              <div className="pt-2">
+                <Button variant="outline" onClick={() => router.push("/admin/role-questions")}>
+                  Cancel
                 </Button>
-              )}
-              <Button 
-                onClick={handleSubmit} 
-                disabled={isSubmitting || questions.length === 0}
-                size={creationMode === "wizard" ? "default" : "sm"}
-              >
-                {isSubmitting ? (
-                  <>
-                    <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-                    Creating...
-                  </>
-                ) : (
-                  <>
-                    <Save className="h-4 w-4 mr-2" />
-                    Create {questions.length} Question{questions.length !== 1 ? "s" : ""}
-                  </>
-                )}
-              </Button>
+              </div>
             </div>
-          </div>
-        </CardHeader>
-      </Card>
-
-      {/* Questions Form */}
-      {creationMode === "single" ? (
-        <div className="space-y-6">
-          {questions.map((question, index) => (
-            <QuestionForm
-              key={question.id}
-              question={question}
-              index={index}
-              onUpdate={(updates) => updateQuestion(question.id, updates)}
-              onRemove={() => removeQuestion(question.id)}
-              canRemove={questions.length > 1}
-            />
-          ))}
-        </div>
-      ) : (
-        <div className="space-y-6">
-          {questions.length > 0 && (
-            <>
-              <QuestionForm
-                question={questions[currentQuestionIndex]}
-                index={currentQuestionIndex}
-                onUpdate={(updates) =>
-                  updateQuestion(questions[currentQuestionIndex].id, updates)
-                }
-                onRemove={() => removeQuestion(questions[currentQuestionIndex].id)}
-                canRemove={questions.length > 1}
-              />
-
-              {/* Wizard Navigation */}
-              <Card>
-                <CardContent className="pt-6">
-                  <div className="flex items-center justify-between">
-                    <Button
-                      variant="outline"
-                      onClick={handleWizardPrevious}
-                      disabled={currentQuestionIndex === 0}
-                    >
-                      <ArrowLeft className="h-4 w-4 mr-2" />
-                      Previous
-                    </Button>
-
-                    <div className="flex items-center gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={addQuestion}
-                      >
-                        <Plus className="h-4 w-4 mr-2" />
-                        Add Another
-                      </Button>
-                    </div>
-
-                    <Button
-                      variant="outline"
-                      onClick={handleWizardNext}
-                      disabled={currentQuestionIndex === questions.length - 1}
-                    >
-                      Next
-                      <ArrowRight className="h-4 w-4 ml-2" />
-                    </Button>
-                  </div>
-                </CardContent>
-              </Card>
-            </>
-          )}
-        </div>
+          </CardContent>
+        </Card>
       )}
 
-      {/* Footer Actions */}
-      <Card>
-        <CardContent className="pt-6">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Button variant="outline" onClick={handleBack}>
-                <ArrowLeft className="h-4 w-4 mr-2" />
-                Back
-              </Button>
-              {creationMode === "single" && (
-                <Button variant="outline" onClick={addQuestion}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add Question
-                </Button>
-              )}
-            </div>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                onClick={() => router.push("/admin/role-questions")}
-              >
-                Cancel
-              </Button>
-            </div>
+      {selectedRole && questions.length > 0 && (
+        <>
+          {/* Header */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle>Create Questions for {selectedRole.name}</CardTitle>
+                  <CardDescription>{`Question ${currentQuestionIndex + 1} of ${questions.length}`}</CardDescription>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Badge variant="secondary">
+                    {questions.length} question{questions.length !== 1 ? "s" : ""}
+                  </Badge>
+                  <Button onClick={handleSubmit} disabled={isSubmitting || questions.length === 0} size="default">
+                    {isSubmitting ? (
+                      <>
+                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                        Creating...
+                      </>
+                    ) : (
+                      <>
+                        <Save className="mr-2 h-4 w-4" />
+                        Create {questions.length} Question{questions.length !== 1 ? "s" : ""}
+                      </>
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+          </Card>
+
+          {/* Questions Form */}
+          <div className="space-y-6">
+            <QuestionForm
+              question={questions[currentQuestionIndex]}
+              index={currentQuestionIndex}
+              onUpdate={(updates) => updateQuestion(questions[currentQuestionIndex].id, updates)}
+              onRemove={() => removeQuestion(questions[currentQuestionIndex].id)}
+              canRemove={questions.length > 1}
+            />
+
+            {/* Wizard Navigation */}
+            <Card>
+              <CardContent className="pt-6">
+                <div className="flex items-center justify-between">
+                  <Button variant="outline" onClick={handleWizardPrevious} disabled={currentQuestionIndex === 0}>
+                    <ArrowLeft className="mr-2 h-4 w-4" />
+                    Previous
+                  </Button>
+
+                  <div className="flex items-center gap-2">
+                    <Button variant="outline" size="sm" onClick={addQuestion}>
+                      <Plus className="mr-2 h-4 w-4" />
+                      Add Another
+                    </Button>
+                  </div>
+
+                  <Button
+                    variant="outline"
+                    onClick={handleWizardNext}
+                    disabled={currentQuestionIndex === questions.length - 1}
+                  >
+                    Next
+                    <ArrowRight className="ml-2 h-4 w-4" />
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
           </div>
-        </CardContent>
-      </Card>
+
+          {/* Footer Actions */}
+          <Card>
+            <CardContent className="pt-6">
+              <div className="flex justify-end gap-2">
+                <Button variant="outline" onClick={() => router.push("/admin/role-questions")}>
+                  Cancel
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </>
+      )}
     </div>
   )
 }
@@ -750,9 +660,7 @@ function QuestionForm({ question, index, onUpdate, onRemove, canRemove }: Questi
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Badge variant="outline">Question {index + 1}</Badge>
-            <CardTitle className="text-lg">
-              {question.question_title || question.question_label || "New Question"}
-            </CardTitle>
+            <CardTitle className="text-lg">{question.question_label || "New Question"}</CardTitle>
           </div>
           <div className="flex items-center gap-2">
             <Button
@@ -763,68 +671,39 @@ function QuestionForm({ question, index, onUpdate, onRemove, canRemove }: Questi
             >
               <Eye className="h-4 w-4" />
             </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => setIsExpanded(!isExpanded)}
-            >
-              {isExpanded ? (
-                <X className="h-4 w-4" />
-              ) : (
-                <Eye className="h-4 w-4" />
-              )}
+            <Button variant="ghost" size="sm" onClick={() => setIsExpanded(!isExpanded)}>
+              {isExpanded ? <X className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
             </Button>
             {canRemove && (
               <Button variant="ghost" size="sm" onClick={onRemove}>
-                <Trash2 className="h-4 w-4 text-destructive" />
+                <Trash2 className="text-destructive h-4 w-4" />
               </Button>
             )}
           </div>
         </div>
       </CardHeader>
-      
+
       {/* Preview Mode - Clean Final Output */}
       {previewMode && isExpanded ? (
         <CardContent className="pt-6">
-          <div className="max-w-2xl mx-auto space-y-4">
-            <div className="flex items-center justify-between pb-4 border-b">
+          <div className="mx-auto max-w-2xl space-y-4">
+            <div className="flex items-center justify-between border-b pb-4">
               <div className="flex items-center gap-2">
                 <Badge variant="secondary">Preview Mode</Badge>
-                <span className="text-sm text-muted-foreground">
-                  Final output - how users will see this question
-                </span>
+                <span className="text-muted-foreground text-sm">Final output - how users will see this question</span>
               </div>
             </div>
             <QuestionPreview question={question} isPreviewMode={true} />
           </div>
         </CardContent>
-      ) : isExpanded && (
-        <CardContent className="space-y-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="space-y-2">
-              <Label>
-                Question Key <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                value={question.question_key}
-                onChange={(e) =>
-                  onUpdate({ question_key: e.target.value.toLowerCase().replace(/\s+/g, "_") })
-                }
-                placeholder="e.g., project_name"
-              />
-              <p className="text-xs text-muted-foreground">
-                Unique identifier (lowercase, numbers, underscores only)
-              </p>
-            </div>
-
+      ) : (
+        isExpanded && (
+          <CardContent className="space-y-4">
             <div className="space-y-2">
               <Label>
                 Question Type <span className="text-destructive">*</span>
               </Label>
-              <Select
-                value={question.question_type}
-                onValueChange={(value) => onUpdate({ question_type: value })}
-              >
+              <Select value={question.question_type} onValueChange={(value) => onUpdate({ question_type: value })}>
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
@@ -847,290 +726,238 @@ function QuestionForm({ question, index, onUpdate, onRemove, canRemove }: Questi
                 </SelectContent>
               </Select>
             </div>
-          </div>
 
-          <div className="space-y-2">
-            <Label>
-              Question Label <span className="text-destructive">*</span>
-            </Label>
-            <Input
-              value={question.question_label}
-              onChange={(e) => onUpdate({ question_label: e.target.value })}
-              placeholder="What is your project name?"
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label>
-              Question Title
-            </Label>
-            <Input
-              value={question.question_title}
-              onChange={(e) => onUpdate({ question_title: e.target.value })}
-              placeholder="Short title for wizard step (optional)"
-            />
-            <p className="text-xs text-muted-foreground">
-              If provided, this title is used as the step name in the daily entry wizard. 
-              Leave blank to use the question label.
-            </p>
-          </div>
-
-          <div className="space-y-2">
-            <Label>Description</Label>
-            <Textarea
-              value={question.question_description}
-              onChange={(e) => onUpdate({ question_description: e.target.value })}
-              placeholder="Additional context for the question"
-              rows={2}
-            />
-          </div>
-
-          <div className="space-y-2">
-            <Label>Placeholder</Label>
-            <Input
-              value={question.placeholder}
-              onChange={(e) => onUpdate({ placeholder: e.target.value })}
-              placeholder="Enter placeholder text"
-            />
-          </div>
-
-          {/* Options for select/radio/rating/multiselect */}
-          {(question.question_type === "select" ||
-            question.question_type === "multiselect" ||
-            question.question_type === "radio" ||
-            question.question_type === "rating") && (
             <div className="space-y-2">
               <Label>
-                Options <span className="text-destructive">*</span>
+                Question Label <span className="text-destructive">*</span>
               </Label>
-              <div className="flex gap-2">
-                <Input
-                  value={optionInput}
-                  onChange={(e) => setOptionInput(e.target.value)}
-                  onKeyDown={handleOptionInputKeyDown}
-                  placeholder="Enter option and press Enter"
-                />
-                <Button type="button" onClick={addOption}>
-                  Add
-                </Button>
-              </div>
-              {question.options && question.options.length > 0 && (
-                <div className="flex flex-wrap gap-2 mt-2">
-                  {question.options.map((option) => (
-                    <Badge
-                      key={option}
-                      variant="secondary"
-                      className="cursor-pointer"
-                      onClick={() => removeOption(option)}
-                    >
-                      {option} ×
-                    </Badge>
-                  ))}
-                </div>
-              )}
+              <Input
+                value={question.question_label}
+                onChange={(e) => onUpdate({ question_label: e.target.value })}
+                placeholder="What is your project name?"
+              />
             </div>
-          )}
 
-          {/* Advanced Configuration Tabs */}
-          <Tabs defaultValue="basic" className="w-full">
-            <TabsList className="grid w-full grid-cols-3">
-              <TabsTrigger value="basic">Basic</TabsTrigger>
-              <TabsTrigger value="validation">
-                <Shield className="h-4 w-4 mr-2" />
-                Validation
-              </TabsTrigger>
-              <TabsTrigger value="advanced">
-                <Settings className="h-4 w-4 mr-2" />
-                Advanced
-              </TabsTrigger>
-            </TabsList>
+            <div className="space-y-2">
+              <Label>Description</Label>
+              <Textarea
+                value={question.question_description}
+                onChange={(e) => onUpdate({ question_description: e.target.value })}
+                placeholder="Additional context for the question"
+                rows={2}
+              />
+            </div>
 
-            <TabsContent value="basic" className="space-y-4 mt-4">
+            <div className="space-y-2">
+              <Label>Placeholder</Label>
+              <Input
+                value={question.placeholder}
+                onChange={(e) => onUpdate({ placeholder: e.target.value })}
+                placeholder="Enter placeholder text"
+              />
+            </div>
+
+            {/* Options for select/radio/rating/multiselect */}
+            {(question.question_type === "select" ||
+              question.question_type === "multiselect" ||
+              question.question_type === "radio" ||
+              question.question_type === "rating") && (
               <div className="space-y-2">
-                <Label htmlFor={`help_text_${index}`} className="flex items-center gap-2">
-                  <HelpCircle className="h-4 w-4" />
-                  Help Text
+                <Label>
+                  Options <span className="text-destructive">*</span>
                 </Label>
-                <Textarea
-                  id={`help_text_${index}`}
-                  value={question.help_text}
-                  onChange={(e) => onUpdate({ help_text: e.target.value })}
-                  placeholder="Additional help text or instructions"
-                  rows={2}
-                />
+                <div className="flex gap-2">
+                  <Input
+                    value={optionInput}
+                    onChange={(e) => setOptionInput(e.target.value)}
+                    onKeyDown={handleOptionInputKeyDown}
+                    placeholder="Enter option and press Enter"
+                  />
+                  <Button type="button" onClick={addOption}>
+                    Add
+                  </Button>
+                </div>
+                {question.options && question.options.length > 0 && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {question.options.map((option) => (
+                      <Badge
+                        key={option}
+                        variant="secondary"
+                        className="cursor-pointer"
+                        onClick={() => removeOption(option)}
+                      >
+                        {option} ×
+                      </Badge>
+                    ))}
+                  </div>
+                )}
               </div>
+            )}
 
-              <div className="space-y-2">
-                <Label>Default Value</Label>
-                <Input
-                  value={question.default_value}
-                  onChange={(e) => onUpdate({ default_value: e.target.value })}
-                  placeholder="Default value for this question"
-                />
-              </div>
+            <Tabs defaultValue="basic" className="w-full">
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="basic">Basic</TabsTrigger>
+                <TabsTrigger value="validation">
+                  <Shield className="mr-2 h-4 w-4" />
+                  Validation
+                </TabsTrigger>
+              </TabsList>
 
-              <div className="flex items-center space-x-2">
-                <Switch
-                  checked={question.is_required}
-                  onCheckedChange={(checked) => onUpdate({ is_required: checked })}
-                />
-                <Label>Required Field</Label>
-              </div>
+              <TabsContent value="basic" className="mt-4 space-y-4">
+                <div className="flex items-center space-x-2">
+                  <Switch
+                    checked={question.is_required}
+                    onCheckedChange={(checked) => onUpdate({ is_required: checked })}
+                  />
+                  <Label>Required Field</Label>
+                </div>
 
-              <div className="flex items-center space-x-2">
-                <Switch
-                  checked={question.is_active}
-                  onCheckedChange={(checked) => onUpdate({ is_active: checked })}
-                />
-                <Label>Active (visible to users)</Label>
-              </div>
-            </TabsContent>
+                <div className="flex items-center space-x-2">
+                  <Switch
+                    checked={question.is_active}
+                    onCheckedChange={(checked) => onUpdate({ is_active: checked })}
+                  />
+                  <Label>Active (visible to users)</Label>
+                </div>
+              </TabsContent>
 
-            <TabsContent value="validation" className="space-y-4 mt-4">
-              {/* Text validation */}
-              {(question.question_type === "text" ||
-                question.question_type === "textarea" ||
-                question.question_type === "email" ||
-                question.question_type === "url" ||
-                question.question_type === "phone") && (
-                <>
+              <TabsContent value="validation" className="mt-4 space-y-4">
+                {/* Text validation */}
+                {(question.question_type === "text" ||
+                  question.question_type === "textarea" ||
+                  question.question_type === "email" ||
+                  question.question_type === "url" ||
+                  question.question_type === "phone") && (
+                  <>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label>Minimum Length</Label>
+                        <Input
+                          type="number"
+                          min="0"
+                          value={question.min_length || ""}
+                          onChange={(e) =>
+                            onUpdate({
+                              min_length: e.target.value ? parseInt(e.target.value) : null,
+                            })
+                          }
+                          placeholder="Min characters"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label>Maximum Length</Label>
+                        <Input
+                          type="number"
+                          min="0"
+                          value={question.max_length || ""}
+                          onChange={(e) =>
+                            onUpdate({
+                              max_length: e.target.value ? parseInt(e.target.value) : null,
+                            })
+                          }
+                          placeholder="Max characters"
+                        />
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Pattern (Regex)</Label>
+                      <Input
+                        value={question.pattern}
+                        onChange={(e) => onUpdate({ pattern: e.target.value })}
+                        placeholder="e.g., ^[A-Za-z]+$"
+                      />
+                    </div>
+                  </>
+                )}
+
+                {/* Number validation */}
+                {question.question_type === "number" && (
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label>Minimum Length</Label>
+                      <Label>Minimum Value</Label>
                       <Input
                         type="number"
-                        min="0"
-                        value={question.min_length || ""}
+                        value={question.min_value || ""}
                         onChange={(e) =>
                           onUpdate({
-                            min_length: e.target.value ? parseInt(e.target.value) : null,
+                            min_value: e.target.value ? parseFloat(e.target.value) : null,
                           })
                         }
-                        placeholder="Min characters"
+                        placeholder="Min value"
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label>Maximum Length</Label>
+                      <Label>Maximum Value</Label>
                       <Input
                         type="number"
-                        min="0"
-                        value={question.max_length || ""}
+                        value={question.max_value || ""}
                         onChange={(e) =>
                           onUpdate({
-                            max_length: e.target.value ? parseInt(e.target.value) : null,
+                            max_value: e.target.value ? parseFloat(e.target.value) : null,
                           })
                         }
-                        placeholder="Max characters"
+                        placeholder="Max value"
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Step</Label>
+                      <Input
+                        type="number"
+                        step="0.01"
+                        value={question.step || ""}
+                        onChange={(e) =>
+                          onUpdate({
+                            step: e.target.value ? parseFloat(e.target.value) : null,
+                          })
+                        }
+                        placeholder="e.g., 0.1 or 1"
                       />
                     </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label>Pattern (Regex)</Label>
-                    <Input
-                      value={question.pattern}
-                      onChange={(e) => onUpdate({ pattern: e.target.value })}
-                      placeholder="e.g., ^[A-Za-z]+$"
-                    />
-                  </div>
-                </>
-              )}
+                )}
 
-              {/* Number validation */}
-              {question.question_type === "number" && (
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Minimum Value</Label>
-                    <Input
-                      type="number"
-                      value={question.min_value || ""}
-                      onChange={(e) =>
-                        onUpdate({
-                          min_value: e.target.value ? parseFloat(e.target.value) : null,
-                        })
-                      }
-                      placeholder="Min value"
-                    />
+                {/* Date validation */}
+                {(question.question_type === "date" || question.question_type === "datetime") && (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label>Minimum Date</Label>
+                      <Input
+                        type="date"
+                        value={question.min_date}
+                        onChange={(e) => onUpdate({ min_date: e.target.value })}
+                      />
+                    </div>
+                    <div className="space-y-2">
+                      <Label>Maximum Date</Label>
+                      <Input
+                        type="date"
+                        value={question.max_date}
+                        onChange={(e) => onUpdate({ max_date: e.target.value })}
+                      />
+                    </div>
                   </div>
-                  <div className="space-y-2">
-                    <Label>Maximum Value</Label>
-                    <Input
-                      type="number"
-                      value={question.max_value || ""}
-                      onChange={(e) =>
-                        onUpdate({
-                          max_value: e.target.value ? parseFloat(e.target.value) : null,
-                        })
-                      }
-                      placeholder="Max value"
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Step</Label>
-                    <Input
-                      type="number"
-                      step="0.01"
-                      value={question.step || ""}
-                      onChange={(e) =>
-                        onUpdate({
-                          step: e.target.value ? parseFloat(e.target.value) : null,
-                        })
-                      }
-                      placeholder="e.g., 0.1 or 1"
-                    />
-                  </div>
-                </div>
-              )}
+                )}
+              </TabsContent>
+            </Tabs>
 
-              {/* Date validation */}
-              {(question.question_type === "date" ||
-                question.question_type === "datetime") && (
-                <div className="grid grid-cols-2 gap-4">
-                  <div className="space-y-2">
-                    <Label>Minimum Date</Label>
-                    <Input
-                      type="date"
-                      value={question.min_date}
-                      onChange={(e) => onUpdate({ min_date: e.target.value })}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label>Maximum Date</Label>
-                    <Input
-                      type="date"
-                      value={question.max_date}
-                      onChange={(e) => onUpdate({ max_date: e.target.value })}
-                    />
-                  </div>
-                </div>
-              )}
-            </TabsContent>
-
-            <TabsContent value="advanced" className="space-y-4 mt-4">
-              <div className="p-4 bg-muted rounded-lg">
-                <p className="text-sm text-muted-foreground">
-                  Conditional logic and other advanced features will be available in a future update.
-                </p>
+            {/* Live Preview Section */}
+            <Separator className="my-6" />
+            <div className="space-y-4">
+              <div className="flex items-center gap-2">
+                <Eye className="h-4 w-4" />
+                <Label className="text-base font-semibold">Live Preview</Label>
+                <Badge variant="outline" className="text-xs">
+                  How users will see this question
+                </Badge>
               </div>
-            </TabsContent>
-          </Tabs>
-
-          {/* Live Preview Section */}
-          <Separator className="my-6" />
-          <div className="space-y-4">
-            <div className="flex items-center gap-2">
-              <Eye className="h-4 w-4" />
-              <Label className="text-base font-semibold">Live Preview</Label>
-              <Badge variant="outline" className="text-xs">
-                How users will see this question
-              </Badge>
+              <Card className="bg-muted/30 border-2 border-dashed">
+                <CardContent className="pt-6">
+                  <QuestionPreview question={question} isPreviewMode={false} />
+                </CardContent>
+              </Card>
             </div>
-            <Card className="bg-muted/30 border-2 border-dashed">
-              <CardContent className="pt-6">
-                <QuestionPreview question={question} isPreviewMode={false} />
-              </CardContent>
-            </Card>
-          </div>
-        </CardContent>
+          </CardContent>
+        )
       )}
     </Card>
   )
@@ -1143,15 +970,13 @@ interface QuestionPreviewProps {
 }
 
 function QuestionPreview({ question, isPreviewMode = false }: QuestionPreviewProps) {
-  const [previewValue, setPreviewValue] = useState<string>(question.default_value || "")
+  const [previewValue, setPreviewValue] = useState<string>("")
   const [previewError, setPreviewError] = useState<string>("")
   const [touched, setTouched] = useState(false)
 
   // Initialize with default value and update when question changes
   useEffect(() => {
-    if (question.default_value) {
-      setPreviewValue(question.default_value)
-    } else if (question.question_type === "multiselect") {
+    if (question.question_type === "multiselect") {
       setPreviewValue("[]")
     } else if (question.question_type === "checkbox") {
       setPreviewValue("false")
@@ -1161,7 +986,7 @@ function QuestionPreview({ question, isPreviewMode = false }: QuestionPreviewPro
     // Reset validation state when question changes
     setTouched(false)
     setPreviewError("")
-  }, [question.default_value, question.question_type, question.question_key])
+  }, [question.question_type, question.id])
 
   // Validation function
   const validateValue = (value: string): string => {
@@ -1185,7 +1010,7 @@ function QuestionPreview({ question, isPreviewMode = false }: QuestionPreviewPro
           if (!regex.test(value)) {
             return "Value does not match the required pattern"
           }
-        } catch (e) {
+        } catch {
           // Invalid regex pattern
         }
       }
@@ -1252,9 +1077,9 @@ function QuestionPreview({ question, isPreviewMode = false }: QuestionPreviewPro
   return (
     <div className={`space-y-4 ${isPreviewMode ? "" : ""}`}>
       {/* Question Label with Required Indicator */}
-      <Label 
-        htmlFor={isPreviewMode ? `preview-${question.question_key || "question"}` : undefined}
-        className={`${isPreviewMode ? "text-base" : "text-sm"} font-medium block`}
+      <Label
+        htmlFor={isPreviewMode ? `preview-${question.id}` : undefined}
+        className={`${isPreviewMode ? "text-base" : "text-sm"} block font-medium`}
       >
         {question.question_label || "Question Label"}
         {question.is_required && <span className="text-destructive ml-2">*</span>}
@@ -1270,7 +1095,7 @@ function QuestionPreview({ question, isPreviewMode = false }: QuestionPreviewPro
       {/* Question Input Based on Type */}
       {question.question_type === "text" && (
         <Input
-          id={isPreviewMode ? `preview-${question.question_key || "question"}` : undefined}
+          id={isPreviewMode ? `preview-${question.id}` : undefined}
           type="text"
           value={previewValue}
           onChange={(e) => handleChange(e.target.value)}
@@ -1286,7 +1111,7 @@ function QuestionPreview({ question, isPreviewMode = false }: QuestionPreviewPro
 
       {question.question_type === "textarea" && (
         <Textarea
-          id={isPreviewMode ? `preview-${question.question_key || "question"}` : undefined}
+          id={isPreviewMode ? `preview-${question.id}` : undefined}
           value={previewValue}
           onChange={(e) => handleChange(e.target.value)}
           onBlur={handleBlur}
@@ -1397,11 +1222,7 @@ function QuestionPreview({ question, isPreviewMode = false }: QuestionPreviewPro
       )}
 
       {question.question_type === "select" && question.options && (
-        <Select
-          value={previewValue}
-          onValueChange={handleChange}
-          required={question.is_required}
-        >
+        <Select value={previewValue} onValueChange={handleChange} required={question.is_required}>
           <SelectTrigger className={previewError ? "border-destructive" : ""}>
             <SelectValue placeholder={question.placeholder || "Select an option"} />
           </SelectTrigger>
@@ -1416,11 +1237,7 @@ function QuestionPreview({ question, isPreviewMode = false }: QuestionPreviewPro
       )}
 
       {question.question_type === "radio" && question.options && (
-        <RadioGroup
-          value={previewValue}
-          onValueChange={handleChange}
-          required={question.is_required}
-        >
+        <RadioGroup value={previewValue} onValueChange={handleChange} required={question.is_required}>
           {question.options.map((option) => (
             <div key={option} className="flex items-center space-x-2">
               <RadioGroupItem value={option} id={`preview-radio-${option}`} />
@@ -1437,7 +1254,7 @@ function QuestionPreview({ question, isPreviewMode = false }: QuestionPreviewPro
           {question.options.map((option) => {
             const selectedValues = getMultiselectValue()
             const isChecked = selectedValues.includes(option)
-            
+
             return (
               <div key={option} className="flex items-center space-x-2">
                 <Checkbox
@@ -1445,9 +1262,7 @@ function QuestionPreview({ question, isPreviewMode = false }: QuestionPreviewPro
                   checked={isChecked}
                   onCheckedChange={(checked) => {
                     const current = getMultiselectValue()
-                    const newValues = checked
-                      ? [...current, option]
-                      : current.filter((v) => v !== option)
+                    const newValues = checked ? [...current, option] : current.filter((v) => v !== option)
                     handleChange(JSON.stringify(newValues))
                   }}
                 />
@@ -1503,16 +1318,9 @@ function QuestionPreview({ question, isPreviewMode = false }: QuestionPreviewPro
         />
       )}
 
-      {/* Help Text */}
-      {question.help_text && (
-        <p className={`${isPreviewMode ? "text-sm" : "text-xs"} text-muted-foreground`}>
-          {question.help_text}
-        </p>
-      )}
-
       {/* Validation Error Message - Only show in preview mode when there's an error */}
       {isPreviewMode && touched && previewError && (
-        <p className="text-sm text-destructive flex items-center gap-2 mt-2">
+        <p className="text-destructive mt-2 flex items-center gap-2 text-sm">
           <AlertCircle className="h-4 w-4" />
           {previewError}
         </p>
@@ -1520,7 +1328,7 @@ function QuestionPreview({ question, isPreviewMode = false }: QuestionPreviewPro
 
       {/* Validation Success Indicator - Only in edit mode, not in clean preview */}
       {!isPreviewMode && touched && !previewError && previewValue && (
-        <p className="text-sm text-green-600 flex items-center gap-2">
+        <p className="flex items-center gap-2 text-sm text-green-600">
           <CheckCircle2 className="h-4 w-4" />
           Valid
         </p>
@@ -1528,4 +1336,3 @@ function QuestionPreview({ question, isPreviewMode = false }: QuestionPreviewPro
     </div>
   )
 }
-

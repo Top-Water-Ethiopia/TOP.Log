@@ -4,7 +4,6 @@ import { createClient } from "@/lib/supabase/server"
 
 export const dynamic = "force-dynamic"
 
-const SUPER_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000000"
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
 const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
 
@@ -29,8 +28,7 @@ async function verifyAdmin() {
     return { isAdmin: false as const, error: "Admin access required" }
   }
 
-  const isSuperAdmin = profile.role_id === SUPER_ADMIN_ROLE_ID
-  const isAdmin = profile.role_id === ADMIN_ROLE_ID || profile.role_id === SYSTEM_ADMIN_ROLE_ID || isSuperAdmin
+  const isAdmin = profile.role_id === ADMIN_ROLE_ID || profile.role_id === SYSTEM_ADMIN_ROLE_ID
 
   if (!isAdmin) {
     return { isAdmin: false as const, error: "Admin access required" }
@@ -57,7 +55,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ dep
     if (membershipError) {
       return NextResponse.json(
         { error: "Failed to load memberships", message: membershipError.message },
-        { status: 500 },
+        { status: 500 }
       )
     }
 
@@ -71,7 +69,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ dep
     if (profilesError) {
       return NextResponse.json(
         { error: "Failed to load member profiles", message: profilesError.message },
-        { status: 500 },
+        { status: 500 }
       )
     }
 
@@ -79,10 +77,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ dep
 
     const { data: listData, error: listError } = await adminSupabase.auth.admin.listUsers()
     if (listError) {
-      return NextResponse.json(
-        { error: "Failed to load member emails", message: listError.message },
-        { status: 500 },
-      )
+      return NextResponse.json({ error: "Failed to load member emails", message: listError.message }, { status: 500 })
     }
 
     const authMap = new Map((listData.users || []).map((u) => [u.id, u]))
@@ -107,7 +102,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ dep
         error: "Failed to load memberships",
         message: error instanceof Error ? error.message : "Unknown error",
       },
-      { status: 500 },
+      { status: 500 }
     )
   }
 }
@@ -140,10 +135,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ dep
       .maybeSingle()
 
     if (existingError) {
-      return NextResponse.json(
-        { error: "Failed to load membership", message: existingError.message },
-        { status: 500 },
-      )
+      return NextResponse.json({ error: "Failed to load membership", message: existingError.message }, { status: 500 })
     }
 
     const nextRole = role ?? existing?.role
@@ -170,10 +162,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ dep
         .single()
 
       if (insertError) {
-        return NextResponse.json(
-          { error: "Failed to save membership", message: insertError.message },
-          { status: 500 },
-        )
+        return NextResponse.json({ error: "Failed to save membership", message: insertError.message }, { status: 500 })
       }
 
       return NextResponse.json({ data: inserted })
@@ -202,7 +191,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ dep
         error: "Failed to save membership",
         message: error instanceof Error ? error.message : "Unknown error",
       },
-      { status: 500 },
+      { status: 500 }
     )
   }
 }

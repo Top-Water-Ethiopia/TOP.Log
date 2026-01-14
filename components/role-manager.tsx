@@ -25,10 +25,9 @@ import { useToast } from "@/components/ui/use-toast"
 import { Plus, Pencil, Trash2, Shield, Loader2, Search, SlidersHorizontal, ArrowUpDown, RefreshCw } from "lucide-react"
 import { apiFetch, getErrorMessage } from "@/lib/api-client"
 import { RightSidePanel } from "@/components/ui/right-side-panel"
-import { FormDialog } from "@/components/ui/form-dialog"
+import { RolePermissionsPanel } from "@/components/role-permissions-panel"
 import useSWR from "swr"
 
-const SUPER_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000000"
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
 const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
 
@@ -57,6 +56,8 @@ export function RoleManager() {
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [editingRole, setEditingRole] = useState<Role | null>(null)
   const [showEditPanel, setShowEditPanel] = useState(false)
+  const [permissionsRole, setPermissionsRole] = useState<Role | null>(null)
+  const [showPermissionsPanel, setShowPermissionsPanel] = useState(false)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [roleToDelete, setRoleToDelete] = useState<Role | null>(null)
   const [roleFilter, setRoleFilter] = useState<"all" | "system" | "custom">("all")
@@ -70,9 +71,7 @@ export function RoleManager() {
 
   const lastLoadErrorRef = useRef<string | null>(null)
 
-  const isSuperAdmin = currentProfile?.role_id === SUPER_ADMIN_ROLE_ID
-  const isAdmin =
-    currentProfile?.role_id === ADMIN_ROLE_ID || currentProfile?.role_id === SYSTEM_ADMIN_ROLE_ID || isSuperAdmin
+  const isAdmin = currentProfile?.role_id === ADMIN_ROLE_ID || currentProfile?.role_id === SYSTEM_ADMIN_ROLE_ID
 
   const rolesKey = isAdmin ? "/api/admin/roles" : null
   const departmentsKey = isAdmin ? "/api/admin/departments" : null
@@ -133,10 +132,7 @@ export function RoleManager() {
     // Custom roles must have a department assigned
     const isSystemRole =
       editingRole &&
-      (editingRole.name === "super-admin" ||
-        editingRole.name === "admin" ||
-        editingRole.name === "system-admin" ||
-        editingRole.name === "user")
+      (editingRole.name === "admin" || editingRole.name === "system-admin" || editingRole.name === "user")
     if (!isSystemRole && !formData.department_id) {
       errors.department_id = "Department is required for custom roles"
     }
@@ -165,9 +161,7 @@ export function RoleManager() {
         department_id: formData.department_id || null,
         created_at: nowIso,
         updated_at: nowIso,
-        department: formData.department_id
-          ? departments.find((d) => d.id === formData.department_id) || null
-          : null,
+        department: formData.department_id ? departments.find((d) => d.id === formData.department_id) || null : null,
       }
 
       mutateRoles(
@@ -177,7 +171,7 @@ export function RoleManager() {
           next.sort((a, b) => a.name.localeCompare(b.name))
           return { ...current, data: next }
         },
-        { revalidate: false },
+        { revalidate: false }
       )
 
       const created = await apiFetch<{ data: RoleWithDepartment }>("/api/admin/roles", {
@@ -201,7 +195,7 @@ export function RoleManager() {
             next.sort((a, b) => a.name.localeCompare(b.name))
             return { ...current, data: next }
           },
-          { revalidate: false },
+          { revalidate: false }
         )
       }
 
@@ -212,7 +206,7 @@ export function RoleManager() {
 
       setShowCreateDialog(false)
       resetForm()
-    } catch (error: any) {
+    } catch (error: unknown) {
       if (prevRolesResponse) {
         mutateRoles(prevRolesResponse, { revalidate: false })
       } else {
@@ -245,9 +239,7 @@ export function RoleManager() {
         description: formData.description.trim() || null,
         department_id: formData.department_id || null,
         updated_at: nowIso,
-        department: formData.department_id
-          ? departments.find((d) => d.id === formData.department_id) || null
-          : null,
+        department: formData.department_id ? departments.find((d) => d.id === formData.department_id) || null : null,
       }
 
       mutateRoles(
@@ -257,7 +249,7 @@ export function RoleManager() {
           next.sort((a, b) => a.name.localeCompare(b.name))
           return { ...current, data: next }
         },
-        { revalidate: false },
+        { revalidate: false }
       )
 
       const updated = await apiFetch<{ data: RoleWithDepartment }>("/api/admin/roles", {
@@ -281,7 +273,7 @@ export function RoleManager() {
             next.sort((a, b) => a.name.localeCompare(b.name))
             return { ...current, data: next }
           },
-          { revalidate: false },
+          { revalidate: false }
         )
       }
 
@@ -293,7 +285,7 @@ export function RoleManager() {
       setShowEditPanel(false)
       setEditingRole(null)
       resetForm()
-    } catch (error: any) {
+    } catch (error: unknown) {
       if (prevRolesResponse) {
         mutateRoles(prevRolesResponse, { revalidate: false })
       } else {
@@ -316,10 +308,8 @@ export function RoleManager() {
 
     // Prevent deleting system roles
     if (
-      roleToDelete.id === SUPER_ADMIN_ROLE_ID ||
       roleToDelete.id === ADMIN_ROLE_ID ||
       roleToDelete.id === SYSTEM_ADMIN_ROLE_ID ||
-      roleToDelete.name === "super-admin" ||
       roleToDelete.name === "admin" ||
       roleToDelete.name === "system-admin" ||
       roleToDelete.name === "user"
@@ -343,7 +333,7 @@ export function RoleManager() {
           const rows = Array.isArray(current.data) ? current.data : []
           return { ...current, data: rows.filter((r) => r.id !== deleting.id) }
         },
-        { revalidate: false },
+        { revalidate: false }
       )
 
       await apiFetch(`/api/admin/roles?id=${roleToDelete.id}`, {
@@ -359,7 +349,7 @@ export function RoleManager() {
       setRoleToDelete(null)
 
       mutateRoles()
-    } catch (error: any) {
+    } catch (error: unknown) {
       if (prevRolesResponse) {
         mutateRoles(prevRolesResponse, { revalidate: false })
       } else {
@@ -393,6 +383,11 @@ export function RoleManager() {
     setShowEditPanel(true)
   }
 
+  const openPermissionsPanel = (role: Role) => {
+    setPermissionsRole(role)
+    setShowPermissionsPanel(true)
+  }
+
   const openDeleteDialog = (role: Role) => {
     setRoleToDelete(role)
     setShowDeleteDialog(true)
@@ -403,18 +398,14 @@ export function RoleManager() {
     const q = searchQuery.trim().toLowerCase()
     if (!q) return true
 
-    const haystack = [role.name, role.description || "", role.department?.name || ""]
-      .join(" ")
-      .toLowerCase()
+    const haystack = [role.name, role.description || "", role.department?.name || ""].join(" ").toLowerCase()
 
     return haystack.includes(q)
   })
 
   const isSystemRole = (role: RoleWithDepartment) =>
-    role.id === SUPER_ADMIN_ROLE_ID ||
     role.id === ADMIN_ROLE_ID ||
     role.id === SYSTEM_ADMIN_ROLE_ID ||
-    role.name === "super-admin" ||
     role.name === "admin" ||
     role.name === "system-admin" ||
     role.name === "user"
@@ -549,14 +540,11 @@ export function RoleManager() {
       <>
         {rolesToRender.map((role) => {
           const isSystemRole =
-            role.id === SUPER_ADMIN_ROLE_ID ||
             role.id === ADMIN_ROLE_ID ||
             role.id === SYSTEM_ADMIN_ROLE_ID ||
-            role.name === "super-admin" ||
             role.name === "admin" ||
             role.name === "system-admin" ||
             role.name === "user"
-          const isSuperAdminRole = role.id === SUPER_ADMIN_ROLE_ID || role.name === "super-admin"
           return (
             <TableRow key={role.id} className="group hover:bg-muted/50 transition-colors">
               <TableCell className="font-medium whitespace-nowrap">
@@ -576,12 +564,13 @@ export function RoleManager() {
               </TableCell>
               <TableCell className="hidden max-w-md truncate lg:table-cell">{role.description || "-"}</TableCell>
               <TableCell>
-                <Badge variant={isSystemRole ? (isSuperAdminRole ? "destructive" : "secondary") : "default"}>
-                  {isSuperAdminRole ? "Super Admin" : isSystemRole ? "System" : "Custom"}
-                </Badge>
+                <Badge variant={isSystemRole ? "secondary" : "default"}>{isSystemRole ? "System" : "Custom"}</Badge>
               </TableCell>
               <TableCell className="text-right">
                 <div className="flex justify-end gap-2 opacity-0 transition-opacity group-hover:opacity-100">
+                  <Button variant="ghost" size="sm" onClick={() => openPermissionsPanel(role)}>
+                    <Shield className="h-4 w-4" />
+                  </Button>
                   {isSystemRole ? (
                     <span className="text-muted-foreground text-xs">Read-only</span>
                   ) : (
@@ -636,42 +625,41 @@ export function RoleManager() {
         </div>
       ) : (
         <>
-       
-            <Tabs value={roleFilter} onValueChange={(value) => setRoleFilter(value as "all" | "system" | "custom")}>
-                <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                {/* <div>
+          <Tabs value={roleFilter} onValueChange={(value) => setRoleFilter(value as "all" | "system" | "custom")}>
+            <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+              {/* <div>
                   <h1 className="text-2xl font-bold tracking-tight">Roles</h1>
                   <p className="text-muted-foreground mt-1 text-sm">
                     Manage system roles and create custom roles assigned to departments.
                   </p>
                 </div> */}
-                <TabsList className="grid w-full max-w-lg grid-cols-3">
-                  <TabsTrigger value="all">All Roles ({allPagination.total})</TabsTrigger>
-                  <TabsTrigger value="system">System ({systemPagination.total})</TabsTrigger>
-                  <TabsTrigger value="custom">Custom ({customPagination.total})</TabsTrigger>
-                </TabsList>
+              <TabsList className="grid w-full max-w-lg grid-cols-3">
+                <TabsTrigger value="all">All Roles ({allPagination.total})</TabsTrigger>
+                <TabsTrigger value="system">System ({systemPagination.total})</TabsTrigger>
+                <TabsTrigger value="custom">Custom ({customPagination.total})</TabsTrigger>
+              </TabsList>
 
-                <div className="flex w-full justify-start gap-2 sm:w-auto sm:justify-end">
-                  <Button
-                    variant="outline"
-                    onClick={() => Promise.all([mutateRoles(), mutateDepartments()])}
-                    disabled={isRolesValidating}
-                  >
-                    <RefreshCw className={`mr-2 h-4 w-4 ${isRolesValidating ? "animate-spin" : ""}`} />
-                    Refresh
-                  </Button>
-                  <Button
-                    onClick={() => {
-                      resetForm()
-                      setEditingRole(null)
-                      setShowCreateDialog(true)
-                    }}
-                  >
-                    <Plus className="h-4 w-4 mr-2" />
-                    Add Custom Role
-                  </Button>
-                </div>
+              <div className="flex w-full justify-start gap-2 sm:w-auto sm:justify-end">
+                <Button
+                  variant="outline"
+                  onClick={() => Promise.all([mutateRoles(), mutateDepartments()])}
+                  disabled={isRolesValidating}
+                >
+                  <RefreshCw className={`mr-2 h-4 w-4 ${isRolesValidating ? "animate-spin" : ""}`} />
+                  Refresh
+                </Button>
+                <Button
+                  onClick={() => {
+                    resetForm()
+                    setEditingRole(null)
+                    setShowCreateDialog(true)
+                  }}
+                >
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add Custom Role
+                </Button>
               </div>
+            </div>
             <div className="bg-card text-card-foreground mb-6 flex flex-col items-center justify-between gap-4 rounded-xl border p-4 shadow-sm md:flex-row">
               <div className="relative w-full md:w-96">
                 <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
@@ -789,25 +777,28 @@ export function RoleManager() {
             </TabsContent>
           </Tabs>
 
-          {/* Create/Edit Dialog */}
-          <FormDialog
+          <RightSidePanel
             open={showCreateDialog}
-            onOpenChange={setShowCreateDialog}
+            onOpenChange={(open) => {
+              setShowCreateDialog(open)
+              if (!open) {
+                setFormErrors({})
+                resetForm()
+              }
+            }}
             title="Create Role"
             description="Create a new custom role. Custom roles must be assigned to a department."
-            contentClassName="sm:max-w-[500px]"
-            form={{
-              onSubmit: (e) => {
-                e.preventDefault()
-                handleCreate()
-              },
-            }}
             footer={
-              <>
-                <Button variant="outline" type="button" onClick={() => setShowCreateDialog(false)} disabled={isSubmitting}>
+              <div className="flex justify-end gap-2">
+                <Button
+                  variant="outline"
+                  type="button"
+                  onClick={() => setShowCreateDialog(false)}
+                  disabled={isSubmitting}
+                >
                   Cancel
                 </Button>
-                <Button type="submit" disabled={isSubmitting}>
+                <Button type="submit" form="create-role-form" disabled={isSubmitting}>
                   {isSubmitting ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -817,67 +808,79 @@ export function RoleManager() {
                     "Create"
                   )}
                 </Button>
-              </>
+              </div>
             }
           >
-            <div className="space-y-4 py-4">
-              <div className="space-y-2">
-                <Label htmlFor="name">
-                  Name <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id="name"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  placeholder="e.g., senior-engineer"
-                  disabled={
-                    !!editingRole &&
-                    (editingRole.name === "super-admin" || editingRole.name === "admin" || editingRole.name === "user")
-                  }
-                />
-                <p className="text-muted-foreground text-xs">Lowercase alphanumeric with hyphens only</p>
-                {formErrors.name && <p className="text-destructive text-sm">{formErrors.name}</p>}
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="department">
-                  Department <span className="text-destructive">*</span>
-                </Label>
-                <Select
-                  value={formData.department_id || ""}
-                  onValueChange={(value) => setFormData({ ...formData, department_id: value })}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a department (required)" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {departments.length > 0 ? (
-                      departments.map((dept) => (
-                        <SelectItem key={dept.id} value={dept.id}>
-                          {dept.name}
+            <form
+              id="create-role-form"
+              onSubmit={(e) => {
+                e.preventDefault()
+                handleCreate()
+              }}
+            >
+              <div className="space-y-4 pt-2">
+                <div className="space-y-2">
+                  <Label htmlFor="name">
+                    Name <span className="text-destructive">*</span>
+                  </Label>
+                  <Input
+                    id="name"
+                    value={formData.name}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    placeholder="e.g., senior-engineer"
+                    disabled={
+                      !!editingRole &&
+                      (editingRole.name === "admin" ||
+                        editingRole.name === "system-admin" ||
+                        editingRole.name === "user")
+                    }
+                  />
+                  <p className="text-muted-foreground text-xs">Lowercase alphanumeric with hyphens only</p>
+                  {formErrors.name && <p className="text-destructive text-sm">{formErrors.name}</p>}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="department">
+                    Department <span className="text-destructive">*</span>
+                  </Label>
+                  <Select
+                    value={formData.department_id || ""}
+                    onValueChange={(value) => setFormData({ ...formData, department_id: value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a department (required)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {departments.length > 0 ? (
+                        departments.map((dept) => (
+                          <SelectItem key={dept.id} value={dept.id}>
+                            {dept.name}
+                          </SelectItem>
+                        ))
+                      ) : (
+                        <SelectItem value="" disabled>
+                          No departments available
                         </SelectItem>
-                      ))
-                    ) : (
-                      <SelectItem value="" disabled>
-                        No departments available
-                      </SelectItem>
-                    )}
-                  </SelectContent>
-                </Select>
-                <p className="text-muted-foreground text-xs">Custom roles must be assigned to a department</p>
-                {formErrors.department_id && <p className="text-destructive text-sm">{formErrors.department_id}</p>}
+                      )}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-muted-foreground text-xs">Custom roles must be assigned to a department</p>
+                  {formErrors.department_id && <p className="text-destructive text-sm">{formErrors.department_id}</p>}
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor="description">Description</Label>
+                  <Textarea
+                    id="description"
+                    value={formData.description}
+                    onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                    placeholder="Role description"
+                    rows={3}
+                  />
+                </div>
               </div>
-              <div className="space-y-2">
-                <Label htmlFor="description">Description</Label>
-                <Textarea
-                  id="description"
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  placeholder="Role description"
-                  rows={3}
-                />
-              </div>
-            </div>
-          </FormDialog>
+            </form>
+          </RightSidePanel>
 
           <RightSidePanel
             open={showEditPanel}
@@ -892,11 +895,7 @@ export function RoleManager() {
             description="Update role information."
             footer={
               <div className="flex justify-end gap-2">
-                <Button
-                  variant="outline"
-                  onClick={() => setShowEditPanel(false)}
-                  disabled={isSubmitting}
-                >
+                <Button variant="outline" onClick={() => setShowEditPanel(false)} disabled={isSubmitting}>
                   Cancel
                 </Button>
                 <Button onClick={handleUpdate} disabled={isSubmitting}>
@@ -924,9 +923,7 @@ export function RoleManager() {
                   placeholder="e.g., senior-engineer"
                   disabled={
                     !!editingRole &&
-                    (editingRole.name === "super-admin" ||
-                      editingRole.name === "admin" ||
-                      editingRole.name === "user")
+                    (editingRole.name === "admin" || editingRole.name === "system-admin" || editingRole.name === "user")
                   }
                 />
                 <p className="text-muted-foreground text-xs">Lowercase alphanumeric with hyphens only</p>
@@ -959,9 +956,7 @@ export function RoleManager() {
                   </SelectContent>
                 </Select>
                 <p className="text-muted-foreground text-xs">Custom roles must be assigned to a department</p>
-                {formErrors.department_id && (
-                  <p className="text-destructive text-sm">{formErrors.department_id}</p>
-                )}
+                {formErrors.department_id && <p className="text-destructive text-sm">{formErrors.department_id}</p>}
               </div>
 
               <div className="space-y-2">
@@ -975,6 +970,20 @@ export function RoleManager() {
                 />
               </div>
             </div>
+          </RightSidePanel>
+
+          <RightSidePanel
+            open={showPermissionsPanel}
+            onOpenChange={(open) => {
+              setShowPermissionsPanel(open)
+              if (!open) {
+                setPermissionsRole(null)
+              }
+            }}
+            title="Role Permissions"
+            description={permissionsRole ? `Assign permissions for ${permissionsRole.name}` : "Assign permissions"}
+          >
+            {permissionsRole ? <RolePermissionsPanel roleId={permissionsRole.id} /> : null}
           </RightSidePanel>
 
           {/* Delete Confirmation Dialog */}

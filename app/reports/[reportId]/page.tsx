@@ -1,0 +1,214 @@
+"use client"
+
+import { useEffect, useState } from "react"
+import { useParams, useRouter } from "next/navigation"
+import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Skeleton } from "@/components/ui/skeleton"
+import { Badge } from "@/components/ui/badge"
+import { Button } from "@/components/ui/button"
+import { ArrowLeft, Calendar } from "lucide-react"
+import { format, parseISO } from "date-fns"
+
+type CustomResponse = {
+  question_id: string
+  question_key: string
+  question_label: string | null
+  question_type: string | null
+  value: unknown
+}
+
+type ReportEntry = {
+  id: string
+  user_id: string
+  date: string
+  created_at: string
+  updated_at: string
+  custom_responses?: CustomResponse[]
+  profile?: {
+    name: string
+  }
+}
+
+export default function ReportViewPage() {
+  const { user, isLoading } = useSupabaseAuth()
+  const router = useRouter()
+  const params = useParams<{ reportId: string }>()
+  const reportId = params.reportId
+
+  const handleBack = () => {
+    if (typeof window !== "undefined" && window.history.length > 1) {
+      router.back()
+      return
+    }
+
+    router.push("/")
+  }
+
+  const [report, setReport] = useState<ReportEntry | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!isLoading && !user) {
+      router.push("/login")
+    }
+  }, [user, isLoading, router])
+
+  useEffect(() => {
+    if (!user || !reportId) return
+
+    const loadReport = async () => {
+      try {
+        setLoading(true)
+        setLoadError(null)
+        const res = await fetch(`/api/reports/${reportId}`)
+        const json = await res.json().catch(() => ({}))
+        if (!res.ok) {
+          const message = json.message || json.error || `HTTP ${res.status}`
+          if (res.status === 400) {
+            setReport(null)
+            setLoadError(String(message))
+            return
+          }
+          if (res.status === 404 || res.status === 403) {
+            setReport(null)
+            setLoadError(String(message))
+            return
+          }
+          throw new Error(message)
+        }
+        setReport((json.data || {}) as ReportEntry)
+      } catch (error) {
+        console.error("Failed to load report:", error)
+        setLoadError(error instanceof Error ? error.message : "Failed to load report")
+      } finally {
+        setLoading(false)
+      }
+    }
+
+    loadReport()
+  }, [user, reportId])
+
+  const formatResponseValue = (value: unknown) => {
+    if (value === null || value === undefined || value === "") return "Not provided"
+    if (Array.isArray(value)) return value.length ? value.map((v) => String(v)).join(", ") : "Not provided"
+    if (typeof value === "object") return JSON.stringify(value, null, 2)
+    return String(value)
+  }
+
+  if (isLoading || !user) {
+    return (
+      <div className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
+        <div className="space-y-2">
+          <Skeleton className="h-9 w-64 bg-gray-200/80 dark:bg-gray-800" />
+          <Skeleton className="h-4 w-80 bg-gray-200/70 dark:bg-gray-800" />
+        </div>
+      </div>
+    )
+  }
+
+  if (loading) {
+    return (
+      <div className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
+        <div className="flex items-center gap-4">
+          <Skeleton className="h-10 w-24 bg-gray-200/70 dark:bg-gray-800" />
+          <Skeleton className="h-6 w-48 bg-gray-200/60 dark:bg-gray-800" />
+        </div>
+        <Card>
+          <CardHeader>
+            <Skeleton className="h-5 w-40 bg-gray-200/70 dark:bg-gray-800" />
+            <Skeleton className="h-4 w-56 bg-gray-200/60 dark:bg-gray-800" />
+          </CardHeader>
+          <CardContent className="space-y-4">
+            {[...Array(5)].map((_, i) => (
+              <div key={i} className="space-y-2">
+                <Skeleton className="h-4 w-32 bg-gray-200/60 dark:bg-gray-800" />
+                <Skeleton className="h-16 w-full bg-gray-200/50 dark:bg-gray-800" />
+              </div>
+            ))}
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  if (!report) {
+    return (
+      <div className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" size="sm" className="gap-2" onClick={handleBack}>
+            <ArrowLeft className="h-4 w-4" />
+            Back
+          </Button>
+        </div>
+        <Card>
+          <CardHeader>
+            <CardTitle>Report not found</CardTitle>
+            <CardDescription>{loadError || "The requested report could not be found."}</CardDescription>
+          </CardHeader>
+        </Card>
+      </div>
+    )
+  }
+
+  return (
+    <div className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-4">
+          <Button variant="ghost" size="sm" className="gap-2" onClick={handleBack}>
+            <ArrowLeft className="h-4 w-4" />
+            Back
+          </Button>
+          <div>
+            <h1 className="text-3xl font-bold tracking-tight">Report Details</h1>
+            <p className="text-muted-foreground mt-2">Full report view</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-2">
+          <Badge variant="secondary">{(report.custom_responses || []).length} responses</Badge>
+        </div>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <div className="flex items-start justify-between gap-4">
+            <div>
+              <CardTitle className="text-xl">{report.profile?.name || "Unknown User"}</CardTitle>
+              <CardDescription className="mt-2 flex items-center gap-2">
+                <Calendar className="h-4 w-4" />
+                {(() => {
+                  try {
+                    return format(parseISO(report.date), "MMMM d, yyyy")
+                  } catch {
+                    return report.date
+                  }
+                })()}
+              </CardDescription>
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          {(report.custom_responses || []).length === 0 ? (
+            <div className="text-muted-foreground bg-muted/30 rounded-lg border p-6 text-center">
+              No responses for this report.
+            </div>
+          ) : (
+            <div className="space-y-6">
+              {(report.custom_responses || []).map((response, idx) => (
+                <div key={`${response.question_id}-${idx}`} className="space-y-3">
+                  <div className="flex items-center gap-2">
+                    <div className="text-lg font-semibold">{response.question_label || response.question_key}</div>
+                  </div>
+                  <div className="text-muted-foreground bg-muted/40 rounded-lg border p-4 text-sm whitespace-pre-wrap">
+                    {formatResponseValue(response.value)}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
+    </div>
+  )
+}

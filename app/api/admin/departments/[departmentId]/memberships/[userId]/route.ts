@@ -4,7 +4,6 @@ import { createClient } from "@/lib/supabase/server"
 
 export const dynamic = "force-dynamic"
 
-const SUPER_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000000"
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
 const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
 
@@ -29,22 +28,21 @@ async function verifyAdmin() {
     return { isAdmin: false as const, error: "Admin access required" }
   }
 
-  const isSuperAdmin = profile.role_id === SUPER_ADMIN_ROLE_ID
-  const isAdmin = profile.role_id === ADMIN_ROLE_ID || profile.role_id === SYSTEM_ADMIN_ROLE_ID || isSuperAdmin
+  const isAdmin = profile.role_id === ADMIN_ROLE_ID || profile.role_id === SYSTEM_ADMIN_ROLE_ID
 
   if (!isAdmin) {
     return { isAdmin: false as const, error: "Admin access required" }
   }
 
-  return { isAdmin: true as const, isSuperAdmin, userId: user.id }
+  return { isAdmin: true as const, userId: user.id }
 }
 
 export async function DELETE(
   request: Request,
-  { params }: { params: Promise<{ departmentId: string; userId: string }> },
+  { params }: { params: Promise<{ departmentId: string; userId: string }> }
 ) {
   try {
-    const { isAdmin, isSuperAdmin, error: authError, userId: adminUserId } = await verifyAdmin()
+    const { isAdmin, error: authError, userId: adminUserId } = await verifyAdmin()
     if (!isAdmin) {
       return NextResponse.json({ error: authError || "Admin access required" }, { status: 403 })
     }
@@ -52,10 +50,6 @@ export async function DELETE(
     const url = new URL(request.url)
     const mode = url.searchParams.get("mode")
     const hardDelete = mode === "hard"
-
-    if (hardDelete && !isSuperAdmin) {
-      return NextResponse.json({ error: "Super admin access required" }, { status: 403 })
-    }
 
     const { departmentId, userId } = await params
 
@@ -67,10 +61,7 @@ export async function DELETE(
       .maybeSingle()
 
     if (existingError) {
-      return NextResponse.json(
-        { error: "Failed to load membership", message: existingError.message },
-        { status: 500 },
-      )
+      return NextResponse.json({ error: "Failed to load membership", message: existingError.message }, { status: 500 })
     }
 
     if (!existing) {
@@ -81,7 +72,10 @@ export async function DELETE(
       const { error } = await adminSupabase.from("user_department_roles").delete().eq("id", existing.id)
 
       if (error) {
-        return NextResponse.json({ error: "Failed to permanently delete membership", message: error.message }, { status: 500 })
+        return NextResponse.json(
+          { error: "Failed to permanently delete membership", message: error.message },
+          { status: 500 }
+        )
       }
 
       const { error: professionDeleteError } = await adminSupabase
@@ -93,7 +87,7 @@ export async function DELETE(
       if (professionDeleteError) {
         return NextResponse.json(
           { error: "Failed to permanently delete profession assignment", message: professionDeleteError.message },
-          { status: 500 },
+          { status: 500 }
         )
       }
 
@@ -129,7 +123,7 @@ export async function DELETE(
     if (professionDeactivateError) {
       return NextResponse.json(
         { error: "Failed to remove profession assignment", message: professionDeactivateError.message },
-        { status: 500 },
+        { status: 500 }
       )
     }
 
@@ -140,7 +134,7 @@ export async function DELETE(
         error: "Failed to remove membership",
         message: error instanceof Error ? error.message : "Unknown error",
       },
-      { status: 500 },
+      { status: 500 }
     )
   }
 }

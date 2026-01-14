@@ -1,10 +1,4 @@
-export type Json =
-  | string
-  | number
-  | boolean
-  | null
-  | { [key: string]: Json | undefined }
-  | Json[]
+export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[]
 
 export type Database = {
   // Allows to automatically instantiate createClient with right options
@@ -41,6 +35,48 @@ export type Database = {
           operation?: string
           timestamp?: string
           user_id?: string | null
+        }
+        Relationships: []
+      }
+      access_requests: {
+        Row: {
+          created_at: string
+          department_id: string | null
+          id: string
+          message: string | null
+          requested_role: string | null
+          requester_email: string | null
+          resolved_at: string | null
+          resolved_by: string | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          department_id?: string | null
+          id?: string
+          message?: string | null
+          requested_role?: string | null
+          requester_email?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          department_id?: string | null
+          id?: string
+          message?: string | null
+          requested_role?: string | null
+          requester_email?: string | null
+          resolved_at?: string | null
+          resolved_by?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string
         }
         Relationships: []
       }
@@ -168,6 +204,33 @@ export type Database = {
         }
         Relationships: []
       }
+      permission_definitions: {
+        Row: {
+          action: string
+          created_at: string
+          description: string | null
+          id: string
+          resource: string
+          updated_at: string
+        }
+        Insert: {
+          action: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          resource: string
+          updated_at?: string
+        }
+        Update: {
+          action?: string
+          created_at?: string
+          description?: string | null
+          id?: string
+          resource?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
       permissions: {
         Row: {
           action: string
@@ -208,12 +271,9 @@ export type Database = {
       }
       role_questions: {
         Row: {
-          conditional_logic: Json | null
           created_at: string
           created_by: string | null
-          default_value: string | null
           display_order: number
-          help_text: string | null
           id: string
           is_active: boolean
           is_required: boolean
@@ -228,9 +288,7 @@ export type Database = {
           pattern: string | null
           placeholder: string | null
           question_description: string | null
-          question_key: string
           question_label: string
-          question_title: string | null
           question_type: string
           role_id: string
           step: number | null
@@ -239,12 +297,9 @@ export type Database = {
           validation_rules: Json | null
         }
         Insert: {
-          conditional_logic?: Json | null
           created_at?: string
           created_by?: string | null
-          default_value?: string | null
           display_order?: number
-          help_text?: string | null
           id?: string
           is_active?: boolean
           is_required?: boolean
@@ -259,9 +314,7 @@ export type Database = {
           pattern?: string | null
           placeholder?: string | null
           question_description?: string | null
-          question_key: string
           question_label: string
-          question_title?: string | null
           question_type: string
           role_id: string
           step?: number | null
@@ -270,12 +323,9 @@ export type Database = {
           validation_rules?: Json | null
         }
         Update: {
-          conditional_logic?: Json | null
           created_at?: string
           created_by?: string | null
-          default_value?: string | null
           display_order?: number
-          help_text?: string | null
           id?: string
           is_active?: boolean
           is_required?: boolean
@@ -290,9 +340,7 @@ export type Database = {
           pattern?: string | null
           placeholder?: string | null
           question_description?: string | null
-          question_key?: string
           question_label?: string
-          question_title?: string | null
           question_type?: string
           role_id?: string
           step?: number | null
@@ -577,10 +625,8 @@ export type Tables<
     }
     ? R
     : never
-  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] &
-        DefaultSchema["Views"])
-    ? (DefaultSchema["Tables"] &
-        DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
+  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
+    ? (DefaultSchema["Tables"] & DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
         Row: infer R
       }
       ? R
@@ -588,9 +634,7 @@ export type Tables<
     : never
 
 export type TablesInsert<
-  DefaultSchemaTableNameOrOptions extends
-    | keyof DefaultSchema["Tables"]
-    | { schema: keyof DatabaseWithoutInternals },
+  DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"] | { schema: keyof DatabaseWithoutInternals },
   TableName extends DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
@@ -613,9 +657,7 @@ export type TablesInsert<
     : never
 
 export type TablesUpdate<
-  DefaultSchemaTableNameOrOptions extends
-    | keyof DefaultSchema["Tables"]
-    | { schema: keyof DatabaseWithoutInternals },
+  DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"] | { schema: keyof DatabaseWithoutInternals },
   TableName extends DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
@@ -638,9 +680,7 @@ export type TablesUpdate<
     : never
 
 export type Enums<
-  DefaultSchemaEnumNameOrOptions extends
-    | keyof DefaultSchema["Enums"]
-    | { schema: keyof DatabaseWithoutInternals },
+  DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"] | { schema: keyof DatabaseWithoutInternals },
   EnumName extends DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }

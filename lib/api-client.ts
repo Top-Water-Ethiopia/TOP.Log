@@ -10,6 +10,19 @@ export class ApiError extends Error {
   }
 }
 
+async function getBrowserSupabaseAccessToken(): Promise<string | null> {
+  if (typeof window === "undefined") return null
+
+  try {
+    const { createSupabaseClient } = await import("@/lib/supabase-client")
+    const supabase = createSupabaseClient()
+    const { data } = await supabase.auth.getSession()
+    return data?.session?.access_token || null
+  } catch {
+    return null
+  }
+}
+
 export type ApiFetchOptions = RequestInit & {
   parseAs?: "json" | "text" | "none"
 }
@@ -44,7 +57,17 @@ function extractMessage(body: unknown): string | null {
 export async function apiFetch<T = unknown>(input: RequestInfo | URL, init?: ApiFetchOptions): Promise<T> {
   const { parseAs = "json", ...fetchInit } = init || {}
 
-  const res = await fetch(input, fetchInit)
+  const headers = new Headers(fetchInit.headers)
+  if (!headers.has("authorization")) {
+    const token = await getBrowserSupabaseAccessToken()
+    if (token) headers.set("authorization", `Bearer ${token}`)
+  }
+
+  const res = await fetch(input, {
+    ...fetchInit,
+    credentials: fetchInit.credentials ?? "include",
+    headers,
+  })
 
   const body =
     parseAs === "none"

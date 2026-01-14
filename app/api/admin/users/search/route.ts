@@ -4,7 +4,6 @@ import { createClient } from "@/lib/supabase/server"
 
 export const dynamic = "force-dynamic"
 
-const SUPER_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000000"
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
 const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
 
@@ -29,8 +28,7 @@ async function verifyAdmin() {
     return { isAdmin: false as const, error: "Admin access required" }
   }
 
-  const isSuperAdmin = profile.role_id === SUPER_ADMIN_ROLE_ID
-  const isAdmin = profile.role_id === ADMIN_ROLE_ID || profile.role_id === SYSTEM_ADMIN_ROLE_ID || isSuperAdmin
+  const isAdmin = profile.role_id === ADMIN_ROLE_ID || profile.role_id === SYSTEM_ADMIN_ROLE_ID
 
   if (!isAdmin) {
     return { isAdmin: false as const, error: "Admin access required" }
@@ -63,10 +61,7 @@ export async function GET(request: Request) {
       .limit(20)
 
     if (profileError) {
-      return NextResponse.json(
-        { error: "Failed to search users", message: profileError.message },
-        { status: 500 },
-      )
+      return NextResponse.json({ error: "Failed to search users", message: profileError.message }, { status: 500 })
     }
 
     const profileByUserId = new Map((profileMatches || []).map((p) => [p.user_id, p]))
@@ -74,10 +69,7 @@ export async function GET(request: Request) {
     // Pull auth users and filter by email
     const { data: listData, error: listError } = await adminSupabase.auth.admin.listUsers()
     if (listError) {
-      return NextResponse.json(
-        { error: "Failed to search users", message: listError.message },
-        { status: 500 },
-      )
+      return NextResponse.json({ error: "Failed to search users", message: listError.message }, { status: 500 })
     }
 
     const emailMatches = (listData.users || [])
@@ -114,7 +106,7 @@ export async function GET(request: Request) {
         error: "Failed to search users",
         message: error instanceof Error ? error.message : "Unknown error",
       },
-      { status: 500 },
+      { status: 500 }
     )
   }
 }

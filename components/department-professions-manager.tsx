@@ -34,19 +34,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { Minus, Plus, Pencil, Trash2, Users, Briefcase, UserPlus, X as XIcon } from "lucide-react"
 
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
 const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
-const SUPER_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000000"
 
 type RoleRow = {
   id: string
@@ -103,9 +96,7 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
   const searchParams = useSearchParams()
   const { toast } = useToast()
 
-  const isSuperAdmin = profile?.role_id === SUPER_ADMIN_ROLE_ID
-  const isAdmin =
-    profile?.role_id === ADMIN_ROLE_ID || profile?.role_id === SYSTEM_ADMIN_ROLE_ID || isSuperAdmin
+  const isAdmin = profile?.role_id === ADMIN_ROLE_ID || profile?.role_id === SYSTEM_ADMIN_ROLE_ID
 
   const [tab, setTab] = useState<"roles" | "assignments">(defaultTab)
 
@@ -120,11 +111,11 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
     if (!embedded) return
     const rolesTab = searchParams.get("rolesTab")
     setTab(rolesTab === "assignments" || rolesTab === "members" ? "assignments" : "roles")
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [embedded, searchParams])
 
   const rolesKey = isAdmin && departmentId ? `/api/admin/departments/${departmentId}/profession-roles` : null
-  const assignmentsKey = isAdmin && departmentId ? `/api/admin/departments/${departmentId}/profession-assignments` : null
+  const assignmentsKey =
+    isAdmin && departmentId ? `/api/admin/departments/${departmentId}/profession-assignments` : null
   const departmentsKey = isAdmin ? "/api/admin/departments" : null
 
   const {
@@ -141,24 +132,25 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
     mutate: mutateAssignments,
   } = useSWR<{ data: AssignmentRow[] }>(assignmentsKey)
 
-  const {
-    data: departmentsResponse,
-    error: departmentsError,
-  } = useSWR<{ data: Department[] }>(departmentsKey)
+  const { data: departmentsResponse, error: departmentsError } = useSWR<{ data: Department[] }>(departmentsKey)
 
   const rolesLoading = isRolesLoading
   const assignmentsLoading = isAssignmentsLoading
 
-  const roles = Array.isArray(rolesResponse?.data) ? rolesResponse?.data : []
-  const assignments = Array.isArray(assignmentsResponse?.data) ? assignmentsResponse?.data : []
+  const rolesData = rolesResponse?.data
+  const assignmentsData = assignmentsResponse?.data
+  const departmentsData = departmentsResponse?.data
+
+  const roles: RoleRow[] = Array.isArray(rolesData) ? rolesData : []
+  const assignments: AssignmentRow[] = Array.isArray(assignmentsData) ? assignmentsData : []
 
   const [showInactive, setShowInactive] = useState(false)
 
   const departmentName = useMemo(() => {
-    const depts = Array.isArray(departmentsResponse?.data) ? departmentsResponse.data : []
+    const depts: Department[] = Array.isArray(departmentsData) ? departmentsData : []
     const dept = depts.find((d) => d.id === departmentId)
     return dept?.name || null
-  }, [departmentsResponse, departmentId])
+  }, [departmentsData, departmentId])
 
   const [showRoleDialog, setShowRoleDialog] = useState(false)
   const [roleSaving, setRoleSaving] = useState(false)
@@ -319,7 +311,8 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
         if (editingRole) {
           mutateRoles(
             (current) => {
-              const rows = Array.isArray(current?.data) ? current.data : []
+              const currentData = current?.data
+              const rows = Array.isArray(currentData) ? currentData : []
               const nextRows = rows.map((r) =>
                 r.id === editingRole.id
                   ? {
@@ -327,16 +320,17 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
                       ...payload,
                       updated_at: nowIso,
                     }
-                  : r,
+                  : r
               )
               return { data: nextRows }
             },
-            { revalidate: false },
+            { revalidate: false }
           )
 
           mutateAssignments(
             (current) => {
-              const rows = Array.isArray(current?.data) ? current.data : []
+              const currentData = current?.data
+              const rows = Array.isArray(currentData) ? currentData : []
               const nextRows = rows.map((a) => {
                 if (a.role_id !== editingRole.id) return a
                 if (!a.role) return a
@@ -352,7 +346,7 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
               })
               return { data: nextRows }
             },
-            { revalidate: false },
+            { revalidate: false }
           )
         } else {
           optimisticRoleId = `temp-${Date.now()}`
@@ -368,10 +362,11 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
 
           mutateRoles(
             (current) => {
-              const rows = Array.isArray(current?.data) ? current.data : []
+              const currentData = current?.data
+              const rows = Array.isArray(currentData) ? currentData : []
               return { data: [...rows, optimistic] }
             },
-            { revalidate: false },
+            { revalidate: false }
           )
         }
       }
@@ -385,7 +380,8 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
       if (saved?.data?.id && rolesKey) {
         mutateRoles(
           (current) => {
-            const rows = Array.isArray(current?.data) ? current.data : []
+            const currentData = current?.data
+            const rows = Array.isArray(currentData) ? currentData : []
             const nextRows = editingRole
               ? rows.map((r) => (r.id === editingRole.id ? saved.data : r))
               : optimisticRoleId
@@ -393,14 +389,15 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
                 : [...rows, saved.data]
             return { data: nextRows }
           },
-          { revalidate: false },
+          { revalidate: false }
         )
       }
 
       if (editingRole && saved?.data?.id) {
         mutateAssignments(
           (current) => {
-            const rows = Array.isArray(current?.data) ? current.data : []
+            const currentData = current?.data
+            const rows = Array.isArray(currentData) ? currentData : []
             const nextRows = rows.map((a) => {
               if (a.role_id !== saved.data.id) return a
               if (!a.role) return a
@@ -418,7 +415,7 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
             })
             return { data: nextRows }
           },
-          { revalidate: false },
+          { revalidate: false }
         )
       }
 
@@ -468,16 +465,17 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
 
       mutateRoles(
         (current) => {
-          const rows = Array.isArray(current?.data) ? current.data : []
+          const currentData = current?.data
+          const rows = Array.isArray(currentData) ? currentData : []
           const nextRows = rows.filter((r) => r.id !== roleToDelete.id)
           return { data: nextRows }
         },
-        { revalidate: false },
+        { revalidate: false }
       )
 
       await apiFetch<{ success: boolean }>(
         `/api/admin/departments/${departmentId}/profession-roles?id=${encodeURIComponent(roleToDelete.id)}`,
-        { method: "DELETE" },
+        { method: "DELETE" }
       )
 
       toast({ title: "Deleted", description: "Profession role deleted" })
@@ -566,7 +564,8 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
 
       mutateAssignments(
         (current) => {
-          const rows = Array.isArray(current?.data) ? current.data : []
+          const currentData = current?.data
+          const rows = Array.isArray(currentData) ? currentData : []
           const optimistic: AssignmentRow = existing
             ? {
                 ...existing,
@@ -582,7 +581,8 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
                       level: role.level,
                     }
                   : existing.role,
-                user: existing.user ||
+                user:
+                  existing.user ||
                   (selectedUser
                     ? { user_id: selectedUser.user_id, email: selectedUser.email, name: selectedUser.name }
                     : { user_id: selectedUserId, email: null, name: null }),
@@ -615,26 +615,34 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
 
           return { data: nextRows }
         },
-        { revalidate: false },
+        { revalidate: false }
       )
 
-      const saved = await apiFetch<{ data: { id: string; user_id: string; department_id: string; role_id: string; is_active: boolean; created_at: string; updated_at: string } }>(
-        `/api/admin/departments/${departmentId}/profession-assignments`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            user_id: selectedUserId,
-            role_id: selectedRoleId,
-            is_active: selectedActive,
-          }),
-        },
-      )
+      const saved = await apiFetch<{
+        data: {
+          id: string
+          user_id: string
+          department_id: string
+          role_id: string
+          is_active: boolean
+          created_at: string
+          updated_at: string
+        }
+      }>(`/api/admin/departments/${departmentId}/profession-assignments`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          user_id: selectedUserId,
+          role_id: selectedRoleId,
+          is_active: selectedActive,
+        }),
+      })
 
       if (saved?.data?.id) {
         mutateAssignments(
           (current) => {
-            const rows = Array.isArray(current?.data) ? current.data : []
+            const currentData = current?.data
+            const rows = Array.isArray(currentData) ? currentData : []
             const nextRows = rows.map((a) => {
               if (a.user_id !== selectedUserId) return a
               return {
@@ -644,7 +652,7 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
             })
             return { data: nextRows }
           },
-          { revalidate: false },
+          { revalidate: false }
         )
       }
 
@@ -688,17 +696,18 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
       // Update the assignment's is_active status instead of removing it
       mutateAssignments(
         (current) => {
-          const rows = Array.isArray(current?.data) ? current.data : []
+          const currentData = current?.data
+          const rows = Array.isArray(currentData) ? currentData : []
           return {
             data: rows.map((a) => (a.user_id === removedUserId ? { ...a, is_active: false } : a)),
           }
         },
-        { revalidate: false },
+        { revalidate: false }
       )
 
       await apiFetch<{ data: unknown }>(
         `/api/admin/departments/${departmentId}/profession-assignments/${removedUserId}`,
-        { method: "DELETE" },
+        { method: "DELETE" }
       )
 
       sonnerToast.success("Deactivated", {
@@ -710,12 +719,13 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
               // Update the assignment's is_active status
               mutateAssignments(
                 (current) => {
-                  const rows = Array.isArray(current?.data) ? current.data : []
+                  const currentData = current?.data
+                  const rows = Array.isArray(currentData) ? currentData : []
                   return {
                     data: rows.map((a) => (a.user_id === removedUserId ? { ...a, is_active: true } : a)),
                   }
                 },
-                { revalidate: false },
+                { revalidate: false }
               )
 
               await apiFetch<{ data: unknown }>(`/api/admin/departments/${departmentId}/profession-assignments`, {
@@ -727,7 +737,7 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
                   is_active: true,
                 }),
               })
-              
+
               sonnerToast.success("Restored", {
                 description: `${removedDisplayName}'s access has been restored`,
               })
@@ -774,15 +784,16 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
       // Remove the assignment from the list entirely
       mutateAssignments(
         (current) => {
-          const rows = Array.isArray(current?.data) ? current.data : []
+          const currentData = current?.data
+          const rows = Array.isArray(currentData) ? currentData : []
           return { data: rows.filter((a) => a.user_id !== removedUserId) }
         },
-        { revalidate: false },
+        { revalidate: false }
       )
 
       await apiFetch<{ data: unknown }>(
         `/api/admin/departments/${departmentId}/profession-assignments/${removedUserId}?mode=hard`,
-        { method: "DELETE" },
+        { method: "DELETE" }
       )
 
       sonnerToast.success("Permanently deleted", {
@@ -836,7 +847,9 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
             <CardDescription>You don't have permission to manage professions.</CardDescription>
           </CardHeader>
           <CardContent>
-            <Button className="w-full" onClick={() => router.push("/")}>Go to Home</Button>
+            <Button className="w-full" onClick={() => router.push("/")}>
+              Go to Home
+            </Button>
           </CardContent>
         </Card>
       </div>
@@ -857,7 +870,7 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
           </Button>
         </div>
       ) : (
-        <div className="flex flex-col gap-4 rounded-xl border bg-background p-6 shadow-sm sm:flex-row sm:items-start sm:justify-between">
+        <div className="bg-background flex flex-col gap-4 rounded-xl border p-6 shadow-sm sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-2">
             <h1 className="text-3xl font-semibold tracking-tight">
               {departmentName ? `${departmentName} profession roles` : "Profession roles"}
@@ -899,17 +912,19 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
                 ))}
               </div>
             ) : sortedRoles.length === 0 ? (
-              <div className="text-sm text-muted-foreground">No roles yet. Create your first role to start assigning members.</div>
+              <div className="text-muted-foreground text-sm">
+                No roles yet. Create your first role to start assigning members.
+              </div>
             ) : (
               <div className="space-y-2">
                 {sortedRoles.map((r) => (
                   <div key={r.id} className="flex items-center justify-between rounded-md border px-4 py-2">
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-2">
-                        <div className="font-medium truncate">{r.name}</div>
+                        <div className="truncate font-medium">{r.name}</div>
                         {typeof r.level === "number" && <Badge variant="secondary">level {r.level}</Badge>}
                       </div>
-                      <div className="text-sm text-muted-foreground truncate">{r.description || "-"}</div>
+                      <div className="text-muted-foreground truncate text-sm">{r.description || "-"}</div>
                     </div>
                     <div className="flex items-center gap-1">
                       <Tooltip>
@@ -927,28 +942,23 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
                         </TooltipTrigger>
                         <TooltipContent sideOffset={6}>Show members</TooltipContent>
                       </Tooltip>
-                      <Button 
-                        variant="outline" 
-                        size="sm" 
-                        className="gap-2 text-xs h-8"
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="h-8 gap-2 text-xs"
                         onClick={() => openAssign(r.id)}
                       >
                         <UserPlus className="h-3.5 w-3.5" />
                         <span>Assign member</span>
                       </Button>
-                      <Button 
-                        variant="ghost" 
-                        size="icon" 
-                        className="h-8 w-8"
-                        onClick={() => openEditRole(r)}
-                      >
+                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEditRole(r)}>
                         <Pencil className="h-3.5 w-3.5" />
                         <span className="sr-only">Edit</span>
                       </Button>
                       <Button
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8 text-destructive hover:text-destructive/90"
+                        className="text-destructive hover:text-destructive/90 h-8 w-8"
                         onClick={() => confirmDeleteRole(r)}
                       >
                         <Trash2 className="h-3.5 w-3.5" />
@@ -975,7 +985,7 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
           </CardHeader>
           <CardContent>
             {sortedRoles.length === 0 ? (
-              <div className="text-sm text-muted-foreground">Create at least one role before assigning members.</div>
+              <div className="text-muted-foreground text-sm">Create at least one role before assigning members.</div>
             ) : assignmentsLoading ? (
               <div className="space-y-4">
                 {[...Array(6)].map((_, i) => (
@@ -983,55 +993,46 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
                 ))}
               </div>
             ) : sortedAssignments.length === 0 ? (
-              <div className="text-sm text-muted-foreground">No members assigned to roles yet.</div>
+              <div className="text-muted-foreground text-sm">No members assigned to roles yet.</div>
             ) : (
               <div className="space-y-2">
-                <div className="flex items-center justify-between mb-2">
-                  <div className="text-sm text-muted-foreground">
-                    {sortedAssignments.length} assignment{sortedAssignments.length !== 1 ? 's' : ''} • {assignments.filter(a => !a.is_active).length} inactive
+                <div className="mb-2 flex items-center justify-between">
+                  <div className="text-muted-foreground text-sm">
+                    {sortedAssignments.length} assignment{sortedAssignments.length !== 1 ? "s" : ""} •{" "}
+                    {assignments.filter((a) => !a.is_active).length} inactive
                   </div>
                   <div className="flex items-center space-x-2">
-                    <label htmlFor="show-inactive" className="text-sm font-medium text-muted-foreground">
+                    <label htmlFor="show-inactive" className="text-muted-foreground text-sm font-medium">
                       Show inactive
                     </label>
-                    <Switch
-                      id="show-inactive"
-                      checked={showInactive}
-                      onCheckedChange={setShowInactive}
-                    />
+                    <Switch id="show-inactive" checked={showInactive} onCheckedChange={setShowInactive} />
                   </div>
                 </div>
                 {sortedAssignments
-                  .filter(a => showInactive || a.is_active)
+                  .filter((a) => showInactive || a.is_active)
                   .map((a) => {
                     const role = a.role || rolesById.get(a.role_id) || null
                     const roleName = role?.name || a.role_id
                     return (
-                      <div 
-                        key={a.id} 
+                      <div
+                        key={a.id}
                         className={`flex items-center justify-between rounded-md border p-3 ${
-                          !a.is_active ? 'opacity-70 bg-muted/30' : ''
+                          !a.is_active ? "bg-muted/30 opacity-70" : ""
                         }`}
                       >
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
-                            <div className="font-medium truncate">
-                              {a.user?.name || "Unknown"}
-                            </div>
+                            <div className="truncate font-medium">{a.user?.name || "Unknown"}</div>
                             {!a.is_active && (
                               <Badge variant="outline" className="border-dashed">
                                 Inactive
                               </Badge>
                             )}
                           </div>
-                          <div className="text-sm text-muted-foreground truncate">
-                            {a.user?.email || a.user_id}
-                          </div>
+                          <div className="text-muted-foreground truncate text-sm">{a.user?.email || a.user_id}</div>
                         </div>
                         <div className="flex items-center gap-2">
-                          <Badge variant={a.is_active ? "secondary" : "outline"}>
-                            {roleName}
-                          </Badge>
+                          <Badge variant={a.is_active ? "secondary" : "outline"}>{roleName}</Badge>
                           <Button
                             variant="ghost"
                             size="sm"
@@ -1055,22 +1056,20 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
                             onClick={() => confirmRemoveAssignment(a)}
                           >
                             {a.is_active ? (
-                              <Trash2 className="h-4 w-4 text-destructive" />
+                              <Trash2 className="text-destructive h-4 w-4" />
                             ) : (
-                              <Trash2 className="h-4 w-4 text-destructive/60" />
+                              <Trash2 className="text-destructive/60 h-4 w-4" />
                             )}
                           </Button>
                         </div>
                       </div>
                     )
                   })}
-                {!showInactive && assignments.some(a => !a.is_active) && (
-                  <div className="text-center text-sm text-muted-foreground pt-2">
-                    {assignments.filter(a => !a.is_active).length} inactive assignment{assignments.filter(a => !a.is_active).length !== 1 ? 's' : ''} hidden. {' '}
-                    <button 
-                      onClick={() => setShowInactive(true)}
-                      className="text-primary hover:underline"
-                    >
+                {!showInactive && assignments.some((a) => !a.is_active) && (
+                  <div className="text-muted-foreground pt-2 text-center text-sm">
+                    {assignments.filter((a) => !a.is_active).length} inactive assignment
+                    {assignments.filter((a) => !a.is_active).length !== 1 ? "s" : ""} hidden.{" "}
+                    <button onClick={() => setShowInactive(true)} className="text-primary hover:underline">
                       Show all
                     </button>
                   </div>
@@ -1106,7 +1105,7 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
               onChange={(e) => setRoleForm((p) => ({ ...p, name: e.target.value }))}
               placeholder="e.g. deckhand"
             />
-            {roleFormErrors.name && <div className="text-sm text-destructive">{roleFormErrors.name}</div>}
+            {roleFormErrors.name && <div className="text-destructive text-sm">{roleFormErrors.name}</div>}
           </div>
 
           <div className="space-y-2">
@@ -1122,7 +1121,7 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
 
           <div className="space-y-2">
             <Label htmlFor="profession_role_level">Level</Label>
-            <div className="text-xs text-muted-foreground">Defines the hierarchy weight of this role</div>
+            <div className="text-muted-foreground text-xs">Defines the hierarchy weight of this role</div>
             <div className="flex items-center gap-2">
               <Button
                 type="button"
@@ -1165,7 +1164,7 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
                 <Plus className="h-4 w-4" />
               </Button>
             </div>
-            {roleFormErrors.level && <div className="text-sm text-destructive">{roleFormErrors.level}</div>}
+            {roleFormErrors.level && <div className="text-destructive text-sm">{roleFormErrors.level}</div>}
           </div>
         </div>
       </RightSidePanel>
@@ -1185,14 +1184,14 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
                 ))}
               </div>
             ) : membersForViewedRole.length === 0 ? (
-              <div className="text-sm text-muted-foreground">No members assigned to this role.</div>
+              <div className="text-muted-foreground text-sm">No members assigned to this role.</div>
             ) : (
               <div className="space-y-2">
                 {membersForViewedRole.map((a) => (
                   <div key={a.id} className="flex items-center justify-between rounded-md border p-3">
                     <div className="min-w-0">
-                      <div className="font-medium truncate">{a.user?.name || "Unknown"}</div>
-                      <div className="text-sm text-muted-foreground truncate">{a.user?.email || a.user_id}</div>
+                      <div className="truncate font-medium">{a.user?.name || "Unknown"}</div>
+                      <div className="text-muted-foreground truncate text-sm">{a.user?.email || a.user_id}</div>
                     </div>
                     <Badge variant={a.is_active ? "secondary" : "outline"}>{a.is_active ? "active" : "inactive"}</Badge>
                   </div>
@@ -1264,7 +1263,7 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
                         setSelectedUserId(null)
                         setSearchResults([])
                       }}
-                      className="absolute inset-y-0 right-2 my-auto flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground hover:text-foreground focus:outline-none"
+                      className="text-muted-foreground hover:text-foreground absolute inset-y-0 right-2 my-auto flex h-4 w-4 items-center justify-center rounded-full focus:outline-none"
                       aria-label="Clear user search"
                     >
                       <XIcon className="h-3 w-3" />
@@ -1282,7 +1281,7 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
                     <button
                       key={u.user_id}
                       type="button"
-                      className={`w-full text-left px-4 py-2 text-sm hover:bg-muted ${
+                      className={`hover:bg-muted w-full px-4 py-2 text-left text-sm ${
                         selectedUserId === u.user_id ? "bg-muted" : ""
                       }`}
                       onClick={() => setSelectedUserId(u.user_id)}
@@ -1295,7 +1294,7 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
               )}
 
               {selectedUserId && (
-                <div className="text-xs text-muted-foreground">Selected user_id: {selectedUserId}</div>
+                <div className="text-muted-foreground text-xs">Selected user_id: {selectedUserId}</div>
               )}
             </div>
 
@@ -1318,7 +1317,9 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
             <div className="flex items-center justify-between">
               <div>
                 <div className="text-sm font-medium">Active</div>
-                <div className="text-xs text-muted-foreground">Inactive disables question visibility without deleting history.</div>
+                <div className="text-muted-foreground text-xs">
+                  Inactive disables question visibility without deleting history.
+                </div>
               </div>
               <Switch checked={selectedActive} onCheckedChange={setSelectedActive} />
             </div>
@@ -1339,19 +1340,17 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              {assignmentToRemove?.is_active ? 'Deactivate assignment' : 'Delete assignment'}
+              {assignmentToRemove?.is_active ? "Deactivate assignment" : "Delete assignment"}
             </AlertDialogTitle>
             <AlertDialogDescription>
-              {assignmentToRemove?.is_active ? (
-                'This will deactivate the assignment. The user will no longer have access to this role, but the history will be preserved.'
-              ) : (
-                'This will permanently delete the assignment. This action cannot be undone.'
-              )}
+              {assignmentToRemove?.is_active
+                ? "This will deactivate the assignment. The user will no longer have access to this role, but the history will be preserved."
+                : "This will permanently delete the assignment. This action cannot be undone."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={!!removingUserId}>Cancel</AlertDialogCancel>
-            {isSuperAdmin && assignmentToRemove?.is_active && (
+            {assignmentToRemove?.is_active && (
               <Button
                 variant="destructive"
                 disabled={!!removingUserId}
@@ -1364,12 +1363,16 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
                 Permanently delete
               </Button>
             )}
-            <AlertDialogAction 
-              disabled={!!removingUserId} 
+            <AlertDialogAction
+              disabled={!!removingUserId}
               onClick={assignmentToRemove?.is_active ? removeAssignment : hardDeleteAssignment}
-              className={!assignmentToRemove?.is_active ? "bg-destructive text-destructive-foreground hover:bg-destructive/90" : ""}
+              className={
+                !assignmentToRemove?.is_active
+                  ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                  : ""
+              }
             >
-              {assignmentToRemove?.is_active ? 'Deactivate' : 'Permanently delete'}
+              {assignmentToRemove?.is_active ? "Deactivate" : "Permanently delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

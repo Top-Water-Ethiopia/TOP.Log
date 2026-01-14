@@ -4,7 +4,6 @@ import { createClient } from "@/lib/supabase/server"
 
 export const dynamic = "force-dynamic"
 
-const SUPER_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000000"
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
 const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
 
@@ -16,7 +15,7 @@ async function verifyAdmin() {
   } = await supabase.auth.getUser()
 
   if (userError || !user) {
-    return { isAdmin: false, isSuperAdmin: false, error: "Not authenticated" }
+    return { isAdmin: false, error: "Not authenticated" }
   }
 
   const { data: profile, error: profileError } = await supabase
@@ -26,17 +25,16 @@ async function verifyAdmin() {
     .single()
 
   if (profileError || !profile) {
-    return { isAdmin: false, isSuperAdmin: false, error: "Admin access required" }
+    return { isAdmin: false, error: "Admin access required" }
   }
 
-  const isSuperAdmin = profile.role_id === SUPER_ADMIN_ROLE_ID
-  const isAdmin = profile.role_id === ADMIN_ROLE_ID || profile.role_id === SYSTEM_ADMIN_ROLE_ID || isSuperAdmin
+  const isAdmin = profile.role_id === ADMIN_ROLE_ID || profile.role_id === SYSTEM_ADMIN_ROLE_ID
 
   if (!isAdmin) {
-    return { isAdmin: false, isSuperAdmin: false, error: "Admin access required" }
+    return { isAdmin: false, error: "Admin access required" }
   }
 
-  return { isAdmin: true, isSuperAdmin, userId: user.id, roleId: profile.role_id }
+  return { isAdmin: true, userId: user.id, roleId: profile.role_id }
 }
 
 function parsePermissionName(name: string) {
@@ -46,9 +44,23 @@ function parsePermissionName(name: string) {
     return null
   }
 
+  const resource = trimmed.slice(0, idx).trim().toLowerCase()
+  const action = trimmed
+    .slice(idx + 1)
+    .trim()
+    .toLowerCase()
+
+  if (!resource || !action) {
+    return null
+  }
+
+  if (/\s/.test(resource) || /\s/.test(action)) {
+    return null
+  }
+
   return {
-    resource: trimmed.slice(0, idx),
-    action: trimmed.slice(idx + 1),
+    resource,
+    action,
   }
 }
 
@@ -86,7 +98,7 @@ export async function GET(request: Request) {
         error: "Failed to fetch permissions",
         message: error instanceof Error ? error.message : "Unknown error",
       },
-      { status: 500 },
+      { status: 500 }
     )
   }
 }
@@ -110,34 +122,36 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: "permissions must be an array" }, { status: 400 })
     }
 
-    const unique = Array.from(
-      new Set(
-        permissionNames
-          .filter((p): p is string => typeof p === "string")
-          .map((p) => p.trim())
-          .filter(Boolean),
-      ),
-    )
+    const cleaned = permissionNames
+      .filter((p): p is string => typeof p === "string")
+      .map((p) => p.trim())
+      .filter(Boolean)
 
-    const parsed = unique
-      .map((name) => ({ name, parsed: parsePermissionName(name) }))
-      .filter((p) => p.parsed !== null) as Array<{ name: string; parsed: { resource: string; action: string } }>
+    const invalid: string[] = []
+    const canonical = new Map<string, { resource: string; action: string }>()
 
-    const invalid = unique.filter((name) => !parsePermissionName(name))
+    cleaned.forEach((name) => {
+      const parsed = parsePermissionName(name)
+      if (!parsed) {
+        invalid.push(name)
+        return
+      }
+
+      canonical.set(`${parsed.resource}.${parsed.action}`, parsed)
+    })
+
     if (invalid.length > 0) {
       return NextResponse.json(
-        { error: "Invalid permission name(s)", invalid },
+        { error: "Invalid permission name(s)", invalid: Array.from(new Set(invalid)) },
         {
           status: 400,
-        },
+        }
       )
     }
 
-    const { data: role, error: roleError } = await adminSupabase
-      .from("roles")
-      .select("id")
-      .eq("id", roleId)
-      .single()
+    const parsed = Array.from(canonical.values())
+
+    const { data: role, error: roleError } = await adminSupabase.from("roles").select("id").eq("id", roleId).single()
 
     if (roleError || !role) {
       return NextResponse.json({ error: "Role not found" }, { status: 404 })
@@ -147,30 +161,27 @@ export async function PUT(request: Request) {
 
     if (deleteError) {
       console.error("Error clearing permissions:", deleteError)
-      return NextResponse.json(
-        { error: "Failed to update permissions", message: deleteError.message },
-        { status: 500 },
-      )
+      return NextResponse.json({ error: "Failed to update permissions", message: deleteError.message }, { status: 500 })
     }
 
     const nowIso = new Date().toISOString()
     if (parsed.length > 0) {
       const { error: insertError } = await adminSupabase.from("permissions").insert(
-        parsed.map(({ parsed }) => ({
+        parsed.map((parsed) => ({
           role_id: roleId,
           resource: parsed.resource,
           action: parsed.action,
           conditions: null,
           created_at: nowIso,
           updated_at: nowIso,
-        })),
+        }))
       )
 
       if (insertError) {
         console.error("Error inserting permissions:", insertError)
         return NextResponse.json(
           { error: "Failed to update permissions", message: insertError.message },
-          { status: 500 },
+          { status: 500 }
         )
       }
     }
@@ -195,7 +206,7 @@ export async function PUT(request: Request) {
         error: "Failed to update permissions",
         message: error instanceof Error ? error.message : "Unknown error",
       },
-      { status: 500 },
+      { status: 500 }
     )
   }
 }

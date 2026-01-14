@@ -1,27 +1,20 @@
-import { NextResponse } from 'next/server'
-import { adminSupabase } from '@/lib/supabase/admin'
-import { createClient } from '@/lib/supabase/server'
+import { NextResponse } from "next/server"
+import { adminSupabase } from "@/lib/supabase/admin"
+import { createClient } from "@/lib/supabase/server"
 
 // Helper function to handle timeouts for Supabase operations
-async function withTimeout<T>(
-  promise: PromiseLike<T>,
-  timeoutMs: number = 5000,
-  fallback: T
-): Promise<T> {
+async function withTimeout<T>(promise: PromiseLike<T>, timeoutMs: number = 5000, fallback: T): Promise<T> {
   return Promise.race([
     promise,
-    new Promise<T>((_, reject) =>
-      setTimeout(() => reject(new Error('Operation timed out')), timeoutMs)
-    )
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error("Operation timed out")), timeoutMs)),
   ]).catch((error) => {
-    console.warn('Operation timed out or failed, using fallback:', error instanceof Error ? error.message : error)
+    console.warn("Operation timed out or failed, using fallback:", error instanceof Error ? error.message : error)
     return fallback
   })
 }
 
-const SUPER_ADMIN_ROLE_ID = '00000000-0000-0000-0000-000000000000'
-const ADMIN_ROLE_ID = '00000000-0000-0000-0000-000000000001'
-const SYSTEM_ADMIN_ROLE_ID = '00000000-0000-0000-0000-000000000010'
+const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
+const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
 
 async function verifyAdmin() {
   const supabase = await createClient()
@@ -31,24 +24,23 @@ async function verifyAdmin() {
   } = await supabase.auth.getUser()
 
   if (userError || !user) {
-    return { isAdmin: false as const, error: 'Not authenticated' }
+    return { isAdmin: false as const, error: "Not authenticated" }
   }
 
   const { data: profile, error: profileError } = await supabase
-    .from('user_profiles')
-    .select('role_id')
-    .eq('user_id', user.id)
+    .from("user_profiles")
+    .select("role_id")
+    .eq("user_id", user.id)
     .single()
 
   if (profileError || !profile) {
-    return { isAdmin: false as const, error: 'Admin access required' }
+    return { isAdmin: false as const, error: "Admin access required" }
   }
 
-  const isSuperAdmin = profile.role_id === SUPER_ADMIN_ROLE_ID
-  const isAdmin = profile.role_id === ADMIN_ROLE_ID || profile.role_id === SYSTEM_ADMIN_ROLE_ID || isSuperAdmin
+  const isAdmin = profile.role_id === ADMIN_ROLE_ID || profile.role_id === SYSTEM_ADMIN_ROLE_ID
 
   if (!isAdmin) {
-    return { isAdmin: false as const, error: 'Admin access required' }
+    return { isAdmin: false as const, error: "Admin access required" }
   }
 
   return { isAdmin: true as const }
@@ -58,22 +50,22 @@ export async function GET() {
   try {
     const { isAdmin, error: authError } = await verifyAdmin()
     if (!isAdmin) {
-      return NextResponse.json({ error: authError || 'Admin access required' }, { status: 403 })
+      return NextResponse.json({ error: authError || "Admin access required" }, { status: 403 })
     }
 
     // Get total users with timeout handling
     const { count: totalUsers, error: usersError } = await withTimeout(
       adminSupabase
-        .from('user_profiles')
-        .select('id', { count: 'exact', head: true })
-        .eq('is_active', true)
-        .not('user_id', 'is', null),
+        .from("user_profiles")
+        .select("id", { count: "exact", head: true })
+        .eq("is_active", true)
+        .not("user_id", "is", null),
       5000,
-      { data: null, count: null, error: null, status: 0, statusText: 'timeout' } as any
+      { data: null, count: null, error: null, status: 0, statusText: "timeout" } as any
     )
 
     if (usersError) {
-      console.warn('Error fetching user count:', usersError)
+      console.warn("Error fetching user count:", usersError)
     }
 
     // Get active sessions with timeout handling
@@ -85,19 +77,22 @@ export async function GET() {
       // Use Promise.race with a timeout to prevent hanging
       const listUsersPromise = adminSupabase.auth.admin.listUsers()
       const timeoutPromise = new Promise((_, reject) => {
-        setTimeout(() => reject(new Error('listUsers timeout after 8s')), 8000)
+        setTimeout(() => reject(new Error("listUsers timeout after 8s")), 8000)
       })
 
-      const {
-        data: { users: authUsers = [] } = { users: [] },
-        error: sessionsError
-      } = await Promise.race([listUsersPromise, timeoutPromise]).catch((error) => {
-        console.warn('Failed to fetch active sessions (timeout or error):', error instanceof Error ? error.message : error)
+      const { data: { users: authUsers = [] } = { users: [] }, error: sessionsError } = (await Promise.race([
+        listUsersPromise,
+        timeoutPromise,
+      ]).catch((error) => {
+        console.warn(
+          "Failed to fetch active sessions (timeout or error):",
+          error instanceof Error ? error.message : error
+        )
         return { data: { users: [] }, error: null }
-      }) as { data: { users: any[] }, error: any }
+      })) as { data: { users: any[] }; error: any }
 
       if (sessionsError) {
-        console.warn('Error fetching active sessions:', sessionsError)
+        console.warn("Error fetching active sessions:", sessionsError)
       } else if (authUsers && authUsers.length > 0) {
         activeSessions = authUsers.filter((user) => {
           if (!user.last_sign_in_at) return false
@@ -105,29 +100,26 @@ export async function GET() {
         }).length
       }
     } catch (error) {
-      console.warn('Failed to fetch active sessions, using fallback:', error)
+      console.warn("Failed to fetch active sessions, using fallback:", error)
       // Continue with activeSessions = 0
     }
 
     // Get storage usage with timeout handling
-    let storageUsed = '0 GB'
+    let storageUsed = "0 GB"
     try {
-      const { data: buckets, error: storageError } = await withTimeout(
-        adminSupabase.storage.listBuckets(),
-        5000,
-        { data: [], error: null }
-      )
+      const { data: buckets, error: storageError } = await withTimeout(adminSupabase.storage.listBuckets(), 5000, {
+        data: [],
+        error: null,
+      })
 
       if (storageError) {
-        console.warn('Error fetching storage buckets:', storageError)
+        console.warn("Error fetching storage buckets:", storageError)
       } else if (buckets && buckets.length > 0) {
         let totalSize = 0
         for (const bucket of buckets) {
           try {
             const { data: files, error: bucketFilesError } = await withTimeout(
-              adminSupabase.storage
-                .from(bucket.id)
-                .list(undefined, { limit: 1000 }),
+              adminSupabase.storage.from(bucket.id).list(undefined, { limit: 1000 }),
               3000,
               { data: [], error: null }
             )
@@ -143,12 +135,10 @@ export async function GET() {
           }
         }
 
-        storageUsed = totalSize > 0
-          ? `${(totalSize / 1024 / 1024 / 1024).toFixed(1)} GB`
-          : '0 GB'
+        storageUsed = totalSize > 0 ? `${(totalSize / 1024 / 1024 / 1024).toFixed(1)} GB` : "0 GB"
       }
     } catch (error) {
-      console.warn('Failed to fetch storage usage, using fallback:', error)
+      console.warn("Failed to fetch storage usage, using fallback:", error)
       // Continue with storageUsed = '0 GB'
     }
 
@@ -156,20 +146,20 @@ export async function GET() {
       totalUsers: totalUsers ?? null,
       activeSessions,
       storageUsed,
-      uptime: '99.9%'
+      uptime: "99.9%",
     })
   } catch (error) {
-    console.error('Admin stats API error:', error)
+    console.error("Admin stats API error:", error)
 
     // Return partial data even on error
     return NextResponse.json(
       {
         totalUsers: null,
         activeSessions: 0,
-        storageUsed: '0 GB',
-        uptime: '99.9%',
-        error: 'Some stats could not be fetched',
-        message: error instanceof Error ? error.message : 'Unknown error'
+        storageUsed: "0 GB",
+        uptime: "99.9%",
+        error: "Some stats could not be fetched",
+        message: error instanceof Error ? error.message : "Unknown error",
       },
       { status: 200 } // Return 200 with partial data instead of 500
     )

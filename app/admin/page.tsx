@@ -7,20 +7,14 @@ import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Icons } from "@/components/icons"
-import { Users, Shield, Settings, Activity, Database, Clock, FileText, RefreshCw, Building2, Key } from "lucide-react"
+import { Users, Shield, Activity, Database, Clock, FileText, RefreshCw, Building2, Key } from "lucide-react"
 import { getAdminStats } from "@/lib/admin-stats"
 import { Skeleton } from "@/components/ui/skeleton"
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbList,
-  BreadcrumbPage,
-} from "@/components/ui/breadcrumb"
+import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage } from "@/components/ui/breadcrumb"
+import { isFeatureEnabledClient } from "@/lib/feature-flags/client"
 
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
 const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
-const SUPER_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000000"
-
 
 const quickActions = [
   {
@@ -86,9 +80,9 @@ export default function AdminPage() {
   const [stats, setStats] = useState<Stats | null>(null)
   const [isRefreshing, setIsRefreshing] = useState(false)
 
-  const isSuperAdmin = profile?.role_id === SUPER_ADMIN_ROLE_ID
-  const isAdmin =
-    profile?.role_id === ADMIN_ROLE_ID || profile?.role_id === SYSTEM_ADMIN_ROLE_ID || isSuperAdmin
+  const permissionsEnabled = isFeatureEnabledClient("ADMIN_PERMISSIONS")
+
+  const isAdmin = profile?.role_id === ADMIN_ROLE_ID || profile?.role_id === SYSTEM_ADMIN_ROLE_ID
 
   const fetchStats = async () => {
     try {
@@ -127,7 +121,7 @@ export default function AdminPage() {
 
         <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-4">
           {[...Array(4)].map((_, i) => (
-            <div key={i} className="rounded-lg border bg-card p-6 space-y-3">
+            <div key={i} className="bg-card space-y-3 rounded-lg border p-6">
               <Skeleton className="h-4 w-28 bg-gray-200/70 dark:bg-gray-800" />
               <Skeleton className="h-8 w-20 bg-gray-200/80 dark:bg-gray-800" />
               <Skeleton className="h-3 w-32 bg-gray-200/60 dark:bg-gray-800" />
@@ -137,7 +131,7 @@ export default function AdminPage() {
 
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
           {[...Array(5)].map((_, i) => (
-            <div key={i} className="rounded-lg border bg-card p-6 space-y-4">
+            <div key={i} className="bg-card space-y-4 rounded-lg border p-6">
               <Skeleton className="h-10 w-10 rounded-lg bg-gray-200/70 dark:bg-gray-800" />
               <div className="space-y-2">
                 <Skeleton className="h-4 w-24 bg-gray-200/80 dark:bg-gray-800" />
@@ -148,7 +142,7 @@ export default function AdminPage() {
         </div>
 
         <div className="flex items-center justify-center pt-4">
-          <Icons.spinner className="h-5 w-5 animate-spin text-muted-foreground" />
+          <Icons.spinner className="text-muted-foreground h-5 w-5 animate-spin" />
         </div>
       </div>
     )
@@ -266,23 +260,25 @@ export default function AdminPage() {
       <div className="mb-8">
         <h2 className="text-foreground mb-4 text-lg font-medium">Quick Actions</h2>
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
-          {quickActions.map((action) => (
-            <Link key={action.name} href={action.href}>
-              <Card className="hover:bg-accent/50 h-full transition-colors">
-                <CardContent className="p-6">
-                  <div className="flex h-full flex-col">
-                    <div className={`${action.iconBackground} w-fit rounded-lg p-3`}>
-                      <action.icon className={`h-6 w-6 ${action.iconForeground}`} aria-hidden="true" />
+          {quickActions
+            .filter((action) => (permissionsEnabled ? true : action.href !== "/admin/permissions"))
+            .map((action) => (
+              <Link key={action.name} href={action.href}>
+                <Card className="hover:bg-accent/50 h-full transition-colors">
+                  <CardContent className="p-6">
+                    <div className="flex h-full flex-col">
+                      <div className={`${action.iconBackground} w-fit rounded-lg p-3`}>
+                        <action.icon className={`h-6 w-6 ${action.iconForeground}`} aria-hidden="true" />
+                      </div>
+                      <div className="mt-4">
+                        <h3 className="font-medium">{action.name}</h3>
+                        <p className="text-muted-foreground text-sm">{action.description}</p>
+                      </div>
                     </div>
-                    <div className="mt-4">
-                      <h3 className="font-medium">{action.name}</h3>
-                      <p className="text-muted-foreground text-sm">{action.description}</p>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
-            </Link>
-          ))}
+                  </CardContent>
+                </Card>
+              </Link>
+            ))}
         </div>
       </div>
 

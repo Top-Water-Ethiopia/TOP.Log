@@ -30,7 +30,7 @@ import {
 } from "lucide-react"
 
 // Role IDs from schema
-const SUPER_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000000"
+const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
 const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
 
 export function SupabaseNav() {
@@ -42,9 +42,7 @@ export function SupabaseNav() {
 
   const isSupabaseConfigured = !!process.env.NEXT_PUBLIC_SUPABASE_URL
 
-  // Check if current user is super admin
-  const isSuperAdmin = profile?.role_id === SUPER_ADMIN_ROLE_ID
-  const isSystemAdmin = profile?.role_id === SYSTEM_ADMIN_ROLE_ID
+  const isAdmin = profile?.role_id === ADMIN_ROLE_ID || profile?.role_id === SYSTEM_ADMIN_ROLE_ID
 
   useEffect(() => {
     setMounted(true)
@@ -95,7 +93,7 @@ export function SupabaseNav() {
                   </Link>
                 ),
               },
-              ...(isSuperAdmin || isSystemAdmin
+              ...(isAdmin
                 ? ([
                     {
                       type: "item",
@@ -109,7 +107,7 @@ export function SupabaseNav() {
                     },
                   ] as const)
                 : []),
-              ...(canAccessAdmin && !isSuperAdmin && !isSystemAdmin
+              ...(canAccessAdmin && !isAdmin
                 ? ([
                     {
                       type: "item",

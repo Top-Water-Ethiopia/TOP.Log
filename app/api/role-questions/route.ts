@@ -22,21 +22,20 @@ interface RoleQuestion {
   updated_at: string
   metadata: any
   role?: any
-  question_title?: string | null
 }
 
 export async function GET(request: Request) {
   try {
     const supabase = await createClient()
-    
+
     // Get current user
-    const { data: { user }, error: authError } = await supabase.auth.getUser()
-    
+    const {
+      data: { user },
+      error: authError,
+    } = await supabase.auth.getUser()
+
     if (authError || !user) {
-      return NextResponse.json(
-        { error: "Unauthorized" },
-        { status: 401 }
-      )
+      return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
     // Get user's system role (and legacy default department)
@@ -47,10 +46,7 @@ export async function GET(request: Request) {
       .single()
 
     if (profileError || !profile) {
-      return NextResponse.json(
-        { error: "User profile not found" },
-        { status: 404 }
-      )
+      return NextResponse.json({ error: "User profile not found" }, { status: 404 })
     }
 
     // Type assertion for profile since we know it has role_id
@@ -60,13 +56,13 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url)
     const forReport = searchParams.get("forReport") === "true"
     const requestedDepartmentId = searchParams.get("departmentId")
-    const departmentId = requestedDepartmentId || userProfile.department_id || null
 
-    // Check if user is super admin or admin
-    const SUPER_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000000"
+    // Check if user is admin
     const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
-    const isSuperAdmin = userProfile.role_id === SUPER_ADMIN_ROLE_ID
-    const isAdmin = userProfile.role_id === ADMIN_ROLE_ID || isSuperAdmin
+    const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
+    const isAdmin = userProfile.role_id === ADMIN_ROLE_ID || userProfile.role_id === SYSTEM_ADMIN_ROLE_ID
+    const departmentId =
+      forReport || !isAdmin ? requestedDepartmentId || userProfile.department_id || null : requestedDepartmentId || null
 
     // Determine role scope for fetching questions.
     // - For reports: everyone (including admins) sees ONLY their department profession role's active questions.
@@ -78,7 +74,7 @@ export async function GET(request: Request) {
     if (requiresDepartmentContext && !departmentId) {
       return NextResponse.json(
         { error: "departmentId is required", message: "Select a department to load role questions" },
-        { status: 400 },
+        { status: 400 }
       )
     }
 
@@ -97,7 +93,7 @@ export async function GET(request: Request) {
         if (professionError) {
           return NextResponse.json(
             { error: "Failed to resolve profession role", message: professionError.message },
-            { status: 500 },
+            { status: 500 }
           )
         }
 
@@ -107,7 +103,7 @@ export async function GET(request: Request) {
               error: "Profession role not assigned",
               message: "You do not have a profession role assigned for this department",
             },
-            { status: 404 },
+            { status: 404 }
           )
         }
 
@@ -117,10 +113,12 @@ export async function GET(request: Request) {
 
     let questionsQuery = supabase
       .from("role_questions")
-      .select(`
+      .select(
+        `
         *,
         role:roles(*)
-      `)
+      `
+      )
       .order("display_order", { ascending: true })
       .limit(10000) // Ensure we fetch all questions (Supabase default limit is 1000)
 
@@ -128,7 +126,7 @@ export async function GET(request: Request) {
       if (!resolvedRoleId) {
         return NextResponse.json(
           { error: "Profession role not resolved", message: "Unable to resolve profession role for this department" },
-          { status: 404 },
+          { status: 404 }
         )
       }
       questionsQuery = questionsQuery.eq("is_active", true).eq("role_id", resolvedRoleId)
@@ -136,7 +134,7 @@ export async function GET(request: Request) {
       if (!resolvedRoleId) {
         return NextResponse.json(
           { error: "Profession role not resolved", message: "Unable to resolve profession role for this department" },
-          { status: 404 },
+          { status: 404 }
         )
       }
       questionsQuery = questionsQuery.eq("is_active", true).eq("role_id", resolvedRoleId)
@@ -151,7 +149,7 @@ export async function GET(request: Request) {
       if (deptRolesError) {
         return NextResponse.json(
           { error: "Failed to load department roles", message: deptRolesError.message },
-          { status: 500 },
+          { status: 500 }
         )
       }
 
@@ -170,34 +168,25 @@ export async function GET(request: Request) {
         message: questionsError.message,
         code: questionsError.code,
         details: questionsError.details,
-        hint: questionsError.hint
+        hint: questionsError.hint,
       })
-      return NextResponse.json(
-        { error: "Failed to fetch questions", details: questionsError.message },
-        { status: 500 }
-      )
+      return NextResponse.json({ error: "Failed to fetch questions", details: questionsError.message }, { status: 500 })
     }
 
-    // Process questions to extract question_title from metadata
-    const processedQuestions: RoleQuestion[] = questions?.map((question: any) => ({
-      ...question,
-      question_title: question.metadata?.question_title || null
-    })) || []
+    const processedQuestions: RoleQuestion[] =
+      (questions || []).map((question: any) => ({
+        ...question,
+        question_key:
+          typeof question.question_key === "string" && question.question_key.trim()
+            ? question.question_key
+            : typeof question.metadata?.legacy_question_key === "string" && question.metadata.legacy_question_key.trim()
+              ? question.metadata.legacy_question_key
+              : question.id,
+      })) || []
 
-    const context = forReport
-      ? `report (department ${departmentId}, role ${resolvedRoleId})`
-      : isAdmin
-        ? departmentId
-          ? `admin/super admin (department ${departmentId})`
-          : "admin/super admin (all roles)"
-        : `department ${departmentId}, role ${resolvedRoleId}`
-    
     return NextResponse.json(processedQuestions)
   } catch (error) {
     console.error("Unexpected error:", error)
-    return NextResponse.json(
-      { error: "Internal server error" },
-      { status: 500 }
-    )
+    return NextResponse.json({ error: "Internal server error" }, { status: 500 })
   }
 }

@@ -4,7 +4,6 @@ import { createClient } from "@/lib/supabase/server"
 
 export const dynamic = "force-dynamic"
 
-const SUPER_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000000"
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
 const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
 
@@ -16,7 +15,7 @@ async function verifyAdmin() {
   } = await supabase.auth.getUser()
 
   if (userError || !user) {
-    return { isAdmin: false as const, isSuperAdmin: false as const, error: "Not authenticated" }
+    return { isAdmin: false as const, error: "Not authenticated" }
   }
 
   const { data: profile, error: profileError } = await supabase
@@ -26,17 +25,16 @@ async function verifyAdmin() {
     .single()
 
   if (profileError || !profile) {
-    return { isAdmin: false as const, isSuperAdmin: false as const, error: "Admin access required" }
+    return { isAdmin: false as const, error: "Admin access required" }
   }
 
-  const isSuperAdmin = profile.role_id === SUPER_ADMIN_ROLE_ID
-  const isAdmin = profile.role_id === ADMIN_ROLE_ID || profile.role_id === SYSTEM_ADMIN_ROLE_ID || isSuperAdmin
+  const isAdmin = profile.role_id === ADMIN_ROLE_ID || profile.role_id === SYSTEM_ADMIN_ROLE_ID
 
   if (!isAdmin) {
-    return { isAdmin: false as const, isSuperAdmin: false as const, error: "Admin access required" }
+    return { isAdmin: false as const, error: "Admin access required" }
   }
 
-  return { isAdmin: true as const, isSuperAdmin, userId: user.id }
+  return { isAdmin: true as const, userId: user.id }
 }
 
 const nameRegex = /^[a-z0-9-]+$/
@@ -64,7 +62,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ dep
   } catch (error) {
     return NextResponse.json(
       { error: "Failed to fetch roles", message: error instanceof Error ? error.message : "Unknown error" },
-      { status: 500 },
+      { status: 500 }
     )
   }
 }
@@ -115,7 +113,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ dep
   } catch (error) {
     return NextResponse.json(
       { error: "Failed to create role", message: error instanceof Error ? error.message : "Unknown error" },
-      { status: 500 },
+      { status: 500 }
     )
   }
 }
@@ -175,7 +173,12 @@ export async function PUT(request: Request, { params }: { params: Promise<{ depa
     }
     if (level !== undefined) updatePayload.level = level
 
-    const { data: role, error } = await adminSupabase.from("roles").update(updatePayload).eq("id", id).select("*").single()
+    const { data: role, error } = await adminSupabase
+      .from("roles")
+      .update(updatePayload)
+      .eq("id", id)
+      .select("*")
+      .single()
 
     if (error) {
       return NextResponse.json({ error: "Failed to update role", message: error.message }, { status: 500 })
@@ -185,7 +188,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ depa
   } catch (error) {
     return NextResponse.json(
       { error: "Failed to update role", message: error instanceof Error ? error.message : "Unknown error" },
-      { status: 500 },
+      { status: 500 }
     )
   }
 }
@@ -229,7 +232,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ d
     if (assignments && assignments.length > 0) {
       return NextResponse.json(
         { error: "Cannot delete role. It has users assigned. Please reassign users first." },
-        { status: 409 },
+        { status: 409 }
       )
     }
 
@@ -238,7 +241,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ d
     if (questions && questions.length > 0) {
       return NextResponse.json(
         { error: "Cannot delete role. It has role questions. Please remove questions first." },
-        { status: 409 },
+        { status: 409 }
       )
     }
 
@@ -252,7 +255,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ d
   } catch (error) {
     return NextResponse.json(
       { error: "Failed to delete role", message: error instanceof Error ? error.message : "Unknown error" },
-      { status: 500 },
+      { status: 500 }
     )
   }
 }

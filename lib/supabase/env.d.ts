@@ -1,8 +1,14 @@
 declare namespace NodeJS {
   interface ProcessEnv {
-    NEXT_PUBLIC_SUPABASE_URL: string;
-    NEXT_PUBLIC_SUPABASE_ANON_KEY: string;
-    SUPABASE_URL: string;
-    SUPABASE_SERVICE_ROLE_KEY: string;
+    NEXT_PUBLIC_SUPABASE_URL: string
+    NEXT_PUBLIC_SUPABASE_ANON_KEY: string
+    SUPABASE_URL: string
+    SUPABASE_SERVICE_ROLE_KEY: string
+    NEXT_PUBLIC_FF_ANALYTICS?: string
+    FF_ANALYTICS?: string
+    NEXT_PUBLIC_FF_ADMIN_NOTIFICATIONS?: string
+    FF_ADMIN_NOTIFICATIONS?: string
+    NEXT_PUBLIC_FF_ADMIN_PERMISSIONS?: string
+    FF_ADMIN_PERMISSIONS?: string
   }
 }

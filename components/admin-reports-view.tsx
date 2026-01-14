@@ -51,9 +51,7 @@ import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sh
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
 import { apiFetch, getErrorMessage } from "@/lib/api-client"
 import useSWR from "swr"
-import {
-  AdminReportsDashboardTab,
-} from "@/components/features/admin-reports/admin-reports-dashboard-tab"
+import { AdminReportsDashboardTab } from "@/components/features/admin-reports/admin-reports-dashboard-tab"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -66,6 +64,9 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog"
 import styles from "./admin-reports-view.module.css"
+
+const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
+const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
 
 // Types
 interface CustomResponse {
@@ -138,7 +139,7 @@ export function AdminReportsView() {
   const [selectedDepartment, setSelectedDepartment] = useState<string>("all")
   const [selectedRole, setSelectedRole] = useState<string>("all")
   const [filteredUsers, setFilteredUsers] = useState<UserProfile[]>([])
-  const [filteredRoles, setFilteredRoles] = useState<{id: string, name: string}[]>([])
+  const [filteredRoles, setFilteredRoles] = useState<{ id: string; name: string }[]>([])
 
   const lastLoadErrorRef = useRef<string | null>(null)
 
@@ -155,9 +156,19 @@ export function AdminReportsView() {
   const allRoles = useMemo(() => data?.roles ?? [], [data?.roles])
   const allDepartments = useMemo(() => data?.departments ?? [], [data?.departments])
 
-  const isSuperAdmin = useMemo(() => {
-    return profile?.role_id === "00000000-0000-0000-0000-000000000000"
+  const isAdmin = useMemo(() => {
+    const roleId = profile?.role_id
+    return roleId === ADMIN_ROLE_ID || roleId === SYSTEM_ADMIN_ROLE_ID
   }, [profile?.role_id])
+
+  type DepartmentRolesResponse = { data: Array<{ id: string; name: string }> }
+  const departmentRolesKey =
+    isAdmin && selectedDepartment !== "all" ? `/api/admin/departments/${selectedDepartment}/profession-roles` : null
+  const { data: departmentRolesData, isLoading: isDepartmentRolesLoading } =
+    useSWR<DepartmentRolesResponse>(departmentRolesKey)
+  const departmentRoles = useMemo(() => {
+    return (departmentRolesData?.data || []).map((r) => ({ id: r.id, name: r.name }))
+  }, [departmentRolesData?.data])
 
   useEffect(() => {
     if (!loadError) {
@@ -189,7 +200,7 @@ export function AdminReportsView() {
           entries: (current.entries || []).filter((e) => e.id !== entryId),
         }
       },
-      { revalidate: false },
+      { revalidate: false }
     )
 
     try {
@@ -263,56 +274,40 @@ export function AdminReportsView() {
   // Update filtered users and roles when department or role changes
   useEffect(() => {
     let filtered = [...allUsers]
-    let roles = new Set<string>()
-    
+
+    const selectedDepartmentName =
+      selectedDepartment === "all" ? null : allDepartments.find((d) => d.id === selectedDepartment)?.name
+
     // Filter users by department if a department is selected
     if (selectedDepartment !== "all") {
-      filtered = filtered.filter(user => 
-        user.department_name === selectedDepartment
-      )
-      
-      // Get unique roles from users in the selected department
-      filtered.forEach(user => {
-        if (user.role_name) {
-          roles.add(user.role_name)
-        }
-      })
-      
-      // Update filtered roles
-      setFilteredRoles(
-        allRoles.filter(role => roles.has(role.name))
-      )
+      filtered = filtered.filter((u) => u.department_name === selectedDepartmentName)
+
+      setFilteredRoles(departmentRoles)
+
+      if (selectedRole !== "all" && !departmentRoles.some((r) => r.name === selectedRole)) {
+        setSelectedRole("all")
+      }
     } else {
       // If no department selected, show all roles
       setFilteredRoles(allRoles)
     }
-    
+
     // If a role is selected, filter users by role
     if (selectedRole !== "all") {
-      filtered = filtered.filter(user => user.role_name === selectedRole)
+      filtered = filtered.filter((user) => user.role_name === selectedRole)
     }
-    
+
     setFilteredUsers(filtered)
-    
+
     // Reset user selection if current selection is no longer valid
-    if (selectedUser !== "all" && !filtered.some(u => u.user_id === selectedUser)) {
+    if (selectedUser !== "all" && !filtered.some((u) => u.user_id === selectedUser)) {
       setSelectedUser("all")
     }
-    
-  }, [allUsers, allRoles, selectedDepartment, selectedRole, selectedUser])
-  
-  // Get departments that have at least one role assigned
+  }, [allUsers, allRoles, allDepartments, departmentRoles, selectedDepartment, selectedRole, selectedUser])
+
   const departmentsWithRoles = useMemo(() => {
-    // Create a set of department names that have roles
-    const deptWithRoles = new Set(
-      allRoles.map(role => 
-        allDepartments.find(d => d.id === role.id)?.name
-      ).filter(Boolean)
-    )
-    
-    // Filter departments to only those with roles
-    return allDepartments.filter(dept => dept.name && deptWithRoles.has(dept.name))
-  }, [allDepartments, allRoles])
+    return allDepartments.filter((dept) => Boolean(dept?.name))
+  }, [allDepartments])
 
   // Get unique values for filters
   const filterOptions = useMemo(() => {
@@ -341,11 +336,12 @@ export function AdminReportsView() {
     if (selectedUser !== "all") {
       return filtered.filter((e) => String(e.user_id).trim() === normalizedSelectedUser)
     }
-    
+
     // If no user selected, apply department and role filters
     if (selectedDepartment !== "all") {
-      filtered = filtered.filter((e) => e.user_profile?.department_name === selectedDepartment)
-      
+      const selectedDepartmentName = allDepartments.find((d) => d.id === selectedDepartment)?.name
+      filtered = filtered.filter((e) => e.user_profile?.department_name === selectedDepartmentName)
+
       // If role is also selected, filter by role within the department
       if (selectedRole !== "all") {
         filtered = filtered.filter((e) => e.user_profile?.role_name === selectedRole)
@@ -403,7 +399,7 @@ export function AdminReportsView() {
 
     // Sort by date (newest first)
     return filtered.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-  }, [entries, selectedUser, selectedDepartment, selectedRole, dateRange, searchQuery])
+  }, [entries, selectedUser, selectedDepartment, selectedRole, dateRange, searchQuery, allDepartments])
 
   // Toggle entry expansion
   const toggleEntry = (entryId: string) => {
@@ -510,7 +506,6 @@ export function AdminReportsView() {
     <div className="space-y-6">
       {/* Header with Refresh */}
       <div className="flex justify-end">
-     
         <div className="flex gap-2">
           <Button onClick={() => mutate()} disabled={isLoading} variant="outline" size="sm" className="gap-2">
             {isValidating ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
@@ -592,13 +587,13 @@ export function AdminReportsView() {
                 {/* Department Filter */}
                 <div className="space-y-2">
                   <Label htmlFor="dept-filter">Department</Label>
-                  <Select 
-                    value={selectedDepartment} 
+                  <Select
+                    value={selectedDepartment}
                     onValueChange={(value) => {
-                      setSelectedDepartment(value);
+                      setSelectedDepartment(value)
                       // Reset role and user when department changes
-                      setSelectedRole("all");
-                      setSelectedUser("all");
+                      setSelectedRole("all")
+                      setSelectedUser("all")
                     }}
                   >
                     <SelectTrigger id="dept-filter" className="min-w-[180px]">
@@ -609,7 +604,7 @@ export function AdminReportsView() {
                         <span className="text-muted-foreground font-semibold">All Departments</span>
                       </SelectItem>
                       {departmentsWithRoles.map((dept) => (
-                        <SelectItem key={dept.id} value={dept.name}>
+                        <SelectItem key={dept.id} value={dept.id}>
                           {dept.name}
                         </SelectItem>
                       ))}
@@ -622,27 +617,38 @@ export function AdminReportsView() {
                   <Label htmlFor="role-filter">
                     Role
                     {selectedDepartment === "all" && (
-                      <span className="ml-2 text-xs text-muted-foreground">(select department first)</span>
+                      <span className="text-muted-foreground ml-2 text-xs">(select department first)</span>
                     )}
                   </Label>
-                  <Select 
-                    value={selectedRole} 
+                  <Select
+                    value={selectedRole}
                     onValueChange={(value) => {
-                      setSelectedRole(value);
+                      setSelectedRole(value)
                       // Reset user when role changes
-                      setSelectedUser("all");
+                      setSelectedUser("all")
                     }}
-                    disabled={selectedDepartment === "all"}
+                    disabled={selectedDepartment === "all" || isDepartmentRolesLoading}
                   >
                     <SelectTrigger id="role-filter" className="min-w-[160px]">
-                      <SelectValue placeholder={
-                        selectedDepartment === "all" ? "Select department first" : "All roles"
-                      } />
+                      <SelectValue
+                        placeholder={
+                          selectedDepartment === "all"
+                            ? "Select department first"
+                            : isDepartmentRolesLoading
+                              ? "Loading roles..."
+                              : "All roles"
+                        }
+                      />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">
                         <span className="text-muted-foreground font-semibold">All Roles</span>
                       </SelectItem>
+                      {isDepartmentRolesLoading && (
+                        <SelectItem value="__loading_roles" disabled>
+                          Loading...
+                        </SelectItem>
+                      )}
                       {filteredRoles.map((role) => (
                         <SelectItem key={role.id} value={role.name}>
                           {role.name}
@@ -657,19 +663,20 @@ export function AdminReportsView() {
                   <Label htmlFor="user-filter">
                     User
                     {selectedDepartment === "all" && (
-                      <span className="ml-2 text-xs text-muted-foreground">(select department first)</span>
+                      <span className="text-muted-foreground ml-2 text-xs">(select department first)</span>
                     )}
                   </Label>
-                  <Select 
-                    value={selectedUser} 
-                    onValueChange={setSelectedUser}
-                    disabled={selectedDepartment === "all"}
-                  >
+                  <Select value={selectedUser} onValueChange={setSelectedUser} disabled={selectedDepartment === "all"}>
                     <SelectTrigger id="user-filter" className="min-w-[180px]">
-                      <SelectValue placeholder={
-                        selectedDepartment === "all" ? "Select department first" : 
-                        filteredUsers.length === 0 ? "No users found" : "All users"
-                      } />
+                      <SelectValue
+                        placeholder={
+                          selectedDepartment === "all"
+                            ? "Select department first"
+                            : filteredUsers.length === 0
+                              ? "No users found"
+                              : "All users"
+                        }
+                      />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">
@@ -784,20 +791,12 @@ export function AdminReportsView() {
 
                 <div className="flex justify-center gap-4">
                   {entries.length === 0 ? (
-                    <>
-                      <Link href="/">
-                        <Button className="gap-2">
-                          <PlusCircle className="h-4 w-4" />
-                          Create Entry
-                        </Button>
-                      </Link>
-                      <Link href="/admin/users">
-                        <Button variant="outline" className="gap-2">
-                          <Users className="h-4 w-4" />
-                          Manage Users
-                        </Button>
-                      </Link>
-                    </>
+                    <Link href="/admin/users">
+                      <Button variant="outline" className="gap-2">
+                        <Users className="h-4 w-4" />
+                        Manage Users
+                      </Button>
+                    </Link>
                   ) : (
                     <Button variant="outline" size="sm" onClick={clearFilters}>
                       Clear filters
@@ -903,7 +902,7 @@ export function AdminReportsView() {
                           >
                             View
                           </Button>
-                          {isSuperAdmin && (
+                          {isAdmin && (
                             <AlertDialog>
                               <AlertDialogTrigger asChild>
                                 <Button
@@ -919,9 +918,7 @@ export function AdminReportsView() {
                               <AlertDialogContent>
                                 <AlertDialogHeader>
                                   <AlertDialogTitle>Delete report?</AlertDialogTitle>
-                                  <AlertDialogDescription>
-                                    This action cannot be undone.
-                                  </AlertDialogDescription>
+                                  <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
                                 </AlertDialogHeader>
                                 <AlertDialogFooter>
                                   <AlertDialogCancel>Cancel</AlertDialogCancel>
@@ -974,7 +971,7 @@ export function AdminReportsView() {
         {/* Enhanced Calendar View Tab */}
         <TabsContent value="calendar" className="space-y-6">
           <Card className="border border-gray-200 bg-transparent shadow-lg transition-shadow duration-300 hover:shadow-xl">
-            <CardHeader className="pb-2">
+            {/* <CardHeader className="pb-2">
               <div className="flex justify-end">
                 <Button
                   variant="outline"
@@ -987,7 +984,7 @@ export function AdminReportsView() {
                   <span className="xs:hidden">Refresh</span>
                 </Button>
               </div>
-            </CardHeader>
+            </CardHeader> */}
             <CardContent className="bg-transparent pt-2">
               {/* Advanced Calendar Filters - Responsive */}
               <div className={`${styles.filterPanel} ${styles.animateSlideIn}`}>
@@ -998,12 +995,12 @@ export function AdminReportsView() {
                     <Label htmlFor="cal-dept-filter" className="hidden text-sm text-gray-700 sm:block">
                       Dept:
                     </Label>
-                    <Select 
-                      value={selectedDepartment} 
+                    <Select
+                      value={selectedDepartment}
                       onValueChange={(value) => {
-                        setSelectedDepartment(value);
-                        setSelectedRole("all");
-                        setSelectedUser("all");
+                        setSelectedDepartment(value)
+                        setSelectedRole("all")
+                        setSelectedUser("all")
                       }}
                     >
                       <SelectTrigger id="cal-dept-filter" className="h-8 w-24 sm:w-32">
@@ -1016,7 +1013,7 @@ export function AdminReportsView() {
                         {allDepartments
                           .filter((dept) => dept && dept.name)
                           .map((dept) => (
-                            <SelectItem key={dept.id} value={dept.name}>
+                            <SelectItem key={dept.id} value={dept.id}>
                               {dept.name}
                             </SelectItem>
                           ))}
@@ -1029,23 +1026,34 @@ export function AdminReportsView() {
                     <Label htmlFor="cal-role-filter" className="hidden text-sm text-gray-700 sm:block">
                       Role:
                     </Label>
-                    <Select 
-                      value={selectedRole} 
+                    <Select
+                      value={selectedRole}
                       onValueChange={(value) => {
-                        setSelectedRole(value);
-                        setSelectedUser("all");
+                        setSelectedRole(value)
+                        setSelectedUser("all")
                       }}
-                      disabled={selectedDepartment === "all"}
+                      disabled={selectedDepartment === "all" || isDepartmentRolesLoading}
                     >
                       <SelectTrigger id="cal-role-filter" className="h-8 w-24 sm:w-32">
-                        <SelectValue placeholder={
-                          selectedDepartment === "all" ? "Select dept" : "All roles"
-                        } />
+                        <SelectValue
+                          placeholder={
+                            selectedDepartment === "all"
+                              ? "Select dept"
+                              : isDepartmentRolesLoading
+                                ? "Loading roles..."
+                                : "All roles"
+                          }
+                        />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="all">
                           <span className="text-muted-foreground font-semibold">All Roles</span>
                         </SelectItem>
+                        {isDepartmentRolesLoading && (
+                          <SelectItem value="__loading_roles" disabled>
+                            Loading...
+                          </SelectItem>
+                        )}
                         {filteredRoles.map((role) => (
                           <SelectItem key={role.id} value={role.name}>
                             {role.name}
@@ -1074,54 +1082,54 @@ export function AdminReportsView() {
                         : userOptions
 
                       return (
-                    <Select 
-                      value={selectedUser} 
-                      onValueChange={setSelectedUser}
-                      onOpenChange={(open) => {
-                        if (!open) setCalendarUserSearch("")
-                      }}
-                    >
-                      <SelectTrigger id="cal-user-filter" className="h-8 w-24 sm:w-32">
-                        <SelectValue placeholder={
-                          userOptions.length === 0 ? "No users found" : "All users"
-                        } />
-                      </SelectTrigger>
-                      <SelectContent className="max-h-[360px] overflow-hidden">
-                        <SelectItem value="all">
-                          <span className="font-semibold">All Users</span>
-                        </SelectItem>
-                        {enableUserSearch && (
-                          <div className="sticky top-0 z-10 border-b bg-white/95 p-2 backdrop-blur">
-                            <Input
-                              value={calendarUserSearch}
-                              onChange={(e) => setCalendarUserSearch(e.target.value)}
-                              placeholder="Search users..."
-                              className="h-8"
-                            />
-                          </div>
-                        )}
-                        {userOptions.length === 0 ? (
-                          <SelectItem value="__none__" disabled>
-                            No users found
-                          </SelectItem>
-                        ) : enableUserSearch && filteredUserOptions.length === 0 ? (
-                          <SelectItem value="__no_match__" disabled>
-                            No users match your search
-                          </SelectItem>
-                        ) : (
-                          <div className={enableUserScroll ? "max-h-[280px] overflow-y-auto pr-2" : undefined}>
-                            {filteredUserOptions.map((user, index) => (
-                              <SelectItem key={`${user.user_id}-${index}`} value={user.user_id}>
-                                <div className="min-w-0">
-                                  <div className="truncate font-semibold text-gray-900">{user.name}</div>
-                                  <div className="text-muted-foreground truncate text-xs">{user.department_name}</div>
-                                </div>
+                        <Select
+                          value={selectedUser}
+                          onValueChange={setSelectedUser}
+                          onOpenChange={(open) => {
+                            if (!open) setCalendarUserSearch("")
+                          }}
+                        >
+                          <SelectTrigger id="cal-user-filter" className="h-8 w-24 sm:w-32">
+                            <SelectValue placeholder={userOptions.length === 0 ? "No users found" : "All users"} />
+                          </SelectTrigger>
+                          <SelectContent className="max-h-[360px] overflow-hidden">
+                            <SelectItem value="all">
+                              <span className="font-semibold">All Users</span>
+                            </SelectItem>
+                            {enableUserSearch && (
+                              <div className="sticky top-0 z-10 border-b bg-white/95 p-2 backdrop-blur">
+                                <Input
+                                  value={calendarUserSearch}
+                                  onChange={(e) => setCalendarUserSearch(e.target.value)}
+                                  placeholder="Search users..."
+                                  className="h-8"
+                                />
+                              </div>
+                            )}
+                            {userOptions.length === 0 ? (
+                              <SelectItem value="__none__" disabled>
+                                No users found
                               </SelectItem>
-                            ))}
-                          </div>
-                        )}
-                      </SelectContent>
-                    </Select>
+                            ) : enableUserSearch && filteredUserOptions.length === 0 ? (
+                              <SelectItem value="__no_match__" disabled>
+                                No users match your search
+                              </SelectItem>
+                            ) : (
+                              <div className={enableUserScroll ? "max-h-[280px] overflow-y-auto pr-2" : undefined}>
+                                {filteredUserOptions.map((user, index) => (
+                                  <SelectItem key={`${user.user_id}-${index}`} value={user.user_id}>
+                                    <div className="min-w-0">
+                                      <div className="truncate font-semibold text-gray-900">{user.name}</div>
+                                      <div className="text-muted-foreground truncate text-xs">
+                                        {user.department_name}
+                                      </div>
+                                    </div>
+                                  </SelectItem>
+                                ))}
+                              </div>
+                            )}
+                          </SelectContent>
+                        </Select>
                       )
                     })()}
                   </div>
@@ -1173,12 +1181,7 @@ export function AdminReportsView() {
                     dateRange !== "all") && (
                     <Tooltip>
                       <TooltipTrigger asChild>
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={clearFilters}
-                          className="h-8 gap-2 px-2 text-xs"
-                        >
+                        <Button variant="ghost" size="sm" onClick={clearFilters} className="h-8 gap-2 px-2 text-xs">
                           <Filter className="h-3 w-3" />
                           <span className="xs:inline hidden">Clear</span>
                         </Button>
@@ -1214,10 +1217,6 @@ export function AdminReportsView() {
                     >
                       <RefreshCw className="mr-2 h-3 w-3 sm:mr-2 sm:h-4 sm:w-4" />
                       <span className="text-xs sm:text-sm">Refresh</span>
-                    </Button>
-                    <Button className="h-8 bg-indigo-600 text-white hover:bg-indigo-700 sm:h-9">
-                      <PlusCircle className="mr-2 h-3 w-3 sm:mr-2 sm:h-4 sm:w-4" />
-                      <span className="text-xs sm:text-sm">Create Report</span>
                     </Button>
                   </div>
                 </div>

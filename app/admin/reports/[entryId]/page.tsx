@@ -1,18 +1,17 @@
 "use client"
 
-import { useEffect, useMemo, useState } from 'react'
-import { useRouter, useParams } from 'next/navigation'
-import { useSupabaseAuth } from '@/contexts/supabase-auth-context'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
-import { ArrowLeft } from 'lucide-react'
-import { ReportDetailsSkeleton } from '@/components/skeletons/report-details-skeleton'
-import { format, parseISO } from 'date-fns'
+import { useEffect, useMemo, useState } from "react"
+import { useRouter, useParams } from "next/navigation"
+import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
+import { ArrowLeft } from "lucide-react"
+import { ReportDetailsSkeleton } from "@/components/skeletons/report-details-skeleton"
+import { format, parseISO } from "date-fns"
 
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
 const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
-const SUPER_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000000"
 
 interface CustomResponse {
   question_id: string
@@ -55,19 +54,19 @@ export default function AdminReportDetailsPage() {
 
   const isAdmin = useMemo(() => {
     const roleId = profile?.role_id
-    return roleId === ADMIN_ROLE_ID || roleId === SYSTEM_ADMIN_ROLE_ID || roleId === SUPER_ADMIN_ROLE_ID
+    return roleId === ADMIN_ROLE_ID || roleId === SYSTEM_ADMIN_ROLE_ID
   }, [profile?.role_id])
 
   useEffect(() => {
     if (isLoading) return
 
     if (!user) {
-      router.push('/login')
+      router.push("/login")
       return
     }
 
     if (!isAdmin) {
-      router.push('/')
+      router.push("/")
       return
     }
   }, [isLoading, user, isAdmin, router])
@@ -93,7 +92,7 @@ export default function AdminReportDetailsPage() {
         setEntry(data.entry || null)
       } catch (e) {
         setEntry(null)
-        setError(e instanceof Error ? e.message : 'Failed to load entry')
+        setError(e instanceof Error ? e.message : "Failed to load entry")
       } finally {
         setIsEntryLoading(false)
       }
@@ -112,9 +111,9 @@ export default function AdminReportDetailsPage() {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-background">
+      <div className="bg-background min-h-screen">
         <div className="space-y-6">
-          <Button variant="outline" onClick={() => router.push('/admin/reports')} className="gap-2">
+          <Button variant="outline" onClick={() => router.push("/admin/reports")} className="gap-2">
             <ArrowLeft className="h-4 w-4" />
             Back to All Entries
           </Button>
@@ -123,7 +122,7 @@ export default function AdminReportDetailsPage() {
               <CardTitle>Unable to load report</CardTitle>
             </CardHeader>
             <CardContent>
-              <div className="text-sm text-muted-foreground">{error}</div>
+              <div className="text-muted-foreground text-sm">{error}</div>
             </CardContent>
           </Card>
         </div>
@@ -133,9 +132,9 @@ export default function AdminReportDetailsPage() {
 
   if (!entry) {
     return (
-      <div className="min-h-screen bg-background">
+      <div className="bg-background min-h-screen">
         <div className="space-y-6">
-          <Button variant="outline" onClick={() => router.push('/admin/reports')} className="gap-2">
+          <Button variant="outline" onClick={() => router.push("/admin/reports")} className="gap-2">
             <ArrowLeft className="h-4 w-4" />
             Back to All Entries
           </Button>
@@ -149,31 +148,31 @@ export default function AdminReportDetailsPage() {
     )
   }
 
-  const name = entry.user_profile?.name || 'Unknown User'
-  const email = entry.user_profile?.email || ''
-  const roleName = entry.user_profile?.role_name || ''
-  const departmentName = entry.user_profile?.department_name || ''
+  const name = entry.user_profile?.name || "Unknown User"
+  const email = entry.user_profile?.email || ""
+  const roleName = entry.user_profile?.role_name || ""
+  const departmentName = entry.user_profile?.department_name || ""
 
   const dateLabel = (() => {
     try {
-      return entry.date ? format(parseISO(entry.date), 'MMM d, yyyy') : ''
+      return entry.date ? format(parseISO(entry.date), "MMM d, yyyy") : ""
     } catch {
-      return entry.date || ''
+      return entry.date || ""
     }
   })()
 
   const timeLabel = (() => {
     try {
-      return entry.created_at ? format(parseISO(entry.created_at), 'h:mm a') : ''
+      return entry.created_at ? format(parseISO(entry.created_at), "h:mm a") : ""
     } catch {
-      return ''
+      return ""
     }
   })()
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="bg-background min-h-screen">
       <div className="space-y-6">
-        <Button variant="outline" onClick={() => router.push('/admin/reports')} className="gap-2">
+        <Button variant="outline" onClick={() => router.push("/admin/reports")} className="gap-2">
           <ArrowLeft className="h-4 w-4" />
           Back to All Entries
         </Button>
@@ -185,7 +184,7 @@ export default function AdminReportDetailsPage() {
         <Card>
           <CardHeader>
             <CardTitle className="text-2xl">{name}</CardTitle>
-            {email ? <div className="text-sm text-muted-foreground">{email}</div> : null}
+            {email ? <div className="text-muted-foreground text-sm">{email}</div> : null}
           </CardHeader>
           <CardContent className="flex flex-wrap gap-2">
             {roleName ? <Badge variant="secondary">{roleName}</Badge> : null}
@@ -234,23 +233,19 @@ export default function AdminReportDetailsPage() {
               {entry.custom_responses && entry.custom_responses.length > 0 ? (
                 entry.custom_responses.map((r, idx) => (
                   <div key={`${r.question_id}-${idx}`} className="space-y-1">
-                    <div className="font-semibold">
-                      {`Q${idx + 1}: ${r.question_label || r.question_key}`}
-                    </div>
-                    <div className="text-sm text-muted-foreground whitespace-pre-wrap">
-                      {r.value === null || r.value === undefined || r.value === ''
-                        ? 'Not provided'
+                    <div className="font-semibold">{`Q${idx + 1}: ${r.question_label || r.question_key}`}</div>
+                    <div className="text-muted-foreground text-sm whitespace-pre-wrap">
+                      {r.value === null || r.value === undefined || r.value === ""
+                        ? "Not provided"
                         : Array.isArray(r.value)
-                          ? r.value.join(', ')
+                          ? r.value.join(", ")
                           : String(r.value)}
                     </div>
-                    {idx < entry.custom_responses.length - 1 ? (
-                      <div className="h-px bg-border mt-3" />
-                    ) : null}
+                    {idx < entry.custom_responses.length - 1 ? <div className="bg-border mt-3 h-px" /> : null}
                   </div>
                 ))
               ) : (
-                <div className="text-sm text-muted-foreground">No responses found.</div>
+                <div className="text-muted-foreground text-sm">No responses found.</div>
               )}
             </CardContent>
           </Card>

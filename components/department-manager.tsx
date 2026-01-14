@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useCallback, useEffect, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
@@ -27,9 +27,8 @@ import { ChevronDown, Plus, Pencil, Trash2, Loader2, Users, Briefcase } from "lu
 import { Switch } from "@/components/ui/switch"
 import { Skeleton } from "@/components/ui/skeleton"
 import { apiFetch, ApiError, getErrorMessage } from "@/lib/api-client"
-import { FormDialog } from "@/components/ui/form-dialog"
+import { RightSidePanel } from "@/components/ui/right-side-panel"
 
-const SUPER_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000000"
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
 const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
 
@@ -87,9 +86,7 @@ export function DepartmentManager() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [departments.length])
 
-  const isSuperAdmin = currentProfile?.role_id === SUPER_ADMIN_ROLE_ID
-  const isAdmin =
-    currentProfile?.role_id === ADMIN_ROLE_ID || currentProfile?.role_id === SYSTEM_ADMIN_ROLE_ID || isSuperAdmin
+  const isAdmin = currentProfile?.role_id === ADMIN_ROLE_ID || currentProfile?.role_id === SYSTEM_ADMIN_ROLE_ID
 
   const [formData, setFormData] = useState({
     name: "",
@@ -99,20 +96,14 @@ export function DepartmentManager() {
 
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
 
-  useEffect(() => {
-    if (isAdmin) {
-      loadData()
-    }
-  }, [isAdmin])
-
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     try {
       setIsLoading(true)
 
       const result = await apiFetch<{ data: Department[] }>("/api/admin/departments")
       setDepartments(result.data || [])
       setPage(1)
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error loading data:", error)
       toast({
         title: "Error",
@@ -122,7 +113,13 @@ export function DepartmentManager() {
     } finally {
       setIsLoading(false)
     }
-  }
+  }, [toast])
+
+  useEffect(() => {
+    if (isAdmin) {
+      loadData()
+    }
+  }, [isAdmin, loadData])
 
   const validateForm = (): boolean => {
     const errors: Record<string, string> = {}
@@ -186,7 +183,7 @@ export function DepartmentManager() {
 
       setShowCreateDialog(false)
       resetForm()
-    } catch (error: any) {
+    } catch (error: unknown) {
       setDepartments(prevDepartments)
       console.error("Error creating department:", error)
       toast({
@@ -251,7 +248,7 @@ export function DepartmentManager() {
       setShowCreateDialog(false)
       setEditingDepartment(null)
       resetForm()
-    } catch (error: any) {
+    } catch (error: unknown) {
       // Rollback to the exact previous snapshot
       setDepartments(prevDepartments)
       console.error("Error updating department:", error)
@@ -284,7 +281,7 @@ export function DepartmentManager() {
 
       setShowDeleteDialog(false)
       setDepartmentToDelete(null)
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error deleting department:", error)
 
       if (error instanceof ApiError && error.status === 409) {
@@ -293,7 +290,7 @@ export function DepartmentManager() {
         sonnerToast.error("Cannot Delete Department", {
           description: getErrorMessage(
             error,
-            "Cannot delete department. It has roles assigned. Please remove all roles first.",
+            "Cannot delete department. It has roles assigned. Please remove all roles first."
           ),
           action: {
             label: "Manage roles",
@@ -427,7 +424,7 @@ export function DepartmentManager() {
                             <ChevronDown className="h-4 w-4" />
                           </Button>
                         }
-                        items={(
+                        items={
                           [
                             {
                               type: "label",
@@ -438,7 +435,10 @@ export function DepartmentManager() {
                               type: "item",
                               asChild: true,
                               node: (
-                                <Link href={`/admin/departments/${department.id}?tab=members`} className="flex items-center">
+                                <Link
+                                  href={`/admin/departments/${department.id}?tab=members`}
+                                  className="flex items-center"
+                                >
                                   <Users className="mr-2 h-4 w-4" />
                                   Members
                                 </Link>
@@ -448,7 +448,10 @@ export function DepartmentManager() {
                               type: "item",
                               asChild: true,
                               node: (
-                                <Link href={`/admin/departments/${department.id}?tab=roles`} className="flex items-center">
+                                <Link
+                                  href={`/admin/departments/${department.id}?tab=roles`}
+                                  className="flex items-center"
+                                >
                                   <Briefcase className="mr-2 h-4 w-4" />
                                   Roles
                                 </Link>
@@ -469,7 +472,7 @@ export function DepartmentManager() {
                               onSelect: () => openDeleteDialog(department),
                             },
                           ] satisfies ActionMenuItem[]
-                        )}
+                        }
                       />
                     </div>
                   </TableCell>
@@ -529,8 +532,7 @@ export function DepartmentManager() {
         </div>
       </div>
 
-      {/* Create/Edit Dialog */}
-      <FormDialog
+      <RightSidePanel
         open={showCreateDialog}
         onOpenChange={(open) => {
           setShowCreateDialog(open)
@@ -545,28 +547,12 @@ export function DepartmentManager() {
             ? "Update department details."
             : "Create a department so you can assign roles and manage access."
         }
-        contentClassName="sm:max-w-[500px]"
-        form={{
-          onSubmit: (e) => {
-            e.preventDefault()
-            if (editingDepartment) {
-              handleUpdate()
-            } else {
-              handleCreate()
-            }
-          },
-        }}
         footer={
-          <>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setShowCreateDialog(false)}
-              disabled={isSubmitting}
-            >
+          <div className="flex justify-end gap-2">
+            <Button type="button" variant="outline" onClick={() => setShowCreateDialog(false)} disabled={isSubmitting}>
               Cancel
             </Button>
-            <Button type="submit" disabled={isSubmitting}>
+            <Button type="submit" form="department-form" disabled={isSubmitting}>
               {isSubmitting ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -578,42 +564,54 @@ export function DepartmentManager() {
                 "Create"
               )}
             </Button>
-          </>
+          </div>
         }
       >
-        <div className="space-y-4 py-4">
-          <div className="space-y-2">
-            <Label htmlFor="name">
-              Name <span className="text-destructive">*</span>
-            </Label>
-            <Input
-              id="name"
-              value={formData.name}
-              onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-              placeholder="e.g., Engineering"
-            />
-            {formErrors.name && <p className="text-destructive text-sm">{formErrors.name}</p>}
+        <form
+          id="department-form"
+          onSubmit={(e) => {
+            e.preventDefault()
+            if (editingDepartment) {
+              handleUpdate()
+            } else {
+              handleCreate()
+            }
+          }}
+        >
+          <div className="space-y-4 pt-2">
+            <div className="space-y-2">
+              <Label htmlFor="name">
+                Name <span className="text-destructive">*</span>
+              </Label>
+              <Input
+                id="name"
+                value={formData.name}
+                onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                placeholder="e.g., Engineering"
+              />
+              {formErrors.name && <p className="text-destructive text-sm">{formErrors.name}</p>}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="description">Description</Label>
+              <Textarea
+                id="description"
+                value={formData.description}
+                onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                placeholder="Department description"
+                rows={3}
+              />
+            </div>
+            <div className="flex items-center space-x-2">
+              <Switch
+                id="is_active"
+                checked={formData.is_active}
+                onCheckedChange={(checked) => setFormData({ ...formData, is_active: checked })}
+              />
+              <Label htmlFor="is_active">Active</Label>
+            </div>
           </div>
-          <div className="space-y-2">
-            <Label htmlFor="description">Description</Label>
-            <Textarea
-              id="description"
-              value={formData.description}
-              onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-              placeholder="Department description"
-              rows={3}
-            />
-          </div>
-          <div className="flex items-center space-x-2">
-            <Switch
-              id="is_active"
-              checked={formData.is_active}
-              onCheckedChange={(checked) => setFormData({ ...formData, is_active: checked })}
-            />
-            <Label htmlFor="is_active">Active</Label>
-          </div>
-        </div>
-      </FormDialog>
+        </form>
+      </RightSidePanel>
 
       {/* Delete Confirmation Dialog */}
       <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>

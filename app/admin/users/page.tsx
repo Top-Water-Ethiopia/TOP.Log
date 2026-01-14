@@ -19,7 +19,6 @@ import {
 
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
 const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
-const SUPER_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000000"
 
 export default function AdminUsersPage() {
   const { user, profile, isLoading } = useSupabaseAuth()
@@ -30,8 +29,7 @@ export default function AdminUsersPage() {
     setIsClient(true)
   }, [])
 
-  const isSuperAdmin = profile?.role_id === SUPER_ADMIN_ROLE_ID
-  const isAdmin = profile?.role_id === ADMIN_ROLE_ID || profile?.role_id === SYSTEM_ADMIN_ROLE_ID || isSuperAdmin
+  const isAdmin = profile?.role_id === ADMIN_ROLE_ID || profile?.role_id === SYSTEM_ADMIN_ROLE_ID
 
   useEffect(() => {
     if (!isLoading && (!user || !isAdmin)) {
@@ -44,7 +42,7 @@ export default function AdminUsersPage() {
       <div className="space-y-6">
         <div className="space-y-2">
           <Skeleton className="h-9 w-64 bg-gray-200/80 dark:bg-gray-800" />
-          <Skeleton className="h-5 w-80 mt-2 bg-gray-200/70 dark:bg-gray-800" />
+          <Skeleton className="mt-2 h-5 w-80 bg-gray-200/70 dark:bg-gray-800" />
         </div>
         <UsersTableSkeleton />
       </div>
@@ -53,18 +51,16 @@ export default function AdminUsersPage() {
 
   if (!isAdmin) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
+      <div className="flex min-h-screen items-center justify-center">
         <Card className="w-full max-w-md">
           <CardHeader>
             <CardTitle>Access Denied</CardTitle>
-            <CardDescription>
-              You don't have permission to view the users page.
-            </CardDescription>
+            <CardDescription>You don't have permission to view the users page.</CardDescription>
           </CardHeader>
           <CardContent>
             <button
               onClick={() => router.push("/")}
-              className="w-full inline-flex items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              className="bg-primary text-primary-foreground hover:bg-primary/90 focus-visible:ring-ring inline-flex w-full items-center justify-center rounded-md px-4 py-2 text-sm font-medium shadow-sm focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
             >
               Go to Home
             </button>
@@ -91,9 +87,7 @@ export default function AdminUsersPage() {
           </BreadcrumbList>
         </Breadcrumb>
         <h1 className="text-3xl font-bold tracking-tight">Users</h1>
-        <p className="text-muted-foreground mt-2">
-          View and manage all users in the system.
-        </p>
+        <p className="text-muted-foreground mt-2">View and manage all users in the system.</p>
       </div>
       <div className="w-full">
         <SupabaseUserManagement />

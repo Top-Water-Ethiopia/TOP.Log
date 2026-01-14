@@ -1,18 +1,17 @@
 "use client"
 
-import { useEffect, useState } from 'react'
-import { useRouter } from 'next/navigation'
-import { useSupabaseAuth } from '@/contexts/supabase-auth-context'
-import { AdminReportsView } from '@/components/admin-reports-view'
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
-import { Icons } from '@/components/icons'
-import { Skeleton } from '@/components/ui/skeleton'
-import { FileText } from 'lucide-react'
+import { useEffect, useState } from "react"
+import { useRouter } from "next/navigation"
+import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
+import { AdminReportsView } from "@/components/admin-reports-view"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
+import { Icons } from "@/components/icons"
+import { Skeleton } from "@/components/ui/skeleton"
+import { FileText } from "lucide-react"
 
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
 const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
-const SUPER_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000000"
 
 export default function AdminReportsPage() {
   const router = useRouter()
@@ -22,24 +21,24 @@ export default function AdminReportsPage() {
   useEffect(() => {
     if (!isLoading) {
       if (!user) {
-        router.push('/login')
+        router.push("/login")
         return
       }
 
-      // Check if user is admin or super admin
+      // Check if user is admin
       const roleId = profile?.role_id
-      const adminAccess = roleId === ADMIN_ROLE_ID || roleId === SYSTEM_ADMIN_ROLE_ID || roleId === SUPER_ADMIN_ROLE_ID
+      const adminAccess = roleId === ADMIN_ROLE_ID || roleId === SYSTEM_ADMIN_ROLE_ID
       setIsAdmin(adminAccess)
 
       if (!adminAccess) {
-        router.push('/')
+        router.push("/")
       }
     }
   }, [user, profile, isLoading, router])
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-background">
+      <div className="bg-background min-h-screen">
         <div className="space-y-6">
           <div className="flex items-center justify-between">
             <div className="space-y-2">
@@ -51,7 +50,7 @@ export default function AdminReportsPage() {
 
           <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
             {[...Array(4)].map((_, i) => (
-              <div key={i} className="rounded-lg border bg-card p-6 space-y-3">
+              <div key={i} className="bg-card space-y-3 rounded-lg border p-6">
                 <Skeleton className="h-4 w-28 bg-gray-200/70 dark:bg-gray-800" />
                 <Skeleton className="h-8 w-20 bg-gray-200/80 dark:bg-gray-800" />
                 <Skeleton className="h-3 w-32 bg-gray-200/60 dark:bg-gray-800" />
@@ -59,10 +58,10 @@ export default function AdminReportsPage() {
             ))}
           </div>
 
-          <div className="rounded-lg border bg-card p-6 space-y-4">
+          <div className="bg-card space-y-4 rounded-lg border p-6">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-3">
-                <FileText className="h-5 w-5 text-muted-foreground" />
+                <FileText className="text-muted-foreground h-5 w-5" />
                 <Skeleton className="h-5 w-44 bg-gray-200/80 dark:bg-gray-800" />
               </div>
               <Skeleton className="h-9 w-28 bg-gray-200/80 dark:bg-gray-800" />
@@ -78,7 +77,7 @@ export default function AdminReportsPage() {
           </div>
 
           <div className="flex items-center justify-center pt-4">
-            <Icons.spinner className="h-5 w-5 animate-spin text-muted-foreground" />
+            <Icons.spinner className="text-muted-foreground h-5 w-5 animate-spin" />
           </div>
         </div>
       </div>
@@ -87,16 +86,14 @@ export default function AdminReportsPage() {
 
   if (!isAdmin) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
+      <div className="flex min-h-screen items-center justify-center">
         <Card className="w-full max-w-md">
           <CardHeader>
             <CardTitle>Access Denied</CardTitle>
-            <CardDescription>
-              You don't have permission to access admin reports.
-            </CardDescription>
+            <CardDescription>You don't have permission to access admin reports.</CardDescription>
           </CardHeader>
           <CardContent>
-            <Button onClick={() => router.push('/')} className="w-full">
+            <Button onClick={() => router.push("/")} className="w-full">
               Go to Home
             </Button>
           </CardContent>
@@ -106,14 +103,12 @@ export default function AdminReportsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="bg-background min-h-screen">
       {/* Main Content */}
       <div>
         <div className="mb-8">
           <h1 className="text-3xl font-bold tracking-tight">Reports</h1>
-          <p className="text-muted-foreground mt-2">
-            View and manage all reports in the system.
-          </p>
+          <p className="text-muted-foreground mt-2">View and manage all reports in the system.</p>
         </div>
         <AdminReportsView />
       </div>

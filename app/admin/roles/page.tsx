@@ -19,14 +19,12 @@ import {
 
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
 const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
-const SUPER_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000000"
 
 export default function AdminRolesPage() {
   const { user, profile, isLoading } = useSupabaseAuth()
   const router = useRouter()
 
-  const isSuperAdmin = profile?.role_id === SUPER_ADMIN_ROLE_ID
-  const isAdmin = profile?.role_id === ADMIN_ROLE_ID || profile?.role_id === SYSTEM_ADMIN_ROLE_ID || isSuperAdmin
+  const isAdmin = profile?.role_id === ADMIN_ROLE_ID || profile?.role_id === SYSTEM_ADMIN_ROLE_ID
 
   useEffect(() => {
     if (!isLoading && (!user || !isAdmin)) {
@@ -48,18 +46,16 @@ export default function AdminRolesPage() {
 
   if (!isAdmin) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
+      <div className="flex min-h-screen items-center justify-center">
         <Card className="w-full max-w-md">
           <CardHeader>
             <CardTitle>Access Denied</CardTitle>
-            <CardDescription>
-              You don't have permission to access this page.
-            </CardDescription>
+            <CardDescription>You don't have permission to access this page.</CardDescription>
           </CardHeader>
           <CardContent>
-            <button 
-              onClick={() => router.push("/")} 
-              className="w-full px-4 py-2 text-sm font-medium text-white bg-primary rounded-md hover:bg-primary/90"
+            <button
+              onClick={() => router.push("/")}
+              className="bg-primary hover:bg-primary/90 w-full rounded-md px-4 py-2 text-sm font-medium text-white"
             >
               Go to Home
             </button>

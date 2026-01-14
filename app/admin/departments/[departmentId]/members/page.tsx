@@ -31,19 +31,12 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import useSWR from "swr"
 import { apiFetch, getErrorMessage } from "@/lib/api-client"
 
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
 const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
-const SUPER_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000000"
 
 const DEPT_ROLES = [
   { value: "department_lead", label: "Department Lead" },
@@ -114,9 +107,7 @@ export default function AdminDepartmentMembersPage() {
   const departmentId = params.departmentId
   const { toast } = useToast()
 
-  const isSuperAdmin = profile?.role_id === SUPER_ADMIN_ROLE_ID
-  const isAdmin =
-    profile?.role_id === ADMIN_ROLE_ID || profile?.role_id === SYSTEM_ADMIN_ROLE_ID || isSuperAdmin
+  const isAdmin = profile?.role_id === ADMIN_ROLE_ID || profile?.role_id === SYSTEM_ADMIN_ROLE_ID
 
   const membershipsKey = isAdmin && departmentId ? `/api/admin/departments/${departmentId}/memberships` : null
   const professionRolesKey = isAdmin && departmentId ? `/api/admin/departments/${departmentId}/profession-roles` : null
@@ -146,10 +137,10 @@ export default function AdminDepartmentMembersPage() {
   const loading = isMembershipsLoading || isProfessionAssignmentsLoading
   const professionRolesLoading = isProfessionRolesLoading
 
-  const memberships = Array.isArray(membershipsResponse?.data) ? membershipsResponse.data : []
-  const professionRoles = Array.isArray(professionRolesResponse?.data) ? professionRolesResponse.data : []
+  const memberships = Array.isArray(membershipsResponse?.data) ? (membershipsResponse?.data ?? []) : []
+  const professionRoles = Array.isArray(professionRolesResponse?.data) ? (professionRolesResponse?.data ?? []) : []
   const professionAssignments = Array.isArray(professionAssignmentsResponse?.data)
-    ? professionAssignmentsResponse.data
+    ? (professionAssignmentsResponse?.data ?? [])
     : []
 
   const [showAssignDialog, setShowAssignDialog] = useState(false)
@@ -224,29 +215,31 @@ export default function AdminDepartmentMembersPage() {
 
       mutateMemberships(
         (current) => {
+          if (!current) return current
           const rows = Array.isArray(current?.data) ? current.data : []
           return { data: rows.filter((m) => m.user_id !== memberToHardDelete.user_id) }
         },
-        { revalidate: false },
+        { revalidate: false }
       )
 
       mutateProfessionAssignments(
         (current) => {
+          if (!current) return current
           const rows = Array.isArray(current?.data) ? current.data : []
           return { data: rows.filter((a) => a.user_id !== memberToHardDelete.user_id) }
         },
-        { revalidate: false },
+        { revalidate: false }
       )
 
       const json = await apiFetch<{ data: { deleted: boolean } | null }>(
         `/api/admin/departments/${departmentId}/memberships/${memberToHardDelete.user_id}?mode=hard`,
-        { method: "DELETE" },
+        { method: "DELETE" }
       )
 
       if (!json?.data) {
         await apiFetch<{ data: unknown }>(
           `/api/admin/departments/${departmentId}/profession-assignments/${memberToHardDelete.user_id}?mode=hard`,
-          { method: "DELETE" },
+          { method: "DELETE" }
         )
       }
 
@@ -300,33 +293,35 @@ export default function AdminDepartmentMembersPage() {
 
       mutateMemberships(
         (current) => {
+          if (!current) return current
           const rows = Array.isArray(current?.data) ? current.data : []
           return {
             data: rows.map((m) => (m.user_id === removedUserId ? { ...m, is_active: false, updated_at: nowIso } : m)),
           }
         },
-        { revalidate: false },
+        { revalidate: false }
       )
 
       mutateProfessionAssignments(
         (current) => {
+          if (!current) return current
           const rows = Array.isArray(current?.data) ? current.data : []
           return {
             data: rows.map((a) => (a.user_id === removedUserId ? { ...a, is_active: false, updated_at: nowIso } : a)),
           }
         },
-        { revalidate: false },
+        { revalidate: false }
       )
 
       const json = await apiFetch<{ data: unknown }>(
         `/api/admin/departments/${departmentId}/memberships/${memberToRemove.user_id}`,
-        { method: "DELETE" },
+        { method: "DELETE" }
       )
 
       if (!json?.data) {
         await apiFetch<{ data: unknown }>(
           `/api/admin/departments/${departmentId}/profession-assignments/${memberToRemove.user_id}`,
-          { method: "DELETE" },
+          { method: "DELETE" }
         )
       }
 
@@ -343,27 +338,35 @@ export default function AdminDepartmentMembersPage() {
 
                 mutateMemberships(
                   (current) => {
+                    if (!current) return current
                     const rows = Array.isArray(current?.data) ? current.data : []
                     return {
                       data: rows.map((m) =>
-                        m.user_id === removedUserId ? { ...m, is_active: true, updated_at: nowIso } : m,
+                        m.user_id === removedUserId ? { ...m, is_active: true, updated_at: nowIso } : m
                       ),
                     }
                   },
-                  { revalidate: false },
+                  { revalidate: false }
                 )
 
-                await apiFetch<{ data: { id: string; user_id: string; department_id: string; role: string; is_active: boolean; created_at: string; updated_at: string } }>(
-                  `/api/admin/departments/${departmentId}/memberships`,
-                  {
-                    method: "POST",
-                    headers: { "Content-Type": "application/json" },
-                    body: JSON.stringify({
-                      user_id: removedUserId,
-                      is_active: true,
-                    }),
-                  },
-                )
+                await apiFetch<{
+                  data: {
+                    id: string
+                    user_id: string
+                    department_id: string
+                    role: string
+                    is_active: boolean
+                    created_at: string
+                    updated_at: string
+                  }
+                }>(`/api/admin/departments/${departmentId}/memberships`, {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    user_id: removedUserId,
+                    is_active: true,
+                  }),
+                })
                 toast({ title: "Restored", description: "Membership restored" })
               } catch (e: any) {
                 if (prevUndoMembershipsResponse) {
@@ -556,11 +559,12 @@ export default function AdminDepartmentMembersPage() {
 
       mutateMemberships(
         (current) => {
+          if (!current) return current
           const prev = Array.isArray(current?.data) ? current.data : []
           const without = prev.filter((m) => m.user_id !== selectedUserId)
           return { data: [optimisticMembership, ...without] }
         },
-        { revalidate: false },
+        { revalidate: false }
       )
 
       const effectiveProfessionRoleId =
@@ -570,6 +574,7 @@ export default function AdminDepartmentMembersPage() {
 
       mutateProfessionAssignments(
         (current) => {
+          if (!current) return current
           const prev = Array.isArray(current?.data) ? current.data : []
           if (effectiveProfessionRoleId === PROFESSION_ROLE_NONE) {
             return { data: prev.filter((a) => a.user_id !== selectedUserId) }
@@ -597,7 +602,7 @@ export default function AdminDepartmentMembersPage() {
           const without = prev.filter((a) => a.user_id !== selectedUserId)
           return { data: [optimistic, ...without] }
         },
-        { revalidate: false },
+        { revalidate: false }
       )
 
       setSaving(true)
@@ -628,6 +633,7 @@ export default function AdminDepartmentMembersPage() {
       if (savedMembership?.id) {
         mutateMemberships(
           (current) => {
+            if (!current) return current
             const prev = Array.isArray(current?.data) ? current.data : []
             return {
               data: prev.map((m) =>
@@ -640,18 +646,18 @@ export default function AdminDepartmentMembersPage() {
                       created_at: savedMembership.created_at,
                       updated_at: savedMembership.updated_at,
                     }
-                  : m,
+                  : m
               ),
             }
           },
-          { revalidate: false },
+          { revalidate: false }
         )
       }
 
       if (effectiveProfessionRoleId === PROFESSION_ROLE_NONE) {
         await apiFetch<{ data: unknown }>(
           `/api/admin/departments/${departmentId}/profession-assignments/${selectedUserId}`,
-          { method: "DELETE" },
+          { method: "DELETE" }
         )
       } else {
         await apiFetch<{ data: unknown }>(`/api/admin/departments/${departmentId}/profession-assignments`, {
@@ -721,7 +727,9 @@ export default function AdminDepartmentMembersPage() {
             <CardDescription>You don't have permission to access this page.</CardDescription>
           </CardHeader>
           <CardContent>
-            <Button className="w-full" onClick={() => router.push("/")}>Go to Home</Button>
+            <Button className="w-full" onClick={() => router.push("/")}>
+              Go to Home
+            </Button>
           </CardContent>
         </Card>
       </div>
@@ -747,21 +755,21 @@ export default function AdminDepartmentMembersPage() {
               ))}
             </div>
           ) : people.length === 0 ? (
-            <div className="text-sm text-muted-foreground">No people yet.</div>
+            <div className="text-muted-foreground text-sm">No people yet.</div>
           ) : (
             <div className="space-y-2">
               {people.map((m) => (
                 <div
                   key={m.id}
                   className={`flex items-center justify-between rounded-md border p-3 ${
-                    !m.is_active ? "opacity-70 bg-muted/30" : ""
+                    !m.is_active ? "bg-muted/30 opacity-70" : ""
                   }`}
                 >
                   <div className="min-w-0">
-                    <div className={`font-medium truncate ${!m.is_active ? "line-through" : ""}`}>
+                    <div className={`truncate font-medium ${!m.is_active ? "line-through" : ""}`}>
                       {m.user?.name || "Unknown"}
                     </div>
-                    <div className="text-sm text-muted-foreground truncate">{m.user?.email || m.user_id}</div>
+                    <div className="text-muted-foreground truncate text-sm">{m.user?.email || m.user_id}</div>
                   </div>
                   <div className="flex items-center gap-2">
                     {(() => {
@@ -778,7 +786,9 @@ export default function AdminDepartmentMembersPage() {
                               Inactive
                             </Badge>
                           )}
-                          <Badge variant={prof?.is_active ? "secondary" : "outline"}>{`${profLabel}${profSuffix}`}</Badge>
+                          <Badge
+                            variant={prof?.is_active ? "secondary" : "outline"}
+                          >{`${profLabel}${profSuffix}`}</Badge>
                         </>
                       )
                     })()}
@@ -794,7 +804,7 @@ export default function AdminDepartmentMembersPage() {
                           <ChevronDown className="h-4 w-4" />
                         </Button>
                       }
-                      items={(
+                      items={
                         [
                           {
                             type: "label",
@@ -828,23 +838,19 @@ export default function AdminDepartmentMembersPage() {
                             destructive: true,
                             onSelect: () => confirmRemoveMember(m),
                           },
-                          ...(isSuperAdmin
-                            ? ([
-                                { type: "separator" },
-                                {
-                                  type: "item",
-                                  label: "Permanently delete",
-                                  icon: <Trash2 className="mr-2 h-4 w-4" />,
-                                  destructive: true,
-                                  onSelect: () => {
-                                    setMemberToHardDelete(m)
-                                    setHardDeleteConfirmText("")
-                                  },
-                                },
-                              ] as const)
-                            : []),
+                          { type: "separator" },
+                          {
+                            type: "item",
+                            label: "Permanently delete",
+                            icon: <Trash2 className="mr-2 h-4 w-4" />,
+                            destructive: true,
+                            onSelect: () => {
+                              setMemberToHardDelete(m)
+                              setHardDeleteConfirmText("")
+                            },
+                          },
                         ] satisfies ActionMenuItem[]
-                      )}
+                      }
                     />
                   </div>
                 </div>
@@ -881,7 +887,7 @@ export default function AdminDepartmentMembersPage() {
                         setSelectedUser(null)
                         setSearchResults([])
                       }}
-                      className="absolute inset-y-0 right-2 my-auto flex h-4 w-4 items-center justify-center rounded-full text-muted-foreground hover:text-foreground focus:outline-none"
+                      className="text-muted-foreground hover:text-foreground absolute inset-y-0 right-2 my-auto flex h-4 w-4 items-center justify-center rounded-full focus:outline-none"
                       aria-label="Clear user search"
                     >
                       <XIcon className="h-3 w-3" />
@@ -890,9 +896,7 @@ export default function AdminDepartmentMembersPage() {
                 </div>
               </div>
 
-              {searchLoading && userQuery.trim() && (
-                <div className="text-xs text-muted-foreground">Searching...</div>
-              )}
+              {searchLoading && userQuery.trim() && <div className="text-muted-foreground text-xs">Searching...</div>}
 
               {searchResults.length > 0 && (
                 <div className="max-h-48 overflow-auto rounded-md border">
@@ -900,7 +904,7 @@ export default function AdminDepartmentMembersPage() {
                     <button
                       key={u.user_id}
                       type="button"
-                      className={`w-full text-left px-3 py-2 text-sm hover:bg-muted ${
+                      className={`hover:bg-muted w-full px-3 py-2 text-left text-sm ${
                         selectedUserId === u.user_id ? "bg-muted" : ""
                       }`}
                       onClick={() => {
@@ -916,7 +920,7 @@ export default function AdminDepartmentMembersPage() {
               )}
 
               {selectedUserId && (
-                <div className="text-xs text-muted-foreground">Selected user_id: {selectedUserId}</div>
+                <div className="text-muted-foreground text-xs">Selected user_id: {selectedUserId}</div>
               )}
             </div>
 
@@ -941,7 +945,9 @@ export default function AdminDepartmentMembersPage() {
               <Select value={selectedProfessionRoleId} onValueChange={(v) => setSelectedProfessionRoleId(v)}>
                 <SelectTrigger disabled={professionRolesLoading || professionRoles.length === 0}>
                   <SelectValue
-                    placeholder={professionRolesLoading ? "Loading..." : professionRoles.length === 0 ? "No roles" : "Select role"}
+                    placeholder={
+                      professionRolesLoading ? "Loading..." : professionRoles.length === 0 ? "No roles" : "Select role"
+                    }
                   />
                 </SelectTrigger>
                 <SelectContent>
@@ -954,7 +960,7 @@ export default function AdminDepartmentMembersPage() {
                 </SelectContent>
               </Select>
               {selectedProfessionRoleId !== PROFESSION_ROLE_NONE && (
-                <div className="text-xs text-muted-foreground">
+                <div className="text-muted-foreground text-xs">
                   {professionRolesById.get(selectedProfessionRoleId)?.description || ""}
                 </div>
               )}
@@ -963,7 +969,9 @@ export default function AdminDepartmentMembersPage() {
             <div className="flex items-center justify-between">
               <div>
                 <div className="text-sm font-medium">Profession role active</div>
-                <div className="text-xs text-muted-foreground">Inactive removes profession access without deleting history.</div>
+                <div className="text-muted-foreground text-xs">
+                  Inactive removes profession access without deleting history.
+                </div>
               </div>
               <Switch
                 checked={selectedProfessionActive}
@@ -975,7 +983,7 @@ export default function AdminDepartmentMembersPage() {
             <div className="flex items-center justify-between">
               <div>
                 <div className="text-sm font-medium">Active</div>
-                <div className="text-xs text-muted-foreground">Inactive removes access without deleting history.</div>
+                <div className="text-muted-foreground text-xs">Inactive removes access without deleting history.</div>
               </div>
               <Switch checked={selectedActive} onCheckedChange={setSelectedActive} />
             </div>
@@ -1002,19 +1010,17 @@ export default function AdminDepartmentMembersPage() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel disabled={!!removingUserId}>Cancel</AlertDialogCancel>
-            {isSuperAdmin && (
-              <Button
-                variant="destructive"
-                disabled={!!removingUserId}
-                onClick={() => {
-                  if (!memberToRemove) return
-                  setMemberToHardDelete(memberToRemove)
-                  setMemberToRemove(null)
-                }}
-              >
-                Permanently delete
-              </Button>
-            )}
+            <Button
+              variant="destructive"
+              disabled={!!removingUserId}
+              onClick={() => {
+                if (!memberToRemove) return
+                setMemberToHardDelete(memberToRemove)
+                setMemberToRemove(null)
+              }}
+            >
+              Permanently delete
+            </Button>
             <AlertDialogAction disabled={!!removingUserId} onClick={removeMember}>
               Remove
             </AlertDialogAction>
@@ -1034,9 +1040,7 @@ export default function AdminDepartmentMembersPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Permanently delete membership</DialogTitle>
-            <DialogDescription>
-              This cannot be undone. Type DELETE to confirm.
-            </DialogDescription>
+            <DialogDescription>This cannot be undone. Type DELETE to confirm.</DialogDescription>
           </DialogHeader>
 
           <div className="space-y-2">

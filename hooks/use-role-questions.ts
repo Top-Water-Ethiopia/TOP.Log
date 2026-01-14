@@ -1,15 +1,39 @@
-import { useState, useEffect, useRef } from 'react'
-import { useSupabaseAuth } from '@/contexts/supabase-auth-context'
-import { toast } from 'sonner'
-import { apiFetch, getErrorMessage } from '@/lib/api-client'
+import { useState, useEffect, useRef } from "react"
+import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
+import { toast } from "sonner"
+import { apiFetch, getErrorMessage } from "@/lib/api-client"
 
 export interface RoleQuestion {
   id: string
   role_id: string
-  question_key: string
   question_label: string
-  question_title?: string | null
-  question_type: 'text' | 'textarea' | 'email' | 'url' | 'phone' | 'select' | 'multiselect' | 'checkbox' | 'number' | 'date' | 'time' | 'datetime' | 'daterange' | 'duration' | 'priority' | 'status' | 'radio' | 'tags' | 'rating' | 'slider' | 'nps' | 'file' | 'image' | 'rich-text' | 'currency' | 'percentage'
+  question_type:
+    | "text"
+    | "textarea"
+    | "email"
+    | "url"
+    | "phone"
+    | "select"
+    | "multiselect"
+    | "checkbox"
+    | "number"
+    | "date"
+    | "time"
+    | "datetime"
+    | "daterange"
+    | "duration"
+    | "priority"
+    | "status"
+    | "radio"
+    | "tags"
+    | "rating"
+    | "slider"
+    | "nps"
+    | "file"
+    | "image"
+    | "rich-text"
+    | "currency"
+    | "percentage"
   question_description?: string | null
   placeholder?: string | null
   options?: any
@@ -27,7 +51,9 @@ export function useRoleQuestions(initialQuestions?: RoleQuestion[], departmentId
   const [isLoading, setIsLoading] = useState(!initialQuestions)
   const [error, setError] = useState<string | null>(null)
   const abortControllerRef = useRef<AbortController | null>(null)
-  const lastFetchRef = useRef<{ userId: string | undefined; roleId: string | undefined; departmentId?: string } | null>(null)
+  const lastFetchRef = useRef<{ userId: string | undefined; roleId: string | undefined; departmentId?: string } | null>(
+    null
+  )
   const lastToastKeyRef = useRef<string | null>(null)
 
   useEffect(() => {
@@ -81,12 +107,12 @@ export function useRoleQuestions(initialQuestions?: RoleQuestion[], departmentId
         setError(null)
 
         const qs = new URLSearchParams()
-        qs.set('forReport', 'true')
+        qs.set("forReport", "true")
         if (departmentId) {
-          qs.set('departmentId', departmentId)
+          qs.set("departmentId", departmentId)
         }
 
-        const url = qs.toString() ? `/api/role-questions?${qs.toString()}` : '/api/role-questions'
+        const url = qs.toString() ? `/api/role-questions?${qs.toString()}` : "/api/role-questions"
 
         const data = await apiFetch<RoleQuestion[]>(url, {
           signal: abortController.signal,
@@ -97,13 +123,13 @@ export function useRoleQuestions(initialQuestions?: RoleQuestion[], departmentId
         lastToastKeyRef.current = null
       } catch (err) {
         // Don't set error if request was aborted
-        if (err instanceof Error && err.name === 'AbortError') {
+        if (err instanceof Error && err.name === "AbortError") {
           return
         }
-        console.error('Error fetching role questions:', err)
+        console.error("Error fetching role questions:", err)
 
-        const key = `${user.id}:${profile.role_id}:${departmentId || ''}`
-        const message = getErrorMessage(err, 'Failed to load questions')
+        const key = `${user.id}:${profile.role_id}:${departmentId || ""}`
+        const message = getErrorMessage(err, "Failed to load questions")
         setError(message)
         if (lastToastKeyRef.current !== key) {
           toast.error(message)
@@ -129,11 +155,11 @@ export function useRoleQuestions(initialQuestions?: RoleQuestion[], departmentId
 
   // Convert database questions to the format expected by RoleBasedQuestionFields
   // and include a separate title field (backed by question_title, falling back to label)
-  const formattedQuestions = questions.map(q => ({
+  const formattedQuestions = questions.map((q) => ({
     id: q.id, // Include the database ID for proper response creation
-    key: q.question_key,
+    key: q.id,
     label: q.question_label,
-    title: q.question_title || q.question_label,
+    title: q.question_label,
     type: q.question_type,
     description: q.question_description || undefined,
     placeholder: q.placeholder || undefined,
@@ -141,9 +167,7 @@ export function useRoleQuestions(initialQuestions?: RoleQuestion[], departmentId
     required: q.is_required,
     order: q.display_order,
     validationRules: q.validation_rules || undefined,
-    defaultValue: q.question_type === 'checkbox' ? false : 
-                  q.question_type === 'multiselect' ? [] : 
-                  undefined,
+    defaultValue: q.question_type === "checkbox" ? false : q.question_type === "multiselect" ? [] : undefined,
   }))
 
   return {
@@ -152,5 +176,3 @@ export function useRoleQuestions(initialQuestions?: RoleQuestion[], departmentId
     error,
   }
 }
-
-

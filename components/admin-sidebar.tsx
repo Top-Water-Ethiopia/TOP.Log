@@ -24,6 +24,7 @@ import {
   Building2,
   Shield,
   Key,
+  Bell,
   FileQuestion,
   Settings,
   LogOut,
@@ -35,6 +36,7 @@ import {
 } from "lucide-react"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { useIsMobile } from "@/hooks/use-mobile"
+import { isFeatureEnabledClient } from "@/lib/feature-flags/client"
 
 export function AdminSidebar() {
   const pathname = usePathname()
@@ -51,6 +53,9 @@ export function AdminSidebar() {
 
   const displayName = profile?.name || user?.email || ""
   const roleLabel = profile?.role_id === "00000000-0000-0000-0000-000000000001" ? "Admin" : "User"
+
+  const permissionsEnabled = isFeatureEnabledClient("ADMIN_PERMISSIONS")
+  const notificationsEnabled = isFeatureEnabledClient("ADMIN_NOTIFICATIONS")
 
   const getInitials = (value: string) => {
     const cleaned = value.trim()
@@ -74,11 +79,15 @@ export function AdminSidebar() {
       icon: Shield,
       path: "/admin/roles",
     },
-    {
-      name: "Permissions",
-      icon: Key,
-      path: "/admin/permissions",
-    },
+    ...(permissionsEnabled
+      ? [
+          {
+            name: "Permissions",
+            icon: Key,
+            path: "/admin/permissions",
+          },
+        ]
+      : []),
   ]
 
   const contentNavItems = [
@@ -100,6 +109,15 @@ export function AdminSidebar() {
       icon: LayoutDashboard,
       path: "/admin",
     },
+    ...(notificationsEnabled
+      ? [
+          {
+            name: "Notifications",
+            icon: Bell,
+            path: "/admin/notifications",
+          },
+        ]
+      : []),
   ]
 
   const systemNavItems = [

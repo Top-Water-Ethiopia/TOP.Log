@@ -7,7 +7,6 @@ import { adminSupabase } from "@/lib/supabase/admin"
 export const dynamic = "force-dynamic"
 
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
-const SUPER_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000000"
 const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
 
 /**
@@ -49,7 +48,7 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    // Check if user is admin or super admin with timeout
+    // Check if user is admin with timeout
     let profileData: { data: any; error: any } | null = null
     try {
       // Add timeout to prevent hanging requests
@@ -70,7 +69,7 @@ export async function GET() {
       return NextResponse.json({ error: "Profile not found" }, { status: 404 })
     }
 
-    const isAdmin = (profile as any).role_id === ADMIN_ROLE_ID || (profile as any).role_id === SYSTEM_ADMIN_ROLE_ID || (profile as any).role_id === SUPER_ADMIN_ROLE_ID
+    const isAdmin = (profile as any).role_id === ADMIN_ROLE_ID || (profile as any).role_id === SYSTEM_ADMIN_ROLE_ID
 
     if (!isAdmin) {
       return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
@@ -144,7 +143,6 @@ export async function GET() {
       console.error("Error fetching all roles:", allRolesError)
     }
 
-
     // Fetch ALL departments (for dropdown)
     // Use adminSupabase to bypass RLS
     const { data: allDepartments, error: allDeptsError } = await adminSupabase
@@ -155,7 +153,6 @@ export async function GET() {
     if (allDeptsError) {
       console.error("Error fetching all departments:", allDeptsError)
     }
-
 
     const roleMap = new Map((allRoles as any[])?.map((r) => [r.id, r.name]) || [])
     const deptMap = new Map((allDepartments as any[])?.map((d) => [d.id, d.name]) || [])
@@ -181,7 +178,6 @@ export async function GET() {
 
     const userMap = new Map(normalizedUsers.map((u) => [u.user_id, u]))
 
-
     // Fetch custom responses for all entries
     // Use adminSupabase to bypass RLS
     const entryIds = (entries as any[]).map((e) => e.id)
@@ -194,7 +190,6 @@ export async function GET() {
     if (responsesError) {
       console.error("Error fetching custom responses:", responsesError)
     }
-
 
     // Create responses lookup map
     const responsesMap = new Map<string, any[]>()

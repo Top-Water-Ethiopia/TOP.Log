@@ -3,7 +3,17 @@
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { BarChart3, Calendar, CalendarDays, Eye, FileText, TrendingDown, TrendingUp, Users, TableIcon } from "lucide-react"
+import {
+  BarChart3,
+  Calendar,
+  CalendarDays,
+  Eye,
+  FileText,
+  TrendingDown,
+  TrendingUp,
+  Users,
+  TableIcon,
+} from "lucide-react"
 
 export interface DashboardStats {
   totalEntries: number
@@ -81,7 +91,7 @@ export function AdminReportsDashboardTab({ stats, onExportCsv, onViewEntries }: 
           </CardContent>
         </Card>
 
-        <Card className="border border-gray-200 shadow-sm transition-shadow duration-200 hover:shadow-md">
+        {/* <Card className="border border-gray-200 shadow-sm transition-shadow duration-200 hover:shadow-md">
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-muted-foreground text-sm font-medium">Avg Responses</CardTitle>
             <BarChart3 className="text-muted-foreground h-4 w-4" />
@@ -90,7 +100,7 @@ export function AdminReportsDashboardTab({ stats, onExportCsv, onViewEntries }: 
             <div className="text-2xl font-bold">{stats.avgResponsesPerEntry.toFixed(1)}</div>
             <p className="text-muted-foreground mt-2 text-xs">Per entry</p>
           </CardContent>
-        </Card>
+        </Card> */}
       </div>
 
       {/* Most Active Users */}

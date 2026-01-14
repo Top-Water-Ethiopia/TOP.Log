@@ -10,7 +10,8 @@ import { Button } from "@/components/ui/button"
 import { Separator } from "@/components/ui/separator"
 import { Badge } from "@/components/ui/badge"
 
-const SUPER_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000000"
+const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
+const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
 
 function DetailsView({ details }: { details: Record<string, unknown> }) {
   const entries = useMemo(() => Object.entries(details), [details])
@@ -136,13 +137,13 @@ export default function SupabaseTestPage() {
   const { user, profile, isLoading: authLoading } = useSupabaseAuth()
   const router = useRouter()
 
-  const isSuperAdmin = profile?.role_id === SUPER_ADMIN_ROLE_ID
+  const isAdmin = profile?.role_id === ADMIN_ROLE_ID || profile?.role_id === SYSTEM_ADMIN_ROLE_ID
 
   useEffect(() => {
-    if (!authLoading && (!user || !isSuperAdmin)) {
+    if (!authLoading && (!user || !isAdmin)) {
       router.push("/admin/settings")
     }
-  }, [authLoading, user, isSuperAdmin, router])
+  }, [authLoading, user, isAdmin, router])
 
   return (
     <div className="container max-w-4xl py-10">
@@ -160,7 +161,7 @@ export default function SupabaseTestPage() {
         </div>
       </div>
 
-      {!authLoading && user && isSuperAdmin && (
+      {!authLoading && user && isAdmin && (
         <ConnectionStatusProvider>
           <SupabaseTestContent />
         </ConnectionStatusProvider>

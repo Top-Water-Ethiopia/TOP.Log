@@ -4,7 +4,6 @@ import { createClient } from "@/lib/supabase/server"
 
 export const dynamic = "force-dynamic"
 
-const SUPER_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000000"
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
 const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
 
@@ -16,7 +15,7 @@ async function verifyAdmin() {
   } = await supabase.auth.getUser()
 
   if (userError || !user) {
-    return { isAdmin: false as const, isSuperAdmin: false as const, error: "Not authenticated" }
+    return { isAdmin: false as const, error: "Not authenticated" }
   }
 
   const { data: profile, error: profileError } = await supabase
@@ -26,17 +25,16 @@ async function verifyAdmin() {
     .single()
 
   if (profileError || !profile) {
-    return { isAdmin: false as const, isSuperAdmin: false as const, error: "Admin access required" }
+    return { isAdmin: false as const, error: "Admin access required" }
   }
 
-  const isSuperAdmin = profile.role_id === SUPER_ADMIN_ROLE_ID
-  const isAdmin = profile.role_id === ADMIN_ROLE_ID || profile.role_id === SYSTEM_ADMIN_ROLE_ID || isSuperAdmin
+  const isAdmin = profile.role_id === ADMIN_ROLE_ID || profile.role_id === SYSTEM_ADMIN_ROLE_ID
 
   if (!isAdmin) {
-    return { isAdmin: false as const, isSuperAdmin: false as const, error: "Admin access required" }
+    return { isAdmin: false as const, error: "Admin access required" }
   }
 
-  return { isAdmin: true as const, isSuperAdmin, userId: user.id }
+  return { isAdmin: true as const, userId: user.id }
 }
 
 export async function GET(_request: Request, { params }: { params: Promise<{ departmentId: string }> }) {
@@ -51,7 +49,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ dep
     const { data: assignments, error: assignmentError } = await adminSupabase
       .from("user_department_professions")
       .select(
-        "id, user_id, department_id, role_id, is_active, created_at, updated_at, role:roles(id, name, description, department_id, level)",
+        "id, user_id, department_id, role_id, is_active, created_at, updated_at, role:roles(id, name, description, department_id, level)"
       )
       .eq("department_id", departmentId)
       .order("updated_at", { ascending: false })
@@ -59,7 +57,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ dep
     if (assignmentError) {
       return NextResponse.json(
         { error: "Failed to load assignments", message: assignmentError.message },
-        { status: 500 },
+        { status: 500 }
       )
     }
 
@@ -71,7 +69,10 @@ export async function GET(_request: Request, { params }: { params: Promise<{ dep
       .in("user_id", userIds)
 
     if (profilesError) {
-      return NextResponse.json({ error: "Failed to load user profiles", message: profilesError.message }, { status: 500 })
+      return NextResponse.json(
+        { error: "Failed to load user profiles", message: profilesError.message },
+        { status: 500 }
+      )
     }
 
     const profileMap = new Map((profiles || []).map((p) => [p.user_id, p]))
@@ -100,7 +101,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ dep
   } catch (error) {
     return NextResponse.json(
       { error: "Failed to load assignments", message: error instanceof Error ? error.message : "Unknown error" },
-      { status: 500 },
+      { status: 500 }
     )
   }
 }
@@ -151,26 +152,27 @@ export async function POST(request: Request, { params }: { params: Promise<{ dep
       .maybeSingle()
 
     if (membershipError) {
-      return NextResponse.json({ error: "Failed to validate membership", message: membershipError.message }, { status: 500 })
+      return NextResponse.json(
+        { error: "Failed to validate membership", message: membershipError.message },
+        { status: 500 }
+      )
     }
 
     if (!existingMembership) {
-      const { error: insertMembershipError } = await adminSupabase
-        .from("user_department_roles")
-        .insert({
-          user_id,
-          department_id: departmentId,
-          role: "viewer",
-          is_active: true,
-          created_by: adminUserId,
-          updated_by: adminUserId,
-          updated_at: nowIso,
-        } as any)
+      const { error: insertMembershipError } = await adminSupabase.from("user_department_roles").insert({
+        user_id,
+        department_id: departmentId,
+        role: "viewer",
+        is_active: true,
+        created_by: adminUserId,
+        updated_by: adminUserId,
+        updated_at: nowIso,
+      } as any)
 
       if (insertMembershipError) {
         return NextResponse.json(
           { error: "Failed to ensure membership", message: insertMembershipError.message },
-          { status: 500 },
+          { status: 500 }
         )
       }
     } else if (is_active && !existingMembership.is_active) {
@@ -184,7 +186,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ dep
         .eq("id", existingMembership.id)
 
       if (reactivateError) {
-        return NextResponse.json({ error: "Failed to reactivate membership", message: reactivateError.message }, { status: 500 })
+        return NextResponse.json(
+          { error: "Failed to reactivate membership", message: reactivateError.message },
+          { status: 500 }
+        )
       }
     }
 
@@ -241,7 +246,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ dep
   } catch (error) {
     return NextResponse.json(
       { error: "Failed to save assignment", message: error instanceof Error ? error.message : "Unknown error" },
-      { status: 500 },
+      { status: 500 }
     )
   }
 }

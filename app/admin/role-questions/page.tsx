@@ -1,19 +1,14 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
-import { RoleQuestionsManager } from "@/components/role-questions-manager"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
-import { Textarea } from "@/components/ui/textarea"
-import { Label } from "@/components/ui/label"
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Icons } from "@/components/icons"
 import Link from "next/link"
-import { Plus } from "lucide-react"
-import { supabase } from "@/lib/supabase/client"
+import { ChevronRight, Plus } from "lucide-react"
 import { useToast } from "@/components/ui/use-toast"
 import { Skeleton } from "@/components/ui/skeleton"
 import {
@@ -24,25 +19,96 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
+import useSWR from "swr"
+import { apiFetch, getErrorMessage } from "@/lib/api-client"
+import { Badge } from "@/components/ui/badge"
 
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
 const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
-const SUPER_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000000"
+
+type Department = {
+  id: string
+  name: string
+}
+
+type RoleRow = {
+  id: string
+  name: string
+  description: string | null
+  department_id: string | null
+  department?: Department | null
+}
+
+type RoleQuestionRow = {
+  id: string
+  role_id: string
+  is_active: boolean
+}
 
 export default function AdminRoleQuestionsPage() {
   const { user, profile, isLoading } = useSupabaseAuth()
   const router = useRouter()
   const [headerSearchQuery, setHeaderSearchQuery] = useState("")
-  const [refreshKey, setRefreshKey] = useState(0)
   const { toast } = useToast()
 
-  const [showCreateRoleDialog, setShowCreateRoleDialog] = useState(false)
-  const [isCreatingRole, setIsCreatingRole] = useState(false)
-  const [roleName, setRoleName] = useState("")
-  const [roleDescription, setRoleDescription] = useState("")
+  const lastLoadErrorRef = useRef<string | null>(null)
 
-  const isSuperAdmin = profile?.role_id === SUPER_ADMIN_ROLE_ID
-  const isAdmin = profile?.role_id === ADMIN_ROLE_ID || profile?.role_id === SYSTEM_ADMIN_ROLE_ID || isSuperAdmin
+  const isAdmin = profile?.role_id === ADMIN_ROLE_ID || profile?.role_id === SYSTEM_ADMIN_ROLE_ID
+
+  const rolesKey = isAdmin ? "/api/admin/roles" : null
+  const questionsKey = isAdmin ? "/api/role-questions" : null
+  const {
+    data: rolesResponse,
+    error: rolesError,
+    isLoading: isRolesLoading,
+  } = useSWR<{ data: RoleRow[] }>(rolesKey, (url: string) => apiFetch<{ data: RoleRow[] }>(url))
+  const {
+    data: questionsResponse,
+    error: questionsError,
+    isLoading: isQuestionsLoading,
+  } = useSWR<RoleQuestionRow[]>(questionsKey, (url: string) => apiFetch<RoleQuestionRow[]>(url))
+
+  useEffect(() => {
+    if (!rolesError && !questionsError) {
+      lastLoadErrorRef.current = null
+      return
+    }
+
+    const message = getErrorMessage(rolesError || questionsError, "Failed to load roles/questions")
+    if (lastLoadErrorRef.current !== message) {
+      toast({
+        title: "Error",
+        description: message,
+        variant: "destructive",
+      })
+      lastLoadErrorRef.current = message
+    }
+  }, [rolesError, questionsError, toast])
+
+  const roles = useMemo(() => rolesResponse?.data || [], [rolesResponse])
+  const questions = useMemo(() => (Array.isArray(questionsResponse) ? questionsResponse : []), [questionsResponse])
+
+  const roleQuestionCounts = useMemo(() => {
+    const map = new Map<string, { total: number; active: number }>()
+    for (const q of questions) {
+      const current = map.get(q.role_id) || { total: 0, active: 0 }
+      current.total += 1
+      if (q.is_active) current.active += 1
+      map.set(q.role_id, current)
+    }
+    return map
+  }, [questions])
+
+  const filteredRoles = useMemo(() => {
+    const query = headerSearchQuery.trim().toLowerCase()
+    if (!query) return roles
+    return roles.filter((r) => {
+      const name = (r.name || "").toLowerCase()
+      const desc = (r.description || "").toLowerCase()
+      const dept = (r.department?.name || "").toLowerCase()
+      return name.includes(query) || desc.includes(query) || dept.includes(query)
+    })
+  }, [roles, headerSearchQuery])
 
   useEffect(() => {
     if (!isLoading && (!user || !isAdmin)) {
@@ -66,7 +132,7 @@ export default function AdminRoleQuestionsPage() {
           </div>
         </div>
 
-        <div className="rounded-xl border bg-card p-6">
+        <div className="bg-card rounded-xl border p-6">
           <div className="space-y-3">
             {[...Array(6)].map((_, i) => (
               <div key={i} className="flex items-center justify-between">
@@ -84,7 +150,7 @@ export default function AdminRoleQuestionsPage() {
         </div>
 
         <div className="flex items-center justify-center">
-          <Icons.spinner className="h-5 w-5 animate-spin text-muted-foreground" />
+          <Icons.spinner className="text-muted-foreground h-5 w-5 animate-spin" />
         </div>
       </div>
     )
@@ -92,16 +158,16 @@ export default function AdminRoleQuestionsPage() {
 
   if (!isAdmin) {
     return (
-      <div className="flex items-center justify-center min-h-screen">
+      <div className="flex min-h-screen items-center justify-center">
         <Card className="w-full max-w-md">
           <CardHeader>
             <CardTitle>Access Denied</CardTitle>
-            <CardDescription>
-              You don't have permission to access this page.
-            </CardDescription>
+            <CardDescription>You don't have permission to access this page.</CardDescription>
           </CardHeader>
           <CardContent>
-            <Button className="w-full" onClick={() => router.push("/")}>Go to Home</Button>
+            <Button className="w-full" onClick={() => router.push("/")}>
+              Go to Home
+            </Button>
           </CardContent>
         </Card>
       </div>
@@ -110,7 +176,7 @@ export default function AdminRoleQuestionsPage() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 rounded-xl border bg-background p-6 shadow-sm">
+      <div className="bg-background flex flex-col gap-4 rounded-xl border p-6 shadow-sm">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
           <div className="space-y-2">
             <Breadcrumb>
@@ -128,19 +194,11 @@ export default function AdminRoleQuestionsPage() {
             </Breadcrumb>
             <h1 className="text-3xl font-semibold tracking-tight">Role Question Management</h1>
             <p className="text-muted-foreground mt-2">
-              Manage and refine the survey questions assigned to each crew role. Changes apply to future logs immediately.
+              Manage and refine the survey questions assigned to each crew role.
             </p>
           </div>
 
           <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              className="gap-2"
-              onClick={() => setShowCreateRoleDialog(true)}
-            >
-              <Plus className="h-4 w-4" />
-              Create Role
-            </Button>
             <Link href="/admin/role-questions/new">
               <Button className="gap-2">
                 <Plus className="h-4 w-4" />
@@ -152,115 +210,74 @@ export default function AdminRoleQuestionsPage() {
 
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div className="relative w-full max-w-xl">
-            <div className="pointer-events-none absolute inset-y-0 left-3 flex items-center text-muted-foreground">
+            <div className="text-muted-foreground pointer-events-none absolute inset-y-0 left-3 flex items-center">
               <Icons.search className="h-4 w-4" />
             </div>
             <Input
-              placeholder="Search roles or questions..."
+              placeholder="Search roles..."
               className="pl-9"
               value={headerSearchQuery}
               onChange={(e) => setHeaderSearchQuery(e.target.value)}
             />
           </div>
-          <div className="text-xs text-muted-foreground">Filters results below.</div>
+          <div className="text-muted-foreground text-xs">Filters results below.</div>
         </div>
       </div>
-      <RoleQuestionsManager externalSearchQuery={headerSearchQuery} refreshKey={refreshKey} />
 
-      <Dialog open={showCreateRoleDialog} onOpenChange={setShowCreateRoleDialog}>
-        <DialogContent className="sm:max-w-[520px]">
-          <DialogHeader>
-            <DialogTitle>Create Role</DialogTitle>
-            <DialogDescription>
-              Create a new role and immediately start adding questions to it.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
+      <Card>
+        <CardHeader>
+          <CardTitle>Roles</CardTitle>
+          <CardDescription>Select a role to manage its questions.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          {isRolesLoading || isQuestionsLoading ? (
             <div className="space-y-2">
-              <Label htmlFor="page_role_name">Role Name</Label>
-              <Input
-                id="page_role_name"
-                value={roleName}
-                onChange={(e) => setRoleName(e.target.value)}
-                placeholder="e.g., Captain"
-              />
+              {[...Array(8)].map((_, i) => (
+                <div key={i} className="flex items-center justify-between rounded-lg border p-4">
+                  <div className="space-y-2">
+                    <Skeleton className="h-4 w-56 bg-gray-200/70 dark:bg-gray-800" />
+                    <Skeleton className="h-3 w-80 bg-gray-200/60 dark:bg-gray-800" />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Skeleton className="h-6 w-20 bg-gray-200/70 dark:bg-gray-800" />
+                    <Skeleton className="h-6 w-16 bg-gray-200/70 dark:bg-gray-800" />
+                  </div>
+                </div>
+              ))}
             </div>
-            <div className="space-y-2">
-              <Label htmlFor="page_role_description">Description</Label>
-              <Textarea
-                id="page_role_description"
-                value={roleDescription}
-                onChange={(e) => setRoleDescription(e.target.value)}
-                placeholder="Optional description"
-                rows={3}
-              />
-            </div>
-          </div>
-          <DialogFooter>
-            <Button
-              type="button"
-              variant="outline"
-              onClick={() => setShowCreateRoleDialog(false)}
-              disabled={isCreatingRole}
-            >
-              Cancel
-            </Button>
-            <Button
-              type="button"
-              onClick={async () => {
-                const name = roleName.trim()
-                const description = roleDescription.trim()
-                if (!name) {
-                  toast({
-                    title: "Role name is required",
-                    description: "Please enter a role name.",
-                    variant: "destructive",
-                  })
-                  return
-                }
+          ) : filteredRoles.length === 0 ? (
+            <div className="text-muted-foreground py-10 text-center">No roles found. Try adjusting your search.</div>
+          ) : (
+            filteredRoles.map((role) => {
+              const counts = roleQuestionCounts.get(role.id) || { total: 0, active: 0 }
+              const displayName = role.name.charAt(0).toUpperCase() + role.name.slice(1).replace(/-/g, " ")
+              const subtitle = role.description || role.department?.name || "No description"
 
-                setIsCreatingRole(true)
-                try {
-                  const db = supabase as any
-                  const { error } = await db
-                    .from("roles")
-                    .insert({
-                      name,
-                      description: description || null,
-                      department_id: null,
-                    })
-
-                  if (error) throw error
-
-                  toast({
-                    title: "Role created",
-                    description: "The new role is now available in the list.",
-                  })
-
-                  setShowCreateRoleDialog(false)
-                  setRoleName("")
-                  setRoleDescription("")
-                  setRefreshKey((k) => k + 1)
-                } catch (error: any) {
-                  toast({
-                    title: "Error",
-                    description: error?.message || "Failed to create role",
-                    variant: "destructive",
-                  })
-                } finally {
-                  setIsCreatingRole(false)
-                }
-              }}
-              disabled={isCreatingRole}
-            >
-              {isCreatingRole ? "Creating..." : "Create Role"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+              return (
+                <Link
+                  key={role.id}
+                  href={`/admin/role-questions/${role.id}`}
+                  className="group hover:bg-muted flex items-center justify-between rounded-lg border p-4 transition-colors"
+                >
+                  <div className="min-w-0">
+                    <div className="truncate text-base font-semibold">{displayName}</div>
+                    <div className="text-muted-foreground truncate text-sm">{subtitle}</div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Badge variant="secondary" className="text-xs">
+                      {counts.total} question{counts.total !== 1 ? "s" : ""}
+                    </Badge>
+                    <Badge variant="outline" className="text-xs">
+                      {counts.active} active
+                    </Badge>
+                    <ChevronRight className="text-muted-foreground h-4 w-4 opacity-60 transition-opacity group-hover:opacity-100" />
+                  </div>
+                </Link>
+              )
+            })
+          )}
+        </CardContent>
+      </Card>
     </div>
   )
 }
-
-
-

@@ -22,17 +22,11 @@ import {
   FileQuestion,
 } from "lucide-react"
 
-// Role IDs from schema
-const SUPER_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000000"
-
 export function MobileNavigation() {
   const pathname = usePathname()
   const { user, profile, logout } = useSupabaseAuth()
   const { canAccessAdmin, canViewAnalytics } = useRBAC()
   const [isOpen, setIsOpen] = useState(false)
-
-  // Check if current user is super admin
-  const isSuperAdmin = profile?.role_id === SUPER_ADMIN_ROLE_ID
 
   // Handle logout
   const handleLogout = async () => {
@@ -167,11 +161,9 @@ export function MobileNavigation() {
             )}
 
             {/* Admin Section - Only shown when user is logged in */}
-            {user && (isSuperAdmin || canAccessAdmin) && (
+            {user && canAccessAdmin && (
               <div className="px-2 pt-4">
-                <h3 className="text-muted-foreground px-4 text-xs font-semibold tracking-wider uppercase">
-                  Reports
-                </h3>
+                <h3 className="text-muted-foreground px-4 text-xs font-semibold tracking-wider uppercase">Reports</h3>
                 <div className="space-y-1 pt-2">
                   {adminReportsItems.map((item) => (
                     <Link
@@ -280,7 +272,7 @@ export function MobileNavigation() {
               {user ? (
                 <>
                   {/* Hide Profile and Settings for admin users */}
-                  {!isSuperAdmin && !canAccessAdmin && (
+                  {!canAccessAdmin && (
                     <>
                       <Link
                         href="/profile"

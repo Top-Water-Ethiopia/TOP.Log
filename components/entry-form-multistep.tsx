@@ -1,9 +1,11 @@
 "use client"
 
 import type React from "react"
-import { useState, useEffect, useMemo, useCallback } from "react"
+import { useState, useEffect, useMemo, useCallback, useLayoutEffect, useRef } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card"
+import { Calendar } from "@/components/ui/calendar"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { useCaptainLog } from "@/contexts/supabase-log-context"
 import { useAuth } from "@/contexts/auth-context"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
@@ -11,15 +13,15 @@ import { useRBAC } from "@/hooks/use-rbac"
 import { useRoleQuestions } from "@/hooks/use-role-questions"
 import { RoleBasedQuestionFields } from "@/components/role-based-question-fields"
 import type { QuestionResponse } from "@/lib/rbac/types"
-import { ArrowLeft, ArrowRight, Save, Eye, AlertCircle, ListChecks, Pencil } from "lucide-react"
+import { ArrowLeft, ArrowRight, Save, Eye, AlertCircle, ListChecks, Pencil, CalendarDays } from "lucide-react"
 import { toast } from "sonner"
-import { 
-  getMinAllowedDate, 
-  getMaxAllowedDate, 
-  canCreateEntryForDate, 
+import {
+  getMinAllowedDate,
+  getMaxAllowedDate,
+  canCreateEntryForDate,
   canUpdateEntryForDate,
   formatDateHuman,
-  getDateRestrictionMessage
+  getDateRestrictionMessage,
 } from "@/lib/date-restrictions"
 
 interface EntryFormMultistepProps {
@@ -30,17 +32,29 @@ interface EntryFormMultistepProps {
   initialRoleQuestions?: any[]
 }
 
-export function EntryFormMultistep({ date: initialDate, departmentId, onSave, onCancel, initialRoleQuestions }: EntryFormMultistepProps) {
+export function EntryFormMultistep({
+  date: initialDate,
+  departmentId,
+  onSave,
+  onCancel,
+  initialRoleQuestions,
+}: EntryFormMultistepProps) {
   const { entries, addEntry, updateEntry } = useCaptainLog()
   const { isAuthenticated, user } = useAuth()
   const { user: supabaseUser } = useSupabaseAuth() // Supabase authentication
   const { validateResponse, processResponses } = useRBAC()
   const { questions: roleQuestions } = useRoleQuestions(initialRoleQuestions, departmentId)
-  const entriesForDepartment = useMemo(() => entries.filter((e) => e.department_id === departmentId), [entries, departmentId])
+  const entriesForDepartment = useMemo(
+    () => entries.filter((e) => e.department_id === departmentId),
+    [entries, departmentId]
+  )
   const [currentStep, setCurrentStep] = useState(1)
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [selectedDate, setSelectedDate] = useState<string>(initialDate || new Date().toISOString().split("T")[0])
-  
+  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false)
+  const datePickerTriggerRef = useRef<HTMLButtonElement | null>(null)
+  const [datePickerWidth, setDatePickerWidth] = useState<number | null>(null)
+
   const [formData, setFormData] = useState({
     // Legacy fields (kept for backward compatibility with existing entries)
     objectives: "",
@@ -57,32 +71,70 @@ export function EntryFormMultistep({ date: initialDate, departmentId, onSave, on
   const [customErrors, setCustomErrors] = useState<Record<string, string>>({})
   const [dateError, setDateError] = useState<string | null>(null)
 
-  const buildInitialCustomResponses = useCallback((existingResponses?: QuestionResponse[]) => {
-    const responseMap: Record<string, any> = {}
+  const selectedDateAsDate = useMemo(() => {
+    const d = new Date(selectedDate + "T00:00:00")
+    return Number.isNaN(d.getTime()) ? undefined : d
+  }, [selectedDate])
 
-    roleQuestions.forEach((question) => {
-      const q = question as any
-      const existing = existingResponses?.find((response) => response.questionKey === q.key)
+  const calendarCellSizePx = useMemo(() => {
+    if (!datePickerWidth) return null
+    // Calendar has `p-3` (12px) padding on both sides in the shared Calendar component.
+    // Subtract it so the 7 columns can fill the visible width more proportionally.
+    const innerWidth = Math.max(0, datePickerWidth - 24)
+    const size = Math.floor(innerWidth / 7)
+    return Math.max(36, size)
+  }, [datePickerWidth])
 
-      if (existing) {
-        responseMap[q.key] = existing.value
-      } else if (q.defaultValue !== undefined) {
-        responseMap[q.key] = q.defaultValue
-      } else if (q.type === "multiselect") {
-        responseMap[q.key] = []
-      } else if (q.type === "checkbox") {
-        responseMap[q.key] = false
-      } else {
-        responseMap[q.key] = ""
-      }
-    })
+  useLayoutEffect(() => {
+    const el = datePickerTriggerRef.current
+    if (!el) return
 
-    return responseMap
-  }, [roleQuestions])
+    const updateWidth = () => {
+      setDatePickerWidth(el.getBoundingClientRect().width)
+    }
+
+    updateWidth()
+    const ro = new ResizeObserver(() => updateWidth())
+    ro.observe(el)
+
+    window.addEventListener("resize", updateWidth)
+    return () => {
+      window.removeEventListener("resize", updateWidth)
+      ro.disconnect()
+    }
+  }, [])
+
+  const buildInitialCustomResponses = useCallback(
+    (existingResponses?: QuestionResponse[]) => {
+      const responseMap: Record<string, any> = {}
+
+      roleQuestions.forEach((question) => {
+        const q = question as any
+        const existing = existingResponses?.find(
+          (response) => response.questionId === q.id || response.questionKey === q.key
+        )
+
+        if (existing) {
+          responseMap[q.key] = existing.value
+        } else if (q.defaultValue !== undefined) {
+          responseMap[q.key] = q.defaultValue
+        } else if (q.type === "multiselect") {
+          responseMap[q.key] = []
+        } else if (q.type === "checkbox") {
+          responseMap[q.key] = false
+        } else {
+          responseMap[q.key] = ""
+        }
+      })
+
+      return responseMap
+    },
+    [roleQuestions]
+  )
 
   // Load existing entry if it exists, otherwise reset form
   useEffect(() => {
-    const existingEntry = entriesForDepartment.find(entry => entry.date === selectedDate)
+    const existingEntry = entriesForDepartment.find((entry) => entry.date === selectedDate)
 
     if (existingEntry) {
       setFormData({
@@ -97,7 +149,7 @@ export function EntryFormMultistep({ date: initialDate, departmentId, onSave, on
         projectUpdates: existingEntry.projectUpdates || "",
       })
       // Fix the type issue by ensuring all required fields are present
-      const fixedResponses = (existingEntry.customResponses || []).map(response => ({
+      const fixedResponses = (existingEntry.customResponses || []).map((response) => ({
         questionId: response.questionId || "",
         questionKey: response.questionKey || "",
         questionLabel: response.questionLabel || "",
@@ -128,9 +180,7 @@ export function EntryFormMultistep({ date: initialDate, departmentId, onSave, on
 
   // Steps: Date -> each role question -> Preview
   const steps = useMemo(() => {
-    const stepsList: { key: string; title: string }[] = [
-      { key: "date", title: "Select Date" },
-    ]
+    const stepsList: { key: string; title: string }[] = [{ key: "date", title: "Select Date" }]
 
     // One step per role question, with a dedicated title (falls back to label)
     roleQuestions.forEach((question, index) => {
@@ -176,8 +226,10 @@ export function EntryFormMultistep({ date: initialDate, departmentId, onSave, on
     roleQuestions.forEach((question) => {
       const q = question as any
       // Simple validation for required fields
-      if (q.required && (!customResponses[q.key] || 
-          (Array.isArray(customResponses[q.key]) && customResponses[q.key].length === 0))) {
+      if (
+        q.required &&
+        (!customResponses[q.key] || (Array.isArray(customResponses[q.key]) && customResponses[q.key].length === 0))
+      ) {
         newErrors[q.key] = `${q.label} is required`
       } else {
         // Try to use validateResponse if available
@@ -197,46 +249,49 @@ export function EntryFormMultistep({ date: initialDate, departmentId, onSave, on
   }, [roleQuestions, customResponses, validateResponse])
 
   // Validate a specific step by its index (0-based in the steps array)
-  const validateStepByIndex = useCallback((stepIndex: number) => {
-    const step = steps[stepIndex]
-    if (!step) return true
+  const validateStepByIndex = useCallback(
+    (stepIndex: number) => {
+      const step = steps[stepIndex]
+      if (!step) return true
 
-    // Only role-question steps have per-step validation; other steps currently always pass
-    if (!step.key.startsWith("question-")) {
-      return true
-    }
-
-    const questionKey = step.key.replace("question-", "")
-    const question = roleQuestions.find((q: any) => q.key === questionKey) as any
-
-    if (!question) {
-      return true
-    }
-
-    const newErrors: Record<string, string> = {}
-    const value = customResponses[question.key]
-
-    if (question.required && (!value || (Array.isArray(value) && value.length === 0))) {
-      newErrors[question.key] = `${question.label} is required`
-    } else {
-      try {
-        const error = validateResponse(question, value)
-        if (error) {
-          newErrors[question.key] = error
-        }
-      } catch {
-        // Fallback to simple required check only
+      // Only role-question steps have per-step validation; other steps currently always pass
+      if (!step.key.startsWith("question-")) {
+        return true
       }
-    }
 
-    if (Object.keys(newErrors).length > 0) {
-      setCustomErrors((prev) => ({ ...prev, ...newErrors }))
-      // Inline error will be displayed - no toast notification needed
-      return false
-    }
+      const questionKey = step.key.replace("question-", "")
+      const question = roleQuestions.find((q: any) => q.key === questionKey) as any
 
-    return true
-  }, [steps, roleQuestions, customResponses, validateResponse])
+      if (!question) {
+        return true
+      }
+
+      const newErrors: Record<string, string> = {}
+      const value = customResponses[question.key]
+
+      if (question.required && (!value || (Array.isArray(value) && value.length === 0))) {
+        newErrors[question.key] = `${question.label} is required`
+      } else {
+        try {
+          const error = validateResponse(question, value)
+          if (error) {
+            newErrors[question.key] = error
+          }
+        } catch {
+          // Fallback to simple required check only
+        }
+      }
+
+      if (Object.keys(newErrors).length > 0) {
+        setCustomErrors((prev) => ({ ...prev, ...newErrors }))
+        // Inline error will be displayed - no toast notification needed
+        return false
+      }
+
+      return true
+    },
+    [steps, roleQuestions, customResponses, validateResponse]
+  )
 
   const handleNext = () => {
     const currentIndex = currentStep - 1
@@ -275,14 +330,17 @@ export function EntryFormMultistep({ date: initialDate, departmentId, onSave, on
   }
 
   // Check if a step can be navigated to
-  const canNavigateToStep = useCallback((targetStepNumber: number) => {
-    // Current step is always accessible
-    if (targetStepNumber === currentStep) return true
-    // Can always go backwards
-    if (targetStepNumber < currentStep) return true
-    // Can't jump forward from current step
-    return false
-  }, [currentStep])
+  const canNavigateToStep = useCallback(
+    (targetStepNumber: number) => {
+      // Current step is always accessible
+      if (targetStepNumber === currentStep) return true
+      // Can always go backwards
+      if (targetStepNumber < currentStep) return true
+      // Can't jump forward from current step
+      return false
+    },
+    [currentStep]
+  )
 
   // Check if Next button should be disabled
   const isNextDisabled = useMemo(() => {
@@ -312,13 +370,13 @@ export function EntryFormMultistep({ date: initialDate, departmentId, onSave, on
       }
 
       // Check if we're updating an existing entry or creating a new one
-      const existingEntry = entriesForDepartment.find(entry => entry.date === selectedDate)
-      
+      const existingEntry = entriesForDepartment.find((entry) => entry.date === selectedDate)
+
       // Validate date before submission
-      const dateValidation = existingEntry 
+      const dateValidation = existingEntry
         ? canUpdateEntryForDate(selectedDate, existingEntry.createdAt)
         : canCreateEntryForDate(selectedDate)
-      
+
       if (!dateValidation.isValid) {
         toast.error(dateValidation.error || "Invalid date selected")
         setIsSubmitting(false)
@@ -327,7 +385,7 @@ export function EntryFormMultistep({ date: initialDate, departmentId, onSave, on
 
       // Process custom responses for storage
       const processedCustom = processResponses(
-        roleQuestions.map(q => q as any),
+        roleQuestions.map((q) => q as any),
         customResponses
       )
 
@@ -405,8 +463,8 @@ export function EntryFormMultistep({ date: initialDate, departmentId, onSave, on
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-semibold text-foreground">Daily Log Entry</h2>
-          <p className="text-sm text-muted-foreground mt-2">{formatDate(selectedDate)}</p>
+          <h2 className="text-foreground text-2xl font-semibold">Daily Log Entry</h2>
+          <p className="text-muted-foreground mt-2 text-sm">{formatDate(selectedDate)}</p>
         </div>
         <Button variant="outline" size="sm" onClick={onCancel} className="gap-2">
           <ArrowLeft className="h-4 w-4" />
@@ -415,77 +473,112 @@ export function EntryFormMultistep({ date: initialDate, departmentId, onSave, on
       </div>
 
       {/* Step Content */}
-      <Card className="flex-1 flex flex-col overflow-hidden shadow-sm">
+      <Card className="flex flex-1 flex-col overflow-hidden shadow-sm">
         <CardHeader className="flex-shrink-0">
           <CardDescription>
             Step {currentStep} of {steps.length}
           </CardDescription>
         </CardHeader>
-        <CardContent className="flex-1 overflow-y-auto space-y-6">
+        <CardContent className="flex-1 space-y-6 overflow-y-auto">
           {/* Step 1: Select Date */}
           {currentStepConfig?.key === "date" && (
             <div className="space-y-4">
               {/* Date Restriction Info Banner */}
               <div className="rounded-lg border border-blue-500/50 bg-blue-500/10 p-4">
                 <div className="flex items-start gap-4">
-                  <AlertCircle className="h-5 w-5 text-blue-500 mt-0.5 flex-shrink-0" />
+                  <AlertCircle className="mt-0.5 h-5 w-5 flex-shrink-0 text-blue-500" />
                   <div>
-                    <p className="text-sm font-medium text-foreground">Date Restrictions</p>
-                    <p className="text-xs text-muted-foreground mt-2">
-                      {getDateRestrictionMessage()}
-                    </p>
+                    <p className="text-foreground text-sm font-medium">Date Restrictions</p>
+                    <p className="text-muted-foreground mt-2 text-xs">{getDateRestrictionMessage()}</p>
                   </div>
                 </div>
               </div>
 
               <div className="space-y-2">
-                <label htmlFor="date" className="text-sm font-medium text-foreground text-lg">
+                <label htmlFor="date" className="text-foreground text-lg text-sm font-medium">
                   Select Report Date <span className="text-destructive">*</span>
                 </label>
-                <p className="text-sm text-muted-foreground">Choose the date for this daily log entry</p>
-                <input
-                  type="date"
-                  id="date"
-                  value={selectedDate}
-                  onChange={(e) => {
-                    const newDate = e.target.value
-                    setSelectedDate(newDate)
-                    
-                    // Validate date and show error if invalid
-                    const existingEntry = entries.find(entry => entry.date === newDate)
-                    const validation = existingEntry 
-                      ? canUpdateEntryForDate(newDate, existingEntry.createdAt)
-                      : canCreateEntryForDate(newDate)
-                    
-                    setDateError(validation.isValid ? null : validation.error || "Invalid date")
-                  }}
-                  min={getMinAllowedDate()}
-                  max={getMaxAllowedDate()}
-                  className="w-full px-4 py-4 text-lg rounded-md border border-input bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                  required
-                  autoFocus
-                />
+                <p className="text-muted-foreground text-sm">Choose the date for this daily log entry</p>
+                <Popover open={isDatePickerOpen} onOpenChange={setIsDatePickerOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      ref={datePickerTriggerRef}
+                      variant="outline"
+                      type="button"
+                      className="border-input bg-background text-foreground focus:ring-primary w-full justify-between rounded-md border px-4 py-4 text-lg focus:ring-2 focus:outline-none"
+                      aria-label="Select report date"
+                    >
+                      <span className={selectedDateAsDate ? "" : "text-muted-foreground"}>
+                        {selectedDateAsDate ? formatDateHuman(selectedDate) : "Select date"}
+                      </span>
+                      <CalendarDays className="text-muted-foreground h-5 w-5" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    side="bottom"
+                    align="start"
+                    sideOffset={8}
+                    collisionPadding={8}
+                    className="max-h-[var(--radix-popover-content-available-height)] overflow-y-auto p-0"
+                    style={datePickerWidth ? { width: `${datePickerWidth}px` } : undefined}
+                  >
+                    <Calendar
+                      mode="single"
+                      selected={selectedDateAsDate}
+                      className="w-full"
+                      classNames={{
+                        root: "w-full",
+                        months: "w-full flex flex-col",
+                        month: "w-full",
+                        table: "w-full",
+                        day_button: "aspect-auto h-10 sm:h-11",
+                      }}
+                      style={
+                        calendarCellSizePx
+                          ? ({ ["--cell-size" as any]: `${calendarCellSizePx}px` } as React.CSSProperties)
+                          : undefined
+                      }
+                      onSelect={(date) => {
+                        if (!date) return
+                        const newDate = date.toISOString().split("T")[0]
+                        setSelectedDate(newDate)
+                        setIsDatePickerOpen(false)
+
+                        const existingEntry = entries.find((entry) => entry.date === newDate)
+                        const validation = existingEntry
+                          ? canUpdateEntryForDate(newDate, existingEntry.createdAt)
+                          : canCreateEntryForDate(newDate)
+                        setDateError(validation.isValid ? null : validation.error || "Invalid date")
+                      }}
+                      disabled={{
+                        before: new Date(getMinAllowedDate() + "T00:00:00"),
+                        after: new Date(getMaxAllowedDate() + "T00:00:00"),
+                      }}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
                 {dateError && (
-                  <div className="rounded-md border border-red-500/50 bg-red-500/10 p-4 mt-2">
-                    <p className="text-sm text-red-600 dark:text-red-400 flex items-center gap-2">
+                  <div className="mt-2 rounded-md border border-red-500/50 bg-red-500/10 p-4">
+                    <p className="flex items-center gap-2 text-sm text-red-600 dark:text-red-400">
                       <AlertCircle className="h-4 w-4 flex-shrink-0" />
                       {dateError}
                     </p>
                   </div>
                 )}
-                <p className="text-xs text-muted-foreground mt-2">
+                <p className="text-muted-foreground mt-2 text-xs">
                   Selected: <span className="font-medium">{formatDateHuman(selectedDate)}</span>
                 </p>
               </div>
-              
+
               {/* Check if entry exists for selected date */}
-              {entries.find(entry => entry.date === selectedDate) && (
+              {entries.find((entry) => entry.date === selectedDate) && (
                 <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-4">
                   <div className="flex items-start gap-4">
-                    <AlertCircle className="h-5 w-5 text-amber-500 mt-0.5" />
+                    <AlertCircle className="mt-0.5 h-5 w-5 text-amber-500" />
                     <div>
-                      <p className="text-sm font-medium text-foreground">Entry Already Exists</p>
-                      <p className="text-xs text-muted-foreground mt-2">
+                      <p className="text-foreground text-sm font-medium">Entry Already Exists</p>
+                      <p className="text-muted-foreground mt-2 text-xs">
                         An entry for this date already exists. Continuing will update the existing entry.
                       </p>
                     </div>
@@ -517,24 +610,26 @@ export function EntryFormMultistep({ date: initialDate, departmentId, onSave, on
           {/* Preview */}
           {currentStepConfig?.key === "preview" && (
             <div className="space-y-6">
-              <div className="rounded-lg bg-accent/10 p-4 border border-accent/20">
-                <p className="text-sm font-medium text-accent flex items-center gap-2">
+              <div className="bg-accent/10 border-accent/20 rounded-lg border p-4">
+                <p className="text-accent flex items-center gap-2 text-sm font-medium">
                   <Eye className="h-4 w-4" />
                   Review your role-specific responses before submitting
                 </p>
               </div>
-              
+
               {/* Only Role-Based Questions in Preview - Industrial Standard Approach */}
               {roleQuestions.length > 0 ? (
-                <div className="space-y-4 pt-4 border-t">
-                  <h3 className="text-xl font-semibold text-foreground flex items-center gap-2">
+                <div className="space-y-4 border-t pt-4">
+                  <h3 className="text-foreground flex items-center gap-2 text-xl font-semibold">
                     <ListChecks className="h-5 w-5" /> Role-Specific Responses
                   </h3>
                   <div className="space-y-4">
                     {roleQuestions.map((question) => {
                       const value = customResponses[question.key]
                       const displayValue = Array.isArray(value)
-                        ? (value.length ? value.join(", ") : "Not provided")
+                        ? value.length
+                          ? value.join(", ")
+                          : "Not provided"
                         : value === "" || value === undefined || value === null
                           ? "Not provided"
                           : String(value)
@@ -545,27 +640,25 @@ export function EntryFormMultistep({ date: initialDate, departmentId, onSave, on
                       return (
                         <div
                           key={question.key}
-                          className="bg-muted/30 p-4 rounded-lg border border-border/40 flex items-start justify-between gap-4"
+                          className="bg-muted/30 border-border/40 flex items-start justify-between gap-4 rounded-lg border p-4"
                         >
                           <div>
                             <button
                               type="button"
                               onClick={() => questionStepNumber && handleStepClick(questionStepNumber)}
-                              className="text-left text-sm font-medium text-foreground hover:text-primary transition-colors duration-150 ease-in-out cursor-pointer disabled:cursor-default"
+                              className="text-foreground hover:text-primary cursor-pointer text-left text-sm font-medium transition-colors duration-150 ease-in-out disabled:cursor-default"
                               disabled={!questionStepNumber}
                             >
                               {question.label}
                             </button>
-                            <p className="text-sm text-muted-foreground whitespace-pre-wrap mt-2">
-                              {displayValue}
-                            </p>
+                            <p className="text-muted-foreground mt-2 text-sm whitespace-pre-wrap">{displayValue}</p>
                           </div>
                           {questionStepNumber && (
                             <Button
                               type="button"
                               variant="ghost"
                               size="icon"
-                              className="h-8 w-8 text-muted-foreground hover:text-primary hover:bg-muted cursor-pointer"
+                              className="text-muted-foreground hover:text-primary hover:bg-muted h-8 w-8 cursor-pointer"
                               onClick={() => handleStepClick(questionStepNumber)}
                               aria-label="Edit response"
                             >
@@ -580,10 +673,10 @@ export function EntryFormMultistep({ date: initialDate, departmentId, onSave, on
               ) : (
                 <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-4">
                   <div className="flex items-start gap-3">
-                    <AlertCircle className="h-5 w-5 text-amber-500 mt-0.5" />
+                    <AlertCircle className="mt-0.5 h-5 w-5 text-amber-500" />
                     <div>
-                      <p className="text-sm font-medium text-foreground">No Role-Specific Questions</p>
-                      <p className="text-xs text-muted-foreground mt-1">
+                      <p className="text-foreground text-sm font-medium">No Role-Specific Questions</p>
+                      <p className="text-muted-foreground mt-1 text-xs">
                         Your role does not have any specific questions configured.
                       </p>
                     </div>
@@ -596,36 +689,23 @@ export function EntryFormMultistep({ date: initialDate, departmentId, onSave, on
       </Card>
 
       {/* Navigation Buttons */}
-      <div className="flex items-center justify-between flex-shrink-0">
-        <Button
-          variant="outline"
-          onClick={handlePrevious}
-          disabled={currentStep === 1}
-          className="gap-2"
-        >
+      <div className="flex flex-shrink-0 items-center justify-between">
+        <Button variant="outline" onClick={handlePrevious} disabled={currentStep === 1} className="gap-2">
           <ArrowLeft className="h-4 w-4" />
           Previous
         </Button>
 
-        <div className="text-sm text-muted-foreground">
+        <div className="text-muted-foreground text-sm">
           Step {currentStep} of {steps.length}
         </div>
 
         {currentStep < steps.length ? (
-          <Button 
-            onClick={handleNext} 
-            disabled={isNextDisabled}
-            className="gap-2"
-          >
+          <Button onClick={handleNext} disabled={isNextDisabled} className="gap-2">
             Next
             <ArrowRight className="h-4 w-4" />
           </Button>
         ) : (
-          <Button
-            onClick={handleSubmit}
-            disabled={isSubmitting || hasCustomErrors}
-            className="gap-2"
-          >
+          <Button onClick={handleSubmit} disabled={isSubmitting || hasCustomErrors} className="gap-2">
             <Save className="h-4 w-4" />
             {isSubmitting ? "Saving..." : "Submit Log"}
           </Button>

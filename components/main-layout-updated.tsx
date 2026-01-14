@@ -11,6 +11,7 @@ import { AnalyticsDashboard } from "./analytics-dashboard"
 import { SupabaseNav } from "./supabase-nav"
 import { Button } from "./ui/button"
 import { useRoleQuestions } from "@/hooks/use-role-questions"
+import type { RoleQuestion } from "@/hooks/use-role-questions"
 import { toast } from "sonner"
 import { Shield, FileText, Building2 } from "lucide-react"
 import Link from "next/link"
@@ -20,12 +21,10 @@ import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { apiFetch, getErrorMessage } from "@/lib/api-client"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-
-// Role IDs from schema
-const SUPER_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000000"
+import { isFeatureEnabledClient } from "@/lib/feature-flags/client"
 
 interface MainLayoutUpdatedProps {
-  initialRoleQuestions: any[]
+  initialRoleQuestions: RoleQuestion[]
 }
 
 type DepartmentMembership = {
@@ -42,31 +41,46 @@ type DepartmentMembership = {
 export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedProps) {
   const { entries } = useCaptainLog()
   const { canAccessAdmin, canCreateEntries } = useRBAC()
-  const { user, profile } = useSupabaseAuth()
+  const { user } = useSupabaseAuth()
+
+  const [isRequestingAccess, setIsRequestingAccess] = useState(false)
 
   const [memberships, setMemberships] = useState<DepartmentMembership[]>([])
   const [isLoadingDepartments, setIsLoadingDepartments] = useState(false)
+  const [departmentsLoadStatus, setDepartmentsLoadStatus] = useState<"idle" | "loading" | "loaded" | "error">("idle")
   const [activeDepartmentId, setActiveDepartmentId] = useState<string | null>(null)
 
   useEffect(() => {
     if (!user) {
       setMemberships([])
       setActiveDepartmentId(null)
+      setDepartmentsLoadStatus("idle")
       return
     }
 
     const loadDepartments = async () => {
       try {
         setIsLoadingDepartments(true)
+        setDepartmentsLoadStatus("loading")
         const json = await apiFetch<{ data: DepartmentMembership[] }>("/api/departments")
         const rows = (json.data || []) as DepartmentMembership[]
         setMemberships(rows)
-        if (!activeDepartmentId && rows.length > 0) {
-          setActiveDepartmentId(rows[0].department_id)
+        setDepartmentsLoadStatus("loaded")
+        if (rows.length === 0) {
+          setActiveDepartmentId(null)
+          return
         }
+
+        const departmentIds = rows.map((r) => r.department_id)
+        setActiveDepartmentId((prev) => {
+          if (rows.length === 1) return rows[0].department_id
+          if (prev && departmentIds.includes(prev)) return prev
+          return rows[0].department_id
+        })
       } catch (error) {
         toast.error(getErrorMessage(error, "Failed to load departments"))
         setMemberships([])
+        setDepartmentsLoadStatus("error")
       } finally {
         setIsLoadingDepartments(false)
       }
@@ -77,6 +91,8 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id])
 
+  const showNoMembershipsMessage = !!user && departmentsLoadStatus === "loaded" && memberships.length === 0
+
   const entriesForDepartment = useMemo(() => {
     if (!activeDepartmentId) return []
     return entries.filter((e) => e.department_id === activeDepartmentId)
@@ -86,9 +102,6 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
     initialRoleQuestions,
     activeDepartmentId || undefined
   )
-
-  // Check if current user is super admin
-  const isSuperAdmin = profile?.role_id === SUPER_ADMIN_ROLE_ID
 
   const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split("T")[0])
   const [viewMode, setViewMode] = useState<"landing" | "calendar" | "form" | "details" | "analytics" | "thankYou">(
@@ -120,13 +133,41 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
   const hasSubmittedReports = entriesForDepartment.length > 0
   const newReportDisabledReason = !user
     ? undefined
-    : isRoleQuestionsLoading
-      ? "Loading role configuration…"
-      : !canCreateEntries
-        ? "You don’t have permission to create reports."
-        : !hasRoleQuestions
-          ? "Your role is not configured with role-specific questions yet."
-          : undefined
+    : showNoMembershipsMessage
+      ? "You are not assigned to any department role. Please contact your administrator."
+      : isRoleQuestionsLoading
+        ? "Loading role configuration…"
+        : !canCreateEntries
+          ? "You don’t have permission to create reports."
+          : !hasRoleQuestions
+            ? "Your role is not configured with role-specific questions yet."
+            : undefined
+
+  const requestAccessEnabled = isFeatureEnabledClient("REQUEST_ACCESS")
+  const canRequestAccess = requestAccessEnabled && !!user && (!!activeDepartmentId || true) && !canStartNewReport
+
+  const handleRequestAccess = useCallback(async () => {
+    if (!user) return
+    if (isRequestingAccess) return
+
+    try {
+      setIsRequestingAccess(true)
+      await apiFetch("/api/access-requests", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          department_id: activeDepartmentId,
+          requested_role: null,
+          message: newReportDisabledReason || null,
+        }),
+      })
+      toast.success("Access request submitted")
+    } catch (error) {
+      toast.error(getErrorMessage(error, "Failed to submit access request"))
+    } finally {
+      setIsRequestingAccess(false)
+    }
+  }, [activeDepartmentId, isRequestingAccess, newReportDisabledReason, user])
 
   const handleDateSelect = (date: string) => {
     setLogDetail(null)
@@ -165,7 +206,7 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
   return (
     <div className="bg-background flex h-screen flex-col overflow-hidden">
       {/* Header */}
-      <header className="border-border bg-background flex-shrink-0 border-b">
+      <header className="border-border bg-background shrink-0 border-b">
         <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:px-8">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
             <button
@@ -179,33 +220,37 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
 
             <div className="flex flex-wrap items-center gap-2">
               {/* Primary Navigation - Left side */}
-              <SearchDialog onSelectEntry={handleSearchSelect} entries={entriesForDepartment} />
+              {!showNoMembershipsMessage && (
+                <SearchDialog onSelectEntry={handleSearchSelect} entries={entriesForDepartment} />
+              )}
 
-              <Select
-                value={activeDepartmentId || ""}
-                onValueChange={(value) => {
-                  setActiveDepartmentId(value)
-                  setSelectedDate(new Date().toISOString().split("T")[0])
-                  setLogDetail(null)
-                  setEditingDate(undefined)
-                  setViewMode("landing")
-                }}
-                disabled={!user || isLoadingDepartments || memberships.length === 0}
-              >
-                <SelectTrigger className="min-w-[220px]" aria-label="Select department">
-                  <SelectValue placeholder={isLoadingDepartments ? "Loading departments..." : "Select department"} />
-                </SelectTrigger>
-                <SelectContent>
-                  {memberships.map((m) => (
-                    <SelectItem key={m.department_id} value={m.department_id}>
-                      {m.department?.name || m.department_id}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {memberships.length > 1 && (
+                <Select
+                  value={activeDepartmentId || ""}
+                  onValueChange={(value) => {
+                    setActiveDepartmentId(value)
+                    setSelectedDate(new Date().toISOString().split("T")[0])
+                    setLogDetail(null)
+                    setEditingDate(undefined)
+                    setViewMode("landing")
+                  }}
+                  disabled={!user || isLoadingDepartments}
+                >
+                  <SelectTrigger className="min-w-[220px]" aria-label="Select department">
+                    <SelectValue placeholder={isLoadingDepartments ? "Loading departments..." : "Select department"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {memberships.map((m) => (
+                      <SelectItem key={m.department_id} value={m.department_id}>
+                        {m.department?.name || m.department_id}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
 
               {/* New Report */}
-              {user && (
+              {user && !showNoMembershipsMessage && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -223,7 +268,7 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
                 </Button>
               )}
 
-              {user && (
+              {user && !showNoMembershipsMessage && (
                 <Link href="/departments">
                   <Button variant="outline" size="sm" className="gap-2">
                     <Building2 className="h-4 w-4" />
@@ -232,8 +277,8 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
                 </Link>
               )}
 
-              {/* Admin - Permission based or Super Admin */}
-              {(canAccessAdmin || isSuperAdmin) && (
+              {/* Admin */}
+              {canAccessAdmin && (
                 <>
                   <Link href="/admin">
                     <Button variant="outline" size="sm" className="gap-2">
@@ -254,11 +299,22 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
       {/* Main Content */}
       <main className="w-full flex-1 overflow-hidden">
         <div className="mx-auto h-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-          {viewMode === "landing" ? (
+          {showNoMembershipsMessage ? (
+            <div className="flex h-full items-center justify-center">
+              <div className="bg-card w-full max-w-xl rounded-xl border p-8 shadow-sm">
+                <h2 className="text-xl font-semibold">Not assigned</h2>
+                <p className="text-muted-foreground mt-2 text-sm">
+                  You are not assigned to any department role. Please contact your administrator.
+                </p>
+              </div>
+            </div>
+          ) : viewMode === "landing" ? (
             <LandingPage
               canCreateNewReport={canStartNewReport}
               newReportDisabledReason={newReportDisabledReason}
               hasSubmittedReports={hasSubmittedReports}
+              onRequestAccess={canRequestAccess ? handleRequestAccess : undefined}
+              isRequestingAccess={isRequestingAccess}
               onNewReport={() => {
                 setEditingDate(undefined)
                 setViewMode("form")
@@ -300,7 +356,7 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
             <Suspense
               fallback={
                 <div className="flex h-full gap-6">
-                  <div className="w-[380px] flex-shrink-0">
+                  <div className="w-[380px] shrink-0">
                     <div className="rounded-lg border p-8">
                       <div className="space-y-4">
                         <Skeleton className="h-8 w-40" />
@@ -321,7 +377,7 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
               }
             >
               <div className="flex h-full gap-6">
-                <div className="w-[380px] flex-shrink-0">
+                <div className="w-[380px] shrink-0">
                   <div className="sticky top-0 flex h-full flex-col">
                     <CalendarView
                       selectedDate={selectedDate}

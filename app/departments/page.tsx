@@ -7,7 +7,6 @@ import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
-import { AppPageShell } from "@/components/app-page-shell"
 
 type Department = {
   id: string
@@ -44,14 +43,19 @@ export default function DepartmentsPage() {
         const res = await fetch("/api/departments")
         const json = await res.json().catch(() => ({}))
         if (!res.ok) throw new Error(json.message || json.error || `HTTP ${res.status}`)
-        setMemberships((json.data || []) as Membership[])
+        const rows = (json.data || []) as Membership[]
+        setMemberships(rows)
+        const active = rows.filter((m) => m.department?.is_active)
+        if (active.length === 1) {
+          router.replace(`/departments/${active[0].department.id}`)
+        }
       } finally {
         setLoading(false)
       }
     }
 
     load()
-  }, [userId])
+  }, [userId, router])
 
   const activeMemberships = useMemo(() => {
     return memberships.filter((m) => m.department?.is_active)
@@ -59,12 +63,11 @@ export default function DepartmentsPage() {
 
   if (isLoading || !user) {
     return (
-      <AppPageShell
-        title="Departments"
-        description="Select a department to view reports and members."
-        backHref="/"
-        backLabel="Back"
-      >
+      <div className="space-y-6">
+        <div className="space-y-2">
+          <Skeleton className="h-9 w-64 bg-gray-200/80 dark:bg-gray-800" />
+          <Skeleton className="h-4 w-80 bg-gray-200/70 dark:bg-gray-800" />
+        </div>
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {[...Array(6)].map((_, i) => (
             <Card key={i} className="border border-gray-200 shadow-sm">
@@ -78,17 +81,17 @@ export default function DepartmentsPage() {
             </Card>
           ))}
         </div>
-      </AppPageShell>
+      </div>
     )
   }
 
   return (
-    <AppPageShell
-      title="Departments"
-      description="Select a department to view reports and members."
-      backHref="/"
-      backLabel="Back"
-    >
+    <div className="space-y-6">
+      <div>
+        <h2 className="text-3xl font-bold tracking-tight">Departments</h2>
+        <p className="text-muted-foreground mt-2">Select a department to view reports and members.</p>
+      </div>
+
       {loading ? (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {[...Array(6)].map((_, i) => (
@@ -107,7 +110,9 @@ export default function DepartmentsPage() {
         <Card>
           <CardHeader>
             <CardTitle>No departments</CardTitle>
-            <CardDescription>You are not assigned to any departments yet.</CardDescription>
+            <CardDescription>
+              You are not assigned to any departments yet. Please contact your administrator.
+            </CardDescription>
           </CardHeader>
         </Card>
       ) : (
@@ -130,6 +135,6 @@ export default function DepartmentsPage() {
           ))}
         </div>
       )}
-    </AppPageShell>
+    </div>
   )
 }
