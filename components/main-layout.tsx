@@ -24,9 +24,11 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "./ui/tabs"
 import { useCaptainLog } from "@/contexts/supabase-log-context"
 import { useAuth } from "@/contexts/auth-context"
 import { useRBAC } from "@/hooks/use-rbac"
+import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
+import { getToday } from "@/lib/date-restrictions"
+import { isFeatureEnabledClient } from "@/lib/feature-flags/client"
 import { VersionInfo } from "./version-info"
 import { ActionMenu, type ActionMenuItem } from "./ui/action-menu"
-import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 
 /**
  * MainLayout - Supabase-first enterprise layout
@@ -39,7 +41,7 @@ export function MainLayout() {
   const { canViewAnalytics, canAccessAdmin, canExportData, canImportData } = useRBAC()
   const isSupabaseLoggedIn = Boolean(supabaseUser)
 
-  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split("T")[0])
+  const [selectedDate, setSelectedDate] = useState<string>(getToday())
   const [viewMode, setViewMode] = useState<"landing" | "calendar" | "form" | "details" | "analytics" | "thankYou">(
     "landing"
   )
@@ -116,7 +118,9 @@ export function MainLayout() {
             <div className="flex gap-2">
               {/* Primary Navigation - Left side */}
               <div className="flex gap-2">
-                <SearchDialog onSelectEntry={handleSearchSelect} entries={entriesForDepartment} />
+                {isFeatureEnabledClient("SEARCH") ? (
+                  <SearchDialog onSelectEntry={handleSearchSelect} entries={entriesForDepartment} />
+                ) : null}
 
                 {/* Admin */}
                 {canAccessAdmin && (

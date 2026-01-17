@@ -16,8 +16,48 @@ import { toast } from "sonner"
 import { supabase } from "@/lib/supabase/client"
 import { SupabaseNav } from "@/components/supabase-nav"
 import { Building2, Shield } from "lucide-react"
+import { isFeatureEnabledClient } from "@/lib/feature-flags/client"
 
 export default function ProfilePage() {
+  const profileEnabled = isFeatureEnabledClient("PROFILE")
+
+  if (!profileEnabled) {
+    return (
+      <div className="bg-background flex min-h-screen flex-col">
+        <header className="border-border bg-background shrink-0 border-b">
+          <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:px-8">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <Link href="/" className="text-left transition-opacity duration-150 ease-in-out hover:opacity-80">
+                <h1 className="text-3xl font-bold tracking-tight">Logs</h1>
+                <p className="text-muted-foreground mt-1 text-sm">Daily Tracker</p>
+              </Link>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <SupabaseNav />
+              </div>
+            </div>
+          </div>
+        </header>
+
+        <main className="w-full flex-1">
+          <div className="mx-auto max-w-3xl px-4 py-10 sm:px-6 lg:px-8">
+            <Card>
+              <CardHeader>
+                <CardTitle>Profile</CardTitle>
+                <CardDescription>This feature is not available yet.</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <Button asChild variant="outline">
+                  <Link href="/">Back</Link>
+                </Button>
+              </CardContent>
+            </Card>
+          </div>
+        </main>
+      </div>
+    )
+  }
+
   const { user, profile, updateProfile, isLoading } = useSupabaseAuth()
   const { permissions } = useSupabaseRbac()
   const { canAccessAdmin } = useRBAC()

@@ -5,13 +5,19 @@ export function isFeatureEnabledClient(flag: FeatureFlagKey): boolean {
   const raw =
     flag === "ANALYTICS"
       ? process.env.NEXT_PUBLIC_FF_ANALYTICS
-      : flag === "ADMIN_NOTIFICATIONS"
-        ? process.env.NEXT_PUBLIC_FF_ADMIN_NOTIFICATIONS
-        : flag === "ADMIN_PERMISSIONS"
-          ? process.env.NEXT_PUBLIC_FF_ADMIN_PERMISSIONS
-          : flag === "REQUEST_ACCESS"
-            ? process.env.NEXT_PUBLIC_FF_REQUEST_ACCESS
-            : undefined
+      : flag === "SEARCH"
+        ? process.env.NEXT_PUBLIC_FF_SEARCH
+        : flag === "DARK_MODE"
+          ? process.env.NEXT_PUBLIC_FF_DARK_MODE
+          : flag === "PROFILE"
+            ? process.env.NEXT_PUBLIC_FF_PROFILE
+            : flag === "ADMIN_NOTIFICATIONS"
+              ? process.env.NEXT_PUBLIC_FF_ADMIN_NOTIFICATIONS
+              : flag === "ADMIN_PERMISSIONS"
+                ? process.env.NEXT_PUBLIC_FF_ADMIN_PERMISSIONS
+                : flag === "REQUEST_ACCESS"
+                  ? process.env.NEXT_PUBLIC_FF_REQUEST_ACCESS
+                  : undefined
   const parsed = parseBooleanEnvValue(raw)
 
   if (parsed !== undefined) return parsed

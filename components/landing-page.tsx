@@ -41,10 +41,19 @@ export function LandingPage({
         <div className={hasSubmittedReports ? "grid grid-cols-1 gap-4 md:grid-cols-2" : "grid grid-cols-1 gap-4"}>
           <div
             onClick={canCreateNewReport ? onNewReport : undefined}
+            onKeyDown={(e) => {
+              if (!canCreateNewReport) return
+              if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault()
+                onNewReport()
+              }
+            }}
+            role={canCreateNewReport ? "button" : undefined}
+            tabIndex={canCreateNewReport ? 0 : -1}
             aria-disabled={!canCreateNewReport}
             className={
               canCreateNewReport
-                ? "group border-border bg-card hover:bg-accent cursor-pointer rounded-xl border p-6 shadow-sm transition-colors duration-150 ease-in-out"
+                ? "group border-border bg-card hover:border-ring/40 focus-visible:ring-ring/50 cursor-pointer rounded-xl border p-6 shadow-sm transition-[box-shadow,border-color] duration-150 ease-in-out hover:shadow-md focus-visible:ring-[3px] focus-visible:outline-none"
                 : onRequestAccess
                   ? "border-border bg-card rounded-xl border p-6 shadow-sm"
                   : "border-border bg-card rounded-xl border p-6 opacity-60 shadow-sm"
@@ -55,11 +64,7 @@ export function LandingPage({
                 <FileText className="h-6 w-6" />
               </div>
               <h3 className="text-base font-semibold">New Report</h3>
-              {!canCreateNewReport && (
-                <p className="text-muted-foreground text-sm">
-                  Start a new daily report to log your activities and updates
-                </p>
-              )}
+
               {!canCreateNewReport && newReportDisabledReason && (
                 <p className="text-muted-foreground mt-2 text-xs">{newReportDisabledReason}</p>
               )}
@@ -86,16 +91,21 @@ export function LandingPage({
           {hasSubmittedReports && (
             <div
               onClick={onViewReports}
-              className="group border-border bg-card hover:bg-accent cursor-pointer rounded-xl border p-6 shadow-sm transition-colors duration-150 ease-in-out"
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault()
+                  onViewReports()
+                }
+              }}
+              role="button"
+              tabIndex={0}
+              className="group border-border bg-card hover:border-ring/40 focus-visible:ring-ring/50 cursor-pointer rounded-xl border p-6 shadow-sm transition-[box-shadow,border-color] duration-150 ease-in-out hover:shadow-md focus-visible:ring-[3px] focus-visible:outline-none"
             >
               <div className="flex h-full flex-col items-center text-center">
                 <div className="bg-primary/10 text-primary mb-4 flex h-12 w-12 items-center justify-center rounded-full">
                   <History className="h-6 w-6" />
                 </div>
                 <h3 className="text-base font-semibold">View Reports</h3>
-                <p className="text-muted-foreground text-sm">
-                  Browse and search through your previously submitted reports
-                </p>
               </div>
             </div>
           )}

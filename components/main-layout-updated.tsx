@@ -22,6 +22,7 @@ import { apiFetch, getErrorMessage } from "@/lib/api-client"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { isFeatureEnabledClient } from "@/lib/feature-flags/client"
+import { getToday } from "@/lib/date-restrictions"
 
 interface MainLayoutUpdatedProps {
   initialRoleQuestions: RoleQuestion[]
@@ -103,7 +104,7 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
     activeDepartmentId || undefined
   )
 
-  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split("T")[0])
+  const [selectedDate, setSelectedDate] = useState<string>(getToday())
   const [viewMode, setViewMode] = useState<"landing" | "calendar" | "form" | "details" | "analytics" | "thankYou">(
     "landing"
   )
@@ -212,7 +213,7 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
             <button
               type="button"
               onClick={() => setViewMode("landing")}
-              className="text-left transition-opacity duration-150 ease-in-out hover:opacity-80"
+              className="text-left transition-opacity duration-150 ease-in-out hover:cursor-pointer hover:opacity-80"
             >
               <h1 className="text-3xl font-bold tracking-tight">Logs</h1>
               <p className="text-muted-foreground mt-1 text-sm">Daily Tracker</p>
@@ -220,16 +221,16 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
 
             <div className="flex flex-wrap items-center gap-2">
               {/* Primary Navigation - Left side */}
-              {!showNoMembershipsMessage && (
+              {!showNoMembershipsMessage && isFeatureEnabledClient("SEARCH") ? (
                 <SearchDialog onSelectEntry={handleSearchSelect} entries={entriesForDepartment} />
-              )}
+              ) : null}
 
               {memberships.length > 1 && (
                 <Select
                   value={activeDepartmentId || ""}
                   onValueChange={(value) => {
                     setActiveDepartmentId(value)
-                    setSelectedDate(new Date().toISOString().split("T")[0])
+                    setSelectedDate(getToday())
                     setLogDetail(null)
                     setEditingDate(undefined)
                     setViewMode("landing")

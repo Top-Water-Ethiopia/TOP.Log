@@ -6,6 +6,7 @@ import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { Button } from "@/components/ui/button"
 import { useRBAC } from "@/hooks/use-rbac"
 import { useTheme } from "next-themes"
+import { isFeatureEnabledClient } from "@/lib/feature-flags/client"
 import { ActionMenu, type ActionMenuItem } from "@/components/ui/action-menu"
 import {
   Dialog,
@@ -40,6 +41,9 @@ export function SupabaseNav() {
   const [mounted, setMounted] = useState(false)
   const [isDialogOpen, setIsDialogOpen] = useState(false)
 
+  const darkModeEnabled = isFeatureEnabledClient("DARK_MODE")
+  const profileEnabled = isFeatureEnabledClient("PROFILE")
+
   const isSupabaseConfigured = !!process.env.NEXT_PUBLIC_SUPABASE_URL
 
   const isAdmin = profile?.role_id === ADMIN_ROLE_ID || profile?.role_id === SYSTEM_ADMIN_ROLE_ID
@@ -56,6 +60,90 @@ export function SupabaseNav() {
       console.error("Logout error:", error)
     }
   }
+
+  const actionMenuItems: ActionMenuItem[] = (() => {
+    const items: ActionMenuItem[] = []
+
+    const showAccountHeader = profileEnabled || darkModeEnabled
+
+    if (showAccountHeader) {
+      items.push({ type: "label", label: "My Account" })
+      items.push({ type: "separator" })
+    }
+
+    if (profileEnabled) {
+      items.push({
+        type: "item",
+        asChild: true,
+        node: (
+          <Link href="/profile" className="flex items-center">
+            <UserIcon className="mr-2 h-4 w-4" />
+            <span>Profile</span>
+          </Link>
+        ),
+      })
+    }
+
+    if (isAdmin) {
+      items.push({
+        type: "item",
+        asChild: true,
+        node: (
+          <Link href="/admin" className="flex items-center">
+            <LayoutDashboard className="mr-2 h-4 w-4" />
+            <span>Admin Dashboard</span>
+          </Link>
+        ),
+      })
+    }
+
+    if (canAccessAdmin && !isAdmin) {
+      items.push({
+        type: "item",
+        asChild: true,
+        node: (
+          <Link href="/admin" className="flex items-center">
+            <LockIcon className="mr-2 h-4 w-4" />
+            <span>Admin Dashboard</span>
+          </Link>
+        ),
+      })
+    }
+
+    if (darkModeEnabled) {
+      if (items.length > 0 && items[items.length - 1]?.type !== "separator") {
+        items.push({ type: "separator" })
+      }
+
+      items.push({
+        type: "item",
+        label: mounted ? (theme === "dark" ? "Light Mode" : "Dark Mode") : "Theme",
+        icon: mounted ? (
+          theme === "dark" ? (
+            <Sun className="mr-2 h-4 w-4" />
+          ) : (
+            <Moon className="mr-2 h-4 w-4" />
+          )
+        ) : (
+          <Moon className="mr-2 h-4 w-4" />
+        ),
+        onSelect: () => setTheme(theme === "dark" ? "light" : "dark"),
+      })
+    }
+
+    if (items.length > 0 && items[items.length - 1]?.type !== "separator") {
+      items.push({ type: "separator" })
+    }
+
+    items.push({
+      type: "item",
+      label: "Log out",
+      icon: <LogOutIcon className="mr-2 h-4 w-4" />,
+      onSelect: handleLogout,
+    })
+
+    return items
+  })()
 
   if (isLoading) {
     return (
@@ -79,72 +167,7 @@ export function SupabaseNav() {
               <ChevronDownIcon className="h-4 w-4" />
             </Button>
           }
-          items={
-            [
-              { type: "label", label: "My Account" },
-              { type: "separator" },
-              {
-                type: "item",
-                asChild: true,
-                node: (
-                  <Link href="/profile" className="flex items-center">
-                    <UserIcon className="mr-2 h-4 w-4" />
-                    <span>Profile</span>
-                  </Link>
-                ),
-              },
-              ...(isAdmin
-                ? ([
-                    {
-                      type: "item",
-                      asChild: true,
-                      node: (
-                        <Link href="/admin" className="flex items-center">
-                          <LayoutDashboard className="mr-2 h-4 w-4" />
-                          <span>Admin Dashboard</span>
-                        </Link>
-                      ),
-                    },
-                  ] as const)
-                : []),
-              ...(canAccessAdmin && !isAdmin
-                ? ([
-                    {
-                      type: "item",
-                      asChild: true,
-                      node: (
-                        <Link href="/admin" className="flex items-center">
-                          <LockIcon className="mr-2 h-4 w-4" />
-                          <span>Admin Dashboard</span>
-                        </Link>
-                      ),
-                    },
-                  ] as const)
-                : []),
-              { type: "separator" },
-              {
-                type: "item",
-                label: mounted ? (theme === "dark" ? "Light Mode" : "Dark Mode") : "Theme",
-                icon: mounted ? (
-                  theme === "dark" ? (
-                    <Sun className="mr-2 h-4 w-4" />
-                  ) : (
-                    <Moon className="mr-2 h-4 w-4" />
-                  )
-                ) : (
-                  <Moon className="mr-2 h-4 w-4" />
-                ),
-                onSelect: () => setTheme(theme === "dark" ? "light" : "dark"),
-              },
-              { type: "separator" },
-              {
-                type: "item",
-                label: "Log out",
-                icon: <LogOutIcon className="mr-2 h-4 w-4" />,
-                onSelect: handleLogout,
-              },
-            ] satisfies ActionMenuItem[]
-          }
+          items={actionMenuItems}
         />
       ) : (
         <div className="flex items-center gap-2">

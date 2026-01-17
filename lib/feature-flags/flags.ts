@@ -2,6 +2,15 @@ export const FEATURE_FLAGS = {
   ANALYTICS: {
     defaultValue: false,
   },
+  SEARCH: {
+    defaultValue: false,
+  },
+  DARK_MODE: {
+    defaultValue: false,
+  },
+  PROFILE: {
+    defaultValue: false,
+  },
   ADMIN_NOTIFICATIONS: {
     defaultValue: false,
   },

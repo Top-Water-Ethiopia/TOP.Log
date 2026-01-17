@@ -37,10 +37,12 @@ import {
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { useIsMobile } from "@/hooks/use-mobile"
 import { isFeatureEnabledClient } from "@/lib/feature-flags/client"
+import { useRBAC } from "@/hooks/use-rbac"
 
 export function AdminSidebar() {
   const pathname = usePathname()
   const { logout, user, profile } = useSupabaseAuth()
+  const { hasPermission } = useRBAC()
   const { theme, setTheme } = useTheme()
   const [mounted, setMounted] = useState(false)
   const isMobile = useIsMobile()
@@ -52,10 +54,13 @@ export function AdminSidebar() {
   }, [])
 
   const displayName = profile?.name || user?.email || ""
-  const roleLabel = profile?.role_id === "00000000-0000-0000-0000-000000000001" ? "Admin" : "User"
+  const roleLabel = hasPermission("admin.system") ? "Admin" : "User"
 
   const permissionsEnabled = isFeatureEnabledClient("ADMIN_PERMISSIONS")
   const notificationsEnabled = isFeatureEnabledClient("ADMIN_NOTIFICATIONS")
+  const darkModeEnabled = isFeatureEnabledClient("DARK_MODE")
+
+  const canAccessAdmin = hasPermission("admin.system")
 
   const getInitials = (value: string) => {
     const cleaned = value.trim()
@@ -79,7 +84,7 @@ export function AdminSidebar() {
       icon: Shield,
       path: "/admin/roles",
     },
-    ...(permissionsEnabled
+    ...(permissionsEnabled && canAccessAdmin
       ? [
           {
             name: "Permissions",
@@ -270,30 +275,32 @@ export function AdminSidebar() {
             </Button>
           </div>
         </div>
-        <Button
-          variant="ghost"
-          className="w-full justify-start group-data-[collapsible=icon]:justify-center"
-          onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
-        >
-          {mounted ? (
-            theme === "dark" ? (
-              <>
-                <Sun className="mr-2 h-4 w-4 group-data-[collapsible=icon]:mr-0" />
-                <span className="group-data-[collapsible=icon]:hidden">Toggle Theme</span>
-              </>
+        {darkModeEnabled ? (
+          <Button
+            variant="ghost"
+            className="w-full justify-start group-data-[collapsible=icon]:justify-center"
+            onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
+          >
+            {mounted ? (
+              theme === "dark" ? (
+                <>
+                  <Sun className="mr-2 h-4 w-4 group-data-[collapsible=icon]:mr-0" />
+                  <span className="group-data-[collapsible=icon]:hidden">Toggle Theme</span>
+                </>
+              ) : (
+                <>
+                  <Moon className="mr-2 h-4 w-4 group-data-[collapsible=icon]:mr-0" />
+                  <span className="group-data-[collapsible=icon]:hidden">Toggle Theme</span>
+                </>
+              )
             ) : (
               <>
                 <Moon className="mr-2 h-4 w-4 group-data-[collapsible=icon]:mr-0" />
                 <span className="group-data-[collapsible=icon]:hidden">Toggle Theme</span>
               </>
-            )
-          ) : (
-            <>
-              <Moon className="mr-2 h-4 w-4 group-data-[collapsible=icon]:mr-0" />
-              <span className="group-data-[collapsible=icon]:hidden">Toggle Theme</span>
-            </>
-          )}
-        </Button>
+            )}
+          </Button>
+        ) : null}
       </SidebarFooter>
     </Sidebar>
   )
