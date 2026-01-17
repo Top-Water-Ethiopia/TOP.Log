@@ -5,7 +5,8 @@
 BEGIN;
 
 -- Add admin SELECT policy (admins can view all entries)
-CREATE POLICY IF NOT EXISTS "Admins can view all entries"
+DROP POLICY IF EXISTS "Admins can view all entries" ON captain_log_entries;
+CREATE POLICY "Admins can view all entries"
   ON captain_log_entries FOR SELECT
   TO authenticated
   USING (
@@ -19,7 +20,8 @@ CREATE POLICY IF NOT EXISTS "Admins can view all entries"
   );
 
 -- Add admin INSERT policy (admins can create entries for any user)
-CREATE POLICY IF NOT EXISTS "Admins can create entries"
+DROP POLICY IF EXISTS "Admins can create entries" ON captain_log_entries;
+CREATE POLICY "Admins can create entries"
   ON captain_log_entries FOR INSERT
   TO authenticated
   WITH CHECK (
@@ -33,7 +35,8 @@ CREATE POLICY IF NOT EXISTS "Admins can create entries"
   );
 
 -- Add admin UPDATE policy (admins can update any entry)
-CREATE POLICY IF NOT EXISTS "Admins can update all entries"
+DROP POLICY IF EXISTS "Admins can update all entries" ON captain_log_entries;
+CREATE POLICY "Admins can update all entries"
   ON captain_log_entries FOR UPDATE
   TO authenticated
   USING (
@@ -56,7 +59,8 @@ CREATE POLICY IF NOT EXISTS "Admins can update all entries"
   );
 
 -- Add admin DELETE policy (admins can delete any entry)
-CREATE POLICY IF NOT EXISTS "Admins can delete all entries"
+DROP POLICY IF EXISTS "Admins can delete all entries" ON captain_log_entries;
+CREATE POLICY "Admins can delete all entries"
   ON captain_log_entries FOR DELETE
   TO authenticated
   USING (

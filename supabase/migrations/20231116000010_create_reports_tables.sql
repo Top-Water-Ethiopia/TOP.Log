@@ -3,6 +3,65 @@
 
 BEGIN;
 
+-- Ensure report_questions table exists (some environments may not have applied earlier migrations)
+CREATE TABLE IF NOT EXISTS public.report_questions (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  question_key TEXT NOT NULL,
+  question_label TEXT NOT NULL,
+  question_type TEXT NOT NULL,
+  question_category TEXT,
+  role_id UUID NOT NULL REFERENCES public.roles(id) ON DELETE CASCADE,
+  department TEXT,
+  is_active BOOLEAN NOT NULL DEFAULT TRUE,
+  created_by UUID REFERENCES auth.users(id),
+  updated_by UUID REFERENCES auth.users(id),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  metadata JSONB DEFAULT '{}'::jsonb
+);
+
+-- Helpful indexes for querying report questions
+CREATE INDEX IF NOT EXISTS idx_report_questions_role_id ON public.report_questions(role_id);
+CREATE INDEX IF NOT EXISTS idx_report_questions_department ON public.report_questions(department);
+CREATE INDEX IF NOT EXISTS idx_report_questions_role_department ON public.report_questions(role_id, department);
+
+-- Scoped unique indexes (matches department-scoped model)
+CREATE UNIQUE INDEX IF NOT EXISTS report_questions_department_question_key_idx
+  ON public.report_questions (question_key, department)
+  WHERE department IS NOT NULL;
+
+CREATE UNIQUE INDEX IF NOT EXISTS report_questions_role_question_key_idx
+  ON public.report_questions (question_key, role_id)
+  WHERE department IS NULL;
+
+ALTER TABLE public.report_questions ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Enable read access for all users" ON public.report_questions;
+DROP POLICY IF EXISTS "Enable insert for admins" ON public.report_questions;
+DROP POLICY IF EXISTS "Enable write access for admins" ON public.report_questions;
+
+CREATE POLICY "Enable read access for all users"
+  ON public.report_questions
+  FOR SELECT
+  USING (true);
+
+CREATE POLICY "Enable write access for admins"
+  ON public.report_questions
+  USING (
+    EXISTS (
+      SELECT 1 FROM user_profiles
+      WHERE user_profiles.user_id = auth.uid()
+        AND user_profiles.role_id = '00000000-0000-0000-0000-000000000001'::UUID
+    )
+  )
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM user_profiles
+      WHERE user_profiles.user_id = auth.uid()
+        AND user_profiles.role_id = '00000000-0000-0000-0000-000000000001'::UUID
+    )
+  );
+
 -- Create reports table if it doesn't exist
 CREATE TABLE IF NOT EXISTS public.reports (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -125,16 +184,30 @@ ON CONFLICT (role_id, resource, action) DO NOTHING;
 
 -- Create triggers for updating timestamps (using existing update_timestamp function)
 DROP TRIGGER IF EXISTS update_reports_timestamp_trigger ON public.reports;
-CREATE TRIGGER update_reports_timestamp_trigger
-  BEFORE UPDATE ON public.reports
-  FOR EACH ROW
-  EXECUTE FUNCTION update_timestamp();
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'update_timestamp') THEN
+    CREATE TRIGGER update_reports_timestamp_trigger
+      BEFORE UPDATE ON public.reports
+      FOR EACH ROW
+      EXECUTE FUNCTION update_timestamp();
+  END IF;
+END;
+$$;
 
 DROP TRIGGER IF EXISTS update_report_answers_timestamp_trigger ON public.report_answers;
-CREATE TRIGGER update_report_answers_timestamp_trigger
-  BEFORE UPDATE ON public.report_answers
-  FOR EACH ROW
-  EXECUTE FUNCTION update_timestamp();
+
+DO $$
+BEGIN
+  IF EXISTS (SELECT 1 FROM pg_proc WHERE proname = 'update_timestamp') THEN
+    CREATE TRIGGER update_report_answers_timestamp_trigger
+      BEFORE UPDATE ON public.report_answers
+      FOR EACH ROW
+      EXECUTE FUNCTION update_timestamp();
+  END IF;
+END;
+$$;
 
 COMMIT;
 

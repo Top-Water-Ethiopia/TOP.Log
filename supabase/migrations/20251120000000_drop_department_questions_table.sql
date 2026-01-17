@@ -3,14 +3,20 @@
 
 BEGIN;
 
--- Drop the trigger first
-DROP TRIGGER IF EXISTS update_department_questions_timestamp ON department_questions;
+DO $$
+BEGIN
+  IF to_regclass('public.department_questions') IS NOT NULL THEN
+    -- Drop the trigger first
+    DROP TRIGGER IF EXISTS update_department_questions_timestamp ON department_questions;
 
--- Drop RLS policies
-DROP POLICY IF EXISTS "Users can view questions for their department" ON department_questions;
-DROP POLICY IF EXISTS "Admins can create department questions" ON department_questions;
-DROP POLICY IF EXISTS "Admins can update department questions" ON department_questions;
-DROP POLICY IF EXISTS "Admins can delete department questions" ON department_questions;
+    -- Drop RLS policies
+    DROP POLICY IF EXISTS "Users can view questions for their department" ON department_questions;
+    DROP POLICY IF EXISTS "Admins can create department questions" ON department_questions;
+    DROP POLICY IF EXISTS "Admins can update department questions" ON department_questions;
+    DROP POLICY IF EXISTS "Admins can delete department questions" ON department_questions;
+  END IF;
+END;
+$$;
 
 -- Drop indexes
 DROP INDEX IF EXISTS idx_department_questions_department;

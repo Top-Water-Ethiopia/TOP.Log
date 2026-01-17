@@ -25,10 +25,10 @@ END $$;
 DROP TRIGGER IF EXISTS update_role_questions_timestamp ON public.role_questions;
 
 -- Drop indexes (will be recreated)
-DROP INDEX IF EXISTS idx_role_questions_role_id ON public.role_questions;
-DROP INDEX IF EXISTS idx_role_questions_active ON public.role_questions;
-DROP INDEX IF EXISTS idx_role_questions_display_order ON public.role_questions;
-DROP INDEX IF EXISTS idx_role_questions_conditional ON public.role_questions;
+DROP INDEX IF EXISTS public.idx_role_questions_role_id;
+DROP INDEX IF EXISTS public.idx_role_questions_active;
+DROP INDEX IF EXISTS public.idx_role_questions_display_order;
+DROP INDEX IF EXISTS public.idx_role_questions_conditional;
 
 -- Drop foreign key constraints by dropping the table
 -- This will cascade to any dependent objects

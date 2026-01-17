@@ -59,7 +59,8 @@ CREATE POLICY "Admins can delete departments"
 
 -- Add a policy to user_profiles that allows checking own role_id
 -- This is needed so RLS policies on other tables can check the role
-CREATE POLICY IF NOT EXISTS "Users can check their own role for RLS"
+DROP POLICY IF EXISTS "Users can check their own role for RLS" ON user_profiles;
+CREATE POLICY "Users can check their own role for RLS"
   ON user_profiles FOR SELECT
   USING (auth.uid() = user_id);
 

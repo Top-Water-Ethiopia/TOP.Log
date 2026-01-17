@@ -11,6 +11,8 @@ BEGIN;
 DROP POLICY IF EXISTS "Admins can view all roles" ON roles;
 DROP POLICY IF EXISTS "Users can view roles" ON roles;
 DROP POLICY IF EXISTS "Public can view roles" ON roles;
+DROP POLICY IF EXISTS "Authenticated users can view roles" ON roles;
+DROP POLICY IF EXISTS "Admins can manage roles" ON roles;
 
 -- Allow all authenticated users to view roles (needed for dropdowns, etc.)
 CREATE POLICY "Authenticated users can view roles"

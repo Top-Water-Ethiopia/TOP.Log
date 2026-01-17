@@ -1,9 +1,6 @@
 -- Fix is_admin() function to work correctly
 -- This version ensures the function properly checks user_profiles with SECURITY DEFINER
 
--- Drop and recreate the function
-DROP FUNCTION IF EXISTS is_admin();
-
 CREATE OR REPLACE FUNCTION is_admin()
 RETURNS BOOLEAN
 SECURITY DEFINER

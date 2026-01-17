@@ -1,6 +1,7 @@
 BEGIN;
 
 DROP POLICY IF EXISTS "Admins can delete all entries" ON public.captain_log_entries;
+DROP POLICY IF EXISTS "Super admins can delete all entries" ON public.captain_log_entries;
 
 CREATE POLICY "Super admins can delete all entries"
   ON public.captain_log_entries

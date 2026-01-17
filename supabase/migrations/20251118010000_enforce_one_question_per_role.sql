@@ -7,10 +7,15 @@ DROP CONSTRAINT IF EXISTS role_questions_role_id_question_key_key;
 
 -- Remove any duplicate questions (keep the first one for each role)
 DELETE FROM role_questions rq1
-WHERE rq1.id NOT IN (
-  SELECT MIN(id)
-  FROM role_questions
-  GROUP BY role_id
+WHERE rq1.id IN (
+  SELECT id
+  FROM (
+    SELECT
+      id,
+      ROW_NUMBER() OVER (PARTITION BY role_id ORDER BY id::text) AS rn
+    FROM role_questions
+  ) ranked
+  WHERE ranked.rn > 1
 );
 
 -- Add new unique constraint on role_id only
