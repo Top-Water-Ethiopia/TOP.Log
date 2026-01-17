@@ -1,10 +1,10 @@
 "use client"
 
 import { useState, useMemo } from "react"
-import { ChevronLeft, ChevronRight } from "lucide-react"
+import { ChevronLeft, ChevronRight, Lock } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { useCaptainLog, type CaptainLogEntry } from "@/contexts/supabase-log-context"
-import { isDateInAllowedRange } from "@/lib/date-restrictions"
+import { formatLocalDate, getMinAllowedDate, getToday, isDateInAllowedRange } from "@/lib/date-restrictions"
 
 interface CalendarViewProps {
   selectedDate: string
@@ -57,19 +57,19 @@ export function CalendarView({ selectedDate, onDateSelect, entries: entriesProp 
 
   const formatDateString = (day: number): string => {
     const date = new Date(currentMonth.getFullYear(), currentMonth.getMonth(), day)
-    return date.toISOString().split("T")[0]
+    return formatLocalDate(date)
   }
 
   const monthName = currentMonth.toLocaleString("default", { month: "long", year: "numeric" })
   const weekDays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
   return (
-    <div className="bg-card border-border flex h-full flex-col rounded-lg border p-8 shadow-sm">
+    <div className="bg-card border-border flex h-full flex-col rounded-lg border p-4 shadow-sm sm:p-6 lg:p-8">
       <div className="flex flex-1 flex-col space-y-4">
         {/* Month Navigation */}
-        <div className="mb-8 flex items-center justify-between">
-          <h2 className="text-foreground text-2xl font-bold">{monthName}</h2>
-          <div className="flex gap-2">
+        <div className="mb-4 flex flex-col gap-3 sm:mb-8 sm:flex-row sm:items-center sm:justify-between">
+          <h2 className="text-foreground text-xl font-bold sm:text-2xl">{monthName}</h2>
+          <div className="flex flex-wrap gap-2">
             <Button variant="outline" size="default" onClick={previousMonth} className="h-10 w-10 p-0">
               <ChevronLeft className="h-5 w-5" />
             </Button>
@@ -83,16 +83,19 @@ export function CalendarView({ selectedDate, onDateSelect, entries: entriesProp 
         </div>
 
         {/* Week Day Headers */}
-        <div className="mb-3 grid grid-cols-7 gap-2">
+        <div className="mb-2 grid grid-cols-7 gap-1 sm:mb-3 sm:gap-2">
           {weekDays.map((day) => (
-            <div key={day} className="text-muted-foreground py-2 text-center text-sm font-semibold">
+            <div
+              key={day}
+              className="text-muted-foreground py-1 text-center text-[11px] font-semibold sm:py-2 sm:text-sm"
+            >
               {day}
             </div>
           ))}
         </div>
 
         {/* Calendar Days */}
-        <div className="grid flex-1 grid-cols-7 gap-2">
+        <div className="grid grid-cols-7 grid-rows-6 gap-1 sm:gap-2">
           {calendarDays.map((day, index) => {
             if (day === null) {
               return <div key={`empty-${index}`} className="aspect-square" />
@@ -101,57 +104,66 @@ export function CalendarView({ selectedDate, onDateSelect, entries: entriesProp 
             const dateString = formatDateString(day)
             const hasEntry = datesWithEntries.has(dateString)
             const isSelected = dateString === selectedDate
-            const today = new Date().toISOString().split("T")[0]
+            const today = getToday()
             const isToday = dateString === today
             const isFuture = dateString > today
-            const isEditable = isDateInAllowedRange(dateString)
-            const isPast = dateString < today && !isEditable
+            const isInEditWindow = isDateInAllowedRange(dateString)
+            const isLockedForEdits = dateString < getMinAllowedDate()
 
             return (
               <button
                 key={day}
                 onClick={() => !isFuture && onDateSelect(dateString)}
                 disabled={isFuture}
-                className={`group relative flex min-h-[60px] flex-col items-center justify-start rounded-xl p-2 text-base font-semibold transition-all ${
+                className={`group relative flex aspect-square w-full flex-col items-center justify-start rounded-xl p-1.5 text-sm font-semibold transition-all sm:p-2 sm:text-base ${
                   isFuture
                     ? "bg-secondary/30 text-muted-foreground cursor-not-allowed opacity-40"
                     : isSelected
-                      ? "bg-primary text-primary-foreground scale-105 shadow-lg"
+                      ? "bg-primary text-primary-foreground shadow-lg sm:scale-105"
                       : isToday
                         ? "bg-primary/5 text-primary ring-primary border-primary/50 hover:bg-primary/10 border shadow-sm ring-2"
                         : hasEntry
-                          ? isPast
+                          ? isLockedForEdits
                             ? "bg-secondary/70 text-secondary-foreground/70 hover:bg-accent/10 border-border border-2 border-dashed hover:shadow-sm"
                             : "bg-secondary text-secondary-foreground hover:bg-accent/20 hover:border-accent border-2 border-transparent hover:shadow-md"
-                          : isEditable
-                            ? "bg-secondary/50 text-secondary-foreground hover:bg-muted hover:shadow-sm"
-                            : "bg-secondary/30 text-muted-foreground/60 opacity-60"
+                          : "bg-secondary/50 text-secondary-foreground hover:bg-muted hover:shadow-sm"
                 } `}
                 title={
                   isFuture
                     ? "Cannot log future dates"
-                    : isPast && hasEntry
-                      ? "View only (older than 2 days)"
-                      : hasEntry
+                    : hasEntry
+                      ? isInEditWindow
                         ? "View/Edit entry"
-                        : isEditable
-                          ? "Create entry (within 2-day window)"
-                          : "Not editable (older than 2 days)"
+                        : "View only (locked: older than 2 days)"
+                      : isLockedForEdits
+                        ? "Create entry (historical date; edits locked)"
+                        : "Create entry"
                 }
               >
                 <div className="flex w-full items-start justify-between">
                   <span className="mb-1 text-sm">{day}</span>
                   {isToday && !isSelected && (
-                    <span className="bg-primary/10 text-primary rounded-full px-2 py-0.5 text-[10px] leading-none font-medium">
+                    <span className="bg-primary/10 text-primary inline-flex rounded-full px-1.5 py-0.5 text-[9px] leading-none font-medium sm:px-2 sm:text-[10px]">
                       Today
                     </span>
                   )}
                 </div>
+
+                {!isFuture && isLockedForEdits ? (
+                  <div className="absolute top-1 right-1 sm:top-2 sm:right-2">
+                    <Lock
+                      className={
+                        isSelected ? "text-primary-foreground/90 h-3.5 w-3.5" : "text-muted-foreground/70 h-3.5 w-3.5"
+                      }
+                    />
+                  </div>
+                ) : null}
+
                 {/* Entry Indicator - More prominent */}
                 {hasEntry && !isFuture && (
                   <div className="mt-auto flex w-full items-center justify-center">
                     <div
-                      className={`h-2 w-2 rounded-full ${isPast ? "opacity-50" : ""}`}
+                      className={`h-2 w-2 rounded-full ${isLockedForEdits ? "opacity-50" : ""}`}
                       style={{ backgroundColor: "#099748" }}
                     />
                   </div>
@@ -178,10 +190,14 @@ export function CalendarView({ selectedDate, onDateSelect, entries: entriesProp 
                 <div className="h-2 w-2 rounded-full opacity-50" style={{ backgroundColor: "#099748" }} />
                 <span>View only (older)</span>
               </div>
+              <div className="flex items-center gap-2">
+                <Lock className="h-3.5 w-3.5" />
+                <span>Locked (edits disabled)</span>
+              </div>
             </div>
 
             {/* Stats */}
-            <div className="flex items-center gap-6 text-sm">
+            <div className="flex flex-col gap-2 text-sm sm:flex-row sm:items-center sm:gap-6">
               <div className="text-muted-foreground">
                 <span className="text-foreground font-semibold">
                   {

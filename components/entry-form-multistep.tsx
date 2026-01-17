@@ -13,15 +13,17 @@ import { useRBAC } from "@/hooks/use-rbac"
 import { useRoleQuestions } from "@/hooks/use-role-questions"
 import { RoleBasedQuestionFields } from "@/components/role-based-question-fields"
 import type { QuestionResponse } from "@/lib/rbac/types"
-import { ArrowLeft, ArrowRight, Save, Eye, AlertCircle, ListChecks, Pencil, CalendarDays } from "lucide-react"
+import { ArrowLeft, ArrowRight, Save, Eye, AlertCircle, ListChecks, Pencil, CalendarDays, Lock } from "lucide-react"
 import { toast } from "sonner"
 import {
-  getMinAllowedDate,
-  getMaxAllowedDate,
   canCreateEntryForDate,
   canUpdateEntryForDate,
+  formatLocalDate,
   formatDateHuman,
   getDateRestrictionMessage,
+  getToday,
+  getMaxAllowedDate,
+  getMinAllowedDate,
 } from "@/lib/date-restrictions"
 
 interface EntryFormMultistepProps {
@@ -50,7 +52,7 @@ export function EntryFormMultistep({
   )
   const [currentStep, setCurrentStep] = useState(1)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [selectedDate, setSelectedDate] = useState<string>(initialDate || new Date().toISOString().split("T")[0])
+  const [selectedDate, setSelectedDate] = useState<string>(initialDate || getToday())
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false)
   const datePickerTriggerRef = useRef<HTMLButtonElement | null>(null)
   const [datePickerWidth, setDatePickerWidth] = useState<number | null>(null)
@@ -74,6 +76,10 @@ export function EntryFormMultistep({
   const selectedDateAsDate = useMemo(() => {
     const d = new Date(selectedDate + "T00:00:00")
     return Number.isNaN(d.getTime()) ? undefined : d
+  }, [selectedDate])
+
+  const isSelectedDateLockedForEdits = useMemo(() => {
+    return selectedDate < getMinAllowedDate()
   }, [selectedDate])
 
   const calendarCellSizePx = useMemo(() => {
@@ -540,7 +546,7 @@ export function EntryFormMultistep({
                       }
                       onSelect={(date) => {
                         if (!date) return
-                        const newDate = date.toISOString().split("T")[0]
+                        const newDate = formatLocalDate(date)
                         setSelectedDate(newDate)
                         setIsDatePickerOpen(false)
 
@@ -551,7 +557,6 @@ export function EntryFormMultistep({
                         setDateError(validation.isValid ? null : validation.error || "Invalid date")
                       }}
                       disabled={{
-                        before: new Date(getMinAllowedDate() + "T00:00:00"),
                         after: new Date(getMaxAllowedDate() + "T00:00:00"),
                       }}
                       initialFocus
@@ -566,6 +571,19 @@ export function EntryFormMultistep({
                     </p>
                   </div>
                 )}
+
+                {isSelectedDateLockedForEdits ? (
+                  <div className="mt-2 rounded-md border border-amber-500/50 bg-amber-500/10 p-4">
+                    <p className="text-foreground flex items-center gap-2 text-sm font-medium">
+                      <Lock className="h-4 w-4" />
+                      Locked for edits
+                    </p>
+                    <p className="text-muted-foreground mt-1 text-xs">
+                      This date is older than 2 days. You can submit a report for it, but you won’t be able to edit it
+                      after submitting.
+                    </p>
+                  </div>
+                ) : null}
                 <p className="text-muted-foreground mt-2 text-xs">
                   Selected: <span className="font-medium">{formatDateHuman(selectedDate)}</span>
                 </p>

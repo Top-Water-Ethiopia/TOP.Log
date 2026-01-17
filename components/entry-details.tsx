@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useCaptainLog, type CaptainLogEntry } from "@/contexts/supabase-log-context"
-import { ArrowLeft, Edit, Trash2, Target, CheckCircle, AlertTriangle, ListChecks } from "lucide-react"
+import { ArrowLeft, Edit, Trash2, Target, CheckCircle, AlertTriangle, ListChecks, Lock } from "lucide-react"
 import type { QuestionResponse } from "@/lib/rbac/types"
 import { canUpdateEntryForDate } from "@/lib/date-restrictions"
 
@@ -131,6 +131,14 @@ export function EntryDetails({ date, departmentId, entry, isLoading, onEdit, onB
         <div className="flex-1">
           <h2 className="text-foreground text-2xl font-semibold">Daily Log</h2>
           <p className="text-muted-foreground mt-1 text-sm">{formatDate(date)}</p>
+          {!canEdit ? (
+            <div className="mt-2">
+              <Badge variant="secondary" className="gap-1" title="Entries older than 2 days are locked for editing">
+                <Lock className="h-3.5 w-3.5" />
+                Locked
+              </Badge>
+            </div>
+          ) : null}
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={onBack} className="gap-2">
