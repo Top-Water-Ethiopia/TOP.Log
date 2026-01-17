@@ -22,7 +22,7 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/components/ui/use-toast"
-import { toast as sonnerToast } from "sonner"
+import { ToastAction } from "@/components/ui/toast"
 import { ChevronDown, Plus, Pencil, Trash2, Loader2, Users, Briefcase } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -282,25 +282,31 @@ export function DepartmentManager() {
       setShowDeleteDialog(false)
       setDepartmentToDelete(null)
     } catch (error: unknown) {
-      console.error("Error deleting department:", error)
-
       if (error instanceof ApiError && error.status === 409) {
         setDepartments(prevDepartments)
 
-        sonnerToast.error("Cannot Delete Department", {
+        toast({
+          title: "Cannot Delete Department",
           description: getErrorMessage(
             error,
             "Cannot delete department. It has roles assigned. Please remove all roles first."
           ),
-          action: {
-            label: "Manage roles",
-            onClick: () => router.push(`/admin/departments/${departmentToDelete.id}?tab=roles`),
-          },
+          variant: "destructive",
+          action: (
+            <ToastAction
+              altText="Go to department roles"
+              onClick={() => router.push(`/admin/departments/${departmentToDelete.id}?tab=roles`)}
+            >
+              Manage roles
+            </ToastAction>
+          ),
         })
         setShowDeleteDialog(false)
         setDepartmentToDelete(null)
         return
       }
+
+      console.error("Error deleting department:", error)
 
       setDepartments(prevDepartments)
 

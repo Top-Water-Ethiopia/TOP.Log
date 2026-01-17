@@ -94,5 +94,5 @@ BEGIN
       FOR EACH ROW EXECUTE PROCEDURE update_timestamp();
     END IF;
   END IF;
-END IF;
-END $$;
+END;
+$$;

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useParams, usePathname, useRouter } from "next/navigation"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
+import { useRBAC } from "@/hooks/use-rbac"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -34,9 +35,6 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import useSWR from "swr"
 import { apiFetch, getErrorMessage } from "@/lib/api-client"
-
-const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
-const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
 
 const DEPT_ROLES = [
   { value: "department_lead", label: "Department Lead" },
@@ -107,12 +105,14 @@ export default function AdminDepartmentMembersPage() {
   const departmentId = params.departmentId
   const { toast } = useToast()
 
-  const isAdmin = profile?.role_id === ADMIN_ROLE_ID || profile?.role_id === SYSTEM_ADMIN_ROLE_ID
+  const { hasPermission, rbacChecked, rbacLoading } = useRBAC()
+  const canAccessAdmin = hasPermission("admin.system")
 
-  const membershipsKey = isAdmin && departmentId ? `/api/admin/departments/${departmentId}/memberships` : null
-  const professionRolesKey = isAdmin && departmentId ? `/api/admin/departments/${departmentId}/profession-roles` : null
+  const membershipsKey = canAccessAdmin && departmentId ? `/api/admin/departments/${departmentId}/memberships` : null
+  const professionRolesKey =
+    canAccessAdmin && departmentId ? `/api/admin/departments/${departmentId}/profession-roles` : null
   const professionAssignmentsKey =
-    isAdmin && departmentId ? `/api/admin/departments/${departmentId}/profession-assignments` : null
+    canAccessAdmin && departmentId ? `/api/admin/departments/${departmentId}/profession-assignments` : null
 
   const {
     data: membershipsResponse,
@@ -189,20 +189,31 @@ export default function AdminDepartmentMembersPage() {
   }, [professionAssignmentsError, toast])
 
   useEffect(() => {
-    if (!isLoading && (!user || !isAdmin)) {
+    if (isLoading) return
+
+    if (!user) {
+      router.push("/")
+      return
+    }
+
+    if (!rbacChecked || rbacLoading) return
+
+    if (!canAccessAdmin) {
       router.push("/")
     }
-  }, [user, isAdmin, isLoading, router])
+  }, [user, canAccessAdmin, isLoading, router, rbacChecked, rbacLoading])
 
   useEffect(() => {
     if (isLoading) return
-    if (!user || !isAdmin) return
+    if (!user) return
+    if (!rbacChecked || rbacLoading) return
+    if (!canAccessAdmin) return
     if (!departmentId) return
 
     if (pathname.endsWith(`/admin/departments/${departmentId}/members`)) {
       router.replace(`/admin/departments/${departmentId}?tab=members`)
     }
-  }, [pathname, isLoading, user, isAdmin, router, departmentId])
+  }, [pathname, isLoading, user, router, departmentId, rbacChecked, rbacLoading, canAccessAdmin])
 
   const hardDeleteMember = async () => {
     if (!memberToHardDelete) return
@@ -698,7 +709,7 @@ export default function AdminDepartmentMembersPage() {
     }
   }
 
-  if (isLoading || !user || !profile) {
+  if (isLoading || rbacLoading || !user || !profile) {
     return (
       <div className="space-y-6">
         <Skeleton className="h-9 w-64 bg-gray-200/80 dark:bg-gray-800" />
@@ -718,7 +729,7 @@ export default function AdminDepartmentMembersPage() {
     )
   }
 
-  if (!isAdmin) {
+  if (rbacChecked && !canAccessAdmin) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <Card className="w-full max-w-md">

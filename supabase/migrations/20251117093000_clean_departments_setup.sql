@@ -37,7 +37,19 @@ CREATE TABLE IF NOT EXISTS departments (
 
 -- Create indexes
 CREATE INDEX IF NOT EXISTS idx_departments_name ON departments(name);
-CREATE INDEX IF NOT EXISTS idx_departments_code ON departments(code) WHERE code IS NOT NULL;
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'departments'
+      AND column_name = 'code'
+  ) THEN
+    CREATE INDEX IF NOT EXISTS idx_departments_code ON departments(code) WHERE code IS NOT NULL;
+  END IF;
+END;
+$$;
 CREATE INDEX IF NOT EXISTS idx_departments_is_active ON departments(is_active);
 CREATE INDEX IF NOT EXISTS idx_departments_created_by ON departments(created_by);
 

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, type ReactNode } from "react"
 import Link from "next/link"
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
+import { useRBAC } from "@/hooks/use-rbac"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -18,9 +19,6 @@ import {
   BreadcrumbPage,
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
-
-const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
-const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
 
 type Department = {
   id: string
@@ -37,7 +35,8 @@ export default function AdminDepartmentLayout({ children }: { children: ReactNod
   const searchParams = useSearchParams()
   const departmentId = params.departmentId
 
-  const isAdmin = profile?.role_id === ADMIN_ROLE_ID || profile?.role_id === SYSTEM_ADMIN_ROLE_ID
+  const { hasPermission, rbacChecked, rbacLoading } = useRBAC()
+  const canAccessAdmin = hasPermission("admin.system")
 
   const activeTab = useMemo(() => {
     const t = searchParams.get("tab") ?? searchParams.get("tabs")
@@ -47,7 +46,7 @@ export default function AdminDepartmentLayout({ children }: { children: ReactNod
     return "members"
   }, [searchParams, pathname, departmentId])
 
-  const departmentsKey = isAdmin ? "/api/admin/departments" : null
+  const departmentsKey = canAccessAdmin ? "/api/admin/departments" : null
 
   const { data: departmentsResponse, error: departmentsError } = useSWR<{ data: Department[] }>(departmentsKey)
 
@@ -74,12 +73,21 @@ export default function AdminDepartmentLayout({ children }: { children: ReactNod
   }, [departmentsError, toast])
 
   useEffect(() => {
-    if (!isLoading && (!user || !isAdmin)) {
+    if (isLoading) return
+
+    if (!user) {
+      router.push("/")
+      return
+    }
+
+    if (!rbacChecked || rbacLoading) return
+
+    if (!canAccessAdmin) {
       router.push("/")
     }
-  }, [user, isAdmin, isLoading, router])
+  }, [user, canAccessAdmin, isLoading, router, rbacChecked, rbacLoading])
 
-  if (isLoading || !user || !profile) {
+  if (isLoading || rbacLoading || !user || !profile) {
     return (
       <div className="space-y-6">
         <div className="bg-background sticky top-0 z-20 rounded-xl border p-6 shadow-sm">
@@ -102,7 +110,7 @@ export default function AdminDepartmentLayout({ children }: { children: ReactNod
     )
   }
 
-  if (!isAdmin) {
+  if (rbacChecked && !canAccessAdmin) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <Card className="w-full max-w-md">

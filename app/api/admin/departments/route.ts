@@ -1,73 +1,16 @@
 import { NextResponse } from "next/server"
 import { adminSupabase } from "@/lib/supabase/admin"
-import { createClient } from "@/lib/supabase/server"
+import { verifyPermissionFromRequest } from "@/lib/rbac/server"
 
 // Enable dynamic route behavior
 export const dynamic = "force-dynamic"
 
-const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
-const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
-
-// Helper to verify admin or super admin access
-async function verifyAdmin(request: Request) {
-  try {
-    const supabase = await createClient()
-
-    const authHeader = request.headers.get("authorization")
-    const token = authHeader?.startsWith("Bearer ") ? authHeader.slice("Bearer ".length).trim() : null
-
-    const {
-      data: { user },
-      error: userError,
-    } = token ? await supabase.auth.getUser(token) : await supabase.auth.getUser()
-
-    if (userError) {
-      console.error("Auth error in verifyAdmin:", userError)
-      return { isAdmin: false, error: "Not authenticated" }
-    }
-
-    if (!user) {
-      console.warn("No user found in verifyAdmin")
-      return { isAdmin: false, error: "Not authenticated" }
-    }
-
-    const { data: profile, error: profileError } = await supabase
-      .from("user_profiles")
-      .select("role_id")
-      .eq("user_id", user.id)
-      .single()
-
-    if (profileError) {
-      console.error("Profile error in verifyAdmin:", profileError)
-      return { isAdmin: false, error: "Admin access required" }
-    }
-
-    if (!profile) {
-      console.warn(`User ${user.id} has no profile`)
-      return { isAdmin: false, error: "Admin access required" }
-    }
-
-    const isAdmin = profile.role_id === ADMIN_ROLE_ID || profile.role_id === SYSTEM_ADMIN_ROLE_ID
-
-    if (!isAdmin) {
-      console.warn(`User ${user.id} is not admin. Role ID: ${profile?.role_id}`)
-      return { isAdmin: false, error: "Admin access required" }
-    }
-
-    return { isAdmin: true, userId: user.id }
-  } catch (error) {
-    console.error("Unexpected error in verifyAdmin:", error)
-    return { isAdmin: false, error: "Authentication error" }
-  }
-}
-
 // GET - List all departments
 export async function GET(request: Request) {
   try {
-    // Verify admin access
-    const { isAdmin, error: authError } = await verifyAdmin(request)
-    if (!isAdmin) {
-      return NextResponse.json({ error: authError || "Admin access required" }, { status: 403 })
+    const auth = await verifyPermissionFromRequest(request, "admin.system")
+    if (!auth.ok) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status })
     }
 
     const { data: departments, error } = await adminSupabase
@@ -96,10 +39,9 @@ export async function GET(request: Request) {
 // POST - Create a new department
 export async function POST(request: Request) {
   try {
-    // Verify admin access
-    const { isAdmin, error: authError, userId } = await verifyAdmin(request)
-    if (!isAdmin || !userId) {
-      return NextResponse.json({ error: authError || "Admin access required" }, { status: 403 })
+    const auth = await verifyPermissionFromRequest(request, "admin.system")
+    if (!auth.ok) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status })
     }
 
     const body = await request.json()
@@ -125,11 +67,11 @@ export async function POST(request: Request) {
       .insert({
         name: name.trim(),
         description: description?.trim() || null,
-        is_active: is_active !== undefined ? is_active : true,
-        created_by: userId,
-        updated_by: userId,
+        is_active: is_active !== false,
+        created_by: auth.userId,
+        updated_by: auth.userId,
       })
-      .select()
+      .select("*")
       .single()
 
     if (error) {
@@ -153,10 +95,9 @@ export async function POST(request: Request) {
 // PUT - Update a department
 export async function PUT(request: Request) {
   try {
-    // Verify admin access
-    const { isAdmin, error: authError, userId } = await verifyAdmin(request)
-    if (!isAdmin || !userId) {
-      return NextResponse.json({ error: authError || "Admin access required" }, { status: 403 })
+    const auth = await verifyPermissionFromRequest(request, "admin.system")
+    if (!auth.ok) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status })
     }
 
     const body = await request.json()
@@ -185,12 +126,12 @@ export async function PUT(request: Request) {
       .update({
         name: name.trim(),
         description: description?.trim() || null,
-        is_active: is_active !== undefined ? is_active : true,
-        updated_by: userId,
+        is_active: is_active !== false,
+        updated_by: auth.userId,
         updated_at: new Date().toISOString(),
       })
       .eq("id", id)
-      .select()
+      .select("*")
       .single()
 
     if (error) {
@@ -218,10 +159,9 @@ export async function PUT(request: Request) {
 // DELETE - Delete a department
 export async function DELETE(request: Request) {
   try {
-    // Verify admin access
-    const { isAdmin, error: authError } = await verifyAdmin(request)
-    if (!isAdmin) {
-      return NextResponse.json({ error: authError || "Admin access required" }, { status: 403 })
+    const auth = await verifyPermissionFromRequest(request, "admin.system")
+    if (!auth.ok) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status })
     }
 
     const { searchParams } = new URL(request.url)

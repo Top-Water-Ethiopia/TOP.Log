@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
 import { useToast } from "@/components/ui/use-toast"
+import { ToastAction } from "@/components/ui/toast"
 import { toast as sonnerToast } from "sonner"
 import useSWR from "swr"
 import { ApiError, apiFetch, getErrorMessage } from "@/lib/api-client"
@@ -481,12 +482,20 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
       toast({ title: "Deleted", description: "Profession role deleted" })
       setShowDeleteRoleDialog(false)
       setRoleToDelete(null)
-    } catch (error: any) {
+    } catch (error: unknown) {
       if (error instanceof ApiError && error.status === 409) {
-        sonnerToast.error("Cannot delete role", {
-          description:
-            error.message ||
-            "Cannot delete role. It may have users assigned or role questions. Please remove dependencies first.",
+        toast({
+          title: "Cannot delete role",
+          description: getErrorMessage(
+            error,
+            "Cannot delete role. It may have users assigned or role questions. Please remove dependencies first."
+          ),
+          variant: "destructive",
+          action: (
+            <ToastAction altText="View assignments" onClick={() => setTabAndUrl("assignments")}>
+              View assignments
+            </ToastAction>
+          ),
         })
       } else {
         toast({

@@ -4,10 +4,8 @@ import { useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { useParams } from "next/navigation"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
+import { useRBAC } from "@/hooks/use-rbac"
 import { Skeleton } from "@/components/ui/skeleton"
-
-const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
-const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
 
 export default function AdminDepartmentProfessionsPage() {
   const { user, profile, isLoading } = useSupabaseAuth()
@@ -15,20 +13,23 @@ export default function AdminDepartmentProfessionsPage() {
   const params = useParams<{ departmentId: string }>()
   const departmentId = params.departmentId
 
-  const isAdmin = profile?.role_id === ADMIN_ROLE_ID || profile?.role_id === SYSTEM_ADMIN_ROLE_ID
+  const { hasPermission, rbacChecked, rbacLoading } = useRBAC()
+  const canAccessAdmin = hasPermission("admin.system")
 
   useEffect(() => {
     if (isLoading) return
 
-    if (!user || !isAdmin) {
+    if (rbacLoading || !rbacChecked) return
+
+    if (!user || !canAccessAdmin) {
       router.push("/")
       return
     }
 
     router.replace(`/admin/departments/${departmentId}?tab=roles`)
-  }, [user, isAdmin, isLoading, router, departmentId])
+  }, [user, canAccessAdmin, isLoading, router, departmentId, rbacChecked, rbacLoading])
 
-  if (isLoading || !user || !profile) {
+  if (isLoading || rbacLoading || !user || !profile) {
     return (
       <div className="space-y-6">
         <div className="space-y-2">
