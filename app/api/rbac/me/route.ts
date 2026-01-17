@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
+import { adminSupabase } from "@/lib/supabase/admin"
 
 export const dynamic = "force-dynamic"
 
@@ -15,7 +16,7 @@ export async function GET() {
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
     }
 
-    const { data: profile, error: profileError } = await supabase
+    const { data: profile, error: profileError } = await adminSupabase
       .from("user_profiles")
       .select("role_id")
       .eq("user_id", user.id)
@@ -27,9 +28,9 @@ export async function GET() {
 
     const roleId = profile.role_id
 
-    const { data: role, error: roleErr } = await supabase
+    const { data: role, error: roleErr } = await adminSupabase
       .from("roles")
-      .select("id, name, level")
+      .select("id, name")
       .eq("id", roleId)
       .single()
 
@@ -37,7 +38,7 @@ export async function GET() {
       return NextResponse.json({ error: "Role not found" }, { status: 404 })
     }
 
-    const { data: perms, error: permsError } = await supabase
+    const { data: perms, error: permsError } = await adminSupabase
       .from("permissions")
       .select("resource, action")
       .eq("role_id", roleId)
@@ -60,7 +61,7 @@ export async function GET() {
         error: "Failed to load RBAC data",
         message: error instanceof Error ? error.message : "Unknown error",
       },
-      { status: 500 },
+      { status: 500 }
     )
   }
 }

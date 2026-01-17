@@ -4,6 +4,7 @@ import { useEffect } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
+import { useRBAC } from "@/hooks/use-rbac"
 import { PermissionCatalogManager } from "@/components/permission-catalog-manager"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { ListSkeleton } from "@/components/skeletons/list-skeleton"
@@ -17,22 +18,29 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
 
-const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
-const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
-
 export default function AdminPermissionsClientPage() {
   const { user, profile, isLoading } = useSupabaseAuth()
   const router = useRouter()
 
-  const isAdmin = profile?.role_id === ADMIN_ROLE_ID || profile?.role_id === SYSTEM_ADMIN_ROLE_ID
+  const { hasPermission, rbacChecked, rbacLoading } = useRBAC()
+  const canAccess = hasPermission("admin.system")
 
   useEffect(() => {
-    if (!isLoading && (!user || !isAdmin)) {
+    if (isLoading) return
+
+    if (!user) {
+      router.push("/")
+      return
+    }
+
+    if (!rbacChecked || rbacLoading) return
+
+    if (!canAccess) {
       router.push("/")
     }
-  }, [user, isAdmin, isLoading, router])
+  }, [user, canAccess, isLoading, router, rbacChecked, rbacLoading])
 
-  if (isLoading || !user || !profile) {
+  if (isLoading || rbacLoading || !user || !profile) {
     return (
       <div className="space-y-6">
         <div className="space-y-2">
@@ -44,7 +52,7 @@ export default function AdminPermissionsClientPage() {
     )
   }
 
-  if (!isAdmin) {
+  if (rbacChecked && !canAccess) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <Card className="w-full max-w-md">

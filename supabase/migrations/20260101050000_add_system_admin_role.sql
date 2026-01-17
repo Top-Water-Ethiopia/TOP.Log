@@ -18,20 +18,20 @@ BEGIN
     ) THEN
       INSERT INTO public.roles (id, name, description, level, department_id)
       VALUES (
-        '00000000-0000-0000-0000-000000000010',
+        uuid_generate_v4(),
         'system-admin',
         'System administrator (same privileges as admin)',
         5,
         NULL
       )
-      ON CONFLICT (name) DO UPDATE
+      ON CONFLICT (name) WHERE department_id IS NULL DO UPDATE
       SET description = EXCLUDED.description,
           level = EXCLUDED.level,
           department_id = NULL;
     ELSE
       INSERT INTO public.roles (id, name, description, level)
       VALUES (
-        '00000000-0000-0000-0000-000000000010',
+        uuid_generate_v4(),
         'system-admin',
         'System administrator (same privileges as admin)',
         5
@@ -50,38 +50,78 @@ BEGIN
     ) THEN
       INSERT INTO public.roles (id, name, description, department_id)
       VALUES (
-        '00000000-0000-0000-0000-000000000010',
+        uuid_generate_v4(),
         'system-admin',
         'System administrator (same privileges as admin)',
         NULL
       )
-      ON CONFLICT (name) DO NOTHING;
+      ON CONFLICT (name) WHERE department_id IS NULL DO UPDATE
+      SET description = EXCLUDED.description,
+          department_id = NULL;
     ELSE
       INSERT INTO public.roles (id, name, description)
       VALUES (
-        '00000000-0000-0000-0000-000000000010',
+        uuid_generate_v4(),
         'system-admin',
         'System administrator (same privileges as admin)'
       )
-      ON CONFLICT (name) DO NOTHING;
+      ON CONFLICT (name) DO UPDATE
+      SET description = EXCLUDED.description;
     END IF;
   END IF;
 END $$;
 
 DO $$
+DECLARE
+  v_admin_role_id UUID;
+  v_system_admin_role_id UUID;
 BEGIN
   IF to_regclass('public.permissions') IS NULL THEN
+    RETURN;
+  END IF;
+
+  IF EXISTS (
+    SELECT 1
+    FROM information_schema.columns
+    WHERE table_schema = 'public'
+      AND table_name = 'roles'
+      AND column_name = 'department_id'
+  ) THEN
+    SELECT id INTO v_admin_role_id
+    FROM public.roles
+    WHERE name = 'admin'
+      AND department_id IS NULL
+    LIMIT 1;
+
+    SELECT id INTO v_system_admin_role_id
+    FROM public.roles
+    WHERE name = 'system-admin'
+      AND department_id IS NULL
+    LIMIT 1;
+  ELSE
+    SELECT id INTO v_admin_role_id
+    FROM public.roles
+    WHERE name = 'admin'
+    LIMIT 1;
+
+    SELECT id INTO v_system_admin_role_id
+    FROM public.roles
+    WHERE name = 'system-admin'
+    LIMIT 1;
+  END IF;
+
+  IF v_admin_role_id IS NULL OR v_system_admin_role_id IS NULL THEN
     RETURN;
   END IF;
 
   INSERT INTO public.permissions (id, role_id, resource, action)
   SELECT
     uuid_generate_v4(),
-    '00000000-0000-0000-0000-000000000010'::UUID,
+    v_system_admin_role_id,
     resource,
     action
   FROM public.permissions
-  WHERE role_id = '00000000-0000-0000-0000-000000000001'::UUID
+  WHERE role_id = v_admin_role_id
   ON CONFLICT DO NOTHING;
 END $$;
 
@@ -101,16 +141,18 @@ BEGIN
     RETURN false;
   END IF;
 
+  IF to_regclass('public.permissions') IS NULL THEN
+    RETURN false;
+  END IF;
+
   SELECT EXISTS (
     SELECT 1
     FROM public.user_profiles up
+    JOIN public.permissions p ON p.role_id = up.role_id
     WHERE up.user_id = v_user_id
-      AND (
-        up.role_id = '00000000-0000-0000-0000-000000000001'::UUID
-        OR up.role_id = '00000000-0000-0000-0000-000000000010'::UUID
-        OR up.role_id = '00000000-0000-0000-0000-000000000000'::UUID
-      )
       AND up.is_active = true
+      AND p.resource = 'admin'
+      AND p.action = 'system'
   ) INTO v_result;
 
   RETURN COALESCE(v_result, false);
@@ -136,16 +178,18 @@ SECURITY DEFINER
 LANGUAGE plpgsql
 AS $$
 BEGIN
+  IF to_regclass('public.permissions') IS NULL THEN
+    RAISE EXCEPTION 'Access denied. Admin privileges required.';
+  END IF;
+
   IF NOT EXISTS (
     SELECT 1
     FROM public.user_profiles up_check
+    JOIN public.permissions p ON p.role_id = up_check.role_id
     WHERE up_check.user_id = auth.uid()
-      AND (
-        up_check.role_id = '00000000-0000-0000-0000-000000000001'::UUID
-        OR up_check.role_id = '00000000-0000-0000-0000-000000000010'::UUID
-        OR up_check.role_id = '00000000-0000-0000-0000-000000000000'::UUID
-      )
       AND up_check.is_active = true
+      AND p.resource = 'admin'
+      AND p.action = 'system'
   ) THEN
     RAISE EXCEPTION 'Access denied. Admin privileges required.';
   END IF;

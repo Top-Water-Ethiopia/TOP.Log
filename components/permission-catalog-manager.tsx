@@ -30,6 +30,11 @@ type PermissionDefinition = {
   description: string | null
 }
 
+function groupKey(name: string) {
+  const [resource] = name.split(".")
+  return resource || "other"
+}
+
 function normalizePermissionName(name: string) {
   const trimmed = name.trim()
   const idx = trimmed.indexOf(".")
@@ -77,6 +82,21 @@ export function PermissionCatalogManager() {
     if (!q) return rows
     return rows.filter((p) => p.name.toLowerCase().includes(q) || (p.description || "").toLowerCase().includes(q))
   }, [data, searchQuery])
+
+  const groupedPermissions = useMemo(() => {
+    const groups = new Map<string, PermissionDefinition[]>()
+
+    permissions.forEach((p) => {
+      const key = groupKey(p.name)
+      const current = groups.get(key) || []
+      current.push(p)
+      groups.set(key, current)
+    })
+
+    return Array.from(groups.entries())
+      .map(([key, perms]) => [key, perms.sort((a, b) => a.name.localeCompare(b.name))] as const)
+      .sort(([a], [b]) => a.localeCompare(b))
+  }, [permissions])
 
   const createPermission = async () => {
     const normalized = normalizePermissionName(newName)
@@ -205,27 +225,38 @@ export function PermissionCatalogManager() {
 
         <div className="space-y-2">
           <Label>Permissions ({permissions.length})</Label>
-          <div className="rounded-lg border">
-            <div className="divide-y">
-              {permissions.map((p) => (
-                <div key={p.id} className="flex items-center justify-between gap-4 p-3">
-                  <div className="min-w-0">
-                    <div className="truncate font-medium">{p.name}</div>
-                    {p.description ? (
-                      <div className="text-muted-foreground truncate text-sm">{p.description}</div>
-                    ) : null}
-                  </div>
-                  <Button variant="outline" size="sm" onClick={() => setDeleteTarget(p)}>
-                    <Trash2 className="mr-2 h-4 w-4" />
-                    Delete
-                  </Button>
+          <div className="space-y-4">
+            {groupedPermissions.map(([group, perms]) => (
+              <div key={group} className="rounded-lg border">
+                <div className="flex items-center justify-between gap-4 border-b px-4 py-3">
+                  <div className="font-medium">{group}</div>
+                  <div className="text-muted-foreground text-sm">{perms.length}</div>
                 </div>
-              ))}
+                <div className="divide-y">
+                  {perms.map((p) => (
+                    <div key={p.id} className="flex items-center justify-between gap-4 p-3">
+                      <div className="min-w-0 pl-4">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <div className="bg-muted-foreground h-1.5 w-1.5 shrink-0 rounded-full" />
+                          <div className="truncate font-medium">{p.action}</div>
+                        </div>
+                        {p.description ? (
+                          <div className="text-muted-foreground truncate text-sm">{p.description}</div>
+                        ) : null}
+                      </div>
+                      <Button variant="outline" size="sm" onClick={() => setDeleteTarget(p)}>
+                        <Trash2 className="mr-2 h-4 w-4" />
+                        Delete
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ))}
 
-              {permissions.length === 0 ? (
-                <div className="text-muted-foreground p-4 text-sm">No permissions found.</div>
-              ) : null}
-            </div>
+            {permissions.length === 0 ? (
+              <div className="text-muted-foreground rounded-lg border p-4 text-sm">No permissions found.</div>
+            ) : null}
           </div>
         </div>
 

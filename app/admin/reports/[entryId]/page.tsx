@@ -1,8 +1,9 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useState } from "react"
 import { useRouter, useParams } from "next/navigation"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
+import { useRBAC } from "@/hooks/use-rbac"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
@@ -10,15 +11,12 @@ import { ArrowLeft } from "lucide-react"
 import { ReportDetailsSkeleton } from "@/components/skeletons/report-details-skeleton"
 import { format, parseISO } from "date-fns"
 
-const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
-const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
-
 interface CustomResponse {
   question_id: string
   question_key: string
   question_label: string | null
   question_type: string | null
-  value: any
+  value: unknown
 }
 
 interface UserProfile {
@@ -36,7 +34,7 @@ interface EnrichedEntry {
   created_at: string
   updated_at: string
   version: number
-  metadata: any
+  metadata: unknown
   custom_responses: CustomResponse[]
   user_profile: UserProfile | null
 }
@@ -46,16 +44,14 @@ export default function AdminReportDetailsPage() {
   const params = useParams<{ entryId: string }>()
   const entryId = params?.entryId
 
-  const { user, profile, isLoading } = useSupabaseAuth()
+  const { user, isLoading } = useSupabaseAuth()
+
+  const { hasPermission, rbacChecked, rbacLoading } = useRBAC()
+  const canAccessAdmin = hasPermission("admin.system")
 
   const [entry, setEntry] = useState<EnrichedEntry | null>(null)
   const [isEntryLoading, setIsEntryLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
-
-  const isAdmin = useMemo(() => {
-    const roleId = profile?.role_id
-    return roleId === ADMIN_ROLE_ID || roleId === SYSTEM_ADMIN_ROLE_ID
-  }, [profile?.role_id])
 
   useEffect(() => {
     if (isLoading) return
@@ -65,17 +61,20 @@ export default function AdminReportDetailsPage() {
       return
     }
 
-    if (!isAdmin) {
+    if (!rbacChecked || rbacLoading) return
+
+    if (!canAccessAdmin) {
       router.push("/")
       return
     }
-  }, [isLoading, user, isAdmin, router])
+  }, [isLoading, user, canAccessAdmin, router, rbacChecked, rbacLoading])
 
   useEffect(() => {
     if (!entryId) return
     if (isLoading) return
     if (!user) return
-    if (!isAdmin) return
+    if (!rbacChecked || rbacLoading) return
+    if (!canAccessAdmin) return
 
     const load = async () => {
       try {
@@ -99,9 +98,9 @@ export default function AdminReportDetailsPage() {
     }
 
     load()
-  }, [entryId, isLoading, user, isAdmin])
+  }, [entryId, isLoading, user, canAccessAdmin, rbacChecked, rbacLoading])
 
-  if (isLoading || (!user && !isAdmin)) {
+  if (isLoading || rbacLoading || !user) {
     return <ReportDetailsSkeleton />
   }
 

@@ -1,8 +1,9 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
+import { useRBAC } from "@/hooks/use-rbac"
 import { AdminReportsView } from "@/components/admin-reports-view"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -10,33 +11,28 @@ import { Icons } from "@/components/icons"
 import { Skeleton } from "@/components/ui/skeleton"
 import { FileText } from "lucide-react"
 
-const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
-const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
-
 export default function AdminReportsPage() {
   const router = useRouter()
-  const { user, profile, isLoading } = useSupabaseAuth()
-  const [isAdmin, setIsAdmin] = useState(false)
+  const { user, isLoading } = useSupabaseAuth()
+  const { hasPermission, rbacChecked, rbacLoading } = useRBAC()
+  const canAccessAdmin = hasPermission("admin.system")
 
   useEffect(() => {
-    if (!isLoading) {
-      if (!user) {
-        router.push("/login")
-        return
-      }
+    if (isLoading) return
 
-      // Check if user is admin
-      const roleId = profile?.role_id
-      const adminAccess = roleId === ADMIN_ROLE_ID || roleId === SYSTEM_ADMIN_ROLE_ID
-      setIsAdmin(adminAccess)
-
-      if (!adminAccess) {
-        router.push("/")
-      }
+    if (!user) {
+      router.push("/login")
+      return
     }
-  }, [user, profile, isLoading, router])
 
-  if (isLoading) {
+    if (!rbacChecked || rbacLoading) return
+
+    if (!canAccessAdmin) {
+      router.push("/")
+    }
+  }, [user, isLoading, router, rbacChecked, rbacLoading, canAccessAdmin])
+
+  if (isLoading || rbacLoading) {
     return (
       <div className="bg-background min-h-screen">
         <div className="space-y-6">
@@ -84,7 +80,7 @@ export default function AdminReportsPage() {
     )
   }
 
-  if (!isAdmin) {
+  if (rbacChecked && !canAccessAdmin) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <Card className="w-full max-w-md">
