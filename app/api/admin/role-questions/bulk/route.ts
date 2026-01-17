@@ -1,11 +1,8 @@
 import { NextResponse } from "next/server"
 import { adminSupabase } from "@/lib/supabase/admin"
-import { createClient } from "@/lib/supabase/server"
+import { verifyPermissionFromRequest } from "@/lib/rbac/server"
 
 export const dynamic = "force-dynamic"
-
-const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
-const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
 
 function getLegacyQuestionKey(question: any): string | null {
   if (typeof question?.question_key === "string") {
@@ -25,42 +22,11 @@ function mergeMetadata(existingMeta: unknown, incomingMeta: unknown, legacyQuest
   }
 }
 
-async function verifyAdmin() {
-  const supabase = await createClient()
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser()
-
-  if (userError || !user) {
-    return { isAdmin: false, error: "Not authenticated" }
-  }
-
-  const { data: profile, error: profileError } = await supabase
-    .from("user_profiles")
-    .select("role_id")
-    .eq("user_id", user.id)
-    .single()
-
-  if (profileError || !profile) {
-    return { isAdmin: false, error: "Admin access required" }
-  }
-
-  const isAdmin = profile.role_id === ADMIN_ROLE_ID || profile.role_id === SYSTEM_ADMIN_ROLE_ID
-
-  if (!isAdmin) {
-    return { isAdmin: false, error: "Admin access required" }
-  }
-
-  return { isAdmin: true, userId: user.id }
-}
-
 export async function POST(request: Request) {
   try {
-    // Verify admin access
-    const { isAdmin, error: authError, userId } = await verifyAdmin()
-    if (!isAdmin) {
-      return NextResponse.json({ error: authError || "Admin access required" }, { status: 403 })
+    const auth = await verifyPermissionFromRequest(request, "admin.system")
+    if (!auth.ok) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status })
     }
 
     const body = await request.json()
@@ -104,8 +70,8 @@ export async function POST(request: Request) {
         validation_rules: question.validation_rules || null,
         is_active: question.is_active !== false,
         metadata: mergeMetadata(null, question.metadata, legacyQuestionKey),
-        created_by: userId,
-        updated_by: userId,
+        created_by: auth.userId,
+        updated_by: auth.userId,
       }
     })
 
@@ -145,9 +111,9 @@ export async function POST(request: Request) {
 
 export async function PUT(request: Request) {
   try {
-    const { isAdmin, error: authError, userId } = await verifyAdmin()
-    if (!isAdmin) {
-      return NextResponse.json({ error: authError || "Admin access required" }, { status: 403 })
+    const auth = await verifyPermissionFromRequest(request, "admin.system")
+    if (!auth.ok) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status })
     }
 
     const body = await request.json()
@@ -284,13 +250,13 @@ export async function PUT(request: Request) {
           validation_rules: question.validation_rules || null,
           is_active: question.is_active !== false,
           metadata: nextMeta,
-          updated_by: userId,
+          updated_by: auth.userId,
         }
 
         if (!resolvedId || !existingIds.has(resolvedId)) {
           return {
             ...base,
-            created_by: userId,
+            created_by: auth.userId,
           }
         }
 

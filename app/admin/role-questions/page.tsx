@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react"
 import { useRouter } from "next/navigation"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
+import { useRBAC } from "@/hooks/use-rbac"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -22,9 +23,6 @@ import {
 import useSWR from "swr"
 import { apiFetch, getErrorMessage } from "@/lib/api-client"
 import { Badge } from "@/components/ui/badge"
-
-const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
-const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
 
 type Department = {
   id: string
@@ -51,12 +49,13 @@ export default function AdminRoleQuestionsPage() {
   const [headerSearchQuery, setHeaderSearchQuery] = useState("")
   const { toast } = useToast()
 
+  const { hasPermission, rbacChecked, rbacLoading } = useRBAC()
+  const canAccessAdmin = hasPermission("admin.system")
+
   const lastLoadErrorRef = useRef<string | null>(null)
 
-  const isAdmin = profile?.role_id === ADMIN_ROLE_ID || profile?.role_id === SYSTEM_ADMIN_ROLE_ID
-
-  const rolesKey = isAdmin ? "/api/admin/roles" : null
-  const questionsKey = isAdmin ? "/api/role-questions" : null
+  const rolesKey = canAccessAdmin ? "/api/admin/roles" : null
+  const questionsKey = canAccessAdmin ? "/api/role-questions" : null
   const {
     data: rolesResponse,
     error: rolesError,
@@ -111,12 +110,21 @@ export default function AdminRoleQuestionsPage() {
   }, [roles, headerSearchQuery])
 
   useEffect(() => {
-    if (!isLoading && (!user || !isAdmin)) {
+    if (isLoading) return
+
+    if (!user) {
+      router.push("/")
+      return
+    }
+
+    if (!rbacChecked || rbacLoading) return
+
+    if (!canAccessAdmin) {
       router.push("/")
     }
-  }, [user, isAdmin, isLoading, router])
+  }, [user, canAccessAdmin, isLoading, router, rbacChecked, rbacLoading])
 
-  if (isLoading || !user || !profile) {
+  if (isLoading || rbacLoading || !user || !profile) {
     return (
       <div className="space-y-6">
         <div className="space-y-2">
@@ -156,7 +164,7 @@ export default function AdminRoleQuestionsPage() {
     )
   }
 
-  if (!isAdmin) {
+  if (rbacChecked && !canAccessAdmin) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <Card className="w-full max-w-md">

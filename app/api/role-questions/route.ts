@@ -98,6 +98,10 @@ export async function GET(request: Request) {
         }
 
         if (!professionRow?.role_id) {
+          if (forReport) {
+            return NextResponse.json([])
+          }
+
           return NextResponse.json(
             {
               error: "Profession role not assigned",

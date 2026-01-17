@@ -3,6 +3,7 @@
 import { useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
+import { useRBAC } from "@/hooks/use-rbac"
 import { RoleQuestionsCreator } from "@/components/role-questions-creator"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Icons } from "@/components/icons"
@@ -10,22 +11,29 @@ import { Button } from "@/components/ui/button"
 import { ArrowLeft } from "lucide-react"
 import Link from "next/link"
 
-const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
-const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
-
 export default function NewRoleQuestionsPage() {
   const { user, profile, isLoading } = useSupabaseAuth()
   const router = useRouter()
 
-  const isAdmin = profile?.role_id === ADMIN_ROLE_ID || profile?.role_id === SYSTEM_ADMIN_ROLE_ID
+  const { hasPermission, rbacChecked, rbacLoading } = useRBAC()
+  const canAccessAdmin = hasPermission("admin.system")
 
   useEffect(() => {
-    if (!isLoading && (!user || !isAdmin)) {
+    if (isLoading) return
+
+    if (!user) {
+      router.push("/")
+      return
+    }
+
+    if (!rbacChecked || rbacLoading) return
+
+    if (!canAccessAdmin) {
       router.push("/")
     }
-  }, [user, isAdmin, isLoading, router])
+  }, [user, canAccessAdmin, isLoading, router, rbacChecked, rbacLoading])
 
-  if (isLoading || !user || !profile) {
+  if (isLoading || rbacLoading || !user || !profile) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <Icons.spinner className="h-8 w-8 animate-spin" />
@@ -33,7 +41,7 @@ export default function NewRoleQuestionsPage() {
     )
   }
 
-  if (!isAdmin) {
+  if (rbacChecked && !canAccessAdmin) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <Card className="w-full max-w-md">

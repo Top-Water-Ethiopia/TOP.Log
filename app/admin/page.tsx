@@ -12,9 +12,7 @@ import { getAdminStats } from "@/lib/admin-stats"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Breadcrumb, BreadcrumbItem, BreadcrumbList, BreadcrumbPage } from "@/components/ui/breadcrumb"
 import { isFeatureEnabledClient } from "@/lib/feature-flags/client"
-
-const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
-const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
+import { useRBAC } from "@/hooks/use-rbac"
 
 const quickActions = [
   {
@@ -80,9 +78,10 @@ export default function AdminPage() {
   const [stats, setStats] = useState<Stats | null>(null)
   const [isRefreshing, setIsRefreshing] = useState(false)
 
-  const permissionsEnabled = isFeatureEnabledClient("ADMIN_PERMISSIONS")
+  const { hasPermission, rbacLoaded, rbacLoading } = useRBAC()
+  const canAccessAdmin = hasPermission("admin.system")
 
-  const isAdmin = profile?.role_id === ADMIN_ROLE_ID || profile?.role_id === SYSTEM_ADMIN_ROLE_ID
+  const permissionsEnabled = isFeatureEnabledClient("ADMIN_PERMISSIONS")
 
   const fetchStats = async () => {
     try {
@@ -97,18 +96,27 @@ export default function AdminPage() {
   }
 
   useEffect(() => {
-    if (isAdmin) {
+    if (rbacLoaded && canAccessAdmin) {
       fetchStats()
     }
-  }, [isAdmin])
+  }, [canAccessAdmin, rbacLoaded])
 
   useEffect(() => {
-    if (!isLoading && (!user || !isAdmin)) {
+    if (isLoading) return
+
+    if (!user) {
+      router.push("/")
+      return
+    }
+
+    if (rbacLoading) return
+
+    if (rbacLoaded && !canAccessAdmin) {
       router.push("/")
     }
-  }, [user, isAdmin, isLoading, router])
+  }, [user, canAccessAdmin, isLoading, router, rbacLoaded, rbacLoading])
 
-  if (isLoading || !user || !profile) {
+  if (isLoading || rbacLoading || !user || !profile) {
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
@@ -148,7 +156,7 @@ export default function AdminPage() {
     )
   }
 
-  if (!isAdmin) {
+  if (!canAccessAdmin) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <Card className="w-full max-w-md">

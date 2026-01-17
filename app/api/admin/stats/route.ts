@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { adminSupabase } from "@/lib/supabase/admin"
-import { createClient } from "@/lib/supabase/server"
+import { verifyPermission } from "@/lib/rbac/server"
 
 // Helper function to handle timeouts for Supabase operations
 async function withTimeout<T>(promise: PromiseLike<T>, timeoutMs: number = 5000, fallback: T): Promise<T> {
@@ -13,44 +13,11 @@ async function withTimeout<T>(promise: PromiseLike<T>, timeoutMs: number = 5000,
   })
 }
 
-const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
-const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
-
-async function verifyAdmin() {
-  const supabase = await createClient()
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser()
-
-  if (userError || !user) {
-    return { isAdmin: false as const, error: "Not authenticated" }
-  }
-
-  const { data: profile, error: profileError } = await supabase
-    .from("user_profiles")
-    .select("role_id")
-    .eq("user_id", user.id)
-    .single()
-
-  if (profileError || !profile) {
-    return { isAdmin: false as const, error: "Admin access required" }
-  }
-
-  const isAdmin = profile.role_id === ADMIN_ROLE_ID || profile.role_id === SYSTEM_ADMIN_ROLE_ID
-
-  if (!isAdmin) {
-    return { isAdmin: false as const, error: "Admin access required" }
-  }
-
-  return { isAdmin: true as const }
-}
-
 export async function GET() {
   try {
-    const { isAdmin, error: authError } = await verifyAdmin()
-    if (!isAdmin) {
-      return NextResponse.json({ error: authError || "Admin access required" }, { status: 403 })
+    const auth = await verifyPermission("admin.system")
+    if (!auth.ok) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status })
     }
 
     // Get total users with timeout handling

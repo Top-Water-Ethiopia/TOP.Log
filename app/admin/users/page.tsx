@@ -4,6 +4,7 @@ import { useEffect, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
+import { useRBAC } from "@/hooks/use-rbac"
 import { SupabaseUserManagement } from "@/components/supabase-user-management"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { UsersTableSkeleton } from "@/components/skeletons/users-table-skeleton"
@@ -17,27 +18,33 @@ import {
   BreadcrumbSeparator,
 } from "@/components/ui/breadcrumb"
 
-const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
-const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
-
 export default function AdminUsersPage() {
   const { user, profile, isLoading } = useSupabaseAuth()
   const router = useRouter()
   const [isClient, setIsClient] = useState(false)
 
+  const { hasPermission, rbacChecked, rbacLoading } = useRBAC()
+  const canAccessAdmin = hasPermission("admin.system")
+
   useEffect(() => {
     setIsClient(true)
   }, [])
 
-  const isAdmin = profile?.role_id === ADMIN_ROLE_ID || profile?.role_id === SYSTEM_ADMIN_ROLE_ID
-
   useEffect(() => {
-    if (!isLoading && (!user || !isAdmin)) {
+    if (isLoading) return
+    if (!user) {
+      router.push("/")
+      return
+    }
+
+    if (!rbacChecked || rbacLoading) return
+
+    if (!canAccessAdmin) {
       router.push("/")
     }
-  }, [user, isAdmin, isLoading, router])
+  }, [user, canAccessAdmin, isLoading, router, rbacChecked, rbacLoading])
 
-  if (!isClient || isLoading || !user || !profile) {
+  if (!isClient || isLoading || rbacLoading || !user || !profile) {
     return (
       <div className="space-y-6">
         <div className="space-y-2">
@@ -49,7 +56,7 @@ export default function AdminUsersPage() {
     )
   }
 
-  if (!isAdmin) {
+  if (rbacChecked && !canAccessAdmin) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <Card className="w-full max-w-md">

@@ -1,9 +1,10 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
+import { useRBAC } from "@/hooks/use-rbac"
 import { apiFetch, getErrorMessage } from "@/lib/api-client"
 import { toast } from "sonner"
 
@@ -13,9 +14,6 @@ import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { DataTable } from "@/components/ui/data-table"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-
-const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
-const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
 
 type AccessRequest = {
   id: string
@@ -43,21 +41,28 @@ export default function AdminNotificationsClientPage() {
   const { user, profile, isLoading } = useSupabaseAuth()
   const router = useRouter()
 
+  const { hasPermission, rbacChecked, rbacLoading } = useRBAC()
+  const canAccessAdmin = hasPermission("admin.system")
+
   const [requests, setRequests] = useState<AccessRequest[]>([])
   const [isLoadingRequests, setIsLoadingRequests] = useState(false)
   const [activeStatus, setActiveStatus] = useState<string>("pending")
   const [updatingId, setUpdatingId] = useState<string | null>(null)
 
-  const isAdmin = useMemo(() => {
-    const roleId = profile?.role_id
-    return roleId === ADMIN_ROLE_ID || roleId === SYSTEM_ADMIN_ROLE_ID
-  }, [profile?.role_id])
-
   useEffect(() => {
-    if (!isLoading && (!user || !isAdmin)) {
+    if (isLoading) return
+
+    if (!user) {
+      router.push("/")
+      return
+    }
+
+    if (!rbacChecked || rbacLoading) return
+
+    if (!canAccessAdmin) {
       router.push("/")
     }
-  }, [isAdmin, isLoading, router, user])
+  }, [canAccessAdmin, isLoading, router, user, rbacChecked, rbacLoading])
 
   const loadRequests = async (status: string) => {
     try {
@@ -74,9 +79,9 @@ export default function AdminNotificationsClientPage() {
   }
 
   useEffect(() => {
-    if (!isAdmin) return
+    if (!canAccessAdmin) return
     void loadRequests(activeStatus)
-  }, [isAdmin, activeStatus])
+  }, [canAccessAdmin, activeStatus])
 
   const updateStatus = async (id: string, status: string) => {
     if (updatingId) return
@@ -97,7 +102,7 @@ export default function AdminNotificationsClientPage() {
     }
   }
 
-  if (isLoading || !user || !profile) {
+  if (isLoading || rbacLoading || !user || !profile) {
     return (
       <div className="space-y-6">
         <div className="space-y-2">
@@ -108,7 +113,7 @@ export default function AdminNotificationsClientPage() {
     )
   }
 
-  if (!isAdmin) {
+  if (rbacChecked && !canAccessAdmin) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <Card className="w-full max-w-md">

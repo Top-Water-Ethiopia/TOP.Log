@@ -1,14 +1,11 @@
 import { NextResponse } from "next/server"
 import { adminSupabase } from "@/lib/supabase/admin"
-import { createClient } from "@/lib/supabase/server"
+import { verifyPermission } from "@/lib/rbac/server"
 import type { UserWithProfile, PaginatedUsersResponse } from "@/lib/supabase/admin.types"
 
 // Enable dynamic route behavior
 // This ensures we get fresh data on each request
 export const dynamic = "force-dynamic"
-
-const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
-const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
 
 async function clearUserOwnershipReferences(userId: string) {
   const updates: Array<{ table: string; column: string }> = [
@@ -98,10 +95,9 @@ async function deleteUserDependentRecords(userId: string) {
 
 export async function DELETE(request: Request) {
   try {
-    // Verify admin access
-    const { isAdmin, error: authError, userId } = await verifyAdmin()
-    if (!isAdmin || !userId) {
-      return NextResponse.json({ error: authError || "Admin access required" }, { status: 403 })
+    const auth = await verifyPermission("admin.system")
+    if (!auth.ok) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status })
     }
 
     const { searchParams } = new URL(request.url)
@@ -112,7 +108,7 @@ export async function DELETE(request: Request) {
     }
 
     // Prevent users from deleting themselves
-    if (userIdToDelete === userId) {
+    if (userIdToDelete === auth.userId) {
       return NextResponse.json({ error: "You cannot delete your own account" }, { status: 400 })
     }
 
@@ -162,43 +158,11 @@ export async function DELETE(request: Request) {
   }
 }
 
-// Helper to verify admin access
-async function verifyAdmin() {
-  const supabase = await createClient()
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser()
-
-  if (userError || !user) {
-    return { isAdmin: false, error: "Not authenticated" }
-  }
-
-  const { data: profile, error: profileError } = await supabase
-    .from("user_profiles")
-    .select("role_id")
-    .eq("user_id", user.id)
-    .single()
-
-  if (profileError || !profile) {
-    return { isAdmin: false, error: "Admin access required" }
-  }
-
-  const isAdmin = profile.role_id === ADMIN_ROLE_ID || profile.role_id === SYSTEM_ADMIN_ROLE_ID
-
-  if (!isAdmin) {
-    return { isAdmin: false, error: "Admin access required" }
-  }
-
-  return { isAdmin: true, userId: user.id, roleId: profile.role_id }
-}
-
 export async function POST(request: Request) {
   try {
-    // Verify admin access
-    const { isAdmin, error: authError } = await verifyAdmin()
-    if (!isAdmin) {
-      return NextResponse.json({ error: authError || "Admin access required" }, { status: 403 })
+    const auth = await verifyPermission("admin.system")
+    if (!auth.ok) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status })
     }
 
     const body = await request.json()
@@ -309,10 +273,9 @@ export async function POST(request: Request) {
 // PUT - Update a user
 export async function PUT(request: Request) {
   try {
-    // Verify admin access
-    const { isAdmin, error: authError, userId } = await verifyAdmin()
-    if (!isAdmin || !userId) {
-      return NextResponse.json({ error: authError || "Admin access required" }, { status: 403 })
+    const auth = await verifyPermission("admin.system")
+    if (!auth.ok) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status })
     }
 
     const body = await request.json()
@@ -429,10 +392,9 @@ export async function PUT(request: Request) {
 
 export async function GET(request: Request) {
   try {
-    // Verify admin access
-    const { isAdmin, error: authVerifyError } = await verifyAdmin()
-    if (!isAdmin) {
-      return NextResponse.json({ error: authVerifyError || "Admin access required" }, { status: 403 })
+    const auth = await verifyPermission("admin.system")
+    if (!auth.ok) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status })
     }
 
     // Parse pagination parameters from the URL

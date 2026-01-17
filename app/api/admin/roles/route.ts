@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server"
 import { adminSupabase } from "@/lib/supabase/admin"
-import { createClient } from "@/lib/supabase/server"
+import { verifyPermission } from "@/lib/rbac/server"
 
 // Enable dynamic route behavior
 export const dynamic = "force-dynamic"
@@ -8,44 +8,12 @@ export const dynamic = "force-dynamic"
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
 const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
 
-// Helper to verify admin access
-async function verifyAdmin() {
-  const supabase = await createClient()
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser()
-
-  if (userError || !user) {
-    return { isAdmin: false, error: "Not authenticated" }
-  }
-
-  const { data: profile, error: profileError } = await supabase
-    .from("user_profiles")
-    .select("role_id")
-    .eq("user_id", user.id)
-    .single()
-
-  if (profileError || !profile) {
-    return { isAdmin: false, error: "Admin access required" }
-  }
-
-  const isAdmin = profile.role_id === ADMIN_ROLE_ID || profile.role_id === SYSTEM_ADMIN_ROLE_ID
-
-  if (!isAdmin) {
-    return { isAdmin: false, error: "Admin access required" }
-  }
-
-  return { isAdmin: true, userId: user.id, roleId: profile.role_id }
-}
-
 // GET - List all roles with departments
 export async function GET() {
   try {
-    // Verify admin access
-    const { isAdmin, error: authError } = await verifyAdmin()
-    if (!isAdmin) {
-      return NextResponse.json({ error: authError || "Admin access required" }, { status: 403 })
+    const auth = await verifyPermission("admin.system")
+    if (!auth.ok) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status })
     }
 
     const { data: roles, error } = await adminSupabase
@@ -79,10 +47,9 @@ export async function GET() {
 // POST - Create a new role
 export async function POST(request: Request) {
   try {
-    // Verify admin access and get role info
-    const { isAdmin, error: authError } = await verifyAdmin()
-    if (!isAdmin) {
-      return NextResponse.json({ error: authError || "Admin access required" }, { status: 403 })
+    const auth = await verifyPermission("admin.system")
+    if (!auth.ok) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status })
     }
 
     const body = await request.json()
@@ -159,10 +126,9 @@ export async function POST(request: Request) {
 // PUT - Update a role
 export async function PUT(request: Request) {
   try {
-    // Verify admin access and get role info
-    const { isAdmin, error: authError } = await verifyAdmin()
-    if (!isAdmin) {
-      return NextResponse.json({ error: authError || "Admin access required" }, { status: 403 })
+    const auth = await verifyPermission("admin.system")
+    if (!auth.ok) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status })
     }
 
     const body = await request.json()
@@ -254,10 +220,9 @@ export async function PUT(request: Request) {
 // DELETE - Delete a role
 export async function DELETE(request: Request) {
   try {
-    // Verify admin access
-    const { isAdmin, error: authError } = await verifyAdmin()
-    if (!isAdmin) {
-      return NextResponse.json({ error: authError || "Admin access required" }, { status: 403 })
+    const auth = await verifyPermission("admin.system")
+    if (!auth.ok) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status })
     }
 
     const { searchParams } = new URL(request.url)

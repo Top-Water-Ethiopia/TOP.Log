@@ -1,47 +1,14 @@
 import { NextResponse } from "next/server"
 import { adminSupabase } from "@/lib/supabase/admin"
-import { createClient } from "@/lib/supabase/server"
+import { verifyPermissionFromRequest } from "@/lib/rbac/server"
 
 export const dynamic = "force-dynamic"
 
-const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
-const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
-
-async function verifyAdmin() {
-  const supabase = await createClient()
-  const {
-    data: { user },
-    error: userError,
-  } = await supabase.auth.getUser()
-
-  if (userError || !user) {
-    return { isAdmin: false as const, error: "Not authenticated" }
-  }
-
-  const { data: profile, error: profileError } = await supabase
-    .from("user_profiles")
-    .select("role_id")
-    .eq("user_id", user.id)
-    .single()
-
-  if (profileError || !profile) {
-    return { isAdmin: false as const, error: "Admin access required" }
-  }
-
-  const isAdmin = profile.role_id === ADMIN_ROLE_ID || profile.role_id === SYSTEM_ADMIN_ROLE_ID
-
-  if (!isAdmin) {
-    return { isAdmin: false as const, error: "Admin access required" }
-  }
-
-  return { isAdmin: true as const, userId: user.id }
-}
-
 export async function GET(request: Request) {
   try {
-    const { isAdmin, error: authError } = await verifyAdmin()
-    if (!isAdmin) {
-      return NextResponse.json({ error: authError || "Admin access required" }, { status: 403 })
+    const auth = await verifyPermissionFromRequest(request, "admin.system")
+    if (!auth.ok) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status })
     }
 
     const { searchParams } = new URL(request.url)
@@ -73,9 +40,9 @@ export async function GET(request: Request) {
 
 export async function PATCH(request: Request) {
   try {
-    const { isAdmin, userId, error: authError } = await verifyAdmin()
-    if (!isAdmin) {
-      return NextResponse.json({ error: authError || "Admin access required" }, { status: 403 })
+    const auth = await verifyPermissionFromRequest(request, "admin.system")
+    if (!auth.ok) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status })
     }
 
     const body = await request.json().catch(() => ({}))
@@ -96,7 +63,7 @@ export async function PATCH(request: Request) {
       .from("access_requests")
       .update({
         status,
-        resolved_by: status === "pending" ? null : userId,
+        resolved_by: status === "pending" ? null : auth.userId,
         resolved_at: status === "pending" ? null : nowIso,
         updated_at: nowIso,
       })
