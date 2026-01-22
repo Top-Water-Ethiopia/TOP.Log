@@ -1,19 +1,8 @@
 "use client"
 
 import { Badge } from "@/components/ui/badge"
-import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import {
-  BarChart3,
-  Calendar,
-  CalendarDays,
-  Eye,
-  FileText,
-  TrendingDown,
-  TrendingUp,
-  Users,
-  TableIcon,
-} from "lucide-react"
+import { Calendar, CalendarDays, FileText, TrendingDown, TrendingUp, Users } from "lucide-react"
 
 export interface DashboardStats {
   totalEntries: number
@@ -39,7 +28,14 @@ export interface AdminReportsDashboardTabProps {
  * Extracting the dashboard keeps the core orchestration easier to reason about and
  * makes future dashboard iterations less risky.
  */
-export function AdminReportsDashboardTab({ stats, onExportCsv, onViewEntries }: AdminReportsDashboardTabProps) {
+export function AdminReportsDashboardTab({
+  stats,
+  onExportCsv: _onExportCsv,
+  onViewEntries: _onViewEntries,
+}: AdminReportsDashboardTabProps) {
+  void _onExportCsv
+  void _onViewEntries
+
   return (
     <div className="space-y-6">
       {/* Key Metrics */}
@@ -121,7 +117,7 @@ export function AdminReportsDashboardTab({ stats, onExportCsv, onViewEntries }: 
                   className="flex items-center justify-between border-b border-gray-100 py-2 last:border-0"
                 >
                   <div className="flex items-center gap-4">
-                    <div className="bg-primary/10 flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full text-xs font-semibold">
+                    <div className="bg-primary/10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-semibold">
                       {index + 1}
                     </div>
                     <span className="font-medium">{user.name}</span>
@@ -133,24 +129,6 @@ export function AdminReportsDashboardTab({ stats, onExportCsv, onViewEntries }: 
           ) : (
             <p className="text-muted-foreground py-4 text-center text-sm">No data available</p>
           )}
-        </CardContent>
-      </Card>
-
-      {/* Quick Actions */}
-      <Card className="border border-gray-200 shadow-sm transition-shadow duration-200 hover:shadow-md">
-        <CardHeader>
-          <CardTitle className="text-muted-foreground">Quick Actions</CardTitle>
-          <CardDescription>Export and analyze data</CardDescription>
-        </CardHeader>
-        <CardContent className="flex flex-wrap gap-4">
-          <Button onClick={onExportCsv} variant="outline" className="gap-2">
-            <TableIcon className="h-4 w-4" />
-            Export CSV
-          </Button>
-          <Button onClick={onViewEntries} variant="default" className="gap-2">
-            <Eye className="h-4 w-4" />
-            View All Entries
-          </Button>
         </CardContent>
       </Card>
     </div>

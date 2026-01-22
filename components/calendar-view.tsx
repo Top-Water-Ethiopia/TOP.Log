@@ -109,12 +109,13 @@ export function CalendarView({ selectedDate, onDateSelect, entries: entriesProp 
             const isFuture = dateString > today
             const isInEditWindow = isDateInAllowedRange(dateString)
             const isLockedForEdits = dateString < getMinAllowedDate()
+            const isCreateLocked = !hasEntry && isLockedForEdits
 
             return (
               <button
                 key={day}
-                onClick={() => !isFuture && onDateSelect(dateString)}
-                disabled={isFuture}
+                onClick={() => !isFuture && !isCreateLocked && onDateSelect(dateString)}
+                disabled={isFuture || isCreateLocked}
                 className={`group relative flex aspect-square w-full flex-col items-center justify-start rounded-xl p-1.5 text-sm font-semibold transition-all sm:p-2 sm:text-base ${
                   isFuture
                     ? "bg-secondary/30 text-muted-foreground cursor-not-allowed opacity-40"
@@ -126,7 +127,9 @@ export function CalendarView({ selectedDate, onDateSelect, entries: entriesProp 
                           ? isLockedForEdits
                             ? "bg-secondary/70 text-secondary-foreground/70 hover:bg-accent/10 border-border border-2 border-dashed hover:shadow-sm"
                             : "bg-secondary text-secondary-foreground hover:bg-accent/20 hover:border-accent border-2 border-transparent hover:shadow-md"
-                          : "bg-secondary/50 text-secondary-foreground hover:bg-muted hover:shadow-sm"
+                          : isCreateLocked
+                            ? "bg-secondary/30 text-muted-foreground cursor-not-allowed opacity-50"
+                            : "bg-secondary/50 text-secondary-foreground hover:bg-muted hover:shadow-sm"
                 } `}
                 title={
                   isFuture
@@ -135,19 +138,20 @@ export function CalendarView({ selectedDate, onDateSelect, entries: entriesProp 
                       ? isInEditWindow
                         ? "View/Edit entry"
                         : "View only (locked: older than 2 days)"
-                      : isLockedForEdits
-                        ? "Create entry (historical date; edits locked)"
+                      : isCreateLocked
+                        ? "Locked (cannot create entries older than 2 days)"
                         : "Create entry"
                 }
               >
                 <div className="flex w-full items-start justify-between">
                   <span className="mb-1 text-sm">{day}</span>
-                  {isToday && !isSelected && (
-                    <span className="bg-primary/10 text-primary inline-flex rounded-full px-1.5 py-0.5 text-[9px] leading-none font-medium sm:px-2 sm:text-[10px]">
-                      Today
-                    </span>
-                  )}
                 </div>
+
+                {isToday && !isSelected && (
+                  <span className="bg-primary/10 text-primary pointer-events-none absolute top-1 right-1 inline-flex max-w-[calc(100%-2.5rem)] truncate rounded-full px-1.5 py-0.5 text-[9px] leading-none font-medium sm:top-2 sm:right-2 sm:max-w-[calc(100%-3rem)] sm:px-2 sm:text-[10px]">
+                    Today
+                  </span>
+                )}
 
                 {!isFuture && isLockedForEdits ? (
                   <div className="absolute top-1 right-1 sm:top-2 sm:right-2">

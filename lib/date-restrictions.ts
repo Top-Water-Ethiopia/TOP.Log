@@ -79,6 +79,7 @@ export function isDateInAllowedRange(date: string): boolean {
  */
 export function canCreateEntryForDate(date: string): DateValidationResult {
   const today = getToday()
+  const minDate = getMinAllowedDate()
 
   // Check if date is in the future
   if (date > today) {
@@ -86,6 +87,16 @@ export function canCreateEntryForDate(date: string): DateValidationResult {
       isValid: false,
       error: "Cannot create entries for future dates",
       severity: "error",
+    }
+  }
+
+  // Check if date is too old
+  if (date < minDate) {
+    const daysOld = daysBetween(today, date)
+    return {
+      isValid: false,
+      error: `Cannot create entries older than 2 days. This date is ${daysOld} days old.`,
+      severity: "warning",
     }
   }
 
@@ -142,7 +153,7 @@ export function getDateRestrictionMessage(): string {
   const today = getToday()
   const minDate = getMinAllowedDate()
 
-  return `You can create log entries for any past date (up to ${today}). You can update log entries for today and the last 2 days (${minDate} to ${today}). Entries cannot be deleted.`
+  return `You can create log entries for today and the last 2 days (${minDate} to ${today}). You can update log entries for today and the last 2 days (${minDate} to ${today}). Entries cannot be deleted.`
 }
 
 /**

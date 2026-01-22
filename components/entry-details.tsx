@@ -1,28 +1,46 @@
 "use client"
 
-import { useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useCaptainLog, type CaptainLogEntry } from "@/contexts/supabase-log-context"
-import { ArrowLeft, Edit, Trash2, Target, CheckCircle, AlertTriangle, ListChecks, Lock } from "lucide-react"
-import type { QuestionResponse } from "@/lib/rbac/types"
+import { ArrowLeft, Edit, Trash2, AlertTriangle, Lock } from "lucide-react"
+import type { CustomQuestion, QuestionResponse } from "@/lib/rbac/types"
 import { canUpdateEntryForDate } from "@/lib/date-restrictions"
+import { useRoleQuestions } from "@/hooks/use-role-questions"
+import { useRBAC } from "@/hooks/use-rbac"
+import { RoleBasedQuestionFields } from "@/components/role-based-question-fields"
+import { toast } from "sonner"
 
 interface EntryDetailsProps {
   date: string
   departmentId: string
   entry?: CaptainLogEntry | null
   isLoading?: boolean
-  onEdit: () => void
   onBack: () => void
   onViewEntry?: (date: string) => void
 }
 
-export function EntryDetails({ date, departmentId, entry, isLoading, onEdit, onBack }: EntryDetailsProps) {
-  const { deleteEntry, entries } = useCaptainLog()
-  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+type EditableRoleQuestion = {
+  id?: string
+  key: string
+  type: string
+  defaultValue?: unknown
+}
+
+export function EntryDetails({ date, departmentId, entry, isLoading, onBack }: EntryDetailsProps) {
+  const { entries, updateEntry } = useCaptainLog()
+  const { questions: roleQuestions, isLoading: isRoleQuestionsLoading } = useRoleQuestions(undefined, departmentId)
+  const { processResponses } = useRBAC()
+
+  const didInitEditResponsesRef = useRef(false)
+
+  const [isEditing, setIsEditing] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const [editResponses, setEditResponses] = useState<Record<string, unknown>>({})
+  const [editErrors, setEditErrors] = useState<Record<string, string>>({})
 
   // Use useMemo to avoid re-creating on every render and prevent audit log spam
   const currentEntry = useMemo(() => {
@@ -56,19 +74,59 @@ export function EntryDetails({ date, departmentId, entry, isLoading, onEdit, onB
     return String(value)
   }
 
-  const handleDelete = () => {
-    if (currentEntry) {
-      deleteEntry(currentEntry.id)
-      onBack()
-    }
-  }
-
   // Check if entry can be edited (within 2-day window)
   const canEdit = useMemo(() => {
     if (!currentEntry) return false
     const validation = canUpdateEntryForDate(currentEntry.date, currentEntry.createdAt)
     return validation.isValid
   }, [currentEntry])
+
+  const roleQuestionsKey = useMemo(() => {
+    if (!Array.isArray(roleQuestions)) return ""
+    return roleQuestions.map((q) => String((q as { key?: unknown })?.key ?? "")).join("|")
+  }, [roleQuestions])
+
+  // Initialize edit responses when entering edit mode (once) or when entry changes.
+  useEffect(() => {
+    if (!isEditing) {
+      didInitEditResponsesRef.current = false
+      return
+    }
+    if (!currentEntry) return
+    if (didInitEditResponsesRef.current) return
+    if (!Array.isArray(roleQuestions) || roleQuestions.length === 0) return
+
+    const initial: Record<string, unknown> = {}
+
+    const qs = roleQuestions as EditableRoleQuestion[]
+
+    qs.forEach((q) => {
+      const key = q.key
+      const existing = (currentEntry.customResponses || []).find(
+        (r: unknown) =>
+          typeof r === "object" &&
+          r !== null &&
+          (((r as { questionId?: unknown }).questionId === q.id && typeof q.id === "string") ||
+            (r as { questionKey?: unknown }).questionKey === key)
+      )
+
+      if (existing && Object.prototype.hasOwnProperty.call(existing as object, "value")) {
+        initial[key] = (existing as { value?: unknown }).value
+      } else if (q.defaultValue !== undefined) {
+        initial[key] = q.defaultValue
+      } else if (q.type === "multiselect") {
+        initial[key] = []
+      } else if (q.type === "checkbox") {
+        initial[key] = false
+      } else {
+        initial[key] = ""
+      }
+    })
+
+    setEditResponses(initial)
+    setEditErrors({})
+    didInitEditResponsesRef.current = true
+  }, [currentEntry, isEditing, roleQuestionsKey, roleQuestions])
 
   const formatDate = (dateString: string) => {
     const date = new Date(dateString + "T00:00:00")
@@ -124,10 +182,62 @@ export function EntryDetails({ date, departmentId, entry, isLoading, onEdit, onB
     )
   }
 
+  const handleStartEdit = () => {
+    if (!canEdit) return
+    setIsEditing(true)
+  }
+
+  const handleCancelEdit = () => {
+    setIsEditing(false)
+    setIsSaving(false)
+    setEditErrors({})
+  }
+
+  const handleSaveEdit = async () => {
+    if (!currentEntry) return
+    if (isSaving) return
+
+    try {
+      setIsSaving(true)
+      setEditErrors({})
+
+      const processed = processResponses(roleQuestions as unknown as CustomQuestion[], editResponses)
+      if (!processed.valid) {
+        setEditErrors(processed.errors)
+        toast.error("Please fix the highlighted fields")
+        return
+      }
+
+      const nowIso = new Date().toISOString()
+
+      await updateEntry(currentEntry.id, {
+        // Preserve existing standard fields so we don't wipe them.
+        objectives: currentEntry.objectives,
+        keyResults: currentEntry.keyResults,
+        challenges: currentEntry.challenges,
+        developmentTasks: currentEntry.developmentTasks,
+        featuresCompleted: currentEntry.featuresCompleted,
+        challengesAndBlockers: currentEntry.challengesAndBlockers,
+        codeAndPriorities: currentEntry.codeAndPriorities,
+        systemImprovements: currentEntry.systemImprovements,
+        projectUpdates: currentEntry.projectUpdates,
+        updatedAt: nowIso,
+        customResponses: processed.processedResponses,
+      })
+
+      toast.success("Entry updated")
+      setIsEditing(false)
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : "Failed to update entry")
+    } finally {
+      setIsSaving(false)
+    }
+  }
+
   return (
     <div className="flex h-full flex-col space-y-6">
       {/* Header */}
-      <div className="flex flex-shrink-0 items-center justify-between">
+      <div className="flex shrink-0 items-center justify-between">
         <div className="flex-1">
           <h2 className="text-foreground text-2xl font-semibold">Daily Log</h2>
           <p className="text-muted-foreground mt-1 text-sm">{formatDate(date)}</p>
@@ -141,36 +251,52 @@ export function EntryDetails({ date, departmentId, entry, isLoading, onEdit, onB
           ) : null}
         </div>
         <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={onBack} className="gap-2">
-            <ArrowLeft className="h-4 w-4" />
-            Back
-          </Button>
-          <Button
-            size="sm"
-            onClick={onEdit}
-            className="gap-2"
-            disabled={!canEdit}
-            title={!canEdit ? "Entries older than 2 days cannot be edited" : "Edit this entry"}
-          >
-            <Edit className="h-4 w-4" />
-            Edit
-          </Button>
+          {isEditing ? (
+            <>
+              <Button variant="outline" size="sm" onClick={handleCancelEdit} disabled={isSaving}>
+                Cancel
+              </Button>
+              <Button size="sm" onClick={() => void handleSaveEdit()} disabled={isSaving || isRoleQuestionsLoading}>
+                {isSaving ? "Saving..." : "Save"}
+              </Button>
+            </>
+          ) : (
+            <Button
+              size="sm"
+              onClick={handleStartEdit}
+              className="gap-2"
+              disabled={!canEdit}
+              title={!canEdit ? "Entries older than 2 days cannot be edited" : "Edit this entry"}
+            >
+              <Edit className="h-4 w-4" />
+              Edit
+            </Button>
+          )}
         </div>
       </div>
 
       {/* Entry Content - Only Role-Specific Responses */}
       <Card className="flex-1 overflow-y-auto p-6 shadow-sm">
         <div className="space-y-8">
-          {currentEntry.customResponses && currentEntry.customResponses.length > 0 ? (
+          {isEditing ? (
+            <div className="space-y-4">
+              <RoleBasedQuestionFields
+                questions={roleQuestions as unknown as CustomQuestion[]}
+                responses={editResponses as unknown as Record<string, unknown>}
+                errors={editErrors}
+                onChange={(questionKey, value) => {
+                  setEditResponses((prev) => ({ ...prev, [questionKey]: value as unknown }))
+                  setEditErrors((prev) => {
+                    if (!prev[questionKey]) return prev
+                    return { ...prev, [questionKey]: "" }
+                  })
+                }}
+              />
+            </div>
+          ) : currentEntry.customResponses && currentEntry.customResponses.length > 0 ? (
             <div>
-              <div className="mb-6 flex items-center gap-2">
-                <ListChecks className="text-primary h-6 w-6" />
-                <h3 className="text-foreground text-xl font-semibold">Role-Specific Responses</h3>
-              </div>
               <div className="space-y-4">
-                {currentEntry.customResponses.map((response) => {
-                  const questionType = response.questionType ?? "text"
-
+                {currentEntry.customResponses.map((response, index) => {
                   return (
                     <div
                       key={`${response.questionId}-${response.timestamp}`}
@@ -178,18 +304,8 @@ export function EntryDetails({ date, departmentId, entry, isLoading, onEdit, onB
                     >
                       <div className="flex items-center justify-between gap-2">
                         <p className="text-foreground text-sm font-medium">
-                          {response.questionLabel ?? response.questionKey}
+                          {index + 1}) {response.questionLabel ?? response.questionKey}
                         </p>
-                        <div className="flex items-center gap-2">
-                          <Badge variant="outline" className="text-xs capitalize">
-                            {questionType}
-                          </Badge>
-                          {response.questionCategory && (
-                            <Badge variant="secondary" className="text-xs capitalize">
-                              {response.questionCategory}
-                            </Badge>
-                          )}
-                        </div>
                       </div>
                       <p className="text-muted-foreground text-sm leading-relaxed whitespace-pre-wrap">
                         {formatCustomResponseValue(response as QuestionResponse)}

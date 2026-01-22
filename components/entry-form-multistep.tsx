@@ -82,15 +82,6 @@ export function EntryFormMultistep({
     return selectedDate < getMinAllowedDate()
   }, [selectedDate])
 
-  const calendarCellSizePx = useMemo(() => {
-    if (!datePickerWidth) return null
-    // Calendar has `p-3` (12px) padding on both sides in the shared Calendar component.
-    // Subtract it so the 7 columns can fill the visible width more proportionally.
-    const innerWidth = Math.max(0, datePickerWidth - 24)
-    const size = Math.floor(innerWidth / 7)
-    return Math.max(36, size)
-  }, [datePickerWidth])
-
   useLayoutEffect(() => {
     const el = datePickerTriggerRef.current
     if (!el) return
@@ -303,6 +294,20 @@ export function EntryFormMultistep({
     const currentIndex = currentStep - 1
     if (!validateStepByIndex(currentIndex)) {
       return
+    }
+
+    // Step 1 (date selection): prevent creating new entries on locked dates.
+    // Updates to existing entries are already gated by canUpdateEntryForDate in submit.
+    if (currentStepConfig?.key === "date") {
+      const existingEntry = entriesForDepartment.find((entry) => entry.date === selectedDate)
+      if (!existingEntry) {
+        const createValidation = canCreateEntryForDate(selectedDate)
+        if (!createValidation.isValid) {
+          setDateError(createValidation.error || "Invalid date")
+          toast.error(createValidation.error || "This date is locked for new reports")
+          return
+        }
+      }
     }
 
     if (currentStep < steps.length) {
@@ -536,14 +541,12 @@ export function EntryFormMultistep({
                         root: "w-full",
                         months: "w-full flex flex-col",
                         month: "w-full",
-                        table: "w-full",
-                        day_button: "aspect-auto h-10 sm:h-11",
+                        table: "w-full border-collapse",
+                        weekdays: "grid grid-cols-7 w-full",
+                        week: "grid grid-cols-7 w-full mt-1",
+                        day: "relative w-full p-0 text-center [&:first-child[data-selected=true]_button]:rounded-l-md [&:last-child[data-selected=true]_button]:rounded-r-md group/day select-none",
+                        day_button: "aspect-auto h-8 sm:h-9 w-full min-w-0",
                       }}
-                      style={
-                        calendarCellSizePx
-                          ? ({ ["--cell-size" as any]: `${calendarCellSizePx}px` } as React.CSSProperties)
-                          : undefined
-                      }
                       onSelect={(date) => {
                         if (!date) return
                         const newDate = formatLocalDate(date)
@@ -557,6 +560,7 @@ export function EntryFormMultistep({
                         setDateError(validation.isValid ? null : validation.error || "Invalid date")
                       }}
                       disabled={{
+                        before: new Date(getMinAllowedDate() + "T00:00:00"),
                         after: new Date(getMaxAllowedDate() + "T00:00:00"),
                       }}
                       initialFocus
@@ -576,11 +580,10 @@ export function EntryFormMultistep({
                   <div className="mt-2 rounded-md border border-amber-500/50 bg-amber-500/10 p-4">
                     <p className="text-foreground flex items-center gap-2 text-sm font-medium">
                       <Lock className="h-4 w-4" />
-                      Locked for edits
+                      Locked
                     </p>
                     <p className="text-muted-foreground mt-1 text-xs">
-                      This date is older than 2 days. You can submit a report for it, but you won’t be able to edit it
-                      after submitting.
+                      This date is older than 2 days. You cannot create a new report for it.
                     </p>
                   </div>
                 ) : null}
