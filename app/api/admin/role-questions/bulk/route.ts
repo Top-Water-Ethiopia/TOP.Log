@@ -22,6 +22,17 @@ function mergeMetadata(existingMeta: unknown, incomingMeta: unknown, legacyQuest
   }
 }
 
+function getQuestionScope(question: any): { kind: "role"; id: string } | { kind: "department"; id: string } | null {
+  const roleId = typeof question?.role_id === "string" && question.role_id ? question.role_id : null
+  const departmentId =
+    typeof question?.department_id === "string" && question.department_id ? question.department_id : null
+
+  if (roleId && departmentId) return null
+  if (roleId) return { kind: "role", id: roleId }
+  if (departmentId) return { kind: "department", id: departmentId }
+  return null
+}
+
 export async function POST(request: Request) {
   try {
     const auth = await verifyPermissionFromRequest(request, "admin.system")
@@ -40,8 +51,9 @@ export async function POST(request: Request) {
     // Validate each question
     const errors: string[] = []
     questions.forEach((question: any, index: number) => {
-      if (!question.role_id) {
-        errors.push(`Question ${index + 1}: role_id is required`)
+      const scope = getQuestionScope(question)
+      if (!scope) {
+        errors.push(`Question ${index + 1}: Provide exactly one of role_id or department_id`)
       }
       if (!question.question_label?.trim()) {
         errors.push(`Question ${index + 1}: question_label is required`)
@@ -58,8 +70,10 @@ export async function POST(request: Request) {
     // Prepare questions for insertion
     const questionsToInsert = questions.map((question: any, index: number) => {
       const legacyQuestionKey = getLegacyQuestionKey(question)
+      const scope = getQuestionScope(question)
       return {
-        role_id: question.role_id,
+        role_id: scope?.kind === "role" ? scope.id : null,
+        department_id: scope?.kind === "department" ? scope.id : null,
         question_label: question.question_label.trim(),
         question_type: question.question_type,
         question_description: question.question_description?.trim() || null,
@@ -87,7 +101,7 @@ export async function POST(request: Request) {
       // Handle unique constraint violation
       if (insertError.code === "23505") {
         return NextResponse.json(
-          { error: "One or more question keys already exist for this role", details: insertError.message },
+          { error: "One or more questions already exist for this scope", details: insertError.message },
           { status: 409 }
         )
       }
@@ -125,8 +139,9 @@ export async function PUT(request: Request) {
 
     const errors: string[] = []
     questions.forEach((question: any, index: number) => {
-      if (!question.role_id) {
-        errors.push(`Question ${index + 1}: role_id is required`)
+      const scope = getQuestionScope(question)
+      if (!scope) {
+        errors.push(`Question ${index + 1}: Provide exactly one of role_id or department_id`)
       }
       if (!question.question_label?.trim()) {
         errors.push(`Question ${index + 1}: question_label is required`)
@@ -158,16 +173,30 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: "Validation failed", details: errors }, { status: 400 })
     }
 
-    const roleIds = Array.from(new Set(questions.map((q: any) => q.role_id)))
+    const scopeKeys = Array.from(
+      new Set(
+        questions
+          .map((q: any) => {
+            const scope = getQuestionScope(q)
+            return scope ? `${scope.kind}:${scope.id}` : null
+          })
+          .filter(Boolean)
+      )
+    ) as string[]
     const savedQuestions: any[] = []
 
-    for (const roleId of roleIds) {
-      const roleQuestions = questions.filter((q: any) => q.role_id === roleId)
+    for (const scopeKey of scopeKeys) {
+      const [kind, id] = scopeKey.split(":")
+      const scope = kind === "department" ? ({ kind: "department", id } as const) : ({ kind: "role", id } as const)
+      const scopeQuestions = questions.filter((q: any) => {
+        const qScope = getQuestionScope(q)
+        return qScope?.kind === scope.kind && qScope?.id === scope.id
+      })
 
       const { data: existingRows, error: existingError } = await adminSupabase
         .from("role_questions")
         .select("id, metadata")
-        .eq("role_id", roleId)
+        .eq(scope.kind === "role" ? "role_id" : "department_id", scope.id)
         .limit(10000)
 
       if (existingError) {
@@ -192,7 +221,7 @@ export async function PUT(request: Request) {
       const existingIds = new Set(Array.from(existingById.keys()))
       const keepIds = new Set<string>()
 
-      roleQuestions.forEach((q: any) => {
+      scopeQuestions.forEach((q: any) => {
         if (typeof q.id === "string" && q.id) {
           keepIds.add(q.id)
           return
@@ -213,7 +242,7 @@ export async function PUT(request: Request) {
         const { error: deleteError } = await adminSupabase
           .from("role_questions")
           .delete()
-          .eq("role_id", roleId)
+          .eq(scope.kind === "role" ? "role_id" : "department_id", scope.id)
           .in("id", toDeleteIds)
 
         if (deleteError) {
@@ -224,7 +253,7 @@ export async function PUT(request: Request) {
         }
       }
 
-      const questionsToUpsert = roleQuestions.map((question: any, index: number) => {
+      const questionsToUpsert = scopeQuestions.map((question: any, index: number) => {
         const legacyQuestionKey = getLegacyQuestionKey(question)
         const resolvedExisting =
           typeof question.id === "string" && question.id
@@ -239,7 +268,8 @@ export async function PUT(request: Request) {
 
         const base = {
           ...(resolvedId ? { id: resolvedId } : {}),
-          role_id: question.role_id,
+          role_id: scope.kind === "role" ? scope.id : null,
+          department_id: scope.kind === "department" ? scope.id : null,
           question_label: question.question_label.trim(),
           question_type: question.question_type,
           question_description: question.question_description?.trim() || null,

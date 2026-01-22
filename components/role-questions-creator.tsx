@@ -1,7 +1,7 @@
 "use client"
 
-import { useState, useEffect } from "react"
-import { useRouter } from "next/navigation"
+import { useState, useEffect, useRef } from "react"
+import { useRouter, useSearchParams } from "next/navigation"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -30,6 +30,43 @@ import {
   X,
 } from "lucide-react"
 import { toast } from "sonner"
+
+type ApiRoleQuestion = {
+  id?: unknown
+  role_id?: unknown
+  department_id?: unknown
+  question_key?: unknown
+  question_label?: unknown
+  question_type?: unknown
+  question_description?: unknown
+  placeholder?: unknown
+  options?: unknown
+  is_required?: unknown
+  display_order?: unknown
+  min_value?: unknown
+  max_value?: unknown
+  min_length?: unknown
+  max_length?: unknown
+  pattern?: unknown
+  step?: unknown
+  min_date?: unknown
+  max_date?: unknown
+  is_active?: unknown
+}
+
+type SavedQuestion = {
+  id: string
+  question_label?: string | null
+  question_type?: string | null
+}
+
+function asString(value: unknown): string | null {
+  return typeof value === "string" ? value : null
+}
+
+function asNumber(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null
+}
 
 function toQuestionKey(value: string): string {
   return value
@@ -69,6 +106,12 @@ interface Role {
   department_id: string | null
 }
 
+interface Department {
+  id: string
+  name: string
+  description: string | null
+}
+
 interface QuestionFormData {
   id: string // Temporary ID for tracking
   question_label: string
@@ -90,22 +133,88 @@ interface QuestionFormData {
 }
 
 type Step = "role" | "questions" | "success"
+type QuestionScope = "role" | "department"
 
 export function RoleQuestionsCreator() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const { user } = useSupabaseAuth()
+  const didApplyUrlDefaultsRef = useRef(false)
   const [currentStep, setCurrentStep] = useState<Step>("questions")
+  const [questionScope, setQuestionScope] = useState<QuestionScope>("role")
   const [selectedRole, setSelectedRole] = useState<Role | null>(null)
   const selectedRoleId = selectedRole?.id
+  const [departments, setDepartments] = useState<Department[]>([])
+  const [isLoadingDepartments, setIsLoadingDepartments] = useState(true)
+  const [selectedDepartment, setSelectedDepartment] = useState<Department | null>(null)
+  const selectedDepartmentId = selectedDepartment?.id
   const [roles, setRoles] = useState<Role[]>([])
   const [isLoadingRoles, setIsLoadingRoles] = useState(true)
   const [isLoadingExistingQuestions, setIsLoadingExistingQuestions] = useState(false)
   const [questions, setQuestions] = useState<QuestionFormData[]>([])
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [createdQuestions, setCreatedQuestions] = useState<any[]>([])
+  const [createdQuestions, setCreatedQuestions] = useState<SavedQuestion[]>([])
   const [roleQuestionCount, setRoleQuestionCount] = useState(0)
   const [existingRoleQuestionKeys, setExistingRoleQuestionKeys] = useState<string[]>([])
+
+  useEffect(() => {
+    if (didApplyUrlDefaultsRef.current) return
+
+    const scopeParam = searchParams?.get("scope")
+    const departmentIdParam = searchParams?.get("departmentId")
+    const roleIdParam = searchParams?.get("roleId")
+
+    if (!scopeParam) return
+
+    if (scopeParam === "department") {
+      if (isLoadingDepartments) return
+      setQuestionScope("department")
+      setSelectedRole(null)
+      if (departmentIdParam) {
+        const dept = departments.find((d) => d.id === departmentIdParam) || null
+        setSelectedDepartment(dept)
+      }
+      didApplyUrlDefaultsRef.current = true
+      return
+    }
+
+    if (scopeParam === "role") {
+      if (isLoadingRoles) return
+      setQuestionScope("role")
+      setSelectedDepartment(null)
+      if (roleIdParam) {
+        const role = roles.find((r) => r.id === roleIdParam) || null
+        setSelectedRole(role)
+      }
+      didApplyUrlDefaultsRef.current = true
+    }
+  }, [searchParams, departments, roles, isLoadingDepartments, isLoadingRoles])
+
+  useEffect(() => {
+    const loadDepartments = async () => {
+      try {
+        setIsLoadingDepartments(true)
+        const response = await fetch("/api/admin/departments", {
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+        })
+
+        if (!response.ok) throw new Error("Failed to load departments")
+
+        const result = await response.json()
+        const data = Array.isArray(result?.data) ? (result.data as Department[]) : []
+        setDepartments(data)
+      } catch (error: unknown) {
+        console.error("Error loading departments:", error)
+        toast.error("Failed to load departments")
+      } finally {
+        setIsLoadingDepartments(false)
+      }
+    }
+
+    loadDepartments()
+  }, [])
 
   // Load roles
   useEffect(() => {
@@ -127,9 +236,9 @@ export function RoleQuestionsCreator() {
         }
 
         setRoles(professionRoles)
-      } catch (error: any) {
+      } catch (error: unknown) {
         console.error("Error loading roles:", error)
-        toast.error("Failed to load roles: " + (error.message || "Unknown error"))
+        toast.error("Failed to load roles")
       } finally {
         setIsLoadingRoles(false)
       }
@@ -138,16 +247,17 @@ export function RoleQuestionsCreator() {
     loadRoles()
   }, [])
 
-  // Load existing question count for selected role
+  // Load existing question count for selected scope
   useEffect(() => {
-    if (!selectedRoleId) {
+    const activeScopeId = questionScope === "role" ? selectedRoleId : selectedDepartmentId
+    if (!activeScopeId) {
       setRoleQuestionCount(0)
       setExistingRoleQuestionKeys([])
       setIsLoadingExistingQuestions(false)
       return
     }
 
-    const loadRoleQuestions = async () => {
+    const loadScopeQuestions = async () => {
       try {
         setIsLoadingExistingQuestions(true)
         const response = await fetch("/api/role-questions", {
@@ -162,42 +272,53 @@ export function RoleQuestionsCreator() {
           return
         }
 
-        const allQuestions = await response.json()
-        const roleQuestions = (Array.isArray(allQuestions) ? allQuestions : [])
-          .filter((q: any) => q?.role_id === selectedRoleId)
-          .sort((a: any, b: any) => (a?.display_order ?? 0) - (b?.display_order ?? 0))
+        const allQuestions = (await response.json()) as unknown
+        const rows: ApiRoleQuestion[] = Array.isArray(allQuestions) ? (allQuestions as ApiRoleQuestion[]) : []
 
-        setRoleQuestionCount(roleQuestions.length)
-        const keys = roleQuestions
-          .map((q: any) => (typeof q.question_key === "string" ? q.question_key : ""))
-          .filter(Boolean)
+        const scopeQuestions = rows
+          .filter((q) => {
+            if (questionScope === "role") return asString(q?.role_id) === selectedRoleId
+            return asString(q?.department_id) === selectedDepartmentId
+          })
+          .sort((a, b) => (asNumber(a?.display_order) ?? 0) - (asNumber(b?.display_order) ?? 0))
+
+        setRoleQuestionCount(scopeQuestions.length)
+        const keys = scopeQuestions.map((q) => asString(q.question_key) ?? "").filter(Boolean)
         setExistingRoleQuestionKeys(keys)
 
-        if (roleQuestions.length === 0) {
+        if (scopeQuestions.length === 0) {
           setQuestions([createEmptyQuestion(0)])
           setCurrentQuestionIndex(0)
           return
         }
 
-        const mapped: QuestionFormData[] = roleQuestions.map((q: any, index: number) => ({
-          id: typeof q.id === "string" ? q.id : `existing-${Date.now()}-${Math.random()}`,
-          question_label: typeof q.question_label === "string" ? q.question_label : "",
-          question_type: typeof q.question_type === "string" ? q.question_type : "textarea",
-          question_description: typeof q.question_description === "string" ? q.question_description : "",
-          placeholder: typeof q.placeholder === "string" ? q.placeholder : "",
-          options: Array.isArray(q.options) ? q.options : null,
-          is_required: !!q.is_required,
-          display_order: typeof q.display_order === "number" ? q.display_order : index,
-          min_value: typeof q.min_value === "number" ? q.min_value : null,
-          max_value: typeof q.max_value === "number" ? q.max_value : null,
-          min_length: typeof q.min_length === "number" ? q.min_length : null,
-          max_length: typeof q.max_length === "number" ? q.max_length : null,
-          pattern: typeof q.pattern === "string" ? q.pattern : "",
-          step: typeof q.step === "number" ? q.step : null,
-          min_date: typeof q.min_date === "string" ? q.min_date : "",
-          max_date: typeof q.max_date === "string" ? q.max_date : "",
-          is_active: q.is_active !== false,
-        }))
+        const mapped: QuestionFormData[] = scopeQuestions.map((q, index: number) => {
+          const id = asString(q.id)
+          const label = asString(q.question_label) ?? ""
+          const type = asString(q.question_type) ?? "textarea"
+          const description = asString(q.question_description) ?? ""
+          const placeholder = asString(q.placeholder) ?? ""
+
+          return {
+            id: id ?? `existing-${Date.now()}-${Math.random()}`,
+            question_label: label,
+            question_type: type,
+            question_description: description,
+            placeholder,
+            options: Array.isArray(q.options) ? (q.options as string[]) : null,
+            is_required: Boolean(q.is_required),
+            display_order: asNumber(q.display_order) ?? index,
+            min_value: asNumber(q.min_value),
+            max_value: asNumber(q.max_value),
+            min_length: asNumber(q.min_length) as number | null,
+            max_length: asNumber(q.max_length) as number | null,
+            pattern: asString(q.pattern) ?? "",
+            step: asNumber(q.step),
+            min_date: asString(q.min_date) ?? "",
+            max_date: asString(q.max_date) ?? "",
+            is_active: q.is_active !== false,
+          }
+        })
 
         setQuestions(mapped)
         setCurrentQuestionIndex(0)
@@ -208,17 +329,18 @@ export function RoleQuestionsCreator() {
       }
     }
 
-    loadRoleQuestions()
-  }, [selectedRoleId])
+    loadScopeQuestions()
+  }, [questionScope, selectedRoleId, selectedDepartmentId])
 
-  // Initialize with one empty question only after a role is selected
+  // Initialize with one empty question only after a scope is selected
   useEffect(() => {
-    if (!selectedRole) return
+    const hasScope = questionScope === "role" ? !!selectedRole : !!selectedDepartment
+    if (!hasScope) return
     if (questions.length !== 0) return
 
     setQuestions([createEmptyQuestion(0)])
     setCurrentQuestionIndex(0)
-  }, [selectedRole, questions.length])
+  }, [questionScope, selectedRole, selectedDepartment, questions.length])
 
   const addQuestion = () => {
     setQuestions([...questions, createEmptyQuestion(questions.length)])
@@ -246,6 +368,15 @@ export function RoleQuestionsCreator() {
       setQuestions([])
       setCurrentQuestionIndex(0)
       setSelectedRole(role)
+    }
+  }
+
+  const handleDepartmentSelect = (departmentId: string) => {
+    const department = departments.find((d) => d.id === departmentId)
+    if (department) {
+      setQuestions([])
+      setCurrentQuestionIndex(0)
+      setSelectedDepartment(department)
     }
   }
 
@@ -284,7 +415,8 @@ export function RoleQuestionsCreator() {
   }
 
   const handleSubmit = async () => {
-    if (!validateQuestions() || !selectedRole || !user) return
+    const scopeOk = questionScope === "role" ? !!selectedRole : !!selectedDepartment
+    if (!validateQuestions() || !scopeOk || !user) return
 
     try {
       setIsSubmitting(true)
@@ -304,9 +436,12 @@ export function RoleQuestionsCreator() {
 
         const includeId = typeof q.id === "string" && !q.id.startsWith("temp-")
 
+        const scopeFields =
+          questionScope === "role" ? { role_id: selectedRole!.id } : { department_id: selectedDepartment!.id }
+
         return {
           ...(includeId ? { id: q.id } : {}),
-          role_id: selectedRole.id,
+          ...scopeFields,
           question_label: q.question_label.trim(),
           question_type: q.question_type,
           question_description: q.question_description?.trim() || null,
@@ -344,14 +479,17 @@ export function RoleQuestionsCreator() {
         throw new Error(result.error || "Failed to save questions")
       }
 
-      setCreatedQuestions(result.data || [])
+      const saved = Array.isArray(result?.data) ? (result.data as SavedQuestion[]) : ([] as SavedQuestion[])
+      setCreatedQuestions(saved)
       setCurrentStep("success")
-      setRoleQuestionCount(result.data?.length || 0)
+      setRoleQuestionCount(saved.length)
       setExistingRoleQuestionKeys(Array.from(existingKeys))
-      toast.success(`Successfully saved ${result.data?.length || 0} question(s)`)
-    } catch (error: any) {
+      toast.success(`Successfully saved ${saved.length || 0} question(s)`)
+    } catch (error: unknown) {
       console.error("Error saving questions:", error)
-      toast.error(error.message || "Failed to save questions")
+      const message =
+        error instanceof Error ? error.message : typeof error === "string" ? error : "Failed to save questions"
+      toast.error(message)
     } finally {
       setIsSubmitting(false)
     }
@@ -380,38 +518,113 @@ export function RoleQuestionsCreator() {
         <CardDescription>Select the role you want to create questions for</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
-        {isLoadingRoles ? (
+        <div className="space-y-2">
+          <Label>Scope</Label>
+          <RadioGroup
+            value={questionScope}
+            onValueChange={(val) => {
+              const next = val === "department" ? "department" : "role"
+              setQuestionScope(next)
+              setSelectedRole(null)
+              setSelectedDepartment(null)
+              setQuestions([])
+              setCurrentQuestionIndex(0)
+              setRoleQuestionCount(0)
+              setExistingRoleQuestionKeys([])
+            }}
+            className="flex gap-6"
+          >
+            <div className="flex items-center space-x-2">
+              <RadioGroupItem value="role" id="scope-role" />
+              <Label htmlFor="scope-role">Role</Label>
+            </div>
+            <div className="flex items-center space-x-2">
+              <RadioGroupItem value="department" id="scope-department" />
+              <Label htmlFor="scope-department">Department</Label>
+            </div>
+          </RadioGroup>
+        </div>
+
+        {isLoadingRoles || isLoadingDepartments ? (
           <div className="flex items-center justify-center py-8">
             <Loader2 className="h-6 w-6 animate-spin" />
           </div>
         ) : (
           <>
-            <div className="space-y-2">
-              <Label>Role</Label>
-              <Select value={selectedRole?.id || ""} onValueChange={handleRoleSelect}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a role" />
-                </SelectTrigger>
-                <SelectContent>
-                  {roles.map((role) => (
-                    <SelectItem key={role.id} value={role.id}>
-                      <div className="flex flex-col">
-                        <span className="font-medium">{role.name}</span>
-                        {role.description && <span className="text-muted-foreground text-xs">{role.description}</span>}
-                      </div>
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+            {questionScope === "role" ? (
+              <div className="space-y-2">
+                <Label>Role</Label>
+                <Select value={selectedRole?.id || ""} onValueChange={handleRoleSelect}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a role" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {roles.map((role) => (
+                      <SelectItem key={role.id} value={role.id}>
+                        <div className="flex flex-col">
+                          <span className="font-medium">{role.name}</span>
+                          {role.description && (
+                            <span className="text-muted-foreground text-xs">{role.description}</span>
+                          )}
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                <Label>Department</Label>
+                <Select value={selectedDepartment?.id || ""} onValueChange={handleDepartmentSelect}>
+                  <SelectTrigger>
+                    <SelectValue placeholder={isLoadingDepartments ? "Loading..." : "Select a department"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {departments.map((dept) => (
+                      <SelectItem key={dept.id} value={dept.id}>
+                        <div className="flex flex-col">
+                          <span className="font-medium">{dept.name}</span>
+                          {dept.description && (
+                            <span className="text-muted-foreground text-xs">{dept.description}</span>
+                          )}
+                        </div>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            )}
 
-            {selectedRole && (
+            {isLoadingExistingQuestions && (
+              <div className="text-muted-foreground flex items-center gap-2 text-sm">
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading existing questions...
+              </div>
+            )}
+
+            {questionScope === "role" && selectedRole && (
               <Alert>
                 <AlertCircle className="h-4 w-4" />
                 <AlertDescription>
                   <div className="flex items-center justify-between">
                     <span>
                       Selected: <strong>{selectedRole.name}</strong>
+                    </span>
+                    <Badge variant="secondary">
+                      {roleQuestionCount} existing question{roleQuestionCount !== 1 ? "s" : ""}
+                    </Badge>
+                  </div>
+                </AlertDescription>
+              </Alert>
+            )}
+
+            {questionScope === "department" && selectedDepartment && (
+              <Alert>
+                <AlertCircle className="h-4 w-4" />
+                <AlertDescription>
+                  <div className="flex items-center justify-between">
+                    <span>
+                      Selected: <strong>{selectedDepartment.name}</strong>
                     </span>
                     <Badge variant="secondary">
                       {roleQuestionCount} existing question{roleQuestionCount !== 1 ? "s" : ""}
@@ -428,6 +641,9 @@ export function RoleQuestionsCreator() {
 
   // Render Success Step
   if (currentStep === "success") {
+    const targetName =
+      questionScope === "role" ? selectedRole?.name : questionScope === "department" ? selectedDepartment?.name : null
+
     return (
       <Card className="mx-auto max-w-2xl">
         <CardHeader>
@@ -436,7 +652,7 @@ export function RoleQuestionsCreator() {
             <CardTitle>Questions Saved Successfully!</CardTitle>
           </div>
           <CardDescription>
-            {createdQuestions.length} question{createdQuestions.length !== 1 ? "s" : ""} saved for {selectedRole?.name}
+            {createdQuestions.length} question{createdQuestions.length !== 1 ? "s" : ""} saved for {targetName}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -449,8 +665,8 @@ export function RoleQuestionsCreator() {
                     <div className="flex-1">
                       <div className="flex items-center gap-2">
                         <Badge variant="outline">{index + 1}</Badge>
-                        <span className="font-medium">{q.question_label}</span>
-                        <Badge variant="secondary">{q.question_type}</Badge>
+                        <span className="font-medium">{q.question_label || ""}</span>
+                        <Badge variant="secondary">{q.question_type || ""}</Badge>
                       </div>
                     </div>
                   </div>
@@ -481,6 +697,7 @@ export function RoleQuestionsCreator() {
               variant="outline"
               onClick={() => {
                 setSelectedRole(null)
+                setSelectedDepartment(null)
                 setQuestions([])
                 setCurrentQuestionIndex(0)
                 setCreatedQuestions([])
@@ -488,9 +705,9 @@ export function RoleQuestionsCreator() {
               }}
               className="flex-1"
             >
-              Create for Another Role
+              Create for Another
             </Button>
-            <Button variant="outline" onClick={() => router.push("/admin/role-questions")} className="flex-1">
+            <Button variant="outline" onClick={() => router.push("/admin/questions")} className="flex-1">
               View All Questions
             </Button>
           </div>
@@ -500,11 +717,15 @@ export function RoleQuestionsCreator() {
   }
 
   // Render Questions Step (wizard mode)
+  const hasScope = questionScope === "role" ? !!selectedRole : !!selectedDepartment
+  const selectedScopeName =
+    questionScope === "role" ? selectedRole?.name : questionScope === "department" ? selectedDepartment?.name : null
+
   return (
     <div className="space-y-6">
       {roleSelection}
 
-      {!selectedRole && (
+      {!hasScope && (
         <Card>
           <CardContent className="py-10">
             <div className="mx-auto flex max-w-xl flex-col items-center gap-3 text-center">
@@ -512,14 +733,17 @@ export function RoleQuestionsCreator() {
                 <Shield className="h-5 w-5" />
               </div>
               <div className="space-y-1">
-                <p className="text-base font-medium">Select a role to start</p>
+                <p className="text-base font-medium">
+                  {questionScope === "role" ? "Select a role to start" : "Select a department to start"}
+                </p>
                 <p className="text-muted-foreground text-sm">
-                  Choose the role above. Then you’ll create the questions users for that role will answer when
-                  submitting reports.
+                  {questionScope === "role"
+                    ? "Choose the role above. Then you’ll create the questions users for that role will answer when submitting reports."
+                    : "Choose the department above. Then you’ll create the questions users for that department will answer when submitting reports."}
                 </p>
               </div>
               <div className="pt-2">
-                <Button variant="outline" onClick={() => router.push("/admin/role-questions")}>
+                <Button variant="outline" onClick={() => router.push("/admin/questions")}>
                   Cancel
                 </Button>
               </div>
@@ -528,14 +752,14 @@ export function RoleQuestionsCreator() {
         </Card>
       )}
 
-      {selectedRole && questions.length > 0 && (
+      {hasScope && questions.length > 0 && (
         <>
           {/* Header */}
           <Card>
             <CardHeader>
               <div className="flex items-center justify-between">
                 <div>
-                  <CardTitle>Create Questions for {selectedRole.name}</CardTitle>
+                  <CardTitle>Create Questions for {selectedScopeName || ""}</CardTitle>
                   <CardDescription>{`Question ${currentQuestionIndex + 1} of ${questions.length}`}</CardDescription>
                 </div>
                 <div className="flex items-center gap-2">
@@ -603,7 +827,7 @@ export function RoleQuestionsCreator() {
           <Card>
             <CardContent className="pt-6">
               <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => router.push("/admin/role-questions")}>
+                <Button variant="outline" onClick={() => router.push("/admin/questions")}>
                   Cancel
                 </Button>
               </div>

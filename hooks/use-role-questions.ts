@@ -5,7 +5,8 @@ import { apiFetch, getErrorMessage } from "@/lib/api-client"
 
 export interface RoleQuestion {
   id: string
-  role_id: string
+  role_id: string | null
+  department_id?: string | null
   question_label: string
   question_type:
     | "text"
@@ -36,10 +37,10 @@ export interface RoleQuestion {
     | "percentage"
   question_description?: string | null
   placeholder?: string | null
-  options?: any
+  options?: unknown
   is_required: boolean
   display_order: number
-  validation_rules?: any
+  validation_rules?: unknown
   is_active: boolean
   created_at: string
   updated_at: string
@@ -47,6 +48,8 @@ export interface RoleQuestion {
 
 export function useRoleQuestions(initialQuestions?: RoleQuestion[], departmentId?: string) {
   const { user, profile } = useSupabaseAuth()
+  const userId = user?.id
+  const profileRoleId = profile?.role_id
   const [questions, setQuestions] = useState<RoleQuestion[]>(initialQuestions ?? [])
   const [isLoading, setIsLoading] = useState(!initialQuestions)
   const [error, setError] = useState<string | null>(null)
@@ -69,7 +72,7 @@ export function useRoleQuestions(initialQuestions?: RoleQuestion[], departmentId
     }
 
     const fetchQuestions = async () => {
-      if (!user || !profile) {
+      if (!userId || !profileRoleId) {
         setIsLoading(false)
         setQuestions([])
         return
@@ -81,12 +84,12 @@ export function useRoleQuestions(initialQuestions?: RoleQuestion[], departmentId
         setIsLoading(false)
         setError(null)
         setQuestions([])
-        lastFetchRef.current = { userId: user.id, roleId: profile.role_id, departmentId }
+        lastFetchRef.current = { userId, roleId: profileRoleId, departmentId }
         return
       }
 
       // Prevent duplicate requests for the same user/role
-      const currentKey = { userId: user.id, roleId: profile.role_id, departmentId }
+      const currentKey = { userId, roleId: profileRoleId, departmentId }
       if (
         lastFetchRef.current &&
         lastFetchRef.current.userId === currentKey.userId &&
@@ -128,7 +131,7 @@ export function useRoleQuestions(initialQuestions?: RoleQuestion[], departmentId
         }
         console.error("Error fetching role questions:", err)
 
-        const key = `${user.id}:${profile.role_id}:${departmentId || ""}`
+        const key = `${userId}:${profileRoleId}:${departmentId || ""}`
         const message = getErrorMessage(err, "Failed to load questions")
         setError(message)
         if (lastToastKeyRef.current !== key) {
@@ -151,7 +154,7 @@ export function useRoleQuestions(initialQuestions?: RoleQuestion[], departmentId
         abortControllerRef.current.abort()
       }
     }
-  }, [user?.id, profile?.role_id, departmentId]) // Use specific properties instead of whole objects
+  }, [userId, profileRoleId, departmentId, initialQuestions])
 
   // Convert database questions to the format expected by RoleBasedQuestionFields
   // and include a separate title field (backed by question_title, falling back to label)

@@ -76,7 +76,8 @@ interface Role {
 
 interface RoleQuestion {
   id: string
-  role_id: string
+  role_id: string | null
+  department_id?: string | null
   question_key: string
   question_label: string
   question_type: string
@@ -107,9 +108,12 @@ type RoleQuestionsManagerProps = {
   externalSearchQuery?: string
   refreshKey?: number
   fixedRoleId?: string
-  fixedRole?: Role
+  fixedRole?: Role | null
+  departmentId?: string
+  departmentOnly?: boolean
   hideHeader?: boolean
   hideStatistics?: boolean
+  hideFilters?: boolean
   disableRoleCollapse?: boolean
 }
 
@@ -123,15 +127,40 @@ function deriveQuestionKey(question: any): string {
   return typeof question?.id === "string" && question.id ? question.id : ""
 }
 
+function getGroupIdForQuestion(question: RoleQuestionWithRole): string {
+  if (typeof question.role_id === "string" && question.role_id) return question.role_id
+  if (typeof question.department_id === "string" && question.department_id)
+    return `__department:${question.department_id}`
+  return "__unscoped"
+}
+
+function isDepartmentGroupId(groupId: string): boolean {
+  return groupId.startsWith("__department:")
+}
+
 export function RoleQuestionsManager({
   externalSearchQuery,
   refreshKey,
   fixedRoleId,
   fixedRole,
+  departmentId,
+  departmentOnly,
   hideHeader,
   hideStatistics,
+  hideFilters,
   disableRoleCollapse,
 }: RoleQuestionsManagerProps) {
+  const SYSTEM_ROLE_IDS = useMemo(
+    () =>
+      new Set([
+        "00000000-0000-0000-0000-000000000000",
+        "00000000-0000-0000-0000-000000000001",
+        "00000000-0000-0000-0000-000000000002",
+        "00000000-0000-0000-0000-000000000010",
+      ]),
+    []
+  )
+
   const { user: currentUser, profile: currentProfile } = useSupabaseAuth()
   const effectiveFixedRoleId = fixedRoleId || fixedRole?.id
   const [questions, setQuestions] = useState<RoleQuestionWithRole[]>([])
@@ -188,6 +217,7 @@ export function RoleQuestionsManager({
 
   const [formData, setFormData] = useState<Partial<RoleQuestion>>({
     role_id: "",
+    department_id: null,
     question_label: "",
     question_type: "text",
     question_description: "",
@@ -215,6 +245,13 @@ export function RoleQuestionsManager({
 
   const [quickAddByRole, setQuickAddByRole] = useState<Record<string, string>>({})
 
+  const isDepartmentScopedForm = useMemo(() => {
+    if (departmentOnly && departmentId) return true
+    if (editingQuestion && !editingQuestion.role_id && !!editingQuestion.department_id) return true
+    if (!formData.role_id && !!formData.department_id) return true
+    return false
+  }, [departmentOnly, departmentId, editingQuestion, formData.role_id, formData.department_id])
+
   const toQuestionKey = useCallback((label: string) => {
     return label
       .trim()
@@ -224,32 +261,44 @@ export function RoleQuestionsManager({
       .replace(/-+/g, "-")
   }, [])
 
-  const openCreateDialogForRole = useCallback((roleId: string, displayOrder: number, presetLabel?: string) => {
-    const label = presetLabel?.trim() || ""
-    setFormData({
-      role_id: roleId,
-      question_label: label,
-      question_type: "text",
-      question_description: "",
-      placeholder: "",
-      options: null,
-      is_required: false,
-      display_order: displayOrder,
-      validation_rules: null,
-      is_active: true,
-      min_value: null,
-      max_value: null,
-      min_length: null,
-      max_length: null,
-      pattern: null,
-      step: null,
-      min_date: null,
-      max_date: null,
-    })
-    setEditingQuestion(null)
-    setFormErrors({})
-    setShowCreateDialog(true)
-  }, [])
+  const openCreateDialogForRole = useCallback(
+    (roleId: string, displayOrder: number, presetLabel?: string) => {
+      const label = presetLabel?.trim() || ""
+      const isDepartmentGroup = isDepartmentGroupId(roleId)
+      const isUnscopedGroup = roleId === "__unscoped"
+
+      if (isUnscopedGroup) return
+
+      const parsedDepartmentId = isDepartmentGroup ? roleId.replace("__department:", "") : null
+      const departmentIdForCreate = parsedDepartmentId || (departmentOnly && departmentId ? departmentId : null)
+
+      setFormData({
+        role_id: isDepartmentGroup ? "" : roleId,
+        department_id: isDepartmentGroup ? departmentIdForCreate : null,
+        question_label: label,
+        question_type: "text",
+        question_description: "",
+        placeholder: "",
+        options: null,
+        is_required: false,
+        display_order: displayOrder,
+        validation_rules: null,
+        is_active: true,
+        min_value: null,
+        max_value: null,
+        min_length: null,
+        max_length: null,
+        pattern: null,
+        step: null,
+        min_date: null,
+        max_date: null,
+      })
+      setEditingQuestion(null)
+      setFormErrors({})
+      setShowCreateDialog(true)
+    },
+    [departmentId, departmentOnly]
+  )
 
   const loadData = useCallback(
     async (forceRefresh = false) => {
@@ -338,7 +387,6 @@ export function RoleQuestionsManager({
           // Don't throw - set empty array so UI can still render
           setRoles([])
         } else {
-          setRoles(roleDataWithDept)
         }
 
         // Load questions using API route (ensures all questions are fetched, bypasses RLS issues)
@@ -346,7 +394,11 @@ export function RoleQuestionsManager({
         let questionError: unknown = null
 
         try {
-          const apiUrl = "/api/role-questions"
+          const apiUrl = departmentId
+            ? `/api/role-questions?departmentId=${encodeURIComponent(departmentId)}${
+                departmentOnly ? "&scope=department_only" : ""
+              }`
+            : "/api/role-questions"
           const questionsFromAPI = await apiFetch<RoleQuestionWithRole[]>(apiUrl, {
             method: "GET",
             headers: {
@@ -355,11 +407,15 @@ export function RoleQuestionsManager({
           })
 
           // Join with roles data - use existing role if present, otherwise find from loaded roles
-          questionData = (Array.isArray(questionsFromAPI) ? questionsFromAPI : []).map((q) => ({
-            ...q,
-            question_key: deriveQuestionKey(q),
-            role: q.role || roleDataWithDept.find((r) => r.id === q.role_id) || null,
-          }))
+          questionData = (Array.isArray(questionsFromAPI) ? questionsFromAPI : []).map((q) => {
+            const roleId =
+              typeof (q as { role_id?: unknown })?.role_id === "string" ? (q as { role_id: string }).role_id : null
+            return {
+              ...q,
+              question_key: deriveQuestionKey(q),
+              role: q.role || (roleId ? roleDataWithDept.find((r) => r.id === roleId) : null) || null,
+            }
+          })
         } catch (apiError: unknown) {
           console.error("❌ Error loading questions from API:", apiError)
           console.error("API Error Details:", {
@@ -434,18 +490,24 @@ export function RoleQuestionsManager({
               if (questionsOnlyError) {
                 questionError = questionsOnlyError
               } else {
-                questionData = ((questionsOnly as unknown as RoleQuestionWithRole[]) || []).map((q: any) => ({
-                  ...q,
-                  question_key: deriveQuestionKey(q),
-                  role: roleDataWithDept.find((r) => r.id === q.role_id) || null,
-                }))
+                questionData = ((questionsOnly as unknown as RoleQuestionWithRole[]) || []).map((q: any) => {
+                  const roleId = typeof q?.role_id === "string" ? (q.role_id as string) : null
+                  return {
+                    ...q,
+                    question_key: deriveQuestionKey(q),
+                    role: roleId ? roleDataWithDept.find((r) => r.id === roleId) || null : null,
+                  }
+                })
               }
             } else {
-              questionData = ((questionsWithRoles as unknown as RoleQuestionWithRole[]) || []).map((q: any) => ({
-                ...q,
-                question_key: deriveQuestionKey(q),
-                role: q.role || roleDataWithDept.find((r) => r.id === q.role_id) || null,
-              }))
+              questionData = ((questionsWithRoles as unknown as RoleQuestionWithRole[]) || []).map((q: any) => {
+                const roleId = typeof q?.role_id === "string" ? (q.role_id as string) : null
+                return {
+                  ...q,
+                  question_key: deriveQuestionKey(q),
+                  role: q.role || (roleId ? roleDataWithDept.find((r) => r.id === roleId) : null) || null,
+                }
+              })
             }
           } catch (fallbackError: unknown) {
             console.error("❌ Fallback also failed:", fallbackError)
@@ -486,6 +548,26 @@ export function RoleQuestionsManager({
           return
         }
 
+        if (!roleError) {
+          let rolesForUi = roleDataWithDept
+
+          if (departmentId && !effectiveFixedRoleId) {
+            const roleIdsWithQuestions = new Set(
+              (questionData || [])
+                .map((q) =>
+                  typeof (q as { role_id?: unknown })?.role_id === "string" ? (q as { role_id: string }).role_id : null
+                )
+                .filter((id): id is string => !!id)
+            )
+
+            rolesForUi = roleDataWithDept.filter(
+              (r) => r.department_id === departmentId && roleIdsWithQuestions.has(r.id)
+            )
+          }
+
+          setRoles(rolesForUi)
+        }
+
         setQuestions(questionData || [])
 
         // Mark data as loaded and update timestamp
@@ -502,7 +584,7 @@ export function RoleQuestionsManager({
         setIsLoading(false)
       }
     },
-    [currentUser, currentProfile, isAdmin, toast]
+    [currentUser, currentProfile, isAdmin, toast, departmentId, effectiveFixedRoleId, departmentOnly]
   )
 
   useEffect(() => {
@@ -550,8 +632,12 @@ export function RoleQuestionsManager({
   const filteredAndSortedQuestions = useMemo(() => {
     let filtered = questions
 
+    if (departmentOnly && departmentId) {
+      filtered = filtered.filter((q) => q.department_id === departmentId)
+    }
+
     // Role filter
-    if (selectedRole !== "all") {
+    if (!departmentOnly && selectedRole !== "all") {
       filtered = filtered.filter((q) => q.role_id === selectedRole)
     }
 
@@ -601,14 +687,24 @@ export function RoleQuestionsManager({
     })
 
     return filtered
-  }, [questions, selectedRole, searchQuery, filterType, filterStatus, sortField, sortDirection])
+  }, [
+    questions,
+    selectedRole,
+    searchQuery,
+    filterType,
+    filterStatus,
+    sortField,
+    sortDirection,
+    departmentOnly,
+    departmentId,
+  ])
 
   // Group questions by role for grouped view
   const questionsByRole = useMemo(() => {
     const grouped: Record<string, RoleQuestionWithRole[]> = {}
 
     filteredAndSortedQuestions.forEach((question) => {
-      const roleId = question.role_id
+      const roleId = getGroupIdForQuestion(question)
 
       if (!grouped[roleId]) {
         grouped[roleId] = []
@@ -626,6 +722,23 @@ export function RoleQuestionsManager({
     Object.keys(grouped).forEach((roleId) => {
       grouped[roleId].sort((a, b) => (a.display_order || 0) - (b.display_order || 0))
     })
+
+    if (departmentOnly && departmentId) {
+      const deptGroupId = `__department:${departmentId}`
+      const deptQuestions = grouped[deptGroupId] || []
+      const deptOnlyGrouped: Record<string, RoleQuestionWithRole[]> = {
+        [deptGroupId]: deptQuestions,
+      }
+      const sortedRoles: Role[] = [
+        {
+          id: deptGroupId,
+          name: "Department Questions",
+          description: null,
+          department_id: null,
+        },
+      ]
+      return { grouped: deptOnlyGrouped, sortedRoles }
+    }
 
     // Build the list of roles to display in the grouped view.
     // Prefer the roles state when it has entries, but fall back to deriving
@@ -646,7 +759,19 @@ export function RoleQuestionsManager({
       ]
     } else if (roles && roles.length > 0) {
       // Use roles from state, filtered to only those that have questions
-      rolesForGrouping = roles.filter((role) => grouped[role.id] && grouped[role.id].length > 0)
+      const syntheticRoles: Role[] = Object.keys(grouped)
+        .filter((id) => isDepartmentGroupId(id) || id === "__unscoped")
+        .map((id) => ({
+          id,
+          name: id === "__unscoped" ? "Unscoped Questions" : `Department Questions`,
+          description: null,
+          department_id: null,
+        }))
+
+      rolesForGrouping = [
+        ...roles.filter((role) => !SYSTEM_ROLE_IDS.has(role.id) && grouped[role.id] && grouped[role.id].length > 0),
+        ...syntheticRoles,
+      ]
     } else {
       // Derive roles from the questions themselves
       const derivedRoleMap = new Map<string, Role>()
@@ -654,7 +779,11 @@ export function RoleQuestionsManager({
       Object.entries(grouped).forEach(([roleId, roleQuestions]) => {
         // Use the first question in the group to infer the role name
         const sample = roleQuestions[0]
-        const inferredName = sample.role?.name || "Unknown Role"
+        const inferredName = isDepartmentGroupId(roleId)
+          ? "Department Questions"
+          : roleId === "__unscoped"
+            ? "Unscoped Questions"
+            : sample.role?.name || "Unknown Role"
 
         if (!derivedRoleMap.has(roleId)) {
           derivedRoleMap.set(roleId, {
@@ -673,7 +802,15 @@ export function RoleQuestionsManager({
     const sortedRoles = rolesForGrouping.sort((a, b) => a.name.localeCompare(b.name))
 
     return { grouped, sortedRoles }
-  }, [filteredAndSortedQuestions, roles, effectiveFixedRoleId, fixedRole])
+  }, [
+    filteredAndSortedQuestions,
+    roles,
+    effectiveFixedRoleId,
+    fixedRole,
+    SYSTEM_ROLE_IDS,
+    departmentOnly,
+    departmentId,
+  ])
 
   // Ensure consistent sorting for both views
   const sortedQuestionsForTable = useMemo(() => {
@@ -744,6 +881,14 @@ export function RoleQuestionsManager({
     }
   }, [questions, roles, effectiveFixedRoleId])
 
+  const visibleRoles = useMemo(() => {
+    const base = roles.filter((r) => !SYSTEM_ROLE_IDS.has(r.id))
+    if (departmentId) {
+      return base.filter((r) => (statistics.byRole[r.id] || 0) > 0)
+    }
+    return base
+  }, [roles, statistics.byRole, departmentId, SYSTEM_ROLE_IDS])
+
   // Helper function to build validation_rules from individual validation fields
   const buildValidationRules = (): Record<string, any> | null => {
     const rules: Record<string, any> = {}
@@ -781,8 +926,14 @@ export function RoleQuestionsManager({
   const validateForm = (): boolean => {
     const errors: Record<string, string> = {}
 
-    if (!formData.role_id) {
-      errors.role_id = "Role is required"
+    if (isDepartmentScopedForm) {
+      if (!formData.department_id && !departmentId) {
+        errors.department_id = "Department is required"
+      }
+    } else {
+      if (!formData.role_id) {
+        errors.role_id = "Role is required"
+      }
     }
     if (!formData.question_label?.trim()) {
       errors.question_label = "Question label is required"
@@ -871,16 +1022,33 @@ export function RoleQuestionsManager({
 
     setIsCreating(true)
     try {
+      const effectiveDepartmentId =
+        (typeof formData.department_id === "string" && formData.department_id) || (departmentOnly ? departmentId : null)
+
+      if (isDepartmentScopedForm && !effectiveDepartmentId) {
+        toast({
+          title: "Error",
+          description: "Department scope is missing. Please refresh and try again.",
+          variant: "destructive",
+        })
+        return
+      }
+
       const baseKey = toQuestionKey(formData.question_label!.trim()) || "question"
-      const existingKeysForRole = new Set(
+      const existingKeysForScope = new Set(
         questions
-          .filter((q) => q.role_id === formData.role_id)
+          .filter((q) => {
+            if (isDepartmentScopedForm) {
+              return typeof q.department_id === "string" && q.department_id === effectiveDepartmentId
+            }
+            return q.role_id === formData.role_id
+          })
           .map((q) => (typeof q.question_key === "string" ? q.question_key : ""))
           .filter(Boolean)
       )
       let legacyQuestionKey = baseKey
       let suffix = 2
-      while (existingKeysForRole.has(legacyQuestionKey)) {
+      while (existingKeysForScope.has(legacyQuestionKey)) {
         legacyQuestionKey = `${baseKey}_${suffix}`
         suffix += 1
       }
@@ -888,12 +1056,19 @@ export function RoleQuestionsManager({
       // Get the next display_order for this role
       let nextDisplayOrder = 0
       try {
-        const { data: lastQuestion, error: orderError } = await supabase
+        let orderQuery = supabase
           .from("role_questions")
           .select("display_order")
-          .eq("role_id", formData.role_id!)
           .order("display_order", { ascending: false })
           .limit(1)
+
+        if (isDepartmentScopedForm) {
+          orderQuery = orderQuery.eq("department_id", effectiveDepartmentId)
+        } else {
+          orderQuery = orderQuery.eq("role_id", formData.role_id!)
+        }
+
+        const { data: lastQuestion, error: orderError } = await orderQuery
 
         if (orderError) {
           // Check if it's a timeout error
@@ -930,7 +1105,9 @@ export function RoleQuestionsManager({
       // Note: Advanced fields like conditional_logic, default_value, help_text, etc. are not in schema
       // and could be stored in validation_rules or metadata JSONB fields if needed
       const insertData: any = {
-        role_id: formData.role_id!,
+        ...(isDepartmentScopedForm
+          ? { role_id: null, department_id: effectiveDepartmentId }
+          : { role_id: formData.role_id!, department_id: null }),
         question_label: formData.question_label!.trim(),
         question_type: formData.question_type!,
         question_description: formData.question_description?.trim() || null,
@@ -1625,11 +1802,11 @@ export function RoleQuestionsManager({
       setShowDeleteDialog(false)
       setQuestionToDelete(null)
       loadData(true) // Force refresh after delete
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error("Error deleting question:", error)
       toast({
         title: "Error",
-        description: error.message || "Failed to delete question",
+        description: error instanceof Error ? error.message : "Failed to delete question",
         variant: "destructive",
       })
     }
@@ -1638,6 +1815,7 @@ export function RoleQuestionsManager({
   const resetForm = () => {
     setFormData({
       role_id: "",
+      department_id: null,
       question_label: "",
       question_type: "text",
       question_description: "",
@@ -1698,16 +1876,34 @@ export function RoleQuestionsManager({
           .select("*")
           .order("name", { ascending: true })
           .limit(1000)
+
         if (roleError) {
           console.error("❌ Error loading roles for edit dialog:", roleError)
           setRoles([])
         } else {
-          const directRoleDataWithDept = (directRoleData || []).map((r: any) => ({
+          const directRoleDataWithDept: Role[] = (directRoleData || []).map((r: any) => ({
             ...r,
             department_id: r.department_id ?? null,
           }))
-          setRoles(directRoleDataWithDept)
-          console.log("✅ Loaded roles via direct query for edit dialog:", directRoleDataWithDept.length)
+
+          if (departmentId && !effectiveFixedRoleId) {
+            const roleIdsWithQuestions = new Set(
+              (questions || [])
+                .map((q) =>
+                  typeof (q as { role_id?: unknown })?.role_id === "string" ? (q as { role_id: string }).role_id : null
+                )
+                .filter((id): id is string => !!id)
+            )
+
+            const rolesForUi = directRoleDataWithDept.filter(
+              (r) => r.department_id === departmentId && roleIdsWithQuestions.has(r.id)
+            )
+            setRoles(rolesForUi)
+            console.log("✅ Loaded roles via direct query for edit dialog (filtered):", rolesForUi.length)
+          } else {
+            setRoles(directRoleDataWithDept)
+            console.log("✅ Loaded roles via direct query for edit dialog:", directRoleDataWithDept.length)
+          }
         }
       } catch (error) {
         console.error("❌ Error loading roles for edit dialog:", error)
@@ -1720,7 +1916,8 @@ export function RoleQuestionsManager({
 
     setEditingQuestion(question)
     setFormData({
-      role_id: question.role_id,
+      role_id: question.role_id ?? "",
+      department_id: question.department_id ?? null,
       question_label: question.question_label,
       question_type: question.question_type,
       question_description: question.question_description || "",
@@ -1731,16 +1928,16 @@ export function RoleQuestionsManager({
       validation_rules: question.validation_rules,
       is_active: question.is_active,
       // Extract validation fields from validation_rules JSONB
-      min_value: validationRules.min_value ?? null,
-      max_value: validationRules.max_value ?? null,
-      min_length: validationRules.min_length ?? null,
-      max_length: validationRules.max_length ?? null,
-      pattern: validationRules.pattern || null,
-      step: validationRules.step ?? null,
-      min_date: validationRules.min_date || null,
-      max_date: validationRules.max_date || null,
+      min_value: (validationRules as any).min_value ?? null,
+      max_value: (validationRules as any).max_value ?? null,
+      min_length: (validationRules as any).min_length ?? null,
+      max_length: (validationRules as any).max_length ?? null,
+      pattern: (validationRules as any).pattern || null,
+      step: (validationRules as any).step ?? null,
+      min_date: (validationRules as any).min_date || null,
+      max_date: (validationRules as any).max_date || null,
     })
-    setOptionInput(question.options?.join(", ") || "")
+    setOptionInput((question.options as any)?.join(", ") || "")
     setShowCreateDialog(true)
   }
 
@@ -2027,10 +2224,29 @@ export function RoleQuestionsManager({
       return
     }
 
+    const canDuplicateDepartmentScoped =
+      departmentOnly &&
+      !!departmentId &&
+      typeof (question as RoleQuestion).department_id === "string" &&
+      (question as RoleQuestion).department_id === departmentId
+
+    if (!question.role_id && !canDuplicateDepartmentScoped) {
+      toast({
+        title: "Error",
+        description: "This question cannot be duplicated from this screen.",
+        variant: "destructive",
+      })
+      return
+    }
+
     try {
       const usedKeys = new Set(
         questions
-          .filter((q) => q.role_id === question.role_id)
+          .filter((q) => {
+            if (question.role_id) return q.role_id === question.role_id
+            if (canDuplicateDepartmentScoped) return q.department_id === departmentId
+            return false
+          })
           .map((q) => (typeof q.question_key === "string" ? q.question_key : ""))
           .filter(Boolean)
       )
@@ -2043,19 +2259,27 @@ export function RoleQuestionsManager({
         counter += 1
       }
 
-      const { data: lastQuestion, error: orderError } = await supabase
+      let orderQuery = supabase
         .from("role_questions")
         .select("display_order")
-        .eq("role_id", question.role_id)
         .order("display_order", { ascending: false })
         .limit(1)
+
+      if (question.role_id) {
+        orderQuery = orderQuery.eq("role_id", question.role_id)
+      } else {
+        orderQuery = orderQuery.eq("department_id", departmentId)
+      }
+
+      const { data: lastQuestion, error: orderError } = await orderQuery
 
       if (orderError) throw orderError
 
       const nextDisplayOrder = lastQuestion && lastQuestion.length > 0 ? lastQuestion[0].display_order + 1 : 0
 
       const { error } = await supabase.from("role_questions").insert({
-        role_id: question.role_id,
+        role_id: question.role_id || null,
+        department_id: question.role_id ? null : departmentId,
         question_label: `${question.question_label} (Copy)`,
         question_type: question.question_type,
         question_description: question.question_description,
@@ -2162,9 +2386,9 @@ export function RoleQuestionsManager({
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-bold">
-                  {Object.keys(statistics.byRole).filter((id) => statistics.byRole[id] > 0).length}
+                  {visibleRoles.filter((r) => (statistics.byRole[r.id] || 0) > 0).length}
                 </div>
-                <p className="text-muted-foreground text-xs">Out of {roles.length} total roles</p>
+                <p className="text-muted-foreground text-xs">Out of {visibleRoles.length} total roles</p>
               </CardContent>
             </Card>
           )}
@@ -2201,7 +2425,7 @@ export function RoleQuestionsManager({
                 },
               ]}
             />
-            <Link href="/admin/role-questions/new">
+            <Link href="/admin/questions/new">
               <Button variant="default">
                 <Plus className="mr-2 h-4 w-4" />
                 Create Multiple Questions
@@ -2232,51 +2456,75 @@ export function RoleQuestionsManager({
       )}
 
       {/* Advanced Filters and Search */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-lg">Filters & Search</CardTitle>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => {
-                setSearchQuery("")
-                setSelectedRole("all")
-                setFilterType("all")
-                setFilterStatus("all")
-                setCurrentPage(1)
-              }}
-            >
-              <X className="mr-2 h-4 w-4" />
-              Clear Filters
-            </Button>
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
-            <div className="lg:col-span-2">
-              <Label htmlFor="search">Search</Label>
-              <div className="relative">
-                <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 transform" />
-                <Input
-                  id="search"
-                  placeholder="Search by label, key, description, or role..."
-                  value={searchQuery}
-                  onChange={(e) => {
-                    setSearchQuery(e.target.value)
-                    setCurrentPage(1)
-                  }}
-                  className="pl-9"
-                />
-              </div>
+      {!hideFilters && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-lg">Filters & Search</CardTitle>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setSearchQuery("")
+                  setSelectedRole("all")
+                  setFilterType("all")
+                  setFilterStatus("all")
+                  setCurrentPage(1)
+                }}
+              >
+                <X className="mr-2 h-4 w-4" />
+                Clear Filters
+              </Button>
             </div>
-            {!effectiveFixedRoleId && (
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+              <div className="lg:col-span-2">
+                <Label htmlFor="search">Search</Label>
+                <div className="relative">
+                  <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 transform" />
+                  <Input
+                    id="search"
+                    placeholder="Search by label, key, description, or role..."
+                    value={searchQuery}
+                    onChange={(e) => {
+                      setSearchQuery(e.target.value)
+                      setCurrentPage(1)
+                    }}
+                    className="pl-9"
+                  />
+                </div>
+              </div>
+              {!effectiveFixedRoleId && (
+                <div>
+                  <Label>Role</Label>
+                  <Select
+                    value={selectedRole}
+                    onValueChange={(value) => {
+                      setSelectedRole(value)
+                      setCurrentPage(1)
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Roles</SelectItem>
+                      {visibleRoles.map((role) => (
+                        <SelectItem key={role.id} value={role.id}>
+                          {role.name} ({statistics.byRole[role.id] || 0})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
               <div>
-                <Label>Role</Label>
+                <Label>Type</Label>
                 <Select
-                  value={selectedRole}
+                  value={filterType}
                   onValueChange={(value) => {
-                    setSelectedRole(value)
+                    setFilterType(value)
                     setCurrentPage(1)
                   }}
                 >
@@ -2284,69 +2532,47 @@ export function RoleQuestionsManager({
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All Roles</SelectItem>
-                    {roles.map((role) => (
-                      <SelectItem key={role.id} value={role.id}>
-                        {role.name} ({statistics.byRole[role.id] || 0})
+                    <SelectItem value="all">All Types</SelectItem>
+                    {Object.keys(statistics.byType).map((type) => (
+                      <SelectItem key={type} value={type}>
+                        {type} ({statistics.byType[type]})
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
               </div>
-            )}
-            <div>
-              <Label>Type</Label>
-              <Select
-                value={filterType}
-                onValueChange={(value) => {
-                  setFilterType(value)
-                  setCurrentPage(1)
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Types</SelectItem>
-                  {Object.keys(statistics.byType).map((type) => (
-                    <SelectItem key={type} value={type}>
-                      {type} ({statistics.byType[type]})
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <div>
+                <Label>Status</Label>
+                <Select
+                  value={filterStatus}
+                  onValueChange={(value) => {
+                    setFilterStatus(value)
+                    setCurrentPage(1)
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Status</SelectItem>
+                    <SelectItem value="active">Active ({statistics.active})</SelectItem>
+                    <SelectItem value="inactive">Inactive ({statistics.inactive})</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
-            <div>
-              <Label>Status</Label>
-              <Select
-                value={filterStatus}
-                onValueChange={(value) => {
-                  setFilterStatus(value)
-                  setCurrentPage(1)
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="all">All Status</SelectItem>
-                  <SelectItem value="active">Active ({statistics.active})</SelectItem>
-                  <SelectItem value="inactive">Inactive ({statistics.inactive})</SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="mt-4 flex items-center justify-between border-t pt-4">
+              <div className="text-muted-foreground text-sm">
+                Showing {sortedQuestionsForTable.length} of {statistics.total} questions
+              </div>
+              <Button variant="outline" size="sm" onClick={() => loadData(true)} disabled={isLoading}>
+                <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
+                Refresh
+              </Button>
             </div>
-          </div>
-          <div className="mt-4 flex items-center justify-between border-t pt-4">
-            <div className="text-muted-foreground text-sm">
-              Showing {sortedQuestionsForTable.length} of {statistics.total} questions
-            </div>
-            <Button variant="outline" size="sm" onClick={() => loadData(true)} disabled={isLoading}>
-              <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
-              Refresh
-            </Button>
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Bulk Actions Bar */}
       {showBulkActions && (
@@ -2398,6 +2624,7 @@ export function RoleQuestionsManager({
           ) : (
             questionsByRole.sortedRoles.map((role) => {
               const roleQuestions = questionsByRole.grouped[role.id] || []
+              const isDepartmentGroup = isDepartmentGroupId(role.id) || role.id === "__unscoped"
               // If no roles are explicitly expanded/collapsed, show all expanded
               const isExpanded = disableRoleCollapse ? true : expandedRoles.size === 0 || expandedRoles.has(role.id)
 
@@ -2434,7 +2661,9 @@ export function RoleQuestionsManager({
                           ))}
                         <div>
                           <CardTitle className="text-lg font-semibold">
-                            {role.name.charAt(0).toUpperCase() + role.name.slice(1).replace(/-/g, " ")}
+                            {isDepartmentGroup
+                              ? role.name
+                              : role.name.charAt(0).toUpperCase() + role.name.slice(1).replace(/-/g, " ")}
                           </CardTitle>
                           <CardDescription className="mt-2">
                             {role.description ||
@@ -2449,18 +2678,32 @@ export function RoleQuestionsManager({
                         <Badge variant="outline" className="text-xs">
                           {roleQuestions.filter((q) => q.is_active).length} active
                         </Badge>
-                        <Button
-                          variant="default"
-                          size="sm"
-                          onClick={(e) => {
-                            e.stopPropagation()
-                            openCreateDialogForRole(role.id, roleQuestions.length)
-                          }}
-                          className="gap-2"
-                        >
-                          <Plus className="h-4 w-4" />
-                          Add Question
-                        </Button>
+                        {(() => {
+                          const isUnscopedGroup = role.id === "__unscoped"
+                          const canAddDepartmentQuestions =
+                            departmentOnly &&
+                            !!departmentId &&
+                            isDepartmentGroupId(role.id) &&
+                            role.id === `__department:${departmentId}`
+                          const disableAdd = isUnscopedGroup || (isDepartmentGroup && !canAddDepartmentQuestions)
+
+                          return (
+                            <Button
+                              variant="default"
+                              size="sm"
+                              disabled={disableAdd}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                if (disableAdd) return
+                                openCreateDialogForRole(role.id, roleQuestions.length)
+                              }}
+                              className="gap-2"
+                            >
+                              <Plus className="h-4 w-4" />
+                              Add Question
+                            </Button>
+                          )
+                        })()}
                       </div>
                     </div>
                   </CardHeader>
@@ -2494,10 +2737,10 @@ export function RoleQuestionsManager({
                                 <div className="pt-0.5">
                                   <button
                                     type="button"
-                                    draggable={isAdmin}
+                                    draggable={isAdmin && !isDepartmentGroup}
                                     aria-label="Reorder question"
                                     onDragStart={() => {
-                                      if (!isAdmin) return
+                                      if (!isAdmin || isDepartmentGroup) return
                                       setDragState({ roleId: role.id, questionId: question.id })
                                     }}
                                     onDragEnd={() => setDragState(null)}
@@ -2562,7 +2805,7 @@ export function RoleQuestionsManager({
                                         variant="ghost"
                                         size="icon"
                                         className="h-6 w-6"
-                                        disabled={question.display_order === 0}
+                                        disabled={isDepartmentGroup || question.display_order === 0}
                                         onClick={() => handleReorderQuestion(role.id, question.id, "up")}
                                       >
                                         <ChevronUp className="h-3 w-3" />
@@ -2571,7 +2814,7 @@ export function RoleQuestionsManager({
                                         variant="ghost"
                                         size="icon"
                                         className="h-6 w-6"
-                                        disabled={index === roleQuestions.length - 1}
+                                        disabled={isDepartmentGroup || index === roleQuestions.length - 1}
                                         onClick={() => handleReorderQuestion(role.id, question.id, "down")}
                                       >
                                         <ChevronDown className="h-3 w-3" />
@@ -2594,6 +2837,10 @@ export function RoleQuestionsManager({
                                     size="sm"
                                     onClick={() => handleDuplicate(question)}
                                     title="Duplicate"
+                                    disabled={
+                                      !question.role_id &&
+                                      !(departmentOnly && !!departmentId && question.department_id === departmentId)
+                                    }
                                   >
                                     <Copy className="h-4 w-4" />
                                   </Button>
@@ -2609,6 +2856,13 @@ export function RoleQuestionsManager({
                                         type: "item",
                                         label: "Edit",
                                         icon: <Pencil className="mr-2 h-4 w-4" />,
+                                        disabled:
+                                          !question.role_id &&
+                                          !(
+                                            departmentOnly &&
+                                            !!departmentId &&
+                                            question.department_id === departmentId
+                                          ),
                                         onSelect: () => openEditDialog(question),
                                       },
                                       {
@@ -2624,6 +2878,13 @@ export function RoleQuestionsManager({
                                         type: "item",
                                         label: "Duplicate",
                                         icon: <Copy className="mr-2 h-4 w-4" />,
+                                        disabled:
+                                          !question.role_id &&
+                                          !(
+                                            departmentOnly &&
+                                            !!departmentId &&
+                                            question.department_id === departmentId
+                                          ),
                                         onSelect: () => handleDuplicate(question),
                                       },
                                       { type: "separator" },
@@ -2648,6 +2909,16 @@ export function RoleQuestionsManager({
                               <div className="flex-1">
                                 <Input
                                   value={quickAddByRole[role.id] || ""}
+                                  disabled={
+                                    role.id === "__unscoped" ||
+                                    (isDepartmentGroup &&
+                                      !(
+                                        departmentOnly &&
+                                        !!departmentId &&
+                                        isDepartmentGroupId(role.id) &&
+                                        role.id === `__department:${departmentId}`
+                                      ))
+                                  }
                                   onChange={(e) =>
                                     setQuickAddByRole((prev) => ({
                                       ...prev,
@@ -2655,6 +2926,17 @@ export function RoleQuestionsManager({
                                     }))
                                   }
                                   onKeyDown={(e) => {
+                                    if (
+                                      role.id === "__unscoped" ||
+                                      (isDepartmentGroup &&
+                                        !(
+                                          departmentOnly &&
+                                          !!departmentId &&
+                                          isDepartmentGroupId(role.id) &&
+                                          role.id === `__department:${departmentId}`
+                                        ))
+                                    )
+                                      return
                                     if (e.key !== "Enter") return
                                     e.preventDefault()
                                     const label = (quickAddByRole[role.id] || "").trim()
@@ -2669,7 +2951,28 @@ export function RoleQuestionsManager({
                                 variant="default"
                                 size="sm"
                                 className="gap-2"
+                                disabled={
+                                  role.id === "__unscoped" ||
+                                  (isDepartmentGroup &&
+                                    !(
+                                      departmentOnly &&
+                                      !!departmentId &&
+                                      isDepartmentGroupId(role.id) &&
+                                      role.id === `__department:${departmentId}`
+                                    ))
+                                }
                                 onClick={() => {
+                                  if (
+                                    role.id === "__unscoped" ||
+                                    (isDepartmentGroup &&
+                                      !(
+                                        departmentOnly &&
+                                        !!departmentId &&
+                                        isDepartmentGroupId(role.id) &&
+                                        role.id === `__department:${departmentId}`
+                                      ))
+                                  )
+                                    return
                                   const label = (quickAddByRole[role.id] || "").trim()
                                   if (!label) return
                                   openCreateDialogForRole(role.id, roleQuestions.length, label)
@@ -2957,74 +3260,81 @@ export function RoleQuestionsManager({
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-4 py-4">
-            <div className="space-y-2">
-              <Label htmlFor="role_id">
-                Role <span className="text-destructive">*</span>
-              </Label>
-              <Select
-                value={formData.role_id || ""}
-                onValueChange={(value) => setFormData({ ...formData, role_id: value })}
-                disabled={!!editingQuestion}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder={roles.length === 0 ? "Loading roles..." : "Select a role"} />
-                </SelectTrigger>
-                <SelectContent>
-                  {roles.length === 0 ? (
-                    editingQuestion ? (
-                      <SelectItem value={editingQuestion.role_id}>
-                        <div className="flex w-full items-center justify-between">
-                          <span>{editingQuestion.role?.name || editingQuestion.role_id || "Current role"}</span>
-                        </div>
-                      </SelectItem>
-                    ) : (
-                      <SelectItem value="__no_roles__" disabled>
-                        {isLoading ? "Loading roles..." : "No roles available"}
-                      </SelectItem>
-                    )
-                  ) : (
-                    <>
-                      {editingQuestion && !roles.some((role) => role.id === editingQuestion.role_id) && (
-                        <SelectItem value={editingQuestion.role_id}>
+            {!isDepartmentScopedForm && (
+              <div className="space-y-2">
+                <Label htmlFor="role_id">
+                  Role <span className="text-destructive">*</span>
+                </Label>
+                <Select
+                  value={formData.role_id || ""}
+                  onValueChange={(value) => setFormData({ ...formData, role_id: value, department_id: null })}
+                  disabled={!!editingQuestion}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder={roles.length === 0 ? "Loading roles..." : "Select a role"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {roles.length === 0 ? (
+                      editingQuestion ? (
+                        <SelectItem value={editingQuestion.role_id ?? "__unknown_role__"}>
                           <div className="flex w-full items-center justify-between">
                             <span>{editingQuestion.role?.name || editingQuestion.role_id || "Current role"}</span>
                           </div>
                         </SelectItem>
-                      )}
-                      {roles.map((role) => {
-                        const questionCount = questions.filter((q) => q.role_id === role.id).length
-                        const isAssignedRole = !!editingQuestion && role.id === editingQuestion.role_id
+                      ) : (
+                        <SelectItem value="__no_roles__" disabled>
+                          {isLoading ? "Loading roles..." : "No roles available"}
+                        </SelectItem>
+                      )
+                    ) : (
+                      <>
+                        {editingQuestion &&
+                          editingQuestion.role_id &&
+                          !roles.some((role) => role.id === editingQuestion.role_id) && (
+                            <SelectItem value={editingQuestion.role_id}>
+                              <div className="flex w-full items-center justify-between">
+                                <span>{editingQuestion.role?.name || editingQuestion.role_id || "Current role"}</span>
+                              </div>
+                            </SelectItem>
+                          )}
+                        {roles.map((role) => {
+                          const questionCount = questions.filter((q) => q.role_id === role.id).length
+                          const isAssignedRole = !!editingQuestion && role.id === editingQuestion.role_id
 
-                        return (
-                          <SelectItem key={role.id} value={role.id}>
-                            <div className="flex w-full items-center justify-between">
-                              <span className="flex items-center gap-2">
-                                <span>{role.name}</span>
-                                {isAssignedRole && (
-                                  <Badge variant="default" className="flex items-center gap-1 text-[10px] font-medium">
-                                    <CheckSquare className="h-3 w-3" />
-                                    Assigned
+                          return (
+                            <SelectItem key={role.id} value={role.id}>
+                              <div className="flex w-full items-center justify-between">
+                                <span className="flex items-center gap-2">
+                                  <span>{role.name}</span>
+                                  {isAssignedRole && (
+                                    <Badge
+                                      variant="default"
+                                      className="flex items-center gap-1 text-[10px] font-medium"
+                                    >
+                                      <CheckSquare className="h-3 w-3" />
+                                      Assigned
+                                    </Badge>
+                                  )}
+                                </span>
+                                {questionCount > 0 && (
+                                  <Badge variant="secondary" className="ml-2">
+                                    {questionCount} question{questionCount !== 1 ? "s" : ""}
                                   </Badge>
                                 )}
-                              </span>
-                              {questionCount > 0 && (
-                                <Badge variant="secondary" className="ml-2">
-                                  {questionCount} question{questionCount !== 1 ? "s" : ""}
-                                </Badge>
-                              )}
-                            </div>
-                          </SelectItem>
-                        )
-                      })}
-                    </>
-                  )}
-                </SelectContent>
-              </Select>
-              {formErrors.role_id && <p className="text-destructive text-sm">{formErrors.role_id}</p>}
-              {editingQuestion && (
-                <p className="text-muted-foreground text-xs">Role cannot be changed after creation.</p>
-              )}
-            </div>
+                              </div>
+                            </SelectItem>
+                          )
+                        })}
+                      </>
+                    )}
+                  </SelectContent>
+                </Select>
+                {formErrors.role_id && <p className="text-destructive text-sm">{formErrors.role_id}</p>}
+                {editingQuestion && (
+                  <p className="text-muted-foreground text-xs">Role cannot be changed after creation.</p>
+                )}
+              </div>
+            )}
             <div className="space-y-2">
               <Label htmlFor="question_label">
                 Question Label <span className="text-destructive">*</span>

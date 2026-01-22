@@ -7,21 +7,50 @@ export const dynamic = "force-dynamic"
 // Define the role question type
 interface RoleQuestion {
   id: string
-  role_id: string
+  role_id: string | null
+  department_id?: string | null
   question_key: string
   question_label: string
   question_type: string
   question_description: string | null
   placeholder: string | null
-  options: any
+  options: unknown
   is_required: boolean
   display_order: number
-  validation_rules: any
+  validation_rules: unknown
   is_active: boolean
   created_at: string
   updated_at: string
-  metadata: any
-  role?: any
+  metadata: unknown
+  role?: unknown
+}
+
+type DbRoleQuestionRow = {
+  id: string
+  role_id: string | null
+  department_id: string | null
+  question_label: string
+  question_type: string
+  question_description: string | null
+  placeholder: string | null
+  options: unknown
+  is_required: boolean
+  display_order: number
+  validation_rules: unknown
+  is_active: boolean
+  created_at: string
+  updated_at: string
+  metadata: unknown
+  question_key?: string | null
+  role?: unknown
+}
+
+function getLegacyQuestionKeyFromMetadata(metadata: unknown): string | null {
+  if (typeof metadata !== "object" || metadata === null) return null
+  const value = (metadata as { legacy_question_key?: unknown }).legacy_question_key
+  if (typeof value !== "string") return null
+  const trimmed = value.trim()
+  return trimmed ? trimmed : null
 }
 
 export async function GET(request: Request) {
@@ -56,11 +85,16 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url)
     const forReport = searchParams.get("forReport") === "true"
     const requestedDepartmentId = searchParams.get("departmentId")
+    const scope = searchParams.get("scope")
 
     // Check if user is admin
     const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
     const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
     const isAdmin = userProfile.role_id === ADMIN_ROLE_ID || userProfile.role_id === SYSTEM_ADMIN_ROLE_ID
+
+    // Department-scoped questions should only be answerable in reports by department leads.
+    // We gate that via department-scoped RBAC based on user_department_roles.role + department_role_permissions.
+    let canAnswerDepartmentQuestions = isAdmin
     const departmentId =
       forReport || !isAdmin ? requestedDepartmentId || userProfile.department_id || null : requestedDepartmentId || null
 
@@ -78,115 +112,213 @@ export async function GET(request: Request) {
       )
     }
 
-    let resolvedRoleId: string | null = null
+    if (!isAdmin && forReport && departmentId) {
+      const { data: membership, error: membershipError } = await supabase
+        .from("user_department_roles")
+        .select("role")
+        .eq("user_id", user.id)
+        .eq("department_id", departmentId)
+        .eq("is_active", true)
+        .maybeSingle()
 
-    if (departmentId) {
-      if (requiresDepartmentContext) {
-        const { data: professionRow, error: professionError } = await supabase
-          .from("user_department_professions")
-          .select("role_id")
-          .eq("user_id", user.id)
-          .eq("department_id", departmentId)
-          .eq("is_active", true)
-          .maybeSingle()
+      if (membershipError) {
+        console.error("Error resolving department membership:", membershipError)
+        canAnswerDepartmentQuestions = false
+      } else {
+        const membershipRole = typeof membership?.role === "string" ? membership.role : null
 
-        if (professionError) {
-          return NextResponse.json(
-            { error: "Failed to resolve profession role", message: professionError.message },
-            { status: 500 }
-          )
-        }
+        if (!membershipRole) {
+          canAnswerDepartmentQuestions = false
+        } else {
+          const { data: deptPermRows, error: deptPermError } = await supabase
+            .from("department_role_permissions")
+            .select("id")
+            .eq("department_id", departmentId)
+            .eq("department_role", membershipRole)
+            .eq("resource", "department_questions")
+            .eq("action", "answer")
+            .limit(1)
 
-        if (!professionRow?.role_id) {
-          if (forReport) {
-            return NextResponse.json([])
+          if (deptPermError) {
+            console.error("Error checking department role permissions:", deptPermError)
+            canAnswerDepartmentQuestions = false
+          } else {
+            canAnswerDepartmentQuestions = Array.isArray(deptPermRows) && deptPermRows.length > 0
           }
-
-          return NextResponse.json(
-            {
-              error: "Profession role not assigned",
-              message: "You do not have a profession role assigned for this department",
-            },
-            { status: 404 }
-          )
         }
-
-        resolvedRoleId = professionRow.role_id as string
       }
     }
 
-    let questionsQuery = supabase
-      .from("role_questions")
-      .select(
-        `
-        *,
-        role:roles(*)
-      `
-      )
-      .order("display_order", { ascending: true })
-      .limit(10000) // Ensure we fetch all questions (Supabase default limit is 1000)
+    let resolvedRoleId: string | null = null
 
-    if (forReport) {
-      if (!resolvedRoleId) {
-        return NextResponse.json(
-          { error: "Profession role not resolved", message: "Unable to resolve profession role for this department" },
-          { status: 404 }
-        )
-      }
-      questionsQuery = questionsQuery.eq("is_active", true).eq("role_id", resolvedRoleId)
-    } else if (!isAdmin) {
-      if (!resolvedRoleId) {
-        return NextResponse.json(
-          { error: "Profession role not resolved", message: "Unable to resolve profession role for this department" },
-          { status: 404 }
-        )
-      }
-      questionsQuery = questionsQuery.eq("is_active", true).eq("role_id", resolvedRoleId)
-    } else if (departmentId) {
-      // Admin view: filter to a department if requested
-      const { data: deptRoles, error: deptRolesError } = await supabase
-        .from("roles")
-        .select("id")
+    if (departmentId && requiresDepartmentContext) {
+      const { data: professionRow, error: professionError } = await supabase
+        .from("user_department_professions")
+        .select("role_id")
+        .eq("user_id", user.id)
         .eq("department_id", departmentId)
-        .limit(10000)
+        .eq("is_active", true)
+        .maybeSingle()
 
-      if (deptRolesError) {
+      if (professionError) {
         return NextResponse.json(
-          { error: "Failed to load department roles", message: deptRolesError.message },
+          { error: "Failed to resolve profession role", message: professionError.message },
           { status: 500 }
         )
       }
 
-      const roleIds = (deptRoles || []).map((r: any) => r.id).filter(Boolean)
-      if (roleIds.length === 0) {
-        return NextResponse.json([])
-      }
-      questionsQuery = questionsQuery.in("role_id", roleIds)
+      resolvedRoleId = (professionRow?.role_id as string | undefined) ?? null
     }
 
-    const { data: questions, error: questionsError } = await questionsQuery
+    const makeQuestionsQuery = () =>
+      supabase
+        .from("role_questions")
+        .select(
+          `
+          *,
+          role:roles(*)
+        `
+        )
+        .order("display_order", { ascending: true })
+        .limit(10000) // Ensure we fetch all questions (Supabase default limit is 1000)
 
-    if (questionsError) {
-      console.error("Error fetching role questions:", questionsError)
-      console.error("Error details:", {
-        message: questionsError.message,
-        code: questionsError.code,
-        details: questionsError.details,
-        hint: questionsError.hint,
-      })
-      return NextResponse.json({ error: "Failed to fetch questions", details: questionsError.message }, { status: 500 })
+    let questions: DbRoleQuestionRow[] = []
+
+    if (isAdmin && !departmentId) {
+      const { data: allQuestions, error: questionsError } = await makeQuestionsQuery()
+      if (questionsError) {
+        console.error("Error fetching role questions:", questionsError)
+        console.error("Error details:", {
+          message: questionsError.message,
+          code: questionsError.code,
+          details: questionsError.details,
+          hint: questionsError.hint,
+        })
+        return NextResponse.json(
+          { error: "Failed to fetch questions", details: questionsError.message },
+          { status: 500 }
+        )
+      }
+      questions = (allQuestions as unknown as DbRoleQuestionRow[]) || []
+    } else if (departmentId) {
+      if (scope === "department_only") {
+        if (!isAdmin) {
+          return NextResponse.json({ error: "Access denied" }, { status: 403 })
+        }
+
+        const deptOnlyQuery = makeQuestionsQuery().eq("department_id", departmentId)
+        if (!isAdmin || forReport) {
+          deptOnlyQuery.eq("is_active", true)
+        }
+
+        const { data: deptOnlyQuestions, error: deptOnlyError } = await deptOnlyQuery
+        if (deptOnlyError) {
+          console.error("Error fetching department-only questions:", deptOnlyError)
+          return NextResponse.json(
+            { error: "Failed to fetch questions", details: deptOnlyError.message },
+            { status: 500 }
+          )
+        }
+
+        questions = (deptOnlyQuestions as unknown as DbRoleQuestionRow[]) || []
+        questions.sort((a, b) => (a?.display_order ?? 0) - (b?.display_order ?? 0))
+      } else {
+        // Always include department-scoped questions when a department context is present.
+        const deptQuery =
+          !forReport || isAdmin || canAnswerDepartmentQuestions
+            ? makeQuestionsQuery().eq("department_id", departmentId)
+            : null
+        const roleQuery = resolvedRoleId ? makeQuestionsQuery().eq("role_id", resolvedRoleId) : null
+
+        if (!isAdmin) {
+          if (deptQuery) deptQuery.eq("is_active", true)
+          if (roleQuery) roleQuery.eq("is_active", true)
+        } else if (forReport) {
+          // forReport forces is_active even for admins.
+          if (deptQuery) deptQuery.eq("is_active", true)
+          if (roleQuery) roleQuery.eq("is_active", true)
+        }
+
+        const emptyDeptResult = Promise.resolve({ data: [] as DbRoleQuestionRow[], error: null as null })
+        const emptyRoleResult = Promise.resolve({ data: [] as DbRoleQuestionRow[], error: null as null })
+        const [{ data: deptQuestions, error: deptError }, roleResult] = await Promise.all([
+          deptQuery ? deptQuery : emptyDeptResult,
+          roleQuery ? roleQuery : emptyRoleResult,
+        ])
+
+        if (deptError) {
+          console.error("Error fetching department questions:", deptError)
+          return NextResponse.json({ error: "Failed to fetch questions", details: deptError.message }, { status: 500 })
+        }
+        if (roleResult?.error) {
+          console.error("Error fetching role questions:", roleResult.error)
+          return NextResponse.json(
+            { error: "Failed to fetch questions", details: roleResult.error.message },
+            { status: 500 }
+          )
+        }
+
+        // Admin department-scoped view should include all role questions for roles in the department.
+        if (isAdmin && !forReport) {
+          const { data: deptRoles, error: deptRolesError } = await supabase
+            .from("roles")
+            .select("id")
+            .eq("department_id", departmentId)
+            .limit(10000)
+
+          if (deptRolesError) {
+            return NextResponse.json(
+              { error: "Failed to load department roles", message: deptRolesError.message },
+              { status: 500 }
+            )
+          }
+
+          const roleIds = (deptRoles || [])
+            .map((r) => (typeof (r as { id?: unknown })?.id === "string" ? (r as { id: string }).id : null))
+            .filter((id): id is string => Boolean(id))
+          if (roleIds.length > 0) {
+            const { data: deptRoleQuestions, error: deptRoleQuestionsError } = await makeQuestionsQuery().in(
+              "role_id",
+              roleIds
+            )
+
+            if (deptRoleQuestionsError) {
+              console.error("Error fetching department role questions:", deptRoleQuestionsError)
+              return NextResponse.json(
+                { error: "Failed to fetch questions", details: deptRoleQuestionsError.message },
+                { status: 500 }
+              )
+            }
+
+            questions = [
+              ...(((deptQuestions as unknown as DbRoleQuestionRow[]) || []) as DbRoleQuestionRow[]),
+              ...(((deptRoleQuestions as unknown as DbRoleQuestionRow[]) || []) as DbRoleQuestionRow[]),
+            ]
+          } else {
+            questions = ((deptQuestions as unknown as DbRoleQuestionRow[]) || []) as DbRoleQuestionRow[]
+          }
+        } else {
+          questions = [
+            ...(((deptQuestions as unknown as DbRoleQuestionRow[]) || []) as DbRoleQuestionRow[]),
+            ...(((roleResult?.data as unknown as DbRoleQuestionRow[]) || []) as DbRoleQuestionRow[]),
+          ]
+        }
+
+        questions.sort((a, b) => (a?.display_order ?? 0) - (b?.display_order ?? 0))
+      }
     }
 
     const processedQuestions: RoleQuestion[] =
-      (questions || []).map((question: any) => ({
-        ...question,
-        question_key:
-          typeof question.question_key === "string" && question.question_key.trim()
-            ? question.question_key
-            : typeof question.metadata?.legacy_question_key === "string" && question.metadata.legacy_question_key.trim()
-              ? question.metadata.legacy_question_key
-              : question.id,
-      })) || []
+      (questions || []).map((question: DbRoleQuestionRow) => {
+        const directKey = typeof question.question_key === "string" ? question.question_key.trim() : ""
+        const legacyKey = getLegacyQuestionKeyFromMetadata(question.metadata)
+        const resolvedKey = directKey || legacyKey || question.id
+
+        return {
+          ...(question as unknown as Omit<RoleQuestion, "question_key">),
+          question_key: resolvedKey,
+        }
+      }) || []
 
     return NextResponse.json(processedQuestions)
   } catch (error) {
