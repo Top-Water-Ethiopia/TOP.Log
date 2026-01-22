@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
+import { Suspense, useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import Link from "next/link"
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
@@ -32,6 +32,14 @@ type Department = {
 }
 
 export default function AdminDepartmentLayout({ children }: { children: ReactNode }) {
+  return (
+    <Suspense fallback={null}>
+      <AdminDepartmentLayoutInner>{children}</AdminDepartmentLayoutInner>
+    </Suspense>
+  )
+}
+
+function AdminDepartmentLayoutInner({ children }: { children: ReactNode }) {
   const { user, profile, isLoading } = useSupabaseAuth()
   const router = useRouter()
   const { toast } = useToast()

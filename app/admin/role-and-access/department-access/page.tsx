@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { Suspense, useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { useRouter, useSearchParams } from "next/navigation"
 import useSWR, { mutate as globalMutate } from "swr"
@@ -350,6 +350,14 @@ type DepartmentRolePermissionRow = {
 }
 
 export default function AdminDepartmentAccessIndexPage() {
+  return (
+    <Suspense fallback={null}>
+      <AdminDepartmentAccessIndexPageInner />
+    </Suspense>
+  )
+}
+
+function AdminDepartmentAccessIndexPageInner() {
   const { toast } = useToast()
   const { user, profile, isLoading } = useSupabaseAuth()
   const router = useRouter()

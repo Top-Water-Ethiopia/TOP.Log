@@ -1,12 +1,20 @@
 "use client"
 
-import { useEffect, useMemo } from "react"
+import { Suspense, useEffect, useMemo } from "react"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { DepartmentProfessionsManager } from "@/components/department-professions-manager"
 import AdminDepartmentMembersPage from "./members/page"
 import { AccessControlTab } from "./access-control-tab"
 
 export default function AdminDepartmentPage() {
+  return (
+    <Suspense fallback={null}>
+      <AdminDepartmentPageInner />
+    </Suspense>
+  )
+}
+
+function AdminDepartmentPageInner() {
   const params = useParams<{ departmentId: string }>()
   const departmentId = params.departmentId
   const router = useRouter()
