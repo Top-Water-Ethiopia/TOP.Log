@@ -71,12 +71,24 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Role name must be lowercase alphanumeric with hyphens only" }, { status: 400 })
     }
 
-    // Check if role with same name already exists (case-insensitive)
-    const { data: allRoles } = await adminSupabase.from("roles").select("id, name")
+    const normalizedName = name.trim().toLowerCase()
 
-    const existing = allRoles?.find((r) => r.name.toLowerCase() === name.trim().toLowerCase())
+    // Enforce global uniqueness of role names across all scopes.
+    const { data: existing, error: existingError } = await adminSupabase
+      .from("roles")
+      .select("id")
+      .eq("name", normalizedName)
+      .limit(1)
 
-    if (existing) {
+    if (existingError) {
+      console.error("Error checking existing role name:", existingError)
+      return NextResponse.json(
+        { error: "Failed to validate role name", message: existingError.message },
+        { status: 500 }
+      )
+    }
+
+    if (existing && existing.length > 0) {
       return NextResponse.json({ error: "A role with this name already exists" }, { status: 409 })
     }
 
@@ -93,7 +105,7 @@ export async function POST(request: Request) {
     const { data: role, error } = await adminSupabase
       .from("roles")
       .insert({
-        name: name.trim().toLowerCase(),
+        name: normalizedName,
         description: description?.trim() || null,
         department_id: department_id || null,
       })
@@ -159,12 +171,25 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: "Role name must be lowercase alphanumeric with hyphens only" }, { status: 400 })
     }
 
-    // Check if another role with same name exists (case-insensitive)
-    const { data: allRoles } = await adminSupabase.from("roles").select("id, name")
+    const normalizedName = name.trim().toLowerCase()
 
-    const existing = allRoles?.find((r) => r.id !== id && r.name.toLowerCase() === name.trim().toLowerCase())
+    // Enforce global uniqueness of role names across all scopes.
+    const { data: existing, error: existingError } = await adminSupabase
+      .from("roles")
+      .select("id")
+      .eq("name", normalizedName)
+      .neq("id", id)
+      .limit(1)
 
-    if (existing) {
+    if (existingError) {
+      console.error("Error checking existing role name:", existingError)
+      return NextResponse.json(
+        { error: "Failed to validate role name", message: existingError.message },
+        { status: 500 }
+      )
+    }
+
+    if (existing && existing.length > 0) {
       return NextResponse.json({ error: "A role with this name already exists" }, { status: 409 })
     }
 
@@ -181,7 +206,7 @@ export async function PUT(request: Request) {
     const { data: role, error } = await adminSupabase
       .from("roles")
       .update({
-        name: name.trim().toLowerCase(),
+        name: normalizedName,
         description: description?.trim() || null,
         department_id: department_id || null,
         updated_at: new Date().toISOString(),

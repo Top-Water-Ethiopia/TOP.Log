@@ -125,8 +125,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ dep
       return NextResponse.json({ error: "user_id is required" }, { status: 400 })
     }
 
-    const allowedRoles = new Set(["department_lead", "department_manager", "supervisor", "contributor", "viewer"])
-
     const { data: existing, error: existingError } = await adminSupabase
       .from("user_department_roles")
       .select("id, role")
@@ -142,7 +140,19 @@ export async function POST(request: Request, { params }: { params: Promise<{ dep
     if (!nextRole) {
       return NextResponse.json({ error: "role is required" }, { status: 400 })
     }
-    if (!allowedRoles.has(nextRole)) {
+
+    const { data: roleRow, error: roleError } = await adminSupabase
+      .from("department_roles")
+      .select("key")
+      .eq("key", nextRole)
+      .eq("is_active", true)
+      .maybeSingle()
+
+    if (roleError) {
+      return NextResponse.json({ error: "Failed to validate role", message: roleError.message }, { status: 500 })
+    }
+
+    if (!roleRow) {
       return NextResponse.json({ error: "Invalid role" }, { status: 400 })
     }
 
@@ -157,7 +167,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ dep
           created_by: adminUserId,
           updated_by: adminUserId,
           updated_at: new Date().toISOString(),
-        } as any)
+        })
         .select("id, user_id, department_id, role, is_active, created_at, updated_at")
         .single()
 
@@ -175,7 +185,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ dep
         is_active,
         updated_by: adminUserId,
         updated_at: new Date().toISOString(),
-      } as any)
+      })
       .eq("id", existing.id)
       .select("id, user_id, department_id, role, is_active, created_at, updated_at")
       .single()

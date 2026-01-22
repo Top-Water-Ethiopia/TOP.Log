@@ -89,15 +89,32 @@ export async function POST(request: Request, { params }: { params: Promise<{ dep
       return NextResponse.json({ error: "Role name must be lowercase alphanumeric with hyphens only" }, { status: 400 })
     }
 
-    const { data: allRoles } = await adminSupabase.from("roles").select("id, name")
-    const existing = allRoles?.find((r) => r.name.toLowerCase() === name.toLowerCase())
+    const normalizedName = name.toLowerCase()
 
-    if (existing) {
+    const { data: existing, error: existingError } = await adminSupabase
+      .from("roles")
+      .select("id")
+      .eq("name", normalizedName)
+      .limit(1)
+
+    if (existingError) {
+      return NextResponse.json(
+        { error: "Failed to validate role name", message: existingError.message },
+        { status: 500 }
+      )
+    }
+
+    if (existing && existing.length > 0) {
       return NextResponse.json({ error: "A role with this name already exists" }, { status: 409 })
     }
 
-    const insertPayload: any = {
-      name: name.toLowerCase(),
+    const insertPayload: {
+      name: string
+      description: string | null
+      department_id: string
+      level?: number
+    } = {
+      name: normalizedName,
       description,
       department_id: departmentId,
     }
@@ -145,6 +162,8 @@ export async function PUT(request: Request, { params }: { params: Promise<{ depa
       return NextResponse.json({ error: "Role name must be lowercase alphanumeric with hyphens only" }, { status: 400 })
     }
 
+    const normalizedName = name.toLowerCase()
+
     const { data: existingRole, error: existingRoleError } = await adminSupabase
       .from("roles")
       .select("id, department_id")
@@ -159,15 +178,31 @@ export async function PUT(request: Request, { params }: { params: Promise<{ depa
       return NextResponse.json({ error: "Role not found" }, { status: 404 })
     }
 
-    const { data: allRoles } = await adminSupabase.from("roles").select("id, name")
-    const nameConflict = allRoles?.find((r) => r.id !== id && r.name.toLowerCase() === name.toLowerCase())
+    const { data: existing, error: existingError } = await adminSupabase
+      .from("roles")
+      .select("id")
+      .eq("name", normalizedName)
+      .neq("id", id)
+      .limit(1)
 
-    if (nameConflict) {
+    if (existingError) {
+      return NextResponse.json(
+        { error: "Failed to validate role name", message: existingError.message },
+        { status: 500 }
+      )
+    }
+
+    if (existing && existing.length > 0) {
       return NextResponse.json({ error: "A role with this name already exists" }, { status: 409 })
     }
 
-    const updatePayload: any = {
-      name: name.toLowerCase(),
+    const updatePayload: {
+      name: string
+      description: string | null
+      updated_at: string
+      level?: number
+    } = {
+      name: normalizedName,
       description,
       updated_at: new Date().toISOString(),
     }

@@ -79,6 +79,39 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Failed to create department", message: error.message }, { status: 500 })
     }
 
+    // Seed default department access control based on department_roles catalog.
+    if (department?.id) {
+      const { data: defaultRoles, error: defaultRolesError } = await adminSupabase
+        .from("department_roles")
+        .select("key")
+        .eq("is_active", true)
+        .eq("default_can_answer_department_questions", true)
+        .limit(10000)
+
+      if (defaultRolesError) {
+        console.warn("Failed to load default department roles:", defaultRolesError)
+      } else {
+        const keys = (defaultRoles || []).map((r) => r.key)
+        if (keys.length > 0) {
+          const { error: accessControlError } = await adminSupabase.from("department_role_permissions").insert(
+            keys.map((department_role) => ({
+              department_id: department.id,
+              department_role,
+              resource: "department_questions",
+              action: "answer",
+              created_by: auth.userId,
+              updated_by: auth.userId,
+              updated_at: new Date().toISOString(),
+            }))
+          )
+
+          if (accessControlError) {
+            console.warn("Failed to seed department access control:", accessControlError)
+          }
+        }
+      }
+    }
+
     return NextResponse.json({ data: department }, { status: 201 })
   } catch (error) {
     console.error("Admin create department API error:", error)
