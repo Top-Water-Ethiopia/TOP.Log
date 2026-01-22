@@ -12,6 +12,8 @@ export default function DepartmentsLayout({ children }: { children: ReactNode })
   const { user } = useSupabaseAuth()
   const { canAccessAdmin } = useRBAC()
 
+  const canAccessDepartments = !!user
+
   return (
     <div className="bg-background flex min-h-screen flex-col">
       <header className="border-border bg-background shrink-0 border-b">
@@ -23,7 +25,7 @@ export default function DepartmentsLayout({ children }: { children: ReactNode })
             </Link>
 
             <div className="flex flex-wrap items-center gap-2">
-              {user ? (
+              {user && canAccessDepartments ? (
                 <Link href="/departments">
                   <Button variant="outline" size="sm" className="gap-2">
                     <Building2 className="h-4 w-4" />

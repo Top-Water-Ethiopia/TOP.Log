@@ -1,32 +1,19 @@
 "use client"
 
 import { useCallback, useEffect, useState } from "react"
-import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
-import { ActionMenu, type ActionMenuItem } from "@/components/ui/action-menu"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { useToast } from "@/components/ui/use-toast"
-import { ToastAction } from "@/components/ui/toast"
-import { ChevronDown, Plus, Pencil, Trash2, Loader2, Users, Briefcase } from "lucide-react"
+import { Plus, Loader2 } from "lucide-react"
 import { Switch } from "@/components/ui/switch"
 import { Skeleton } from "@/components/ui/skeleton"
-import { apiFetch, ApiError, getErrorMessage } from "@/lib/api-client"
+import { apiFetch, getErrorMessage } from "@/lib/api-client"
 import { RightSidePanel } from "@/components/ui/right-side-panel"
 
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
@@ -49,9 +36,6 @@ export function DepartmentManager() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [page, setPage] = useState(1)
   const [showCreateDialog, setShowCreateDialog] = useState(false)
-  const [editingDepartment, setEditingDepartment] = useState<Department | null>(null)
-  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
-  const [departmentToDelete, setDepartmentToDelete] = useState<Department | null>(null)
   const { toast } = useToast()
 
   const pageSize = 6
@@ -196,128 +180,6 @@ export function DepartmentManager() {
     }
   }
 
-  const handleUpdate = async () => {
-    if (!editingDepartment || !validateForm() || isSubmitting) return
-
-    const prevDepartments = departments
-    setIsSubmitting(true)
-    try {
-      const id = editingDepartment.id
-      const prevDepartment = prevDepartments.find((d) => d.id === id) || null
-      const nowIso = new Date().toISOString()
-      const optimistic: Department = {
-        ...(prevDepartment || editingDepartment),
-        name: formData.name.trim(),
-        description: formData.description.trim() || null,
-        is_active: formData.is_active,
-        updated_at: nowIso,
-      }
-
-      setDepartments((prev) => {
-        const next = prev.map((d) => (d.id === id ? optimistic : d))
-        next.sort((a, b) => a.name.localeCompare(b.name))
-        return next
-      })
-
-      const updated = await apiFetch<{ data: Department }>("/api/admin/departments", {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          id: editingDepartment.id,
-          name: formData.name.trim(),
-          description: formData.description.trim() || null,
-          is_active: formData.is_active,
-        }),
-      })
-
-      if (updated?.data?.id) {
-        setDepartments((prev) => {
-          const next = prev.map((d) => (d.id === id ? updated.data : d))
-          next.sort((a, b) => a.name.localeCompare(b.name))
-          return next
-        })
-      }
-
-      toast({
-        title: "Success",
-        description: "Department updated successfully",
-      })
-
-      setShowCreateDialog(false)
-      setEditingDepartment(null)
-      resetForm()
-    } catch (error: unknown) {
-      // Rollback to the exact previous snapshot
-      setDepartments(prevDepartments)
-      console.error("Error updating department:", error)
-      toast({
-        title: "Error",
-        description: getErrorMessage(error, "Failed to update department"),
-        variant: "destructive",
-      })
-    } finally {
-      setIsSubmitting(false)
-    }
-  }
-
-  const handleDelete = async () => {
-    if (!departmentToDelete) return
-
-    const prevDepartments = departments
-    try {
-      const deleting = departmentToDelete
-      setDepartments((prev) => prev.filter((d) => d.id !== deleting.id))
-
-      await apiFetch(`/api/admin/departments?id=${departmentToDelete.id}`, {
-        method: "DELETE",
-      })
-
-      toast({
-        title: "Success",
-        description: "Department deleted successfully",
-      })
-
-      setShowDeleteDialog(false)
-      setDepartmentToDelete(null)
-    } catch (error: unknown) {
-      if (error instanceof ApiError && error.status === 409) {
-        setDepartments(prevDepartments)
-
-        toast({
-          title: "Cannot Delete Department",
-          description: getErrorMessage(
-            error,
-            "Cannot delete department. It has roles assigned. Please remove all roles first."
-          ),
-          variant: "destructive",
-          action: (
-            <ToastAction
-              altText="Go to department roles"
-              onClick={() => router.push(`/admin/departments/${departmentToDelete.id}?tab=roles`)}
-            >
-              Manage roles
-            </ToastAction>
-          ),
-        })
-        setShowDeleteDialog(false)
-        setDepartmentToDelete(null)
-        return
-      }
-
-      console.error("Error deleting department:", error)
-
-      setDepartments(prevDepartments)
-
-      toast({
-        title: "Cannot Delete Department",
-        description: getErrorMessage(error, "Failed to delete department. Please try again."),
-        variant: "destructive",
-      })
-    }
-  }
-
   const resetForm = () => {
     setFormData({
       name: "",
@@ -325,21 +187,6 @@ export function DepartmentManager() {
       is_active: true,
     })
     setFormErrors({})
-  }
-
-  const openEditDialog = (department: Department) => {
-    setEditingDepartment(department)
-    setFormData({
-      name: department.name,
-      description: department.description || "",
-      is_active: department.is_active,
-    })
-    setShowCreateDialog(true)
-  }
-
-  const openDeleteDialog = (department: Department) => {
-    setDepartmentToDelete(department)
-    setShowDeleteDialog(true)
   }
 
   if (!isAdmin) {
@@ -385,7 +232,6 @@ export function DepartmentManager() {
         <Button
           onClick={() => {
             resetForm()
-            setEditingDepartment(null)
             setShowCreateDialog(true)
           }}
         >
@@ -401,86 +247,34 @@ export function DepartmentManager() {
               <TableHead>Name</TableHead>
               <TableHead>Description</TableHead>
               <TableHead>Status</TableHead>
-              <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {pagination.total === 0 ? (
               <TableRow>
-                <TableCell colSpan={4} className="text-muted-foreground py-8 text-center">
+                <TableCell colSpan={3} className="text-muted-foreground py-8 text-center">
                   No departments yet. Create your first department to get started.
                 </TableCell>
               </TableRow>
             ) : (
               pagination.pageItems.map((department) => (
-                <TableRow key={department.id}>
-                  <TableCell className="font-medium">{department.name}</TableCell>
-                  <TableCell className="max-w-md truncate">{department.description || "-"}</TableCell>
+                <TableRow
+                  key={department.id}
+                  className="hover:bg-muted/40 cursor-pointer transition-colors"
+                  onClick={() => {
+                    router.push(`/admin/departments/${department.id}`)
+                  }}
+                >
+                  <TableCell className="font-medium">
+                    <span className="truncate">{department.name}</span>
+                  </TableCell>
+                  <TableCell className="max-w-md">
+                    <span className="text-muted-foreground line-clamp-2">{department.description || "-"}</span>
+                  </TableCell>
                   <TableCell>
                     <Badge variant={department.is_active ? "default" : "secondary"}>
                       {department.is_active ? "Active" : "Inactive"}
                     </Badge>
-                  </TableCell>
-                  <TableCell className="text-right">
-                    <div className="flex justify-end">
-                      <ActionMenu
-                        trigger={
-                          <Button variant="outline" size="sm" className="gap-2">
-                            Manage
-                            <ChevronDown className="h-4 w-4" />
-                          </Button>
-                        }
-                        items={
-                          [
-                            {
-                              type: "label",
-                              label: department.name,
-                            },
-                            { type: "separator" },
-                            {
-                              type: "item",
-                              asChild: true,
-                              node: (
-                                <Link
-                                  href={`/admin/departments/${department.id}?tab=members`}
-                                  className="flex items-center"
-                                >
-                                  <Users className="mr-2 h-4 w-4" />
-                                  Members
-                                </Link>
-                              ),
-                            },
-                            {
-                              type: "item",
-                              asChild: true,
-                              node: (
-                                <Link
-                                  href={`/admin/departments/${department.id}?tab=roles`}
-                                  className="flex items-center"
-                                >
-                                  <Briefcase className="mr-2 h-4 w-4" />
-                                  Roles
-                                </Link>
-                              ),
-                            },
-                            { type: "separator" },
-                            {
-                              type: "item",
-                              label: "Edit",
-                              icon: <Pencil className="mr-2 h-4 w-4" />,
-                              onSelect: () => openEditDialog(department),
-                            },
-                            {
-                              type: "item",
-                              label: "Delete",
-                              icon: <Trash2 className="mr-2 h-4 w-4" />,
-                              destructive: true,
-                              onSelect: () => openDeleteDialog(department),
-                            },
-                          ] satisfies ActionMenuItem[]
-                        }
-                      />
-                    </div>
                   </TableCell>
                 </TableRow>
               ))
@@ -543,16 +337,11 @@ export function DepartmentManager() {
         onOpenChange={(open) => {
           setShowCreateDialog(open)
           if (!open) {
-            setEditingDepartment(null)
             resetForm()
           }
         }}
-        title={editingDepartment ? "Edit department" : "Create department"}
-        description={
-          editingDepartment
-            ? "Update department details."
-            : "Create a department so you can assign roles and manage access."
-        }
+        title="Create department"
+        description="Create a department so you can assign roles and manage access."
         footer={
           <div className="flex justify-end gap-2">
             <Button type="button" variant="outline" onClick={() => setShowCreateDialog(false)} disabled={isSubmitting}>
@@ -562,10 +351,8 @@ export function DepartmentManager() {
               {isSubmitting ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  {editingDepartment ? "Updating..." : "Creating..."}
+                  Creating...
                 </>
-              ) : editingDepartment ? (
-                "Update"
               ) : (
                 "Create"
               )}
@@ -577,11 +364,7 @@ export function DepartmentManager() {
           id="department-form"
           onSubmit={(e) => {
             e.preventDefault()
-            if (editingDepartment) {
-              handleUpdate()
-            } else {
-              handleCreate()
-            }
+            handleCreate()
           }}
         >
           <div className="space-y-4 pt-2">
@@ -618,25 +401,6 @@ export function DepartmentManager() {
           </div>
         </form>
       </RightSidePanel>
-
-      {/* Delete Confirmation Dialog */}
-      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will permanently delete the department "{departmentToDelete?.name}". This action cannot be undone.
-              Make sure no roles are assigned to this department.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleDelete} className="bg-destructive">
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
     </div>
   )
 }

@@ -25,10 +25,11 @@ import { useCaptainLog } from "@/contexts/supabase-log-context"
 import { useAuth } from "@/contexts/auth-context"
 import { useRBAC } from "@/hooks/use-rbac"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
-import { getToday } from "@/lib/date-restrictions"
+import { canCreateEntryForDate, getToday } from "@/lib/date-restrictions"
 import { isFeatureEnabledClient } from "@/lib/feature-flags/client"
 import { VersionInfo } from "./version-info"
 import { ActionMenu, type ActionMenuItem } from "./ui/action-menu"
+import { toast } from "sonner"
 
 /**
  * MainLayout - Supabase-first enterprise layout
@@ -68,6 +69,12 @@ export function MainLayout() {
     if (existingEntry) {
       setViewMode("details")
     } else {
+      const createValidation = canCreateEntryForDate(date)
+      if (!createValidation.isValid) {
+        toast.error(createValidation.error || "This date is locked for new reports")
+        setEditingDate(undefined)
+        return
+      }
       setEditingDate(date)
       setViewMode("form")
     }
@@ -296,10 +303,6 @@ export function MainLayout() {
                   <EntryDetails
                     date={selectedDate}
                     departmentId={departmentId}
-                    onEdit={() => {
-                      setEditingDate(selectedDate)
-                      setViewMode("form")
-                    }}
                     onBack={() => setViewMode("calendar")}
                     onViewEntry={(date) => {
                       setSelectedDate(date)

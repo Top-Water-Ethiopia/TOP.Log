@@ -84,10 +84,10 @@ export function MobileNavigation() {
       active: pathname.startsWith("/admin/departments"),
     },
     {
-      name: "Roles",
-      href: "/admin/roles",
+      name: "Role and Access",
+      href: "/admin/role-and-access",
       icon: Shield,
-      active: pathname.startsWith("/admin/roles"),
+      active: pathname.startsWith("/admin/role-and-access"),
     },
   ]
 
@@ -103,10 +103,10 @@ export function MobileNavigation() {
   // Admin items - Questions configuration
   const adminQuestionsItems = [
     {
-      name: "Role Questions",
-      href: "/admin/role-questions",
+      name: "Questions",
+      href: "/admin/questions",
       icon: FileQuestion,
-      active: pathname.startsWith("/admin/role-questions"),
+      active: pathname.startsWith("/admin/questions"),
     },
   ]
 

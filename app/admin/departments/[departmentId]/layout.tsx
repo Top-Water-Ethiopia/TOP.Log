@@ -1,16 +1,20 @@
 "use client"
 
-import { useEffect, useMemo, useRef, type ReactNode } from "react"
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
 import Link from "next/link"
 import { useParams, usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { useRBAC } from "@/hooks/use-rbac"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useToast } from "@/components/ui/use-toast"
 import useSWR from "swr"
-import { getErrorMessage } from "@/lib/api-client"
+import { apiFetch, getErrorMessage } from "@/lib/api-client"
+import { mutate } from "swr"
+import { Loader2, Pencil } from "lucide-react"
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -24,6 +28,7 @@ type Department = {
   id: string
   name: string
   description?: string | null
+  is_active?: boolean
 }
 
 export default function AdminDepartmentLayout({ children }: { children: ReactNode }) {
@@ -40,9 +45,10 @@ export default function AdminDepartmentLayout({ children }: { children: ReactNod
 
   const activeTab = useMemo(() => {
     const t = searchParams.get("tab") ?? searchParams.get("tabs")
-    if (t === "members" || t === "roles") return t
+    if (t === "members" || t === "roles" || t === "access-control") return t
     if (pathname.endsWith(`/admin/departments/${departmentId}/members`)) return "members"
     if (pathname.endsWith(`/admin/departments/${departmentId}/professions`)) return "roles"
+    if (pathname.endsWith(`/admin/departments/${departmentId}/access-control`)) return "access-control"
     return "members"
   }, [searchParams, pathname, departmentId])
 
@@ -57,6 +63,103 @@ export default function AdminDepartmentLayout({ children }: { children: ReactNod
 
   const departmentName = department?.name || null
   const departmentDescription = department?.description || null
+
+  const [isEditingHeader, setIsEditingHeader] = useState(false)
+  const [draftName, setDraftName] = useState("")
+  const [draftDescription, setDraftDescription] = useState("")
+  const [headerFocusField, setHeaderFocusField] = useState<"name" | "description">("name")
+  const [isSavingHeader, setIsSavingHeader] = useState(false)
+  const nameInputRef = useRef<HTMLInputElement | null>(null)
+  const descriptionRef = useRef<HTMLTextAreaElement | null>(null)
+
+  useEffect(() => {
+    if (!department) return
+    if (isEditingHeader) return
+    setDraftName(department.name)
+    setDraftDescription(department.description || "")
+  }, [department, isEditingHeader])
+
+  useEffect(() => {
+    if (!isEditingHeader) return
+    if (headerFocusField === "name") {
+      nameInputRef.current?.focus()
+      nameInputRef.current?.select()
+      return
+    }
+    descriptionRef.current?.focus()
+    descriptionRef.current?.select()
+  }, [isEditingHeader, headerFocusField])
+
+  const startHeaderEdit = (focusField: "name" | "description") => {
+    if (!department || isSavingHeader) return
+    setDraftName(department.name)
+    setDraftDescription(department.description || "")
+    setHeaderFocusField(focusField)
+    setIsEditingHeader(true)
+  }
+
+  const cancelHeaderEdit = () => {
+    if (isSavingHeader) return
+    setIsEditingHeader(false)
+    setDraftName(department?.name || "")
+    setDraftDescription(department?.description || "")
+  }
+
+  const saveHeaderEdit = async () => {
+    if (!department || isSavingHeader) return
+
+    const name = draftName.trim()
+    const description = draftDescription.trim() || null
+
+    if (!name) {
+      toast({
+        title: "Name required",
+        description: "Department name is required",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsSavingHeader(true)
+    try {
+      const updated = await apiFetch<{ data: Department & { is_active?: boolean } }>("/api/admin/departments", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          id: department.id,
+          name,
+          description,
+          is_active: department.is_active !== false,
+        }),
+      })
+
+      await mutate(
+        "/api/admin/departments",
+        (current: { data: Department[] } | undefined) => {
+          const list = Array.isArray(current?.data) ? current!.data : []
+          return {
+            data: list.map((d) => (d.id === department.id ? { ...d, ...updated.data } : d)),
+          }
+        },
+        false
+      )
+
+      toast({
+        title: "Saved",
+        description: "Department updated successfully",
+      })
+      setIsEditingHeader(false)
+    } catch (error: unknown) {
+      console.error("Error updating department:", error)
+      toast({
+        title: "Error",
+        description: getErrorMessage(error, "Failed to update department"),
+        variant: "destructive",
+      })
+    } finally {
+      setIsSavingHeader(false)
+    }
+  }
 
   const lastDepartmentsErrorRef = useRef<string | null>(null)
 
@@ -152,10 +255,102 @@ export default function AdminDepartmentLayout({ children }: { children: ReactNod
                 </BreadcrumbItem>
               </BreadcrumbList>
             </Breadcrumb>
-            <h1 className="text-3xl font-semibold tracking-tight">{departmentName ? departmentName : "Department"}</h1>
-            {departmentDescription ? (
-              <div className="text-muted-foreground text-sm">{departmentDescription}</div>
-            ) : null}
+            <div className="space-y-2">
+              {isEditingHeader ? (
+                <div className="space-y-2">
+                  <div className="max-w-2xl">
+                    <Input
+                      ref={nameInputRef}
+                      value={draftName}
+                      onChange={(e) => setDraftName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") {
+                          e.preventDefault()
+                          cancelHeaderEdit()
+                          return
+                        }
+                        if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                          e.preventDefault()
+                          saveHeaderEdit()
+                        }
+                      }}
+                    />
+                  </div>
+                  <div className="max-w-2xl">
+                    <Textarea
+                      ref={descriptionRef}
+                      value={draftDescription}
+                      onChange={(e) => setDraftDescription(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Escape") {
+                          e.preventDefault()
+                          cancelHeaderEdit()
+                          return
+                        }
+                        if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                          e.preventDefault()
+                          saveHeaderEdit()
+                        }
+                      }}
+                      rows={2}
+                      className="resize-none"
+                      placeholder="Department description"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button type="button" disabled={isSavingHeader} onClick={saveHeaderEdit}>
+                      {isSavingHeader ? (
+                        <>
+                          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                          Saving...
+                        </>
+                      ) : (
+                        "Save"
+                      )}
+                    </Button>
+                    <Button type="button" variant="outline" disabled={isSavingHeader} onClick={cancelHeaderEdit}>
+                      Cancel
+                    </Button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <div className="flex items-start gap-3">
+                    <h1 className="text-3xl font-semibold tracking-tight">
+                      {departmentName ? departmentName : "Department"}
+                    </h1>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 w-8 p-0"
+                      onClick={() => startHeaderEdit("name")}
+                    >
+                      <Pencil className="h-4 w-4" />
+                      <span className="sr-only">Edit department name</span>
+                    </Button>
+                  </div>
+
+                  <div className="flex items-start gap-3">
+                    {departmentDescription ? (
+                      <div className="text-muted-foreground text-sm">{departmentDescription}</div>
+                    ) : (
+                      <div className="text-muted-foreground text-sm">No description</div>
+                    )}
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-8 w-8 p-0"
+                      onClick={() => startHeaderEdit("description")}
+                    >
+                      <Pencil className="h-4 w-4" />
+                      <span className="sr-only">Edit department description</span>
+                    </Button>
+                  </div>
+                </>
+              )}
+            </div>
           </div>
 
           <div className="flex gap-2">
@@ -164,6 +359,9 @@ export default function AdminDepartmentLayout({ children }: { children: ReactNod
             </Button>
             <Button asChild variant={activeTab === "roles" ? "default" : "outline"}>
               <Link href={`/admin/departments/${departmentId}?tab=roles`}>Profession roles</Link>
+            </Button>
+            <Button asChild variant={activeTab === "access-control" ? "default" : "outline"}>
+              <Link href={`/admin/departments/${departmentId}?tab=access-control`}>Access Control</Link>
             </Button>
           </div>
         </div>

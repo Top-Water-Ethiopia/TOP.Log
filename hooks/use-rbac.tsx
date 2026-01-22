@@ -1,6 +1,7 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useMemo } from "react"
+import useSWR from "swr"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import type { User, Role, PermissionCheck, CustomQuestion, RoleQuestionSet } from "@/lib/rbac/types"
 import { ROLE_HIERARCHY, DEFAULT_ROLES } from "@/lib/rbac/types"
@@ -34,47 +35,41 @@ export function useRBAC() {
   const { user: supabaseUser, profile } = useSupabaseAuth()
   const user = useMemo(() => mapSupabaseUserToRbacUser(supabaseUser, profile), [supabaseUser, profile])
 
-  const [dbRbac, setDbRbac] = useState<{
-    loading: boolean
-    checked: boolean
-    loaded: boolean
-    permissions: string[]
-    roleName: string | null
-  }>({ loading: false, checked: false, loaded: false, permissions: [], roleName: null })
+  const rbacKey = supabaseUser ? (["/api/rbac/me", supabaseUser.id] as const) : null
+  const {
+    data: rbacResponse,
+    error: rbacError,
+    isLoading: rbacLoading,
+  } = useSWR<{ role: { name: string }; permissions: string[] }>(
+    rbacKey,
+    ([url]) => apiFetch<{ role: { name: string }; permissions: string[] }>(url),
+    {
+      revalidateOnFocus: false,
+      shouldRetryOnError: false,
+    }
+  )
 
-  useEffect(() => {
-    let cancelled = false
-
-    const load = async () => {
-      if (!supabaseUser) {
-        setDbRbac({ loading: false, checked: false, loaded: false, permissions: [], roleName: null })
-        return
-      }
-
-      try {
-        setDbRbac((prev) => ({ ...prev, loading: true, checked: false }))
-        const res = await apiFetch<{ role: { name: string }; permissions: string[] }>("/api/rbac/me")
-        if (cancelled) return
-        setDbRbac({
-          loading: false,
-          checked: true,
-          loaded: true,
-          permissions: Array.isArray(res.permissions) ? res.permissions : [],
-          roleName: typeof res.role?.name === "string" ? res.role.name : null,
-        })
-      } catch {
-        if (cancelled) return
-        // Fall back to local role defaults if the RBAC endpoint is not available.
-        setDbRbac((prev) => ({ ...prev, loading: false, checked: true, loaded: false }))
-      }
+  const dbRbac = useMemo(() => {
+    if (!supabaseUser) {
+      return { loading: false, checked: false, loaded: false, permissions: [], roleName: null }
     }
 
-    load()
-
-    return () => {
-      cancelled = true
+    if (rbacLoading) {
+      return { loading: true, checked: false, loaded: false, permissions: [], roleName: null }
     }
-  }, [supabaseUser])
+
+    if (rbacError || !rbacResponse) {
+      return { loading: false, checked: true, loaded: false, permissions: [], roleName: null }
+    }
+
+    return {
+      loading: false,
+      checked: true,
+      loaded: true,
+      permissions: Array.isArray(rbacResponse.permissions) ? rbacResponse.permissions : [],
+      roleName: typeof rbacResponse.role?.name === "string" ? rbacResponse.role.name : null,
+    }
+  }, [supabaseUser, rbacError, rbacLoading, rbacResponse])
 
   // Load roles from storage (normalize missing access scopes)
   // Always fallback to DEFAULT_ROLES to ensure permissions work even if localStorage is empty

@@ -22,7 +22,7 @@ import { apiFetch, getErrorMessage } from "@/lib/api-client"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { isFeatureEnabledClient } from "@/lib/feature-flags/client"
-import { getToday } from "@/lib/date-restrictions"
+import { canCreateEntryForDate, getToday } from "@/lib/date-restrictions"
 
 interface MainLayoutUpdatedProps {
   initialRoleQuestions: RoleQuestion[]
@@ -41,7 +41,7 @@ type DepartmentMembership = {
 
 export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedProps) {
   const { entries } = useCaptainLog()
-  const { canAccessAdmin, canCreateEntries } = useRBAC()
+  const { canAccessAdmin, canCreateEntries, hasPermission } = useRBAC()
   const { user } = useSupabaseAuth()
 
   const [isRequestingAccess, setIsRequestingAccess] = useState(false)
@@ -135,7 +135,7 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
   const newReportDisabledReason = !user
     ? undefined
     : showNoMembershipsMessage
-      ? "You are not assigned to any department role. Please contact your administrator."
+      ? "You are not assigned to any Department Access Control role. Please contact your administrator."
       : isRoleQuestionsLoading
         ? "Loading role configuration…"
         : !canCreateEntries
@@ -146,6 +146,12 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
 
   const requestAccessEnabled = isFeatureEnabledClient("REQUEST_ACCESS")
   const canRequestAccess = requestAccessEnabled && !!user && (!!activeDepartmentId || true) && !canStartNewReport
+
+  const canAccessDepartments =
+    !!user ||
+    hasPermission("departments.read") ||
+    hasPermission("departments.members.read") ||
+    hasPermission("departments.members.manage")
 
   const handleRequestAccess = useCallback(async () => {
     if (!user) return
@@ -184,6 +190,13 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
       }
       setViewMode("details")
     } else {
+      const createValidation = canCreateEntryForDate(date)
+      if (!createValidation.isValid) {
+        toast.error(createValidation.error || "This date is locked for new reports")
+        setEditingDate(undefined)
+        return
+      }
+
       setEditingDate(date)
       setViewMode("form")
     }
@@ -269,7 +282,7 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
                 </Button>
               )}
 
-              {user && !showNoMembershipsMessage && (
+              {user && !showNoMembershipsMessage && canAccessDepartments && (
                 <Link href="/departments">
                   <Button variant="outline" size="sm" className="gap-2">
                     <Building2 className="h-4 w-4" />
@@ -305,7 +318,7 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
               <div className="bg-card w-full max-w-xl rounded-xl border p-8 shadow-sm">
                 <h2 className="text-xl font-semibold">Not assigned</h2>
                 <p className="text-muted-foreground mt-2 text-sm">
-                  You are not assigned to any department role. Please contact your administrator.
+                  You are not assigned to any Department Access Control role. Please contact your administrator.
                 </p>
               </div>
             </div>
@@ -395,10 +408,6 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
                       departmentId={activeDepartmentId}
                       entry={logDetail}
                       isLoading={isLogDetailLoading}
-                      onEdit={() => {
-                        setEditingDate(selectedDate)
-                        setViewMode("form")
-                      }}
                       onBack={() => setViewMode("calendar")}
                       onViewEntry={(date) => {
                         setLogDetail(null)

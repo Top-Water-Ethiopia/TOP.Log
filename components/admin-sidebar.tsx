@@ -80,9 +80,9 @@ export function AdminSidebar() {
       path: "/admin/users",
     },
     {
-      name: "Roles",
+      name: "Role and Access",
       icon: Shield,
-      path: "/admin/roles",
+      path: "/admin/role-and-access",
     },
     ...(permissionsEnabled && canAccessAdmin
       ? [
@@ -102,9 +102,9 @@ export function AdminSidebar() {
       path: "/admin/reports",
     },
     {
-      name: "Role Questions",
+      name: "Questions",
       icon: FileQuestion,
-      path: "/admin/role-questions",
+      path: "/admin/questions",
     },
   ]
 
@@ -126,11 +126,18 @@ export function AdminSidebar() {
   ]
 
   const systemNavItems = [
-    {
-      name: "Departments",
-      icon: Building2,
-      path: "/admin/departments",
-    },
+    ...(hasPermission("departments.read") ||
+    hasPermission("departments.members.read") ||
+    hasPermission("departments.members.manage") ||
+    hasPermission("admin.system")
+      ? [
+          {
+            name: "Departments",
+            icon: Building2,
+            path: "/admin/departments",
+          },
+        ]
+      : []),
     // Settings visible on desktop only
     ...(!isMobile
       ? [
@@ -238,16 +245,16 @@ export function AdminSidebar() {
 
         <SidebarGroup className="px-4 group-data-[collapsible=icon]:px-2">
           <SidebarGroupLabel className="text-muted-foreground mb-2 px-4 text-xs font-semibold tracking-wider uppercase">
-            User Management
+            Content
           </SidebarGroupLabel>
-          <SidebarMenu>{userManagementNavItems.map(renderNavItem)}</SidebarMenu>
+          <SidebarMenu>{contentNavItems.map(renderNavItem)}</SidebarMenu>
         </SidebarGroup>
 
         <SidebarGroup className="px-4 group-data-[collapsible=icon]:px-2">
           <SidebarGroupLabel className="text-muted-foreground mb-2 px-4 text-xs font-semibold tracking-wider uppercase">
-            Content
+            User Management
           </SidebarGroupLabel>
-          <SidebarMenu>{contentNavItems.map(renderNavItem)}</SidebarMenu>
+          <SidebarMenu>{userManagementNavItems.map(renderNavItem)}</SidebarMenu>
         </SidebarGroup>
 
         <SidebarGroup className="px-4 group-data-[collapsible=icon]:px-2">

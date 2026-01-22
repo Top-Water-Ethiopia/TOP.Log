@@ -85,15 +85,30 @@ export default function AdminRolesPage() {
             </BreadcrumbItem>
             <BreadcrumbSeparator />
             <BreadcrumbItem>
-              <BreadcrumbPage>Roles</BreadcrumbPage>
+              <BreadcrumbPage>Role and Access</BreadcrumbPage>
             </BreadcrumbItem>
           </BreadcrumbList>
         </Breadcrumb>
-        <h1 className="text-3xl font-bold tracking-tight">Roles</h1>
+        <h1 className="text-3xl font-bold tracking-tight">Role and Access</h1>
         <p className="text-muted-foreground mt-2">Manage user roles and permissions across the application</p>
       </div>
-      <div className="w-full">
-        <RoleManager />
+      <div className="w-full space-y-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>Department Access</CardTitle>
+            <CardDescription>Manage department memberships and access control settings.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Link href="/admin/role-and-access/department-access" className="inline-flex">
+              <button className="bg-primary hover:bg-primary/90 rounded-md px-4 py-2 text-sm font-medium text-white">
+                Manage Department Access
+              </button>
+            </Link>
+          </CardContent>
+        </Card>
+        <div className="w-full">
+          <RoleManager />
+        </div>
       </div>
     </div>
   )

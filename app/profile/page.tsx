@@ -62,6 +62,8 @@ export default function ProfilePage() {
   const { permissions } = useSupabaseRbac()
   const { canAccessAdmin } = useRBAC()
 
+  const canAccessDepartments = !!user
+
   const [name, setName] = useState(profile?.name || "")
   const [isUpdating, setIsUpdating] = useState(false)
   const [departmentName, setDepartmentName] = useState("")
@@ -123,7 +125,7 @@ export default function ProfilePage() {
               </Link>
 
               <div className="flex flex-wrap items-center gap-2">
-                {user ? (
+                {user && canAccessDepartments ? (
                   <Link href="/departments">
                     <Button variant="outline" size="sm" className="gap-2">
                       <Building2 className="h-4 w-4" />
@@ -176,7 +178,7 @@ export default function ProfilePage() {
             </Link>
 
             <div className="flex flex-wrap items-center gap-2">
-              {user ? (
+              {user && canAccessDepartments ? (
                 <Link href="/departments">
                   <Button variant="outline" size="sm" className="gap-2">
                     <Building2 className="h-4 w-4" />

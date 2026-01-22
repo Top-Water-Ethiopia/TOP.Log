@@ -4,6 +4,7 @@ import { useEffect, useMemo } from "react"
 import { useParams, useRouter, useSearchParams } from "next/navigation"
 import { DepartmentProfessionsManager } from "@/components/department-professions-manager"
 import AdminDepartmentMembersPage from "./members/page"
+import { AccessControlTab } from "./access-control-tab"
 
 export default function AdminDepartmentPage() {
   const params = useParams<{ departmentId: string }>()
@@ -13,14 +14,14 @@ export default function AdminDepartmentPage() {
 
   const tab = useMemo(() => {
     const t = searchParams.get("tab") ?? searchParams.get("tabs")
-    if (t === "members" || t === "roles") return t
+    if (t === "members" || t === "roles" || t === "access-control") return t
     return "members"
   }, [searchParams])
 
   useEffect(() => {
     if (!departmentId) return
     const t = searchParams.get("tab") ?? searchParams.get("tabs")
-    if (!t || (t !== "members" && t !== "roles")) {
+    if (!t || (t !== "members" && t !== "roles" && t !== "access-control")) {
       router.replace(`/admin/departments/${departmentId}?tab=members`)
     }
   }, [departmentId, router, searchParams])
@@ -33,6 +34,10 @@ export default function AdminDepartmentPage() {
     const rolesTab = searchParams.get("rolesTab")
     const defaultTab = rolesTab === "assignments" || rolesTab === "members" ? "assignments" : "roles"
     return <DepartmentProfessionsManager departmentId={departmentId} embedded defaultTab={defaultTab} />
+  }
+
+  if (tab === "access-control") {
+    return <AccessControlTab departmentId={departmentId} />
   }
 
   return <AdminDepartmentMembersPage />

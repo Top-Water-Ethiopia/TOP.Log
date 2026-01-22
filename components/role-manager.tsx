@@ -1,12 +1,15 @@
 "use client"
 
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
+import useSWR from "swr"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
 import { Label } from "@/components/ui/label"
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Skeleton } from "@/components/ui/skeleton"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -18,37 +21,34 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { Skeleton } from "@/components/ui/skeleton"
-import { Badge } from "@/components/ui/badge"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { useToast } from "@/components/ui/use-toast"
-import { Plus, Pencil, Trash2, Shield, Loader2, Search, SlidersHorizontal, ArrowUpDown, RefreshCw } from "lucide-react"
+import { Plus, Pencil, Trash2, Shield, Loader2, RefreshCw } from "lucide-react"
 import { apiFetch, getErrorMessage } from "@/lib/api-client"
 import { RightSidePanel } from "@/components/ui/right-side-panel"
-import { RolePermissionsPanel } from "@/components/role-permissions-panel"
-import useSWR from "swr"
+import { toast } from "sonner"
+
+type Role = {
+  id: string
+  name: string
+  description?: string | null
+  department_id?: string | null
+  department?: Department | null
+}
+
+type Department = {
+  id: string
+  name: string
+  is_active?: boolean
+}
 
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
 const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
 
-interface Department {
-  id: string
-  name: string
-  is_active: boolean
-}
-
-interface Role {
-  id: string
-  name: string
-  description: string | null
-  department_id: string | null
-  created_at: string
-  updated_at: string
-}
-
-interface RoleWithDepartment extends Role {
-  department?: Department | null
-}
+const SYSTEM_ROLE_IDS = new Set([
+  "00000000-0000-0000-0000-000000000000",
+  "00000000-0000-0000-0000-000000000001",
+  "00000000-0000-0000-0000-000000000002",
+  "00000000-0000-0000-0000-000000000010",
+])
 
 export function RoleManager() {
   const { profile: currentProfile } = useSupabaseAuth()
@@ -56,34 +56,29 @@ export function RoleManager() {
   const [showCreateDialog, setShowCreateDialog] = useState(false)
   const [editingRole, setEditingRole] = useState<Role | null>(null)
   const [showEditPanel, setShowEditPanel] = useState(false)
-  const [permissionsRole, setPermissionsRole] = useState<Role | null>(null)
-  const [showPermissionsPanel, setShowPermissionsPanel] = useState(false)
   const [showDeleteDialog, setShowDeleteDialog] = useState(false)
   const [roleToDelete, setRoleToDelete] = useState<Role | null>(null)
   const [roleFilter, setRoleFilter] = useState<"all" | "system" | "custom">("all")
-  const [searchQuery, setSearchQuery] = useState("")
   const [pageByFilter, setPageByFilter] = useState<Record<"all" | "system" | "custom", number>>({
     all: 1,
     system: 1,
     custom: 1,
   })
-  const { toast } = useToast()
-
   const lastLoadErrorRef = useRef<string | null>(null)
-
   const isAdmin = currentProfile?.role_id === ADMIN_ROLE_ID || currentProfile?.role_id === SYSTEM_ADMIN_ROLE_ID
 
-  const rolesKey = isAdmin ? "/api/admin/roles" : null
-  const departmentsKey = isAdmin ? "/api/admin/departments" : null
+  const [searchQuery] = useState("")
 
+  const rolesKey = isAdmin ? "/api/admin/roles" : null
   const {
     data: rolesResponse,
     error: rolesError,
     isLoading: isRolesLoading,
     isValidating: isRolesValidating,
     mutate: mutateRoles,
-  } = useSWR<{ data: RoleWithDepartment[] }>(rolesKey)
+  } = useSWR<{ data: Role[] }>(rolesKey)
 
+  const departmentsKey = isAdmin ? "/api/admin/departments" : null
   const {
     data: departmentsResponse,
     error: departmentsError,
@@ -91,54 +86,52 @@ export function RoleManager() {
     mutate: mutateDepartments,
   } = useSWR<{ data: Department[] }>(departmentsKey)
 
-  const roles = rolesResponse?.data || []
-  const departments = (departmentsResponse?.data || []).filter((d) => d.is_active)
+  const roles = useMemo(() => rolesResponse?.data || [], [rolesResponse])
+  const departments = useMemo(() => {
+    const rows = departmentsResponse?.data || []
+    return rows.filter((d) => d.is_active !== false)
+  }, [departmentsResponse])
+
   const isLoading = isRolesLoading || isDepartmentsLoading
+
+  useEffect(() => {
+    const error = rolesError || departmentsError
+    if (!error) {
+      lastLoadErrorRef.current = null
+      return
+    }
+
+    const message = getErrorMessage(error, "Failed to load roles")
+    if (lastLoadErrorRef.current === message) return
+    lastLoadErrorRef.current = message
+    toast.error(message)
+  }, [rolesError, departmentsError])
 
   const [formData, setFormData] = useState({
     name: "",
     description: "",
+    scope: "department" as "department" | "global",
     department_id: "",
   })
 
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
 
-  useEffect(() => {
-    if (!rolesError && !departmentsError) {
-      lastLoadErrorRef.current = null
-      return
-    }
-
-    const message = getErrorMessage(rolesError || departmentsError, "Failed to load roles and departments")
-    if (lastLoadErrorRef.current !== message) {
-      toast({
-        title: "Error",
-        description: message,
-        variant: "destructive",
-      })
-      lastLoadErrorRef.current = message
-    }
-  }, [rolesError, departmentsError, toast])
-
   const validateForm = (): boolean => {
     const errors: Record<string, string> = {}
 
-    if (!formData.name.trim()) {
+    const name = formData.name.trim()
+    if (!name) {
       errors.name = "Role name is required"
-    } else if (!/^[a-z0-9-]+$/.test(formData.name.trim())) {
+    } else if (!/^[a-z0-9-]+$/.test(name)) {
       errors.name = "Role name must be lowercase alphanumeric with hyphens only"
     }
 
-    // Custom roles must have a department assigned
-    const isSystemRole =
-      editingRole &&
-      (editingRole.name === "admin" || editingRole.name === "system-admin" || editingRole.name === "user")
-    if (!isSystemRole && !formData.department_id) {
-      errors.department_id = "Department is required for custom roles"
-    }
-
-    if (formData.department_id && !departments.find((d) => d.id === formData.department_id)) {
-      errors.department_id = "Invalid department selected"
+    if (formData.scope === "department") {
+      if (!formData.department_id) {
+        errors.department_id = "Department is required"
+      } else if (!departments.find((d) => d.id === formData.department_id)) {
+        errors.department_id = "Invalid department selected"
+      }
     }
 
     setFormErrors(errors)
@@ -146,221 +139,77 @@ export function RoleManager() {
   }
 
   const handleCreate = async () => {
-    if (!validateForm() || isSubmitting) return
-
-    const prevRolesResponse = rolesResponse
+    if (!validateForm()) return
     setIsSubmitting(true)
     try {
-      const nowIso = new Date().toISOString()
-      const tempId = `temp-${Date.now()}`
-
-      const optimistic: RoleWithDepartment = {
-        id: tempId,
-        name: formData.name.trim(),
+      const payload = {
+        name: formData.name.trim().toLowerCase(),
         description: formData.description.trim() || null,
-        department_id: formData.department_id || null,
-        created_at: nowIso,
-        updated_at: nowIso,
-        department: formData.department_id ? departments.find((d) => d.id === formData.department_id) || null : null,
+        department_id: formData.scope === "global" ? null : formData.department_id || null,
       }
 
-      mutateRoles(
-        (current) => {
-          if (!current) return { data: [optimistic] }
-          const next = [...(Array.isArray(current.data) ? current.data : []), optimistic]
-          next.sort((a, b) => a.name.localeCompare(b.name))
-          return { ...current, data: next }
-        },
-        { revalidate: false }
-      )
-
-      const created = await apiFetch<{ data: RoleWithDepartment }>("/api/admin/roles", {
+      await apiFetch<{ data: Role }>("/api/admin/roles", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          name: formData.name.trim(),
-          description: formData.description.trim() || null,
-          department_id: formData.department_id || null,
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
       })
 
-      if (created?.data?.id) {
-        mutateRoles(
-          (current) => {
-            if (!current) return { data: [created.data] }
-            const rows = Array.isArray(current.data) ? current.data : []
-            const next = rows.map((r) => (r.id === tempId ? created.data : r))
-            next.sort((a, b) => a.name.localeCompare(b.name))
-            return { ...current, data: next }
-          },
-          { revalidate: false }
-        )
-      }
-
-      toast({
-        title: "Success",
-        description: "Role created successfully",
-      })
-
+      toast.success("Role created")
       setShowCreateDialog(false)
       resetForm()
+      await mutateRoles()
     } catch (error: unknown) {
-      if (prevRolesResponse) {
-        mutateRoles(prevRolesResponse, { revalidate: false })
-      } else {
-        mutateRoles()
-      }
-      console.error("Error creating role:", error)
-      toast({
-        title: "Error",
-        description: getErrorMessage(error, "Failed to create role"),
-        variant: "destructive",
-      })
+      toast.error(getErrorMessage(error, "Failed to create role"))
     } finally {
-      mutateRoles()
       setIsSubmitting(false)
     }
   }
 
   const handleUpdate = async () => {
-    if (!editingRole || !validateForm() || isSubmitting) return
-
-    const prevRolesResponse = rolesResponse
+    if (!editingRole) return
+    if (!validateForm()) return
     setIsSubmitting(true)
     try {
-      const id = editingRole.id
-      const nowIso = new Date().toISOString()
-      const prevRole = roles.find((r) => r.id === id) || null
-      const optimistic: RoleWithDepartment = {
-        ...(prevRole || editingRole),
-        name: formData.name.trim(),
+      const payload = {
+        id: editingRole.id,
+        name: formData.name.trim().toLowerCase(),
         description: formData.description.trim() || null,
-        department_id: formData.department_id || null,
-        updated_at: nowIso,
-        department: formData.department_id ? departments.find((d) => d.id === formData.department_id) || null : null,
+        department_id: formData.scope === "global" ? null : formData.department_id || null,
       }
 
-      mutateRoles(
-        (current) => {
-          if (!current) return current
-          const next = (Array.isArray(current.data) ? current.data : []).map((r) => (r.id === id ? optimistic : r))
-          next.sort((a, b) => a.name.localeCompare(b.name))
-          return { ...current, data: next }
-        },
-        { revalidate: false }
-      )
-
-      const updated = await apiFetch<{ data: RoleWithDepartment }>("/api/admin/roles", {
+      await apiFetch<{ data: Role }>("/api/admin/roles", {
         method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          id: editingRole.id,
-          name: formData.name.trim(),
-          description: formData.description.trim() || null,
-          department_id: formData.department_id || null,
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
       })
 
-      if (updated?.data?.id) {
-        mutateRoles(
-          (current) => {
-            if (!current) return { data: [updated.data] }
-            const next = (Array.isArray(current.data) ? current.data : []).map((r) => (r.id === id ? updated.data : r))
-            next.sort((a, b) => a.name.localeCompare(b.name))
-            return { ...current, data: next }
-          },
-          { revalidate: false }
-        )
-      }
-
-      toast({
-        title: "Success",
-        description: "Role updated successfully",
-      })
-
+      toast.success("Role updated")
       setShowEditPanel(false)
       setEditingRole(null)
-      resetForm()
+      await mutateRoles()
     } catch (error: unknown) {
-      if (prevRolesResponse) {
-        mutateRoles(prevRolesResponse, { revalidate: false })
-      } else {
-        mutateRoles()
-      }
-      console.error("Error updating role:", error)
-      toast({
-        title: "Error",
-        description: getErrorMessage(error, "Failed to update role"),
-        variant: "destructive",
-      })
+      toast.error(getErrorMessage(error, "Failed to update role"))
     } finally {
-      mutateRoles()
       setIsSubmitting(false)
     }
   }
 
   const handleDelete = async () => {
     if (!roleToDelete) return
-
-    // Prevent deleting system roles
-    if (
-      roleToDelete.id === ADMIN_ROLE_ID ||
-      roleToDelete.id === SYSTEM_ADMIN_ROLE_ID ||
-      roleToDelete.name === "admin" ||
-      roleToDelete.name === "system-admin" ||
-      roleToDelete.name === "user"
-    ) {
-      toast({
-        title: "Cannot delete",
-        description: "System roles cannot be deleted",
-        variant: "destructive",
-      })
-      setShowDeleteDialog(false)
-      setRoleToDelete(null)
-      return
-    }
-
-    const prevRolesResponse = rolesResponse
+    setIsSubmitting(true)
     try {
-      const deleting = roleToDelete
-      mutateRoles(
-        (current) => {
-          if (!current) return current
-          const rows = Array.isArray(current.data) ? current.data : []
-          return { ...current, data: rows.filter((r) => r.id !== deleting.id) }
-        },
-        { revalidate: false }
-      )
-
-      await apiFetch(`/api/admin/roles?id=${roleToDelete.id}`, {
+      await apiFetch<{ success: boolean }>(`/api/admin/roles?id=${encodeURIComponent(roleToDelete.id)}`, {
         method: "DELETE",
       })
 
-      toast({
-        title: "Success",
-        description: "Role deleted successfully",
-      })
-
+      toast.success("Role deleted")
       setShowDeleteDialog(false)
       setRoleToDelete(null)
-
-      mutateRoles()
+      await mutateRoles()
     } catch (error: unknown) {
-      if (prevRolesResponse) {
-        mutateRoles(prevRolesResponse, { revalidate: false })
-      } else {
-        mutateRoles()
-      }
-      console.warn("Error deleting role:", error)
-      toast({
-        title: "Error",
-        description: getErrorMessage(error, "Failed to delete role"),
-        variant: "destructive",
-      })
+      toast.error(getErrorMessage(error, "Failed to delete role"))
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
@@ -368,24 +217,23 @@ export function RoleManager() {
     setFormData({
       name: "",
       description: "",
+      scope: "department",
       department_id: "",
     })
     setFormErrors({})
   }
 
   const openEditDialog = (role: Role) => {
+    const scope = role.department_id ? "department" : "global"
     setEditingRole(role)
     setFormData({
-      name: role.name,
+      name: role.name || "",
       description: role.description || "",
+      scope,
       department_id: role.department_id || "",
     })
+    setFormErrors({})
     setShowEditPanel(true)
-  }
-
-  const openPermissionsPanel = (role: Role) => {
-    setPermissionsRole(role)
-    setShowPermissionsPanel(true)
   }
 
   const openDeleteDialog = (role: Role) => {
@@ -393,28 +241,26 @@ export function RoleManager() {
     setShowDeleteDialog(true)
   }
 
-  // Filter roles based on type
-  const filteredRoles = roles.filter((role) => {
+  // Get all roles for display
+  const isSystemRole = (role: Role) => {
+    if (SYSTEM_ROLE_IDS.has(role.id)) return true
+    return ["admin", "system-admin", "user"].includes(role.name)
+  }
+
+  const filteredRoles = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
-    if (!q) return true
+    if (!q) return roles
+    return roles.filter((r) => {
+      const deptName = r.department?.name || ""
+      const haystack = `${r.name} ${r.description || ""} ${deptName}`.toLowerCase()
+      return haystack.includes(q)
+    })
+  }, [roles, searchQuery])
 
-    const haystack = [role.name, role.description || "", role.department?.name || ""].join(" ").toLowerCase()
+  const systemRoles = useMemo(() => filteredRoles.filter(isSystemRole), [filteredRoles])
+  const customRoles = useMemo(() => filteredRoles.filter((r) => !isSystemRole(r)), [filteredRoles])
 
-    return haystack.includes(q)
-  })
-
-  const isSystemRole = (role: RoleWithDepartment) =>
-    role.id === ADMIN_ROLE_ID ||
-    role.id === SYSTEM_ADMIN_ROLE_ID ||
-    role.name === "admin" ||
-    role.name === "system-admin" ||
-    role.name === "user"
-
-  const systemRoles = filteredRoles.filter((role) => isSystemRole(role))
-
-  const customRoles = filteredRoles.filter((role) => !isSystemRole(role))
-
-  const pageSize = 6
+  const pageSize = 10
 
   const setCurrentPage = (filter: "all" | "system" | "custom", page: number) => {
     setPageByFilter((prev) => ({ ...prev, [filter]: page }))
@@ -427,13 +273,13 @@ export function RoleManager() {
 
   const paginate = <T,>(items: T[], requestedPage: number) => {
     const total = items.length
-    const page = clampPage(requestedPage, total)
+    const safePage = clampPage(requestedPage, total)
     const totalPages = Math.max(1, Math.ceil(total / pageSize))
-    const startIndex = (page - 1) * pageSize
+    const startIndex = (safePage - 1) * pageSize
     const endIndexExclusive = Math.min(startIndex + pageSize, total)
 
     return {
-      page,
+      page: safePage,
       total,
       totalPages,
       start: total === 0 ? 0 : startIndex + 1,
@@ -443,55 +289,33 @@ export function RoleManager() {
   }
 
   const PaginationFooter = ({ filter, total }: { filter: "all" | "system" | "custom"; total: number }) => {
-    const page = clampPage(pageByFilter[filter], total)
+    const currentPage = pageByFilter[filter]
+    const safePage = clampPage(currentPage, total)
     const totalPages = Math.max(1, Math.ceil(total / pageSize))
-    const start = total === 0 ? 0 : (page - 1) * pageSize + 1
-    const end = total === 0 ? 0 : Math.min(page * pageSize, total)
+    const start = total === 0 ? 0 : (safePage - 1) * pageSize + 1
+    const end = total === 0 ? 0 : Math.min(safePage * pageSize, total)
+
+    if (totalPages <= 1) return null
 
     return (
-      <div className="flex items-center justify-between border-t px-4 py-3 sm:px-6">
-        <div className="hidden sm:block">
-          <p className="text-muted-foreground text-sm">
-            Showing <span className="text-foreground font-medium">{start}</span> to{" "}
-            <span className="text-foreground font-medium">{end}</span> of{" "}
-            <span className="text-foreground font-medium">{total}</span> results
-          </p>
+      <div className="flex items-center justify-between border-t px-6 py-3">
+        <div className="text-muted-foreground text-sm">
+          {start}-{end} of {total}
         </div>
-
-        <div className="ml-auto flex items-center gap-2">
+        <div className="flex gap-2">
           <Button
             variant="outline"
             size="sm"
-            disabled={total === 0 || page <= 1}
-            onClick={() => setCurrentPage(filter, page - 1)}
+            onClick={() => setCurrentPage(filter, Math.max(1, safePage - 1))}
+            disabled={safePage <= 1}
           >
-            Prev
+            Previous
           </Button>
-
-          <div className="hidden items-center gap-1 sm:flex">
-            {Array.from({ length: totalPages }).map((_, i) => {
-              const p = i + 1
-              const active = p === page
-              return (
-                <Button
-                  key={`${filter}-page-${p}`}
-                  variant="outline"
-                  size="sm"
-                  disabled={total === 0}
-                  className={active ? "border-primary bg-primary/10 text-primary" : ""}
-                  onClick={() => setCurrentPage(filter, p)}
-                >
-                  {p}
-                </Button>
-              )
-            })}
-          </div>
-
           <Button
             variant="outline"
             size="sm"
-            disabled={total === 0 || page >= totalPages}
-            onClick={() => setCurrentPage(filter, page + 1)}
+            onClick={() => setCurrentPage(filter, Math.min(totalPages, safePage + 1))}
+            disabled={safePage >= totalPages}
           >
             Next
           </Button>
@@ -505,28 +329,11 @@ export function RoleManager() {
   const customPagination = paginate(customRoles, pageByFilter.custom)
 
   useEffect(() => {
-    const next = {
-      all: clampPage(pageByFilter.all, allPagination.total),
-      system: clampPage(pageByFilter.system, systemPagination.total),
-      custom: clampPage(pageByFilter.custom, customPagination.total),
-    }
-
-    if (next.all !== pageByFilter.all || next.system !== pageByFilter.system || next.custom !== pageByFilter.custom) {
-      setPageByFilter(next)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allPagination.total, systemPagination.total, customPagination.total])
-
-  useEffect(() => {
     setPageByFilter((prev) => ({ ...prev, [roleFilter]: 1 }))
-  }, [roleFilter, searchQuery])
+  }, [roleFilter])
 
-  // Helper function to render roles table
-  const renderRolesTable = (
-    rolesToRender: RoleWithDepartment[],
-    emptyMessage = "No roles found. Create your first role."
-  ) => {
-    if (rolesToRender.length === 0) {
+  const renderRolesTable = (rolesToRender: Role[], emptyMessage = "No roles found. Create your first role.") => {
+    if (!rolesToRender.length) {
       return (
         <TableRow>
           <TableCell colSpan={5} className="text-muted-foreground py-8 text-center">
@@ -536,60 +343,48 @@ export function RoleManager() {
       )
     }
 
-    return (
-      <>
-        {rolesToRender.map((role) => {
-          const isSystemRole =
-            role.id === ADMIN_ROLE_ID ||
-            role.id === SYSTEM_ADMIN_ROLE_ID ||
-            role.name === "admin" ||
-            role.name === "system-admin" ||
-            role.name === "user"
-          return (
-            <TableRow key={role.id} className="group hover:bg-muted/50 transition-colors">
-              <TableCell className="font-medium whitespace-nowrap">
-                <div className="flex items-center gap-2">
-                  {role.name}
-                  {isSystemRole && <Shield className="text-muted-foreground h-4 w-4" />}
-                </div>
-              </TableCell>
-              <TableCell className="whitespace-nowrap">
-                {role.department ? (
-                  <Badge variant="outline" className="bg-muted/30">
-                    {role.department.name}
-                  </Badge>
-                ) : (
-                  <span className="text-muted-foreground">{isSystemRole ? "System-wide" : "No department"}</span>
-                )}
-              </TableCell>
-              <TableCell className="hidden max-w-md truncate lg:table-cell">{role.description || "-"}</TableCell>
-              <TableCell>
-                <Badge variant={isSystemRole ? "secondary" : "default"}>{isSystemRole ? "System" : "Custom"}</Badge>
-              </TableCell>
-              <TableCell className="text-right">
-                <div className="flex justify-end gap-2 opacity-0 transition-opacity group-hover:opacity-100">
-                  <Button variant="ghost" size="sm" onClick={() => openPermissionsPanel(role)}>
-                    <Shield className="h-4 w-4" />
-                  </Button>
-                  {isSystemRole ? (
-                    <span className="text-muted-foreground text-xs">Read-only</span>
-                  ) : (
-                    <>
-                      <Button variant="ghost" size="sm" onClick={() => openEditDialog(role)}>
-                        <Pencil className="h-4 w-4" />
-                      </Button>
-                      <Button variant="ghost" size="sm" onClick={() => openDeleteDialog(role)}>
-                        <Trash2 className="text-destructive h-4 w-4" />
-                      </Button>
-                    </>
-                  )}
-                </div>
-              </TableCell>
-            </TableRow>
-          )
-        })}
-      </>
-    )
+    return rolesToRender.map((role: Role) => {
+      const system = isSystemRole(role)
+      const departmentName = role.department?.name || (role.department_id ? role.department_id : "System-wide")
+
+      return (
+        <TableRow key={role.id}>
+          <TableCell className="px-6 py-4 font-medium">{role.name}</TableCell>
+          <TableCell className="px-6 py-4">{departmentName}</TableCell>
+          <TableCell className="hidden px-6 py-4 leading-relaxed wrap-break-word whitespace-normal lg:table-cell">
+            {role.description || ""}
+          </TableCell>
+          <TableCell className="px-6 py-4">
+            <div className="inline-flex items-center gap-2">
+              <Shield className="text-muted-foreground h-4 w-4" />
+              {system ? "System" : "Custom"}
+            </div>
+          </TableCell>
+          <TableCell className="px-6 py-4 text-right">
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => openEditDialog(role)}
+                disabled={system}
+                aria-label={`Edit role ${role.name}`}
+              >
+                <Pencil className="h-4 w-4" />
+              </Button>
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={() => openDeleteDialog(role)}
+                disabled={system}
+                aria-label={`Delete role ${role.name}`}
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
+            </div>
+          </TableCell>
+        </TableRow>
+      )
+    })
   }
 
   return (
@@ -657,27 +452,6 @@ export function RoleManager() {
                 >
                   <Plus className="mr-2 h-4 w-4" />
                   Add Custom Role
-                </Button>
-              </div>
-            </div>
-            <div className="bg-card text-card-foreground mb-6 flex flex-col items-center justify-between gap-4 rounded-xl border p-4 shadow-sm md:flex-row">
-              <div className="relative w-full md:w-96">
-                <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
-                <Input
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search roles..."
-                  className="pl-9"
-                />
-              </div>
-              <div className="flex w-full items-center gap-2 md:w-auto">
-                <Button variant="outline" className="w-full md:w-auto">
-                  <SlidersHorizontal className="text-muted-foreground mr-2 h-4 w-4" />
-                  Filter
-                </Button>
-                <Button variant="outline" className="w-full md:w-auto">
-                  <ArrowUpDown className="text-muted-foreground mr-2 h-4 w-4" />
-                  Sort
                 </Button>
               </div>
             </div>
@@ -787,7 +561,7 @@ export function RoleManager() {
               }
             }}
             title="Create Role"
-            description="Create a new custom role. Custom roles must be assigned to a department."
+            description="Create a new custom role. Roles can be system-wide or assigned to a department."
             footer={
               <div className="flex justify-end gap-2">
                 <Button
@@ -840,33 +614,61 @@ export function RoleManager() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label htmlFor="department">
-                    Department <span className="text-destructive">*</span>
+                  <Label htmlFor="scope">
+                    Scope <span className="text-destructive">*</span>
                   </Label>
                   <Select
-                    value={formData.department_id || ""}
-                    onValueChange={(value) => setFormData({ ...formData, department_id: value })}
+                    value={formData.scope}
+                    onValueChange={(value) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        scope: value as "department" | "global",
+                        department_id: value === "global" ? "" : prev.department_id,
+                      }))
+                    }
                   >
                     <SelectTrigger>
-                      <SelectValue placeholder="Select a department (required)" />
+                      <SelectValue placeholder="Select scope" />
                     </SelectTrigger>
                     <SelectContent>
-                      {departments.length > 0 ? (
-                        departments.map((dept) => (
-                          <SelectItem key={dept.id} value={dept.id}>
-                            {dept.name}
-                          </SelectItem>
-                        ))
-                      ) : (
-                        <SelectItem value="" disabled>
-                          No departments available
-                        </SelectItem>
-                      )}
+                      <SelectItem value="global">System-wide</SelectItem>
+                      <SelectItem value="department">Department</SelectItem>
                     </SelectContent>
                   </Select>
-                  <p className="text-muted-foreground text-xs">Custom roles must be assigned to a department</p>
-                  {formErrors.department_id && <p className="text-destructive text-sm">{formErrors.department_id}</p>}
+                  <p className="text-muted-foreground text-xs">
+                    System-wide roles are not tied to any single department
+                  </p>
                 </div>
+
+                {formData.scope === "department" ? (
+                  <div className="space-y-2">
+                    <Label htmlFor="department">
+                      Department <span className="text-destructive">*</span>
+                    </Label>
+                    <Select
+                      value={formData.department_id || ""}
+                      onValueChange={(value) => setFormData({ ...formData, department_id: value })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select a department (required)" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {departments.length > 0 ? (
+                          departments.map((dept) => (
+                            <SelectItem key={dept.id} value={dept.id}>
+                              {dept.name}
+                            </SelectItem>
+                          ))
+                        ) : (
+                          <SelectItem value="__no_departments__" disabled>
+                            No departments available
+                          </SelectItem>
+                        )}
+                      </SelectContent>
+                    </Select>
+                    {formErrors.department_id && <p className="text-destructive text-sm">{formErrors.department_id}</p>}
+                  </div>
+                ) : null}
 
                 <div className="space-y-2">
                   <Label htmlFor="description">Description</Label>
@@ -931,33 +733,63 @@ export function RoleManager() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="edit_department">
-                  Department <span className="text-destructive">*</span>
+                <Label htmlFor="edit_scope">
+                  Scope <span className="text-destructive">*</span>
                 </Label>
                 <Select
-                  value={formData.department_id || ""}
-                  onValueChange={(value) => setFormData({ ...formData, department_id: value })}
+                  value={formData.scope}
+                  onValueChange={(value) =>
+                    setFormData((prev) => ({
+                      ...prev,
+                      scope: value as "department" | "global",
+                      department_id: value === "global" ? "" : prev.department_id,
+                    }))
+                  }
+                  disabled={
+                    !!editingRole &&
+                    (editingRole.name === "admin" || editingRole.name === "system-admin" || editingRole.name === "user")
+                  }
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Select a department (required)" />
+                    <SelectValue placeholder="Select scope" />
                   </SelectTrigger>
                   <SelectContent>
-                    {departments.length > 0 ? (
-                      departments.map((dept) => (
-                        <SelectItem key={dept.id} value={dept.id}>
-                          {dept.name}
-                        </SelectItem>
-                      ))
-                    ) : (
-                      <SelectItem value="" disabled>
-                        No departments available
-                      </SelectItem>
-                    )}
+                    <SelectItem value="global">System-wide</SelectItem>
+                    <SelectItem value="department">Department</SelectItem>
                   </SelectContent>
                 </Select>
-                <p className="text-muted-foreground text-xs">Custom roles must be assigned to a department</p>
-                {formErrors.department_id && <p className="text-destructive text-sm">{formErrors.department_id}</p>}
+                <p className="text-muted-foreground text-xs">System-wide roles are not tied to any single department</p>
               </div>
+
+              {formData.scope === "department" ? (
+                <div className="space-y-2">
+                  <Label htmlFor="edit_department">
+                    Department <span className="text-destructive">*</span>
+                  </Label>
+                  <Select
+                    value={formData.department_id || ""}
+                    onValueChange={(value) => setFormData({ ...formData, department_id: value })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Select a department (required)" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {departments.length > 0 ? (
+                        departments.map((dept) => (
+                          <SelectItem key={dept.id} value={dept.id}>
+                            {dept.name}
+                          </SelectItem>
+                        ))
+                      ) : (
+                        <SelectItem value="__no_departments__" disabled>
+                          No departments available
+                        </SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
+                  {formErrors.department_id && <p className="text-destructive text-sm">{formErrors.department_id}</p>}
+                </div>
+              ) : null}
 
               <div className="space-y-2">
                 <Label htmlFor="edit_description">Description</Label>
@@ -970,20 +802,6 @@ export function RoleManager() {
                 />
               </div>
             </div>
-          </RightSidePanel>
-
-          <RightSidePanel
-            open={showPermissionsPanel}
-            onOpenChange={(open) => {
-              setShowPermissionsPanel(open)
-              if (!open) {
-                setPermissionsRole(null)
-              }
-            }}
-            title="Role Permissions"
-            description={permissionsRole ? `Assign permissions for ${permissionsRole.name}` : "Assign permissions"}
-          >
-            {permissionsRole ? <RolePermissionsPanel roleId={permissionsRole.id} /> : null}
           </RightSidePanel>
 
           {/* Delete Confirmation Dialog */}

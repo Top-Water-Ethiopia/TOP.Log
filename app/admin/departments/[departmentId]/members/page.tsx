@@ -33,18 +33,18 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import useSWR from "swr"
 import { apiFetch, getErrorMessage } from "@/lib/api-client"
 
-const DEPT_ROLES = [
-  { value: "department_lead", label: "Department Lead" },
-  { value: "department_manager", label: "Department Manager" },
-  { value: "supervisor", label: "Supervisor" },
-  { value: "contributor", label: "Contributor" },
-  { value: "viewer", label: "Viewer" },
-] as const
-
-type DeptRole = (typeof DEPT_ROLES)[number]["value"]
+type DepartmentRoleRow = {
+  key: string
+  label: string
+  sort_order: number
+  is_active: boolean
+  is_default: boolean
+  default_can_answer_department_questions: boolean
+}
 
 type SearchUser = {
   user_id: string
@@ -97,18 +97,35 @@ type MembershipRow = {
   }
 }
 
-export default function AdminDepartmentMembersPage() {
+type AllMembershipRow = {
+  user_id: string | null
+  department_id: string | null
+  role: string | null
+  is_active: boolean
+  user: {
+    user_id: string | null
+    email: string | null
+    name: string | null
+  }
+  department: {
+    id: string | null
+    name: string | null
+    is_active: boolean | null
+  }
+}
+
+export function DepartmentMembersPanel({ departmentId }: { departmentId: string | null }) {
   const { user, profile, isLoading } = useSupabaseAuth()
   const router = useRouter()
-  const params = useParams<{ departmentId: string }>()
-  const pathname = usePathname()
-  const departmentId = params.departmentId
   const { toast } = useToast()
 
   const { hasPermission, rbacChecked, rbacLoading } = useRBAC()
   const canAccessAdmin = hasPermission("admin.system")
 
   const membershipsKey = canAccessAdmin && departmentId ? `/api/admin/departments/${departmentId}/memberships` : null
+
+  const deptRolesKey = canAccessAdmin ? "/api/admin/department-roles" : null
+  const { data: deptRolesResponse, isLoading: deptRolesLoading } = useSWR<{ data: DepartmentRoleRow[] }>(deptRolesKey)
   const professionRolesKey =
     canAccessAdmin && departmentId ? `/api/admin/departments/${departmentId}/profession-roles` : null
   const professionAssignmentsKey =
@@ -137,11 +154,39 @@ export default function AdminDepartmentMembersPage() {
   const loading = isMembershipsLoading || isProfessionAssignmentsLoading
   const professionRolesLoading = isProfessionRolesLoading
 
-  const memberships = Array.isArray(membershipsResponse?.data) ? (membershipsResponse?.data ?? []) : []
-  const professionRoles = Array.isArray(professionRolesResponse?.data) ? (professionRolesResponse?.data ?? []) : []
-  const professionAssignments = Array.isArray(professionAssignmentsResponse?.data)
-    ? (professionAssignmentsResponse?.data ?? [])
-    : []
+  const allMembershipsKey = canAccessAdmin && !departmentId ? `/api/admin/users/memberships?format=enriched` : null
+  const {
+    data: allMembershipsResponse,
+    error: allMembershipsError,
+    isLoading: isAllMembershipsLoading,
+  } = useSWR<{ data: AllMembershipRow[] }>(allMembershipsKey)
+
+  const memberships = useMemo(() => {
+    return Array.isArray(membershipsResponse?.data) ? (membershipsResponse?.data ?? []) : []
+  }, [membershipsResponse])
+
+  const departmentRoles = useMemo(() => {
+    const rows: DepartmentRoleRow[] = deptRolesResponse?.data ?? []
+    return rows.filter((r) => r.is_active)
+  }, [deptRolesResponse])
+
+  const defaultDepartmentRoleKey = useMemo(() => {
+    if (departmentRoles.length === 0) return ""
+    return departmentRoles.find((r) => r.is_default)?.key || departmentRoles[0].key
+  }, [departmentRoles])
+
+  const implicitDepartmentRoleKey = useMemo(() => {
+    if (departmentRoles.length === 0) return defaultDepartmentRoleKey
+    return departmentRoles[departmentRoles.length - 1]?.key || defaultDepartmentRoleKey
+  }, [defaultDepartmentRoleKey, departmentRoles])
+
+  const professionRoles = useMemo(() => {
+    return Array.isArray(professionRolesResponse?.data) ? (professionRolesResponse?.data ?? []) : []
+  }, [professionRolesResponse])
+
+  const professionAssignments = useMemo(() => {
+    return Array.isArray(professionAssignmentsResponse?.data) ? (professionAssignmentsResponse?.data ?? []) : []
+  }, [professionAssignmentsResponse])
 
   const [showAssignDialog, setShowAssignDialog] = useState(false)
   const [userQuery, setUserQuery] = useState("")
@@ -149,7 +194,7 @@ export default function AdminDepartmentMembersPage() {
   const [searchResults, setSearchResults] = useState<SearchUser[]>([])
   const [selectedUser, setSelectedUser] = useState<SearchUser | null>(null)
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null)
-  const [selectedRole, setSelectedRole] = useState<DeptRole>("contributor")
+  const [selectedRole, setSelectedRole] = useState<string>("")
   const [selectedActive, setSelectedActive] = useState(true)
   const PROFESSION_ROLE_NONE = "__none__"
   const [selectedProfessionRoleId, setSelectedProfessionRoleId] = useState<string>(PROFESSION_ROLE_NONE)
@@ -189,6 +234,12 @@ export default function AdminDepartmentMembersPage() {
   }, [professionAssignmentsError, toast])
 
   useEffect(() => {
+    if (!allMembershipsError) return
+    const message = getErrorMessage(allMembershipsError, "Failed to load members")
+    toast({ title: "Error", description: message, variant: "destructive" })
+  }, [allMembershipsError, toast])
+
+  useEffect(() => {
     if (isLoading) return
 
     if (!user) {
@@ -209,14 +260,11 @@ export default function AdminDepartmentMembersPage() {
     if (!rbacChecked || rbacLoading) return
     if (!canAccessAdmin) return
     if (!departmentId) return
-
-    if (pathname.endsWith(`/admin/departments/${departmentId}/members`)) {
-      router.replace(`/admin/departments/${departmentId}?tab=members`)
-    }
-  }, [pathname, isLoading, user, router, departmentId, rbacChecked, rbacLoading, canAccessAdmin])
+  }, [isLoading, user, rbacChecked, rbacLoading, canAccessAdmin, departmentId])
 
   const hardDeleteMember = async () => {
     if (!memberToHardDelete) return
+    if (!departmentId) return
 
     const prevMembershipsResponse = membershipsResponse
     const prevProfessionAssignmentsResponse = professionAssignmentsResponse
@@ -261,7 +309,7 @@ export default function AdminDepartmentMembersPage() {
 
       setMemberToHardDelete(null)
       setHardDeleteConfirmText("")
-    } catch (error: any) {
+    } catch (error: unknown) {
       if (prevMembershipsResponse) {
         mutateMemberships(prevMembershipsResponse, { revalidate: false })
       } else {
@@ -292,6 +340,7 @@ export default function AdminDepartmentMembersPage() {
 
   const removeMember = async () => {
     if (!memberToRemove) return
+    if (!departmentId) return
 
     const prevMembershipsResponse = membershipsResponse
     const prevProfessionAssignmentsResponse = professionAssignmentsResponse
@@ -379,7 +428,7 @@ export default function AdminDepartmentMembersPage() {
                   }),
                 })
                 toast({ title: "Restored", description: "Membership restored" })
-              } catch (e: any) {
+              } catch (e: unknown) {
                 if (prevUndoMembershipsResponse) {
                   mutateMemberships(prevUndoMembershipsResponse, { revalidate: false })
                 } else {
@@ -402,7 +451,7 @@ export default function AdminDepartmentMembersPage() {
       })
 
       setMemberToRemove(null)
-    } catch (error: any) {
+    } catch (error: unknown) {
       if (prevMembershipsResponse) {
         mutateMemberships(prevMembershipsResponse, { revalidate: false })
       } else {
@@ -445,7 +494,7 @@ export default function AdminDepartmentMembersPage() {
         id: `implicit-${a.user_id}`,
         user_id: a.user_id,
         department_id: a.department_id,
-        role: "viewer",
+        role: implicitDepartmentRoleKey || defaultDepartmentRoleKey || "",
         is_active: a.is_active,
         created_at: a.created_at,
         updated_at: a.updated_at,
@@ -462,7 +511,14 @@ export default function AdminDepartmentMembersPage() {
       const bn = b.user?.name || b.user?.email || b.user_id
       return an.localeCompare(bn)
     })
-  }, [memberships, professionAssignments])
+  }, [defaultDepartmentRoleKey, implicitDepartmentRoleKey, memberships, professionAssignments])
+
+  useEffect(() => {
+    if (!showAssignDialog) return
+    if (!defaultDepartmentRoleKey) return
+    if (selectedRole) return
+    setSelectedRole(defaultDepartmentRoleKey)
+  }, [defaultDepartmentRoleKey, selectedRole, showAssignDialog])
 
   const openAssign = () => {
     setShowAssignDialog(true)
@@ -470,7 +526,7 @@ export default function AdminDepartmentMembersPage() {
     setSearchResults([])
     setSelectedUser(null)
     setSelectedUserId(null)
-    setSelectedRole("contributor")
+    setSelectedRole(defaultDepartmentRoleKey)
     setSelectedActive(true)
     setSelectedProfessionRoleId(PROFESSION_ROLE_NONE)
     setSelectedProfessionActive(true)
@@ -496,7 +552,7 @@ export default function AdminDepartmentMembersPage() {
 
       if (requestId !== userSearchRequestIdRef.current) return
       setSearchResults((json.data || []) as SearchUser[])
-    } catch (error: any) {
+    } catch (error: unknown) {
       if (controller.signal.aborted) return
       toast({
         title: "Error",
@@ -539,6 +595,17 @@ export default function AdminDepartmentMembersPage() {
       return
     }
 
+    if (!departmentId) {
+      toast({
+        title: "Missing department",
+        description: "Select a department to edit memberships.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    const deptId = departmentId
+
     const prevMembershipsResponse = membershipsResponse
     const prevProfessionAssignmentsResponse = professionAssignmentsResponse
 
@@ -556,7 +623,7 @@ export default function AdminDepartmentMembersPage() {
         : {
             id: `temp-${selectedUserId}`,
             user_id: selectedUserId,
-            department_id: departmentId,
+            department_id: deptId,
             role: selectedRole,
             is_active: selectedActive,
             created_at: nowIso,
@@ -602,7 +669,7 @@ export default function AdminDepartmentMembersPage() {
             : {
                 id: `temp-pa-${selectedUserId}`,
                 user_id: selectedUserId,
-                department_id: departmentId,
+                department_id: deptId,
                 role_id: effectiveProfessionRoleId,
                 is_active: selectedProfessionActive,
                 created_at: nowIso,
@@ -629,7 +696,7 @@ export default function AdminDepartmentMembersPage() {
               updated_at: string
             }
           | undefined
-      }>(`/api/admin/departments/${departmentId}/memberships`, {
+      }>(`/api/admin/departments/${deptId}/memberships`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -666,12 +733,11 @@ export default function AdminDepartmentMembersPage() {
       }
 
       if (effectiveProfessionRoleId === PROFESSION_ROLE_NONE) {
-        await apiFetch<{ data: unknown }>(
-          `/api/admin/departments/${departmentId}/profession-assignments/${selectedUserId}`,
-          { method: "DELETE" }
-        )
+        await apiFetch<{ data: unknown }>(`/api/admin/departments/${deptId}/profession-assignments/${selectedUserId}`, {
+          method: "DELETE",
+        })
       } else {
-        await apiFetch<{ data: unknown }>(`/api/admin/departments/${departmentId}/profession-assignments`, {
+        await apiFetch<{ data: unknown }>(`/api/admin/departments/${deptId}/profession-assignments`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -684,7 +750,7 @@ export default function AdminDepartmentMembersPage() {
 
       toast({ title: "Saved", description: "Department membership updated" })
       setShowAssignDialog(false)
-    } catch (error: any) {
+    } catch (error: unknown) {
       if (prevMembershipsResponse) {
         mutateMemberships(prevMembershipsResponse, { revalidate: false })
       } else {
@@ -723,6 +789,78 @@ export default function AdminDepartmentMembersPage() {
             {[...Array(6)].map((_, i) => (
               <Skeleton key={i} className="h-10 w-full bg-gray-200/60 dark:bg-gray-800" />
             ))}
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  if (!departmentId) {
+    const allMemberships = Array.isArray(allMembershipsResponse?.data) ? (allMembershipsResponse?.data ?? []) : []
+    const rows = [...allMemberships].sort((a, b) => {
+      const an = a.user?.name || a.user?.email || a.user_id || ""
+      const bn = b.user?.name || b.user?.email || b.user_id || ""
+      if (an !== bn) return an.localeCompare(bn)
+      const ad = a.department?.name || a.department_id || ""
+      const bd = b.department?.name || b.department_id || ""
+      return ad.localeCompare(bd)
+    })
+
+    return (
+      <div className="space-y-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>People</CardTitle>
+            <CardDescription>All department memberships.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {isAllMembershipsLoading ? (
+              <div className="space-y-3">
+                {[...Array(6)].map((_, i) => (
+                  <Skeleton key={i} className="h-10 w-full bg-gray-200/60 dark:bg-gray-800" />
+                ))}
+              </div>
+            ) : rows.length === 0 ? (
+              <div className="text-muted-foreground text-sm">No people yet.</div>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Email</TableHead>
+                      <TableHead>Department</TableHead>
+                      <TableHead>Role</TableHead>
+                      <TableHead>Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {rows.map((m) => {
+                      const name = m.user?.name || "Unknown"
+                      const email = m.user?.email || m.user_id || ""
+                      const dept = m.department?.name || m.department_id || ""
+                      return (
+                        <TableRow key={`${m.user_id ?? "unknown"}-${m.department_id ?? "unknown"}`}>
+                          <TableCell className="font-medium">{name}</TableCell>
+                          <TableCell className="text-muted-foreground">{email}</TableCell>
+                          <TableCell>{dept}</TableCell>
+                          <TableCell>{m.role ? <Badge variant="secondary">{m.role}</Badge> : "-"}</TableCell>
+                          <TableCell>
+                            {m.is_active ? (
+                              <Badge variant="secondary">Active</Badge>
+                            ) : (
+                              <Badge variant="outline" className="border-dashed">
+                                Inactive
+                              </Badge>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      )
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
           </CardContent>
         </Card>
       </div>
@@ -829,7 +967,7 @@ export default function AdminDepartmentMembersPage() {
                             onSelect: () => {
                               setShowAssignDialog(true)
                               setSelectedUserId(m.user_id)
-                              setSelectedRole(m.role as DeptRole)
+                              setSelectedRole(m.role)
                               setSelectedActive(m.is_active)
                               const prof = professionAssignmentByUserId.get(m.user_id)
                               const nextProfessionRoleId =
@@ -936,19 +1074,20 @@ export default function AdminDepartmentMembersPage() {
             </div>
 
             <div className="space-y-2">
-              <div className="text-sm font-medium">Department role</div>
-              <Select value={selectedRole} onValueChange={(v) => setSelectedRole(v as DeptRole)}>
+              <div className="text-sm font-medium">Department Access Control</div>
+              <Select value={selectedRole} onValueChange={setSelectedRole}>
                 <SelectTrigger>
                   <SelectValue placeholder="Select role" />
                 </SelectTrigger>
                 <SelectContent>
-                  {DEPT_ROLES.map((r) => (
-                    <SelectItem key={r.value} value={r.value}>
+                  {departmentRoles.map((r) => (
+                    <SelectItem key={r.key} value={r.key}>
                       {r.label}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
+              {deptRolesLoading && <div className="text-muted-foreground text-xs">Loading roles...</div>}
             </div>
 
             <div className="space-y-2">
@@ -1081,4 +1220,21 @@ export default function AdminDepartmentMembersPage() {
       </Dialog>
     </div>
   )
+}
+
+export default function AdminDepartmentMembersPage() {
+  const router = useRouter()
+  const params = useParams<{ departmentId: string }>()
+  const pathname = usePathname()
+  const departmentId = params.departmentId
+
+  useEffect(() => {
+    if (!departmentId) return
+
+    if (pathname.endsWith(`/admin/departments/${departmentId}/members`)) {
+      router.replace(`/admin/departments/${departmentId}?tab=members`)
+    }
+  }, [pathname, router, departmentId])
+
+  return <DepartmentMembersPanel departmentId={departmentId} />
 }

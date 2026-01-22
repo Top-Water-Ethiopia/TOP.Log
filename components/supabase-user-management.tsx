@@ -11,7 +11,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
-import { ActionMenu } from "@/components/ui/action-menu"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { Separator } from "@/components/ui/separator"
 import {
@@ -20,16 +19,11 @@ import {
   Search,
   RefreshCw,
   Edit,
-  Trash2,
   CheckCircle2,
   XCircle,
   Loader2,
-  Lock,
-  Unlock,
   Eye,
   EyeOff,
-  Key,
-  MoreHorizontal,
   ChevronLeft,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -128,7 +122,6 @@ export function SupabaseUserManagement() {
   const [showCreateUser, setShowCreateUser] = useState(false)
   const [showEditUser, setShowEditUser] = useState(false)
   const [editingUser, setEditingUser] = useState<UserWithProfile | null>(null)
-  const [togglingUserId, setTogglingUserId] = useState<string | null>(null)
   const [isUpdatingUser, setIsUpdatingUser] = useState(false)
   const [resettingPassword, setResettingPassword] = useState(false)
   const [isDeletingUser, setIsDeletingUser] = useState(false)
@@ -556,7 +549,9 @@ export function SupabaseUserManagement() {
   }
 
   const handleUpdateUser = async () => {
-    if (!validateEditUserForm() || !editingUser || isUpdatingUser) return
+    if (!editingUser || !editingUser.profile) return
+
+    if (!validateEditUserForm()) return
 
     setIsUpdatingUser(true)
 
@@ -705,67 +700,6 @@ export function SupabaseUserManagement() {
       toast.error(getErrorMessage(error, "Failed to update user"))
     } finally {
       setIsUpdatingUser(false)
-    }
-  }
-
-  const handleToggleUserStatus = async (user: UserWithProfile) => {
-    if (!user.profile) return
-
-    if (user.id === currentUser?.id) {
-      toast.error("You cannot deactivate your own account")
-      return
-    }
-
-    // Set loading state
-    setTogglingUserId(user.id)
-
-    const prevUsersResponse = usersResponse
-    const nextIsActive = !user.profile.is_active
-
-    mutateUsers(
-      (current) => {
-        if (!current) return current
-        const rows = Array.isArray(current.data) ? current.data : []
-        const nextRows = rows.map((u) => {
-          if (u.id !== user.id) return u
-          return {
-            ...u,
-            profile: {
-              ...u.profile,
-              is_active: nextIsActive,
-            },
-          }
-        })
-        return { ...current, data: nextRows }
-      },
-      { revalidate: false }
-    )
-
-    try {
-      await apiFetch("/api/admin/users", {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          user_id: user.id,
-          is_active: !user.profile.is_active,
-        }),
-      })
-
-      toast.success(`User ${user.profile.is_active ? "deactivated" : "activated"} successfully`)
-      mutateUsers()
-    } catch (error: unknown) {
-      if (prevUsersResponse) {
-        mutateUsers(prevUsersResponse, { revalidate: false })
-      } else {
-        mutateUsers()
-      }
-      console.error("Failed to update user status:", error)
-      toast.error(getErrorMessage(error, "Failed to update user status"))
-    } finally {
-      // Clear loading state
-      setTogglingUserId(null)
     }
   }
 
@@ -1112,96 +1046,6 @@ export function SupabaseUserManagement() {
                               <Edit className="h-4 w-4" />
                               <span className="sr-only">Edit user</span>
                             </Button>
-
-                            <ActionMenu
-                              trigger={
-                                <Button variant="outline" size="icon" className="h-8 w-8">
-                                  <MoreHorizontal className="h-4 w-4" />
-                                  <span className="sr-only">More actions</span>
-                                </Button>
-                              }
-                              contentClassName="w-52"
-                              items={[
-                                {
-                                  type: "item",
-                                  label: user.profile?.is_active ? "Deactivate" : "Activate",
-                                  icon:
-                                    togglingUserId === user.id ? (
-                                      <Loader2 className="h-4 w-4 animate-spin" />
-                                    ) : user.profile?.is_active ? (
-                                      <Lock className="h-4 w-4" />
-                                    ) : (
-                                      <Unlock className="h-4 w-4" />
-                                    ),
-                                  onSelect: () => {
-                                    if (togglingUserId === user.id) return
-                                    handleToggleUserStatus(user)
-                                  },
-                                  disabled: user.id === currentUser?.id || togglingUserId === user.id,
-                                  title:
-                                    user.id === currentUser?.id
-                                      ? "You cannot change your own status"
-                                      : user.profile?.is_active
-                                        ? "Deactivate user"
-                                        : "Activate user",
-                                },
-                                {
-                                  type: "item",
-                                  label: "Reset password",
-                                  icon: <Key className="h-4 w-4" />,
-                                  onSelect: () => {
-                                    setEditingUser(user)
-                                    setEditUserPanelMode("reset_password")
-                                    setResetPasswordMode("email")
-                                    setNewPassword("")
-                                    setConfirmNewPassword("")
-                                    setDeleteConfirmation("")
-                                    setEditUserForm({
-                                      name: user.profile?.name || "",
-                                      email: user.email,
-                                      role_id: user.profile?.role_id || USER_ROLE_ID,
-                                      is_active: user.profile?.is_active ?? true,
-                                      email_verified: !!user.email_confirmed_at,
-                                    })
-                                    setShowEditUser(true)
-                                  },
-                                },
-                                { type: "separator" },
-                                {
-                                  type: "item",
-                                  label: "Delete user",
-                                  icon: <Trash2 className="h-4 w-4" />,
-                                  destructive: true,
-                                  onSelect: () => {
-                                    setEditingUser(user)
-                                    setEditUserPanelMode("delete")
-                                    setResetPasswordMode("email")
-                                    setNewPassword("")
-                                    setConfirmNewPassword("")
-                                    setDeleteConfirmation("")
-                                    setEditUserForm({
-                                      name: user.profile?.name || "",
-                                      email: user.email,
-                                      role_id: user.profile?.role_id || USER_ROLE_ID,
-                                      is_active: user.profile?.is_active ?? true,
-                                      email_verified: !!user.email_confirmed_at,
-                                    })
-                                    setShowEditUser(true)
-                                  },
-                                  disabled:
-                                    user.id === currentUser?.id ||
-                                    user.profile?.role_id === ADMIN_ROLE_ID ||
-                                    user.profile?.role_id === SYSTEM_ADMIN_ROLE_ID,
-                                  title:
-                                    user.id === currentUser?.id
-                                      ? "You cannot delete your own account"
-                                      : user.profile?.role_id === ADMIN_ROLE_ID ||
-                                          user.profile?.role_id === SYSTEM_ADMIN_ROLE_ID
-                                        ? "Cannot delete admin accounts"
-                                        : "Delete user",
-                                },
-                              ]}
-                            />
                           </div>
                         </TableCell>
                       </TableRow>

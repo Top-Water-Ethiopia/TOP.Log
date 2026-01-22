@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { RefreshCw, Save, Search } from "lucide-react"
 
 type PermissionRow = {
@@ -17,6 +18,14 @@ type PermissionRow = {
   role_id: string
   resource: string
   action: string
+}
+
+type PermissionDefinition = {
+  id: string
+  resource: string
+  action: string
+  name: string
+  description: string | null
 }
 
 type PermissionCatalogResponse = {
@@ -68,10 +77,14 @@ export function RolePermissionsPanel({ roleId }: { roleId: string }) {
     mutate: mutateCatalog,
   } = useSWR<PermissionCatalogResponse>(catalogKey)
 
+  const defsKey = "/api/admin/permission-definitions"
+  const { data: defsResponse, error: defsError, mutate: mutateDefs } = useSWR<{ data: PermissionDefinition[] }>(defsKey)
+
   const [searchQuery, setSearchQuery] = useState("")
   const [newPermission, setNewPermission] = useState("")
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [isSaving, setIsSaving] = useState(false)
+  const [expandedGroups, setExpandedGroups] = useState<string[]>([])
 
   useEffect(() => {
     if (!permissionsError) return
@@ -89,15 +102,38 @@ export function RolePermissionsPanel({ roleId }: { roleId: string }) {
     toast({ title: "Error", description: message, variant: "destructive" })
   }, [catalogError, toast])
 
+  useEffect(() => {
+    if (!defsError) return
+    const message = getErrorMessage(defsError, "Failed to load permission definitions")
+    if (lastLoadErrorRef.current === message) return
+    lastLoadErrorRef.current = message
+    toast({ title: "Error", description: message, variant: "destructive" })
+  }, [defsError, toast])
+
   const assignedNames = useMemo(() => {
     const rows = permissionsResponse?.data || []
     return rows.map((p) => toPermissionName(p.resource, p.action))
   }, [permissionsResponse])
 
   const allKnownNames = useMemo(() => {
+    const defs = defsResponse?.data
+    if (Array.isArray(defs) && defs.length > 0) {
+      return defs.map((d) => d.name)
+    }
+
     const names = catalogResponse?.data
     return Array.isArray(names) ? names : []
-  }, [catalogResponse?.data])
+  }, [catalogResponse?.data, defsResponse?.data])
+
+  const descriptionByName = useMemo(() => {
+    const map = new Map<string, string | null>()
+    const defs = defsResponse?.data
+    if (!Array.isArray(defs)) return map
+    defs.forEach((d) => {
+      map.set(d.name, d.description)
+    })
+    return map
+  }, [defsResponse?.data])
 
   const selectedNames = useMemo(() => Array.from(selected), [selected])
 
@@ -105,6 +141,14 @@ export function RolePermissionsPanel({ roleId }: { roleId: string }) {
     const extra = [...assignedNames, ...selectedNames].filter((n) => !allKnownNames.includes(n))
     return Array.from(new Set([...allKnownNames, ...extra])).sort((a, b) => a.localeCompare(b))
   }, [allKnownNames, assignedNames, selectedNames])
+
+  const displayAction = useMemo(() => {
+    return (permissionName: string) => {
+      const idx = permissionName.indexOf(".")
+      if (idx < 0 || idx === permissionName.length - 1) return permissionName
+      return permissionName.slice(idx + 1)
+    }
+  }, [])
 
   useEffect(() => {
     setSelected(new Set(assignedNames))
@@ -116,6 +160,12 @@ export function RolePermissionsPanel({ roleId }: { roleId: string }) {
     return allPermissionNames.filter((p) => p.toLowerCase().includes(q))
   }, [allPermissionNames, searchQuery])
 
+  const allGroupKeys = useMemo(() => grouped.map(([group]) => group), [grouped])
+
+  const toggleAllGroups = (expand: boolean) => {
+    setExpandedGroups(expand ? allGroupKeys : [])
+  }
+
   const grouped = useMemo(() => {
     const groups = new Map<string, string[]>()
     filteredPermissionNames.forEach((name) => {
@@ -125,8 +175,28 @@ export function RolePermissionsPanel({ roleId }: { roleId: string }) {
       groups.set(key, current)
     })
 
-    return Array.from(groups.entries()).sort(([a], [b]) => a.localeCompare(b))
-  }, [filteredPermissionNames])
+    const entries = Array.from(groups.entries())
+    entries.forEach(([group, permissions]) => {
+      permissions.sort((a, b) => {
+        if (group === "admin") {
+          const priority = ["audit", "settings", "system"]
+          const aAction = displayAction(a)
+          const bAction = displayAction(b)
+          const aIdx = priority.indexOf(aAction)
+          const bIdx = priority.indexOf(bAction)
+          if (aIdx !== -1 || bIdx !== -1) {
+            if (aIdx === -1) return 1
+            if (bIdx === -1) return -1
+            return aIdx - bIdx
+          }
+        }
+
+        return a.localeCompare(b)
+      })
+    })
+
+    return entries.sort(([a], [b]) => a.localeCompare(b))
+  }, [filteredPermissionNames, displayAction])
 
   const toggle = (permission: string, enabled: boolean) => {
     setSelected((prev) => {
@@ -188,6 +258,7 @@ export function RolePermissionsPanel({ roleId }: { roleId: string }) {
 
       mutatePermissions()
       mutateCatalog()
+      mutateDefs()
     } catch (error) {
       toast({
         title: "Error",
@@ -220,7 +291,7 @@ export function RolePermissionsPanel({ roleId }: { roleId: string }) {
             <Button
               variant="outline"
               size="sm"
-              onClick={() => Promise.all([mutatePermissions(), mutateCatalog()])}
+              onClick={() => Promise.all([mutatePermissions(), mutateCatalog(), mutateDefs()])}
               disabled={isLoading}
             >
               <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
@@ -269,6 +340,22 @@ export function RolePermissionsPanel({ roleId }: { roleId: string }) {
               <Button
                 variant="outline"
                 size="sm"
+                onClick={() => toggleAllGroups(true)}
+                disabled={expandedGroups.length === allGroupKeys.length}
+              >
+                Expand All
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => toggleAllGroups(false)}
+                disabled={expandedGroups.length === 0}
+              >
+                Collapse All
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
                 onClick={() => setAll(true)}
                 disabled={filteredPermissionNames.length === 0}
               >
@@ -280,28 +367,47 @@ export function RolePermissionsPanel({ roleId }: { roleId: string }) {
             </div>
           </div>
 
-          {grouped.map(([group, permissions]) => (
-            <div key={group} className="rounded-lg border p-4">
-              <div className="mb-3 flex items-center justify-between">
-                <div className="font-medium">{group}</div>
-                <div className="text-muted-foreground text-xs">{permissions.length}</div>
-              </div>
-
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {permissions.map((perm) => {
-                  const checked = selected.has(perm)
-                  return (
-                    <label key={perm} className="hover:bg-muted/40 flex items-center gap-2 rounded-md border p-2">
-                      <Checkbox checked={checked} onCheckedChange={(v) => toggle(perm, v === true)} />
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-medium">{perm}</div>
-                      </div>
-                    </label>
-                  )
-                })}
-              </div>
-            </div>
-          ))}
+          <Accordion
+            type="multiple"
+            value={expandedGroups}
+            onValueChange={setExpandedGroups}
+            className="rounded-lg border"
+          >
+            {grouped.map(([group, permissions]) => (
+              <AccordionItem key={group} value={group} className="px-4">
+                <AccordionTrigger className="py-3 hover:no-underline">
+                  <div className="flex w-full items-center justify-between gap-4">
+                    <div className="font-medium">{group}</div>
+                    <div className="text-muted-foreground text-sm">{permissions.length}</div>
+                  </div>
+                </AccordionTrigger>
+                <AccordionContent className="pb-0">
+                  <div className="divide-y rounded-lg border">
+                    {permissions.map((perm) => {
+                      const checked = selected.has(perm)
+                      const description = descriptionByName.get(perm) || null
+                      return (
+                        <label key={perm} className="hover:bg-muted/40 flex items-start gap-3 p-3">
+                          <div className="pt-0.5">
+                            <Checkbox checked={checked} onCheckedChange={(v) => toggle(perm, v === true)} />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex min-w-0 items-center gap-2">
+                              <div className="bg-muted-foreground mt-1 h-1.5 w-1.5 shrink-0 rounded-full" />
+                              <div className="truncate text-sm font-medium">{displayAction(perm)}</div>
+                            </div>
+                            {description ? (
+                              <div className="text-muted-foreground truncate text-sm">{description}</div>
+                            ) : null}
+                          </div>
+                        </label>
+                      )
+                    })}
+                  </div>
+                </AccordionContent>
+              </AccordionItem>
+            ))}
+          </Accordion>
         </TabsContent>
 
         <TabsContent value="all" className="space-y-4">
@@ -325,11 +431,15 @@ export function RolePermissionsPanel({ roleId }: { roleId: string }) {
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
             {filteredPermissionNames.map((perm) => {
               const checked = selected.has(perm)
+              const description = descriptionByName.get(perm) || null
               return (
-                <label key={perm} className="hover:bg-muted/40 flex items-center gap-2 rounded-md border p-2">
-                  <Checkbox checked={checked} onCheckedChange={(v) => toggle(perm, v === true)} />
+                <label key={perm} className="hover:bg-muted/40 flex items-start gap-2 rounded-md border p-2">
+                  <div className="pt-0.5">
+                    <Checkbox checked={checked} onCheckedChange={(v) => toggle(perm, v === true)} />
+                  </div>
                   <div className="min-w-0">
                     <div className="truncate text-sm font-medium">{perm}</div>
+                    {description ? <div className="text-muted-foreground truncate text-sm">{description}</div> : null}
                   </div>
                 </label>
               )

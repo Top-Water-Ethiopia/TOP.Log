@@ -10,6 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
+import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -67,6 +68,7 @@ export function PermissionCatalogManager() {
 
   const [deleteTarget, setDeleteTarget] = useState<PermissionDefinition | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [expandedGroups, setExpandedGroups] = useState<string[]>([])
 
   useEffect(() => {
     if (!error) return
@@ -97,6 +99,12 @@ export function PermissionCatalogManager() {
       .map(([key, perms]) => [key, perms.sort((a, b) => a.name.localeCompare(b.name))] as const)
       .sort(([a], [b]) => a.localeCompare(b))
   }, [permissions])
+
+  const allGroupKeys = useMemo(() => groupedPermissions.map(([group]) => group), [groupedPermissions])
+
+  const toggleAllGroups = (expand: boolean) => {
+    setExpandedGroups(expand ? allGroupKeys : [])
+  }
 
   const createPermission = async () => {
     const normalized = normalizePermissionName(newName)
@@ -224,35 +232,66 @@ export function PermissionCatalogManager() {
         </div>
 
         <div className="space-y-2">
-          <Label>Permissions ({permissions.length})</Label>
+          <div className="mb-2 flex items-center justify-between">
+            <Label>Permissions ({permissions.length})</Label>
+            <div className="space-x-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => toggleAllGroups(true)}
+                disabled={expandedGroups.length === allGroupKeys.length}
+              >
+                Expand All
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => toggleAllGroups(false)}
+                disabled={expandedGroups.length === 0}
+              >
+                Collapse All
+              </Button>
+            </div>
+          </div>
           <div className="space-y-4">
-            {groupedPermissions.map(([group, perms]) => (
-              <div key={group} className="rounded-lg border">
-                <div className="flex items-center justify-between gap-4 border-b px-4 py-3">
-                  <div className="font-medium">{group}</div>
-                  <div className="text-muted-foreground text-sm">{perms.length}</div>
-                </div>
-                <div className="divide-y">
-                  {perms.map((p) => (
-                    <div key={p.id} className="flex items-center justify-between gap-4 p-3">
-                      <div className="min-w-0 pl-4">
-                        <div className="flex min-w-0 items-center gap-2">
-                          <div className="bg-muted-foreground h-1.5 w-1.5 shrink-0 rounded-full" />
-                          <div className="truncate font-medium">{p.action}</div>
-                        </div>
-                        {p.description ? (
-                          <div className="text-muted-foreground truncate text-sm">{p.description}</div>
-                        ) : null}
-                      </div>
-                      <Button variant="outline" size="sm" onClick={() => setDeleteTarget(p)}>
-                        <Trash2 className="mr-2 h-4 w-4" />
-                        Delete
-                      </Button>
+            <Accordion
+              type="multiple"
+              value={expandedGroups}
+              onValueChange={setExpandedGroups}
+              className="rounded-lg border"
+            >
+              {groupedPermissions.map(([group, perms]) => (
+                <AccordionItem key={group} value={group} className="px-4">
+                  <AccordionTrigger className="py-3 hover:no-underline">
+                    <div className="flex w-full items-center justify-between gap-4">
+                      <div className="font-medium">{group}</div>
+                      <div className="text-muted-foreground text-sm">{perms.length}</div>
                     </div>
-                  ))}
-                </div>
-              </div>
-            ))}
+                  </AccordionTrigger>
+                  <AccordionContent className="pb-0">
+                    <div className="divide-y rounded-lg border">
+                      {perms.map((p) => (
+                        <div key={p.id} className="flex items-center justify-between gap-4 p-3">
+                          <div className="min-w-0 pl-4">
+                            <div className="flex min-w-0 items-center gap-2">
+                              <div className="bg-muted-foreground h-1.5 w-1.5 shrink-0 rounded-full" />
+                              <div className="truncate font-medium">{p.action}</div>
+                            </div>
+                            {p.description ? (
+                              <div className="text-muted-foreground truncate text-sm">{p.description}</div>
+                            ) : null}
+                          </div>
+                          <Button variant="outline" size="sm" onClick={() => setDeleteTarget(p)}>
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Delete
+                          </Button>
+                        </div>
+                      ))}
+                    </div>
+                  </AccordionContent>
+                </AccordionItem>
+              ))}
+            </Accordion>
 
             {permissions.length === 0 ? (
               <div className="text-muted-foreground rounded-lg border p-4 text-sm">No permissions found.</div>
