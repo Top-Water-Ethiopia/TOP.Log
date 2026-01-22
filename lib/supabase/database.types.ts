@@ -204,6 +204,83 @@ export type Database = {
         }
         Relationships: []
       }
+      department_roles: {
+        Row: {
+          created_at: string
+          default_can_answer_department_questions: boolean
+          is_active: boolean
+          is_default: boolean
+          key: string
+          label: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          default_can_answer_department_questions?: boolean
+          is_active?: boolean
+          is_default?: boolean
+          key: string
+          label: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          default_can_answer_department_questions?: boolean
+          is_active?: boolean
+          is_default?: boolean
+          key?: string
+          label?: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      department_role_permissions: {
+        Row: {
+          action: string
+          created_at: string
+          created_by: string | null
+          department_id: string
+          department_role: string
+          id: string
+          resource: string
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          action: string
+          created_at?: string
+          created_by?: string | null
+          department_id: string
+          department_role: string
+          id?: string
+          resource: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          action?: string
+          created_at?: string
+          created_by?: string | null
+          department_id?: string
+          department_role?: string
+          id?: string
+          resource?: string
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "department_role_permissions_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       permission_definitions: {
         Row: {
           action: string
@@ -273,6 +350,7 @@ export type Database = {
         Row: {
           created_at: string
           created_by: string | null
+          department_id: string | null
           display_order: number
           id: string
           is_active: boolean
@@ -290,7 +368,7 @@ export type Database = {
           question_description: string | null
           question_label: string
           question_type: string
-          role_id: string
+          role_id: string | null
           step: number | null
           updated_at: string
           updated_by: string | null
@@ -299,6 +377,7 @@ export type Database = {
         Insert: {
           created_at?: string
           created_by?: string | null
+          department_id?: string | null
           display_order?: number
           id?: string
           is_active?: boolean
@@ -316,7 +395,7 @@ export type Database = {
           question_description?: string | null
           question_label: string
           question_type: string
-          role_id: string
+          role_id?: string | null
           step?: number | null
           updated_at?: string
           updated_by?: string | null
@@ -325,6 +404,7 @@ export type Database = {
         Update: {
           created_at?: string
           created_by?: string | null
+          department_id?: string | null
           display_order?: number
           id?: string
           is_active?: boolean
@@ -342,13 +422,20 @@ export type Database = {
           question_description?: string | null
           question_label?: string
           question_type?: string
-          role_id?: string
+          role_id?: string | null
           step?: number | null
           updated_at?: string
           updated_by?: string | null
           validation_rules?: Json | null
         }
         Relationships: [
+          {
+            foreignKeyName: "role_questions_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
           {
             foreignKeyName: "role_questions_role_id_fkey"
             columns: ["role_id"]
