@@ -169,9 +169,8 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
       return NextResponse.json({ error: "Profile not found" }, { status: 404 })
     }
 
-    const isAdmin =
-      ((profile as any).role_id === ADMIN_ROLE_ID || (profile as any).role_id === SYSTEM_ADMIN_ROLE_ID) &&
-      (profile as any).is_active === true
+    // Delete is restricted to the Admin role only (not system-admin).
+    const isAdmin = (profile as any).role_id === ADMIN_ROLE_ID && (profile as any).is_active === true
     if (!isAdmin) {
       return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
     }
@@ -195,7 +194,8 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
       return NextResponse.json({ error: "Entry not found" }, { status: 404 })
     }
 
-    const { data: deletedEntries, error: deleteError } = await supabase
+    // Use adminSupabase to bypass RLS when an admin performs deletes from the admin UI.
+    const { data: deletedEntries, error: deleteError } = await adminSupabase
       .from("captain_log_entries")
       .delete()
       .eq("id", entryId)
