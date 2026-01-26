@@ -34,19 +34,23 @@ function AdminDepartmentPageInner() {
     }
   }, [departmentId, router, searchParams])
 
-  if (tab === "members") {
+  const main = (() => {
+    if (tab === "members") {
+      return <AdminDepartmentMembersPage />
+    }
+
+    if (tab === "roles") {
+      const rolesTab = searchParams.get("rolesTab")
+      const defaultTab = rolesTab === "assignments" || rolesTab === "members" ? "assignments" : "roles"
+      return <DepartmentProfessionsManager departmentId={departmentId} embedded defaultTab={defaultTab} />
+    }
+
+    if (tab === "access-control") {
+      return <AccessControlTab departmentId={departmentId} />
+    }
+
     return <AdminDepartmentMembersPage />
-  }
+  })()
 
-  if (tab === "roles") {
-    const rolesTab = searchParams.get("rolesTab")
-    const defaultTab = rolesTab === "assignments" || rolesTab === "members" ? "assignments" : "roles"
-    return <DepartmentProfessionsManager departmentId={departmentId} embedded defaultTab={defaultTab} />
-  }
-
-  if (tab === "access-control") {
-    return <AccessControlTab departmentId={departmentId} />
-  }
-
-  return <AdminDepartmentMembersPage />
+  return <>{main}</>
 }

@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -13,6 +13,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
 import { useToast } from "@/components/ui/use-toast"
 import { ToastAction } from "@/components/ui/toast"
+import { ActionMenu, type ActionMenuItem } from "@/components/ui/action-menu"
 import { toast as sonnerToast } from "sonner"
 import useSWR from "swr"
 import { ApiError, apiFetch, getErrorMessage } from "@/lib/api-client"
@@ -36,8 +37,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip"
-import { Minus, Plus, Pencil, Trash2, Users, Briefcase, UserPlus, X as XIcon } from "lucide-react"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Briefcase, Minus, MoreVertical, Pencil, Plus, Search, Trash2, Users, UserPlus, X as XIcon } from "lucide-react"
 
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
 const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
@@ -56,6 +57,21 @@ type SearchUser = {
   user_id: string
   email: string | null
   name: string | null
+}
+
+type DepartmentMembershipRow = {
+  id: string
+  user_id: string
+  department_id: string
+  role: string
+  is_active: boolean
+  created_at: string
+  updated_at: string
+  user?: {
+    user_id: string
+    email: string | null
+    name: string | null
+  }
 }
 
 type Department = {
@@ -117,6 +133,7 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
   const rolesKey = isAdmin && departmentId ? `/api/admin/departments/${departmentId}/profession-roles` : null
   const assignmentsKey =
     isAdmin && departmentId ? `/api/admin/departments/${departmentId}/profession-assignments` : null
+  const membershipsKey = isAdmin && departmentId ? `/api/admin/departments/${departmentId}/memberships` : null
   const departmentsKey = isAdmin ? "/api/admin/departments" : null
 
   const {
@@ -133,17 +150,34 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
     mutate: mutateAssignments,
   } = useSWR<{ data: AssignmentRow[] }>(assignmentsKey)
 
+  const {
+    data: membershipsResponse,
+    error: membershipsError,
+    isLoading: isMembershipsLoading,
+  } = useSWR<{
+    data: DepartmentMembershipRow[]
+  }>(membershipsKey)
+
   const { data: departmentsResponse, error: departmentsError } = useSWR<{ data: Department[] }>(departmentsKey)
 
   const rolesLoading = isRolesLoading
   const assignmentsLoading = isAssignmentsLoading
+  const membershipsLoading = isMembershipsLoading
 
   const rolesData = rolesResponse?.data
   const assignmentsData = assignmentsResponse?.data
+  const membershipsData = membershipsResponse?.data
   const departmentsData = departmentsResponse?.data
 
-  const roles: RoleRow[] = Array.isArray(rolesData) ? rolesData : []
-  const assignments: AssignmentRow[] = Array.isArray(assignmentsData) ? assignmentsData : []
+  const roles: RoleRow[] = useMemo(() => (Array.isArray(rolesData) ? rolesData : []), [rolesData])
+  const assignments: AssignmentRow[] = useMemo(
+    () => (Array.isArray(assignmentsData) ? assignmentsData : []),
+    [assignmentsData]
+  )
+  const memberships: DepartmentMembershipRow[] = useMemo(
+    () => (Array.isArray(membershipsData) ? membershipsData : []),
+    [membershipsData]
+  )
 
   const [showInactive, setShowInactive] = useState(false)
 
@@ -172,9 +206,17 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
   const [searchLoading, setSearchLoading] = useState(false)
   const [searchResults, setSearchResults] = useState<SearchUser[]>([])
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null)
+  const [editingAssignmentUserId, setEditingAssignmentUserId] = useState<string | null>(null)
   const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null)
   const [selectedActive, setSelectedActive] = useState(true)
   const [assignSaving, setAssignSaving] = useState(false)
+
+  const [confirmReassignOpen, setConfirmReassignOpen] = useState(false)
+  const [pendingReassign, setPendingReassign] = useState<{
+    userId: string
+    fromRoleId: string
+    toRoleId: string
+  } | null>(null)
 
   const [removingUserId, setRemovingUserId] = useState<string | null>(null)
   const [assignmentToRemove, setAssignmentToRemove] = useState<AssignmentRow | null>(null)
@@ -182,6 +224,8 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
   const [hardDeleteConfirmText, setHardDeleteConfirmText] = useState("")
 
   const [roleToViewMembers, setRoleToViewMembers] = useState<RoleRow | null>(null)
+
+  const [roleSearchQuery, setRoleSearchQuery] = useState("")
 
   const lastRolesErrorRef = useRef<string | null>(null)
   const lastAssignmentsErrorRef = useRef<string | null>(null)
@@ -210,6 +254,16 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
       variant: "destructive",
     })
   }, [assignmentsError, toast])
+
+  useEffect(() => {
+    if (!membershipsError) return
+    const message = getErrorMessage(membershipsError, "Failed to load department members")
+    toast({
+      title: "Error",
+      description: message,
+      variant: "destructive",
+    })
+  }, [membershipsError, toast])
 
   useEffect(() => {
     if (!departmentsError) return
@@ -254,6 +308,26 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
       return a.name.localeCompare(b.name)
     })
   }, [roles])
+
+  const membersCountByRoleId = useMemo(() => {
+    const map = new Map<string, number>()
+    for (const a of assignments) {
+      if (!a.is_active) continue
+      map.set(a.role_id, (map.get(a.role_id) || 0) + 1)
+    }
+    return map
+  }, [assignments])
+
+  const filteredRoles = useMemo(() => {
+    const q = roleSearchQuery.trim().toLowerCase()
+    if (!q) return sortedRoles
+    return sortedRoles.filter((r) => {
+      const name = r.name.toLowerCase()
+      const description = (r.description || "").toLowerCase()
+      const level = typeof r.level === "number" ? String(r.level) : ""
+      return name.includes(q) || description.includes(q) || level.includes(q)
+    })
+  }, [roleSearchQuery, sortedRoles])
 
   const sortedAssignments = useMemo(() => {
     return [...assignments].sort((a, b) => {
@@ -520,27 +594,99 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
     setUserQuery("")
     setSearchResults([])
     setSelectedUserId(null)
+    setEditingAssignmentUserId(null)
     setSelectedRoleId(preSelectedRoleId || sortedRoles[0]?.id || null)
     setSelectedActive(true)
   }
 
-  const runUserSearch = async () => {
-    const q = userQuery.trim()
-    if (!q) return
+  useEffect(() => {
+    if (showAssignDialog) return
+    setConfirmReassignOpen(false)
+    setPendingReassign(null)
+    setEditingAssignmentUserId(null)
+  }, [showAssignDialog])
 
-    try {
-      setSearchLoading(true)
-      const json = await apiFetch<{ data: SearchUser[] }>(`/api/admin/users/search?query=${encodeURIComponent(q)}`)
-      setSearchResults((json.data || []) as SearchUser[])
-    } catch (error: any) {
+  const runUserSearch = useCallback(
+    (query: string) => {
+      const qLower = query.trim().toLowerCase()
+      if (!qLower) {
+        setSearchResults([])
+        return
+      }
+
+      if (membershipsLoading) {
+        setSearchResults([])
+        return
+      }
+
+      const results: SearchUser[] = memberships
+        .map((m) => {
+          const u = m.user
+          return {
+            user_id: m.user_id,
+            email: u?.email || null,
+            name: u?.name || null,
+          }
+        })
+        .filter((u) => {
+          const name = (u.name || "").toLowerCase()
+          const email = (u.email || "").toLowerCase()
+          const id = (u.user_id || "").toLowerCase()
+          return name.includes(qLower) || email.includes(qLower) || id.includes(qLower)
+        })
+        .slice(0, 20)
+
+      setSearchResults(results)
+    },
+    [memberships, membershipsLoading]
+  )
+
+  useEffect(() => {
+    if (!showAssignDialog) return
+
+    const q = userQuery.trim()
+    if (!q) {
+      setSearchLoading(false)
+      setSearchResults([])
+      return
+    }
+
+    setSearchLoading(true)
+    const t = window.setTimeout(() => {
+      runUserSearch(q)
+      setSearchLoading(false)
+    }, 300)
+
+    return () => window.clearTimeout(t)
+  }, [showAssignDialog, userQuery, runUserSearch])
+
+  const handleSaveAssignmentClick = () => {
+    if (!selectedUserId) {
       toast({
-        title: "Error",
-        description: getErrorMessage(error, "Failed to search users"),
+        title: "Missing user",
+        description: "Select a user to assign",
         variant: "destructive",
       })
-    } finally {
-      setSearchLoading(false)
+      return
     }
+
+    if (!selectedRoleId) {
+      toast({
+        title: "Missing role",
+        description: "Select a profession role",
+        variant: "destructive",
+      })
+      return
+    }
+
+    const existing = assignments.find((a) => a.user_id === selectedUserId) || null
+    if (existing && existing.role_id !== selectedRoleId) {
+      setPendingReassign({ userId: selectedUserId, fromRoleId: existing.role_id, toRoleId: selectedRoleId })
+      setConfirmReassignOpen(true)
+      return
+    }
+
+    saveAssignment()
   }
 
   const saveAssignment = async () => {
@@ -868,15 +1014,30 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
   return (
     <div className="space-y-6">
       {embedded ? (
-        <div className="flex items-center justify-end gap-2">
-          <Button variant={tab === "roles" ? "default" : "outline"} onClick={() => setTabAndUrl("roles")}>
-            <Briefcase className="mr-2 h-4 w-4" />
-            Roles
-          </Button>
-          <Button variant={tab === "assignments" ? "default" : "outline"} onClick={() => setTabAndUrl("assignments")}>
-            <Users className="mr-2 h-4 w-4" />
-            Assignments
-          </Button>
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <Button variant={tab === "roles" ? "default" : "outline"} size="sm" onClick={() => setTabAndUrl("roles")}>
+              Roles
+            </Button>
+            <Button
+              variant={tab === "assignments" ? "default" : "outline"}
+              size="sm"
+              onClick={() => setTabAndUrl("assignments")}
+            >
+              Assignments
+            </Button>
+          </div>
+          {tab === "roles" ? (
+            <Button size="sm" onClick={openCreateRole}>
+              <Plus className="mr-2 h-4 w-4" />
+              Create role
+            </Button>
+          ) : (
+            <Button size="sm" onClick={() => openAssign()} disabled={sortedRoles.length === 0}>
+              <Plus className="mr-2 h-4 w-4" />
+              Assign member
+            </Button>
+          )}
         </div>
       ) : (
         <div className="bg-background flex flex-col gap-4 rounded-xl border p-6 shadow-sm sm:flex-row sm:items-start sm:justify-between">
@@ -902,84 +1063,135 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
       )}
 
       {tab === "roles" ? (
-        <Card>
-          <CardHeader className="flex flex-row items-start justify-between gap-4">
-            <div>
-              <CardTitle>Profession Roles</CardTitle>
-              <CardDescription>Create and manage roles specific to this department.</CardDescription>
+        <div className="dark:bg-background rounded-lg border border-gray-200 bg-white dark:border-gray-700">
+          <div className="border-b border-gray-200 p-4 dark:border-gray-700">
+            <div className="flex items-center justify-between">
+              <div className="text-sm text-gray-600 dark:text-gray-400">
+                {filteredRoles.length} professional role{filteredRoles.length === 1 ? "" : "s"}
+              </div>
+              <div className="relative">
+                <Search className="absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-gray-400" />
+                <Input
+                  type="text"
+                  placeholder="Search roles..."
+                  className="h-9 w-64 border-gray-200 bg-gray-50 pl-9 dark:border-gray-600 dark:bg-gray-800"
+                  value={roleSearchQuery}
+                  onChange={(e) => setRoleSearchQuery(e.target.value)}
+                />
+              </div>
             </div>
-            <Button onClick={openCreateRole} className="shrink-0">
-              <Plus className="mr-2 h-4 w-4" />
-              Create role
-            </Button>
-          </CardHeader>
-          <CardContent>
-            {rolesLoading ? (
-              <div className="space-y-4">
-                {[...Array(6)].map((_, i) => (
-                  <Skeleton key={i} className="h-10 w-full bg-gray-200/60 dark:bg-gray-800" />
-                ))}
-              </div>
-            ) : sortedRoles.length === 0 ? (
-              <div className="text-muted-foreground text-sm">
-                No roles yet. Create your first role to start assigning members.
-              </div>
-            ) : (
-              <div className="space-y-2">
-                {sortedRoles.map((r) => (
-                  <div key={r.id} className="flex items-center justify-between rounded-md border px-4 py-2">
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-center gap-2">
-                        <div className="truncate font-medium">{r.name}</div>
-                        {typeof r.level === "number" && <Badge variant="secondary">level {r.level}</Badge>}
-                      </div>
-                      <div className="text-muted-foreground truncate text-sm">{r.description || "-"}</div>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <Tooltip>
-                        <TooltipTrigger asChild>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-8 w-8"
-                            aria-label="Show members"
-                            onClick={() => setRoleToViewMembers(r)}
-                            disabled={assignmentsLoading}
-                          >
-                            <Users className="h-3.5 w-3.5" />
-                          </Button>
-                        </TooltipTrigger>
-                        <TooltipContent sideOffset={6}>Show members</TooltipContent>
-                      </Tooltip>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="h-8 gap-2 text-xs"
-                        onClick={() => openAssign(r.id)}
-                      >
-                        <UserPlus className="h-3.5 w-3.5" />
-                        <span>Assign member</span>
-                      </Button>
-                      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => openEditRole(r)}>
-                        <Pencil className="h-3.5 w-3.5" />
-                        <span className="sr-only">Edit</span>
-                      </Button>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="text-destructive hover:text-destructive/90 h-8 w-8"
-                        onClick={() => confirmDeleteRole(r)}
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                        <span className="sr-only">Delete</span>
-                      </Button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        </Card>
+          </div>
+
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow className="border-b border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-800">
+                  <TableHead className="px-6 py-3 text-left text-xs font-medium tracking-wider text-gray-500 uppercase dark:text-gray-400">
+                    Role Name
+                  </TableHead>
+                  <TableHead className="px-6 py-3 text-left text-xs font-medium tracking-wider text-gray-500 uppercase dark:text-gray-400">
+                    Level
+                  </TableHead>
+                  <TableHead className="px-6 py-3 text-left text-xs font-medium tracking-wider text-gray-500 uppercase dark:text-gray-400">
+                    Description
+                  </TableHead>
+                  <TableHead className="px-6 py-3 text-left text-xs font-medium tracking-wider text-gray-500 uppercase dark:text-gray-400">
+                    Members
+                  </TableHead>
+                  <TableHead className="px-6 py-3 text-right text-xs font-medium tracking-wider text-gray-500 uppercase dark:text-gray-400">
+                    Actions
+                  </TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {rolesLoading ? (
+                  [...Array(6)].map((_, i) => (
+                    <TableRow key={i}>
+                      <TableCell colSpan={5}>
+                        <Skeleton className="h-10 w-full bg-gray-200/60 dark:bg-gray-800" />
+                      </TableCell>
+                    </TableRow>
+                  ))
+                ) : filteredRoles.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-muted-foreground py-8 text-center text-sm">
+                      No roles yet. Create your first role to start assigning members.
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  filteredRoles.map((r) => {
+                    const memberCount = membersCountByRoleId.get(r.id) || 0
+                    return (
+                      <TableRow key={r.id} className="transition-colors hover:bg-gray-50 dark:hover:bg-gray-800">
+                        <TableCell className="px-6 py-4">
+                          <div className="font-medium text-gray-900 dark:text-gray-100">{r.name}</div>
+                        </TableCell>
+                        <TableCell className="px-6 py-4">
+                          {typeof r.level === "number" ? (
+                            <Badge variant="secondary">{r.level}</Badge>
+                          ) : (
+                            <span className="text-muted-foreground text-sm">-</span>
+                          )}
+                        </TableCell>
+                        <TableCell className="px-6 py-4 whitespace-normal">
+                          <div className="max-w-xs text-sm wrap-break-word text-gray-600 dark:text-gray-400">
+                            {r.description || "-"}
+                          </div>
+                        </TableCell>
+                        <TableCell className="px-6 py-4">
+                          <div className="text-sm text-gray-900 dark:text-gray-100">
+                            {memberCount} member{memberCount === 1 ? "" : "s"}
+                          </div>
+                        </TableCell>
+                        <TableCell className="px-6 py-4 text-right">
+                          <ActionMenu
+                            trigger={
+                              <Button variant="ghost" size="icon" disabled={assignmentsLoading}>
+                                <MoreVertical className="h-4 w-4" />
+                              </Button>
+                            }
+                            items={
+                              [
+                                { type: "label", label: r.name },
+                                { type: "separator" },
+                                {
+                                  type: "item",
+                                  label: "Assign members",
+                                  icon: <UserPlus className="mr-2 h-4 w-4" />,
+                                  onSelect: () => openAssign(r.id),
+                                },
+                                {
+                                  type: "item",
+                                  label: "View members",
+                                  icon: <Users className="mr-2 h-4 w-4" />,
+                                  onSelect: () => setRoleToViewMembers(r),
+                                },
+                                {
+                                  type: "item",
+                                  label: "Edit role",
+                                  icon: <Pencil className="mr-2 h-4 w-4" />,
+                                  onSelect: () => openEditRole(r),
+                                },
+                                { type: "separator" },
+                                {
+                                  type: "item",
+                                  label: "Delete role",
+                                  icon: <Trash2 className="mr-2 h-4 w-4" />,
+                                  destructive: true,
+                                  onSelect: () => confirmDeleteRole(r),
+                                },
+                              ] satisfies ActionMenuItem[]
+                            }
+                          />
+                        </TableCell>
+                      </TableRow>
+                    )
+                  })
+                )}
+              </TableBody>
+            </Table>
+          </div>
+        </div>
       ) : (
         <Card>
           <CardHeader className="flex flex-row items-start justify-between gap-4">
@@ -1049,6 +1261,7 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
                             onClick={() => {
                               setShowAssignDialog(true)
                               setSelectedUserId(a.user_id)
+                              setEditingAssignmentUserId(a.user_id)
                               setSelectedRoleId(a.role_id)
                               setSelectedActive(a.is_active)
                               setUserQuery(a.user?.email || a.user?.name || "")
@@ -1240,110 +1453,143 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
         </AlertDialogContent>
       </AlertDialog>
 
-      <Dialog open={showAssignDialog} onOpenChange={setShowAssignDialog}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Assign member to role</DialogTitle>
-            <DialogDescription>Select a member, then choose their role for this department.</DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <div className="text-sm font-medium">User</div>
-              <div className="flex gap-2">
-                <div className="relative flex-1">
-                  <Input
-                    value={userQuery}
-                    onChange={(e) => setUserQuery(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault()
-                        runUserSearch()
-                      }
-                    }}
-                    placeholder="Search by email, name, or username"
-                    className={userQuery ? "pr-8" : undefined}
-                  />
-                  {userQuery && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setUserQuery("")
-                        setSelectedUserId(null)
-                        setSearchResults([])
-                      }}
-                      className="text-muted-foreground hover:text-foreground absolute inset-y-0 right-2 my-auto flex h-4 w-4 items-center justify-center rounded-full focus:outline-none"
-                      aria-label="Clear user search"
-                    >
-                      <XIcon className="h-3 w-3" />
-                    </button>
-                  )}
-                </div>
-                <Button variant="outline" onClick={runUserSearch} disabled={searchLoading}>
-                  Search
-                </Button>
-              </div>
-
-              {searchResults.length > 0 && (
-                <div className="max-h-48 overflow-auto rounded-md border">
-                  {searchResults.map((u) => (
-                    <button
-                      key={u.user_id}
-                      type="button"
-                      className={`hover:bg-muted w-full px-4 py-2 text-left text-sm ${
-                        selectedUserId === u.user_id ? "bg-muted" : ""
-                      }`}
-                      onClick={() => setSelectedUserId(u.user_id)}
-                    >
-                      <div className="font-medium">{u.name || "Unknown"}</div>
-                      <div className="text-muted-foreground">{u.email || u.user_id}</div>
-                    </button>
-                  ))}
-                </div>
-              )}
-
-              {selectedUserId && (
-                <div className="text-muted-foreground text-xs">Selected user_id: {selectedUserId}</div>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <div className="text-sm font-medium">Profession role</div>
-              <Select value={selectedRoleId || ""} onValueChange={(v) => setSelectedRoleId(v)}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select role" />
-                </SelectTrigger>
-                <SelectContent>
-                  {sortedRoles.map((r) => (
-                    <SelectItem key={r.id} value={r.id}>
-                      {r.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="flex items-center justify-between">
-              <div>
-                <div className="text-sm font-medium">Active</div>
-                <div className="text-muted-foreground text-xs">
-                  Inactive disables question visibility without deleting history.
-                </div>
-              </div>
-              <Switch checked={selectedActive} onCheckedChange={setSelectedActive} />
-            </div>
-          </div>
-
-          <DialogFooter>
+      <RightSidePanel
+        open={showAssignDialog}
+        onOpenChange={setShowAssignDialog}
+        title={editingAssignmentUserId ? "Edit assignment" : "Assign member to role"}
+        description={
+          editingAssignmentUserId
+            ? "Update this member’s profession role and active status."
+            : "Select a member, then choose their role for this department."
+        }
+        footer={
+          <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setShowAssignDialog(false)} disabled={assignSaving}>
               Cancel
             </Button>
-            <Button onClick={saveAssignment} disabled={assignSaving}>
+            <Button onClick={handleSaveAssignmentClick} disabled={assignSaving}>
               Save
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </div>
+        }
+      >
+        <div className="space-y-4 pt-4">
+          <div className="space-y-2">
+            <div className="text-sm font-medium">User</div>
+            <div className="relative">
+              <Input
+                value={userQuery}
+                onChange={(e) => setUserQuery(e.target.value)}
+                placeholder="Search by email, name, or username"
+                className={userQuery ? "pr-8" : undefined}
+              />
+              {userQuery && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setUserQuery("")
+                    setSelectedUserId(null)
+                    setSearchResults([])
+                  }}
+                  className="text-muted-foreground hover:text-foreground absolute inset-y-0 right-2 my-auto flex h-4 w-4 items-center justify-center rounded-full focus:outline-none"
+                  aria-label="Clear user search"
+                >
+                  <XIcon className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+
+            {searchLoading && userQuery.trim() && <div className="text-muted-foreground text-xs">Searching...</div>}
+
+            {searchResults.length > 0 && (
+              <div className="max-h-48 overflow-auto rounded-md border">
+                {searchResults.map((u) => (
+                  <button
+                    key={u.user_id}
+                    type="button"
+                    className={`hover:bg-muted w-full px-4 py-2 text-left text-sm ${
+                      selectedUserId === u.user_id ? "bg-muted" : ""
+                    }`}
+                    onClick={() => setSelectedUserId(u.user_id)}
+                  >
+                    <div className="font-medium">{u.name || "Unknown"}</div>
+                    <div className="text-muted-foreground">{u.email || u.user_id}</div>
+                  </button>
+                ))}
+              </div>
+            )}
+
+            {selectedUserId && <div className="text-muted-foreground text-xs">Selected user_id: {selectedUserId}</div>}
+          </div>
+
+          <div className="space-y-2">
+            <div className="text-sm font-medium">Profession role</div>
+            <Select value={selectedRoleId || ""} onValueChange={(v) => setSelectedRoleId(v)}>
+              <SelectTrigger>
+                <SelectValue placeholder="Select role" />
+              </SelectTrigger>
+              <SelectContent>
+                {sortedRoles.map((r) => (
+                  <SelectItem key={r.id} value={r.id}>
+                    {r.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm font-medium">Active</div>
+              <div className="text-muted-foreground text-xs">
+                Inactive disables question visibility without deleting history.
+              </div>
+            </div>
+            <Switch checked={selectedActive} onCheckedChange={setSelectedActive} />
+          </div>
+        </div>
+      </RightSidePanel>
+
+      <AlertDialog
+        open={confirmReassignOpen}
+        onOpenChange={(open) => {
+          setConfirmReassignOpen(open)
+          if (!open) setPendingReassign(null)
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Change profession role?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {(() => {
+                if (!pendingReassign) {
+                  return "This user is already assigned to a profession role. Continuing will move them to the selected role."
+                }
+
+                const existing = assignments.find((a) => a.user_id === pendingReassign.userId) || null
+                const userLabel = existing?.user?.name || existing?.user?.email || pendingReassign.userId
+                const fromRoleName = rolesById.get(pendingReassign.fromRoleId)?.name || pendingReassign.fromRoleId
+                const toRoleName = rolesById.get(pendingReassign.toRoleId)?.name || pendingReassign.toRoleId
+
+                return `${userLabel} is already assigned to “${fromRoleName}”. Continuing will move them to “${toRoleName}”.`
+              })()}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={assignSaving}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={assignSaving}
+              onClick={() => {
+                setConfirmReassignOpen(false)
+                setPendingReassign(null)
+                saveAssignment()
+              }}
+            >
+              Continue
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={!!assignmentToRemove} onOpenChange={(open) => !open && setAssignmentToRemove(null)}>
         <AlertDialogContent>
