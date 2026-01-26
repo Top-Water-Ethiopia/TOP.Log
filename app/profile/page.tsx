@@ -60,9 +60,15 @@ export default function ProfilePage() {
 
   const { user, profile, updateProfile, isLoading } = useSupabaseAuth()
   const { permissions } = useSupabaseRbac()
-  const { canAccessAdmin } = useRBAC()
+  const { canAccessAdmin, hasPermission, hasRole, rbacLoading } = useRBAC()
 
-  const canAccessDepartments = !!user
+  const canAccessDepartments =
+    hasRole("admin") ||
+    hasRole("system-admin") ||
+    canAccessAdmin ||
+    hasPermission("departments.read") ||
+    hasPermission("departments.members.read") ||
+    hasPermission("departments.members.manage")
 
   const [name, setName] = useState(profile?.name || "")
   const [isUpdating, setIsUpdating] = useState(false)
@@ -125,7 +131,7 @@ export default function ProfilePage() {
               </Link>
 
               <div className="flex flex-wrap items-center gap-2">
-                {user && canAccessDepartments ? (
+                {user && !rbacLoading && canAccessDepartments ? (
                   <Link href="/departments">
                     <Button variant="outline" size="sm" className="gap-2">
                       <Building2 className="h-4 w-4" />
@@ -178,7 +184,7 @@ export default function ProfilePage() {
             </Link>
 
             <div className="flex flex-wrap items-center gap-2">
-              {user && canAccessDepartments ? (
+              {user && !rbacLoading && canAccessDepartments ? (
                 <Link href="/departments">
                   <Button variant="outline" size="sm" className="gap-2">
                     <Building2 className="h-4 w-4" />

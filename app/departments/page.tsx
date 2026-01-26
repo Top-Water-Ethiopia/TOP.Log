@@ -4,9 +4,11 @@ import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
+import { useRBAC } from "@/hooks/use-rbac"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
+import { toast } from "sonner"
 
 type Department = {
   id: string
@@ -23,10 +25,19 @@ type Membership = {
 
 export default function DepartmentsPage() {
   const { user, isLoading } = useSupabaseAuth()
+  const { hasPermission, hasRole, canAccessAdmin, rbacLoading } = useRBAC()
   const router = useRouter()
   const [memberships, setMemberships] = useState<Membership[]>([])
   const [loading, setLoading] = useState(true)
   const userId = user?.id
+
+  const canAccessDepartments =
+    hasRole("admin") ||
+    hasRole("system-admin") ||
+    canAccessAdmin ||
+    hasPermission("departments.read") ||
+    hasPermission("departments.members.read") ||
+    hasPermission("departments.members.manage")
 
   useEffect(() => {
     if (!isLoading && !user) {
@@ -35,14 +46,36 @@ export default function DepartmentsPage() {
   }, [user, isLoading, router])
 
   useEffect(() => {
+    if (isLoading || rbacLoading) return
+    if (!user) return
+    if (!canAccessDepartments) {
+      toast.error("Access denied")
+      router.replace("/")
+    }
+  }, [canAccessDepartments, isLoading, rbacLoading, router, user])
+
+  useEffect(() => {
     if (!userId) return
+    if (isLoading || rbacLoading) return
+    if (!canAccessDepartments) return
 
     const load = async () => {
       try {
         setLoading(true)
         const res = await fetch("/api/departments")
         const json = await res.json().catch(() => ({}))
-        if (!res.ok) throw new Error(json.message || json.error || `HTTP ${res.status}`)
+        if (!res.ok) {
+          if (res.status === 401) {
+            router.replace("/login")
+            return
+          }
+          if (res.status === 403) {
+            router.replace("/")
+            toast.error("Access denied")
+            return
+          }
+          throw new Error(json.message || json.error || `HTTP ${res.status}`)
+        }
         const rows = (json.data || []) as Membership[]
         setMemberships(rows)
         const active = rows.filter((m) => m.department?.is_active)
@@ -55,13 +88,13 @@ export default function DepartmentsPage() {
     }
 
     load()
-  }, [userId, router])
+  }, [userId, router, canAccessDepartments, isLoading, rbacLoading])
 
   const activeMemberships = useMemo(() => {
     return memberships.filter((m) => m.department?.is_active)
   }, [memberships])
 
-  if (isLoading || !user) {
+  if (isLoading || rbacLoading || !user) {
     return (
       <div className="space-y-6">
         <div className="space-y-2">

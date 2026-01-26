@@ -10,9 +10,15 @@ import { Button } from "../../components/ui/button"
 
 export default function DepartmentsLayout({ children }: { children: ReactNode }) {
   const { user } = useSupabaseAuth()
-  const { canAccessAdmin } = useRBAC()
+  const { canAccessAdmin, hasPermission, hasRole, rbacLoading } = useRBAC()
 
-  const canAccessDepartments = !!user
+  const canAccessDepartments =
+    hasRole("admin") ||
+    hasRole("system-admin") ||
+    canAccessAdmin ||
+    hasPermission("departments.read") ||
+    hasPermission("departments.members.read") ||
+    hasPermission("departments.members.manage")
 
   return (
     <div className="bg-background flex min-h-screen flex-col">
@@ -25,7 +31,7 @@ export default function DepartmentsLayout({ children }: { children: ReactNode })
             </Link>
 
             <div className="flex flex-wrap items-center gap-2">
-              {user && canAccessDepartments ? (
+              {user && !rbacLoading && canAccessDepartments ? (
                 <Link href="/departments">
                   <Button variant="outline" size="sm" className="gap-2">
                     <Building2 className="h-4 w-4" />
