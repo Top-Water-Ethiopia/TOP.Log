@@ -1,10 +1,21 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
+import { verifyAnyPermission } from "@/lib/rbac/server"
 
 export const dynamic = "force-dynamic"
 
 export async function GET(request: Request, { params }: { params: Promise<{ departmentId: string }> }) {
   try {
+    const perm = await verifyAnyPermission([
+      "departments.read",
+      "departments.members.read",
+      "departments.members.manage",
+      "admin.system",
+    ])
+    if (!perm.ok) {
+      return NextResponse.json({ error: perm.error }, { status: perm.status })
+    }
+
     const { departmentId } = await params
 
     if (!departmentId) {

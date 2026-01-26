@@ -1,13 +1,21 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
+import { verifyAnyPermission } from "@/lib/rbac/server"
 
 export const dynamic = "force-dynamic"
 
-export async function GET(
-  _request: Request,
-  { params }: { params: Promise<{ departmentId: string }> },
-) {
+export async function GET(_request: Request, { params }: { params: Promise<{ departmentId: string }> }) {
   try {
+    const perm = await verifyAnyPermission([
+      "departments.read",
+      "departments.members.read",
+      "departments.members.manage",
+      "admin.system",
+    ])
+    if (!perm.ok) {
+      return NextResponse.json({ error: perm.error }, { status: perm.status })
+    }
+
     const supabase = await createClient()
     const {
       data: { user },
@@ -33,7 +41,7 @@ export async function GET(
     if (membersError) {
       return NextResponse.json(
         { error: "Failed to load department members", message: membersError.message },
-        { status: 500 },
+        { status: 500 }
       )
     }
 
@@ -56,14 +64,11 @@ export async function GET(
       .order("created_at", { ascending: false })
 
     if (entriesError) {
-      return NextResponse.json(
-        { error: "Failed to load entries", message: entriesError.message },
-        { status: 500 },
-      )
+      return NextResponse.json({ error: "Failed to load entries", message: entriesError.message }, { status: 500 })
     }
 
     // Load custom responses for these entries (also protected by RLS)
-    const safeEntries = (entries ?? []) as Array<{ id: string } & Record<string, any>>
+    const safeEntries = (entries ?? []) as Array<{ id: string } & Record<string, unknown>>
     const entryIds = safeEntries.map((e) => e.id)
 
     if (entryIds.length === 0) {
@@ -76,20 +81,21 @@ export async function GET(
       .order("timestamp")
 
     if (responsesError) {
-      return NextResponse.json(
-        { error: "Failed to load responses", message: responsesError.message },
-        { status: 500 },
-      )
+      return NextResponse.json({ error: "Failed to load responses", message: responsesError.message }, { status: 500 })
     }
 
-    const responsesMap = new Map<string, any[]>()
-    ;(responses || []).forEach((r: any) => {
-      const existing = responsesMap.get(r.entry_id) || []
-      existing.push(r)
-      responsesMap.set(r.entry_id, existing)
+    const responsesMap = new Map<string, unknown[]>()
+    ;(responses || []).forEach((r: unknown) => {
+      if (!r || typeof r !== "object") return
+      const rr = r as Record<string, unknown>
+      const entryId = rr.entry_id
+      if (typeof entryId !== "string" || !entryId) return
+      const existing = responsesMap.get(entryId) || []
+      existing.push(rr)
+      responsesMap.set(entryId, existing)
     })
 
-    const enriched = safeEntries.map((e: any) => ({
+    const enriched = safeEntries.map((e: Record<string, unknown> & { id: string }) => ({
       ...e,
       custom_responses: responsesMap.get(e.id) || [],
     }))
@@ -101,7 +107,7 @@ export async function GET(
         error: "Internal server error",
         message: error instanceof Error ? error.message : "Unknown error",
       },
-      { status: 500 },
+      { status: 500 }
     )
   }
 }

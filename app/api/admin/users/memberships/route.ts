@@ -85,11 +85,17 @@ export async function GET(request: Request) {
 
     const { searchParams } = new URL(request.url)
     const format = (searchParams.get("format") || "").toLowerCase()
+    const userIdFilter = searchParams.get("user_id")
 
-    const { data: memberships, error } = await adminSupabase
+    const membershipsQuery = adminSupabase
       .from("user_department_roles")
       .select("user_id, department_id, role, is_active")
       .eq("is_active", true)
+
+    const { data: memberships, error } =
+      typeof userIdFilter === "string" && userIdFilter.trim()
+        ? await membershipsQuery.eq("user_id", userIdFilter.trim())
+        : await membershipsQuery
 
     const membershipRows = (memberships || []) as unknown as MembershipRow[]
 

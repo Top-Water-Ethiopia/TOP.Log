@@ -7,6 +7,57 @@ export const dynamic = "force-dynamic"
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
 const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
 
+function isSingleActiveMembershipViolation(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false
+  const e = error as { code?: string; message?: string }
+  if (e.code === "23505") return true
+  if (typeof e.message === "string" && e.message.includes("user_department_roles_one_active_membership_per_user")) {
+    return true
+  }
+  return false
+}
+
+async function buildActiveMembershipConflictResponse(userId: string) {
+  type ActiveMembershipRow = {
+    department_id: string | null
+    department: {
+      id: string | null
+      name: string | null
+    } | null
+  }
+
+  const { data: active, error } = await adminSupabase
+    .from("user_department_roles")
+    .select("department_id, department:departments(id, name)")
+    .eq("user_id", userId)
+    .eq("is_active", true)
+    .maybeSingle()
+
+  if (error) {
+    return NextResponse.json(
+      {
+        error: "User already has an active department membership",
+      },
+      { status: 409 }
+    )
+  }
+
+  const row = (active ?? null) as ActiveMembershipRow | null
+  const deptName = row?.department?.name ?? undefined
+  const deptId = row?.department_id ?? undefined
+
+  return NextResponse.json(
+    {
+      error: "User already has an active department membership",
+      message: deptName
+        ? `User is already active in “${deptName}”. Deactivate it first or assign as inactive.`
+        : undefined,
+      details: deptId ? `Active department id: ${deptId}` : undefined,
+    },
+    { status: 409 }
+  )
+}
+
 async function verifyAdmin() {
   const supabase = await createClient()
   const {
@@ -156,6 +207,29 @@ export async function POST(request: Request, { params }: { params: Promise<{ dep
       return NextResponse.json({ error: "Invalid role" }, { status: 400 })
     }
 
+    if (is_active) {
+      const { error: deactivateOtherMembershipsError } = await adminSupabase
+        .from("user_department_roles")
+        .update({
+          is_active: false,
+          updated_by: adminUserId,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("user_id", user_id)
+        .neq("department_id", departmentId)
+        .eq("is_active", true)
+
+      if (deactivateOtherMembershipsError) {
+        return NextResponse.json(
+          {
+            error: "Failed to deactivate other memberships",
+            message: deactivateOtherMembershipsError.message,
+          },
+          { status: 500 }
+        )
+      }
+    }
+
     if (!existing) {
       const { data: inserted, error: insertError } = await adminSupabase
         .from("user_department_roles")
@@ -172,6 +246,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ dep
         .single()
 
       if (insertError) {
+        if (isSingleActiveMembershipViolation(insertError)) {
+          return await buildActiveMembershipConflictResponse(user_id)
+        }
         return NextResponse.json({ error: "Failed to save membership", message: insertError.message }, { status: 500 })
       }
 
@@ -191,6 +268,9 @@ export async function POST(request: Request, { params }: { params: Promise<{ dep
       .single()
 
     if (updateError) {
+      if (isSingleActiveMembershipViolation(updateError)) {
+        return await buildActiveMembershipConflictResponse(user_id)
+      }
       return NextResponse.json({ error: "Failed to save membership", message: updateError.message }, { status: 500 })
     }
 

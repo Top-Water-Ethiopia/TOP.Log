@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { adminSupabase } from "@/lib/supabase/admin"
 import { createClient } from "@/lib/supabase/server"
+import type { Database } from "@/lib/supabase/database.types"
 
 export const dynamic = "force-dynamic"
 
@@ -144,6 +145,59 @@ export async function POST(request: Request, { params }: { params: Promise<{ dep
 
     const nowIso = new Date().toISOString()
 
+    type MembershipUpdate = Database["public"]["Tables"]["user_department_roles"]["Update"]
+    type MembershipInsert = Database["public"]["Tables"]["user_department_roles"]["Insert"]
+    type ProfessionUpdate = Database["public"]["Tables"]["user_department_professions"]["Update"]
+    type ProfessionInsert = Database["public"]["Tables"]["user_department_professions"]["Insert"]
+
+    if (is_active) {
+      const deactivateMembershipsUpdate: MembershipUpdate = {
+        is_active: false,
+        updated_by: adminUserId,
+        updated_at: nowIso,
+      }
+
+      const { error: deactivateOtherMembershipsError } = await adminSupabase
+        .from("user_department_roles")
+        .update(deactivateMembershipsUpdate)
+        .eq("user_id", user_id)
+        .neq("department_id", departmentId)
+        .eq("is_active", true)
+
+      if (deactivateOtherMembershipsError) {
+        return NextResponse.json(
+          {
+            error: "Failed to deactivate other memberships",
+            message: deactivateOtherMembershipsError.message,
+          },
+          { status: 500 }
+        )
+      }
+
+      const deactivateProfessionsUpdate: ProfessionUpdate = {
+        is_active: false,
+        updated_by: adminUserId,
+        updated_at: nowIso,
+      }
+
+      const { error: deactivateOtherProfessionsError } = await adminSupabase
+        .from("user_department_professions")
+        .update(deactivateProfessionsUpdate)
+        .eq("user_id", user_id)
+        .neq("department_id", departmentId)
+        .eq("is_active", true)
+
+      if (deactivateOtherProfessionsError) {
+        return NextResponse.json(
+          {
+            error: "Failed to deactivate other profession assignments",
+            message: deactivateOtherProfessionsError.message,
+          },
+          { status: 500 }
+        )
+      }
+    }
+
     const { data: existingMembership, error: membershipError } = await adminSupabase
       .from("user_department_roles")
       .select("id, is_active")
@@ -159,7 +213,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ dep
     }
 
     if (!existingMembership) {
-      const { error: insertMembershipError } = await adminSupabase.from("user_department_roles").insert({
+      const membershipInsert: MembershipInsert = {
         user_id,
         department_id: departmentId,
         role: "viewer",
@@ -167,7 +221,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ dep
         created_by: adminUserId,
         updated_by: adminUserId,
         updated_at: nowIso,
-      } as any)
+      }
+
+      const { error: insertMembershipError } = await adminSupabase
+        .from("user_department_roles")
+        .insert(membershipInsert)
 
       if (insertMembershipError) {
         return NextResponse.json(
@@ -176,13 +234,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ dep
         )
       }
     } else if (is_active && !existingMembership.is_active) {
+      const reactivateMembershipUpdate: MembershipUpdate = {
+        is_active: true,
+        updated_by: adminUserId,
+        updated_at: nowIso,
+      }
+
       const { error: reactivateError } = await adminSupabase
         .from("user_department_roles")
-        .update({
-          is_active: true,
-          updated_by: adminUserId,
-          updated_at: nowIso,
-        } as any)
+        .update(reactivateMembershipUpdate)
         .eq("id", existingMembership.id)
 
       if (reactivateError) {
@@ -205,17 +265,19 @@ export async function POST(request: Request, { params }: { params: Promise<{ dep
     }
 
     if (!existing) {
+      const professionInsert: ProfessionInsert = {
+        user_id,
+        department_id: departmentId,
+        role_id,
+        is_active,
+        created_by: adminUserId,
+        updated_by: adminUserId,
+        updated_at: new Date().toISOString(),
+      }
+
       const { data: inserted, error: insertError } = await adminSupabase
         .from("user_department_professions")
-        .insert({
-          user_id,
-          department_id: departmentId,
-          role_id,
-          is_active,
-          created_by: adminUserId,
-          updated_by: adminUserId,
-          updated_at: new Date().toISOString(),
-        } as any)
+        .insert(professionInsert)
         .select("id, user_id, department_id, role_id, is_active, created_at, updated_at")
         .single()
 
@@ -226,14 +288,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ dep
       return NextResponse.json({ data: inserted })
     }
 
+    const professionUpdate: ProfessionUpdate = {
+      role_id,
+      is_active,
+      updated_by: adminUserId,
+      updated_at: new Date().toISOString(),
+    }
+
     const { data: updated, error: updateError } = await adminSupabase
       .from("user_department_professions")
-      .update({
-        role_id,
-        is_active,
-        updated_by: adminUserId,
-        updated_at: new Date().toISOString(),
-      } as any)
+      .update(professionUpdate)
       .eq("id", existing.id)
       .select("id, user_id, department_id, role_id, is_active, created_at, updated_at")
       .single()

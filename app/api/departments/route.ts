@@ -28,30 +28,31 @@ export async function GET() {
           description,
           is_active
         )
-      `,
+      `
       )
       .eq("user_id", user.id)
       .eq("is_active", true)
 
     if (error) {
-      return NextResponse.json(
-        { error: "Failed to load departments", message: error.message },
-        { status: 500 },
-      )
+      return NextResponse.json({ error: "Failed to load departments", message: error.message }, { status: 500 })
     }
 
     const normalized = (data || [])
-      .map((row: any) => {
-        const dept = row.departments
-        if (!dept?.id) return null
+      .map((row: unknown) => {
+        if (!row || typeof row !== "object") return null
+        const r = row as Record<string, unknown>
+        const dept = r.departments as Record<string, unknown> | null | undefined
+        if (!dept || typeof dept !== "object") return null
+        const deptId = dept.id
+        if (typeof deptId !== "string" || !deptId) return null
         return {
-          department_id: row.department_id,
-          role: row.role,
+          department_id: String(r.department_id ?? ""),
+          role: String(r.role ?? ""),
           department: {
-            id: dept.id,
-            name: dept.name,
-            description: dept.description ?? null,
-            is_active: dept.is_active,
+            id: deptId,
+            name: String(dept.name ?? ""),
+            description: (typeof dept.description === "string" ? dept.description : null) ?? null,
+            is_active: Boolean(dept.is_active),
           },
         }
       })
@@ -64,7 +65,7 @@ export async function GET() {
         error: "Internal server error",
         message: error instanceof Error ? error.message : "Unknown error",
       },
-      { status: 500 },
+      { status: 500 }
     )
   }
 }

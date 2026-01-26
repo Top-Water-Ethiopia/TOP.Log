@@ -37,6 +37,40 @@ async function verifyAdmin() {
   return { isAdmin: true as const, userId: user.id }
 }
 
+async function listAuthUsersEmailMatches(qLower: string, limit: number) {
+  const perPage = 1000
+  const maxPages = 50
+
+  const matches: Array<{ id: string; email?: string | null }> = []
+  const authByUserId = new Map<string, { id: string; email?: string | null }>()
+
+  for (let page = 1; page <= maxPages; page++) {
+    const { data, error } = await adminSupabase.auth.admin.listUsers({ page, perPage })
+    if (error) {
+      return {
+        matches: null as Array<{ id: string; email?: string | null }> | null,
+        authByUserId: null as Map<string, { id: string; email?: string | null }> | null,
+        error,
+      }
+    }
+
+    const batch = (data?.users || []) as Array<{ id: string; email?: string | null }>
+    for (const u of batch) {
+      authByUserId.set(u.id, u)
+      if ((u.email || "").toLowerCase().includes(qLower)) {
+        matches.push(u)
+        if (matches.length >= limit) {
+          return { matches: matches.slice(0, limit), authByUserId, error: null as null }
+        }
+      }
+    }
+
+    if (batch.length < perPage) break
+  }
+
+  return { matches, authByUserId, error: null as null }
+}
+
 export async function GET(request: Request) {
   try {
     const { isAdmin, error: authError } = await verifyAdmin()
@@ -66,21 +100,18 @@ export async function GET(request: Request) {
 
     const profileByUserId = new Map((profileMatches || []).map((p) => [p.user_id, p]))
 
-    // Pull auth users and filter by email
-    const { data: listData, error: listError } = await adminSupabase.auth.admin.listUsers()
-    if (listError) {
-      return NextResponse.json({ error: "Failed to search users", message: listError.message }, { status: 500 })
+    // Pull auth users and filter by email (paginate so we don't miss users outside the first page)
+    const { matches: emailMatches, authByUserId, error: listError } = await listAuthUsersEmailMatches(qLower, 20)
+    if (listError || !emailMatches || !authByUserId) {
+      return NextResponse.json(
+        { error: "Failed to search users", message: listError?.message || "Unknown error" },
+        { status: 500 }
+      )
     }
-
-    const emailMatches = (listData.users || [])
-      .filter((u) => (u.email || "").toLowerCase().includes(qLower))
-      .slice(0, 20)
 
     const userIds = new Set<string>()
     ;(profileMatches || []).forEach((p) => userIds.add(p.user_id))
     emailMatches.forEach((u) => userIds.add(u.id))
-
-    const authByUserId = new Map((listData.users || []).map((u) => [u.id, u]))
 
     const data = Array.from(userIds)
       .map((id) => {
