@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
+import { useRBAC } from "@/hooks/use-rbac"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Skeleton } from "@/components/ui/skeleton"
@@ -10,6 +11,7 @@ import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
+import { toast } from "sonner"
 import { CalendarDays, ChevronLeft, ChevronRight, ArrowLeft, ExternalLink } from "lucide-react"
 import {
   addDays,
@@ -56,9 +58,18 @@ type EntryRow = {
 
 export default function DepartmentDetailsPage() {
   const { user, isLoading } = useSupabaseAuth()
+  const { hasPermission, hasRole, canAccessAdmin, rbacLoading } = useRBAC()
   const router = useRouter()
   const params = useParams<{ departmentId: string }>()
   const departmentId = typeof params?.departmentId === "string" ? params.departmentId : ""
+
+  const canAccessDepartments =
+    hasRole("admin") ||
+    hasRole("system-admin") ||
+    canAccessAdmin ||
+    hasPermission("departments.read") ||
+    hasPermission("departments.members.read") ||
+    hasPermission("departments.members.manage")
 
   const [members, setMembers] = useState<MemberRow[]>([])
   const [entries, setEntries] = useState<EntryRow[]>([])
@@ -86,7 +97,18 @@ export default function DepartmentDetailsPage() {
   }, [user, isLoading, router])
 
   useEffect(() => {
+    if (isLoading || rbacLoading) return
     if (!user) return
+    if (!canAccessDepartments) {
+      toast.error("Access denied")
+      router.replace("/")
+    }
+  }, [canAccessDepartments, isLoading, rbacLoading, router, user])
+
+  useEffect(() => {
+    if (!user) return
+    if (isLoading || rbacLoading) return
+    if (!canAccessDepartments) return
     const id = departmentId.trim()
     if (!id || id === "undefined" || id === "null") {
       setLoadingDepartment(false)
@@ -136,7 +158,7 @@ export default function DepartmentDetailsPage() {
     loadDepartment()
     loadMembers()
     loadEntries()
-  }, [user, user?.id, departmentId])
+  }, [user, user?.id, departmentId, canAccessDepartments, isLoading, rbacLoading])
 
   const sortedMembers = useMemo(() => {
     return [...members].sort((a, b) => {
@@ -179,7 +201,7 @@ export default function DepartmentDetailsPage() {
     return String(value)
   }
 
-  if (isLoading || !user || loadingDepartment) {
+  if (isLoading || rbacLoading || !user || loadingDepartment) {
     return (
       <div className="space-y-6">
         <div className="space-y-2">
