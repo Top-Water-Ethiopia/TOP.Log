@@ -248,6 +248,7 @@ export function MainLayout() {
         <div className="mx-auto h-full max-w-[1300px] px-6 py-6">
           {viewMode === "landing" ? (
             <LandingPage
+              isAuthenticated={isSupabaseLoggedIn || (isAuthenticated && !!user)}
               onNewReport={() => {
                 setEditingDate(undefined)
                 setViewMode("form")

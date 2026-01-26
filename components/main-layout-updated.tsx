@@ -18,7 +18,7 @@ import Link from "next/link"
 import { useCaptainLog } from "@/contexts/supabase-log-context"
 import { useRBAC } from "@/hooks/use-rbac"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
-import { apiFetch, getErrorMessage } from "@/lib/api-client"
+import { ApiError, apiFetch, getErrorMessage } from "@/lib/api-client"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { isFeatureEnabledClient } from "@/lib/feature-flags/client"
@@ -41,8 +41,16 @@ type DepartmentMembership = {
 
 export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedProps) {
   const { entries } = useCaptainLog()
-  const { canAccessAdmin, canCreateEntries, hasPermission } = useRBAC()
+  const { canAccessAdmin, canCreateEntries, hasPermission, hasRole, rbacLoading } = useRBAC()
   const { user } = useSupabaseAuth()
+
+  const canAccessDepartments =
+    hasRole("admin") ||
+    hasRole("system-admin") ||
+    canAccessAdmin ||
+    hasPermission("departments.read") ||
+    hasPermission("departments.members.read") ||
+    hasPermission("departments.members.manage")
 
   const [isRequestingAccess, setIsRequestingAccess] = useState(false)
 
@@ -53,6 +61,17 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
 
   useEffect(() => {
     if (!user) {
+      setMemberships([])
+      setActiveDepartmentId(null)
+      setDepartmentsLoadStatus("idle")
+      return
+    }
+
+    if (rbacLoading) {
+      return
+    }
+
+    if (!canAccessDepartments) {
       setMemberships([])
       setActiveDepartmentId(null)
       setDepartmentsLoadStatus("idle")
@@ -79,7 +98,9 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
           return rows[0].department_id
         })
       } catch (error) {
-        toast.error(getErrorMessage(error, "Failed to load departments"))
+        if (!(error instanceof ApiError && error.status === 403)) {
+          toast.error(getErrorMessage(error, "Failed to load departments"))
+        }
         setMemberships([])
         setDepartmentsLoadStatus("error")
       } finally {
@@ -90,7 +111,7 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
     loadDepartments()
     // activeDepartmentId intentionally excluded to avoid refetch loops
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id])
+  }, [user?.id, rbacLoading, canAccessDepartments])
 
   const showNoMembershipsMessage = !!user && departmentsLoadStatus === "loaded" && memberships.length === 0
 
@@ -146,12 +167,6 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
 
   const requestAccessEnabled = isFeatureEnabledClient("REQUEST_ACCESS")
   const canRequestAccess = requestAccessEnabled && !!user && (!!activeDepartmentId || true) && !canStartNewReport
-
-  const canAccessDepartments =
-    !!user ||
-    hasPermission("departments.read") ||
-    hasPermission("departments.members.read") ||
-    hasPermission("departments.members.manage")
 
   const handleRequestAccess = useCallback(async () => {
     if (!user) return
@@ -282,7 +297,7 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
                 </Button>
               )}
 
-              {user && !showNoMembershipsMessage && canAccessDepartments && (
+              {user && !rbacLoading && !showNoMembershipsMessage && canAccessDepartments && (
                 <Link href="/departments">
                   <Button variant="outline" size="sm" className="gap-2">
                     <Building2 className="h-4 w-4" />
@@ -324,6 +339,7 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
             </div>
           ) : viewMode === "landing" ? (
             <LandingPage
+              isAuthenticated={!!user}
               canCreateNewReport={canStartNewReport}
               newReportDisabledReason={newReportDisabledReason}
               hasSubmittedReports={hasSubmittedReports}
