@@ -20,11 +20,11 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Plus, Pencil, Trash2, Shield, Loader2, RefreshCw } from "lucide-react"
 import { apiFetch, getErrorMessage } from "@/lib/api-client"
 import { RightSidePanel } from "@/components/ui/right-side-panel"
 import { toast } from "sonner"
+import { PaginatedTable } from "@/components/ui/paginated-table"
 
 type Role = {
   id: string
@@ -262,10 +262,6 @@ export function RoleManager() {
 
   const pageSize = 10
 
-  const setCurrentPage = (filter: "all" | "system" | "custom", page: number) => {
-    setPageByFilter((prev) => ({ ...prev, [filter]: page }))
-  }
-
   const clampPage = (page: number, total: number) => {
     const totalPages = Math.max(1, Math.ceil(total / pageSize))
     return Math.min(Math.max(1, page), totalPages)
@@ -288,42 +284,6 @@ export function RoleManager() {
     }
   }
 
-  const PaginationFooter = ({ filter, total }: { filter: "all" | "system" | "custom"; total: number }) => {
-    const currentPage = pageByFilter[filter]
-    const safePage = clampPage(currentPage, total)
-    const totalPages = Math.max(1, Math.ceil(total / pageSize))
-    const start = total === 0 ? 0 : (safePage - 1) * pageSize + 1
-    const end = total === 0 ? 0 : Math.min(safePage * pageSize, total)
-
-    if (totalPages <= 1) return null
-
-    return (
-      <div className="flex items-center justify-between border-t px-6 py-3">
-        <div className="text-muted-foreground text-sm">
-          {start}-{end} of {total}
-        </div>
-        <div className="flex gap-2">
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setCurrentPage(filter, Math.max(1, safePage - 1))}
-            disabled={safePage <= 1}
-          >
-            Previous
-          </Button>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={() => setCurrentPage(filter, Math.min(totalPages, safePage + 1))}
-            disabled={safePage >= totalPages}
-          >
-            Next
-          </Button>
-        </div>
-      </div>
-    )
-  }
-
   const allPagination = paginate(filteredRoles, pageByFilter.all)
   const systemPagination = paginate(systemRoles, pageByFilter.system)
   const customPagination = paginate(customRoles, pageByFilter.custom)
@@ -333,39 +293,56 @@ export function RoleManager() {
   }, [roleFilter])
 
   const renderRolesTable = (rolesToRender: Role[], emptyMessage = "No roles found. Create your first role.") => {
-    if (!rolesToRender.length) {
-      return (
-        <TableRow>
-          <TableCell colSpan={5} className="text-muted-foreground py-8 text-center">
-            {emptyMessage}
-          </TableCell>
-        </TableRow>
-      )
-    }
-
-    return rolesToRender.map((role: Role) => {
-      const system = isSystemRole(role)
-      const departmentName = role.department?.name || (role.department_id ? role.department_id : "System-wide")
-
-      return (
-        <TableRow key={role.id}>
-          <TableCell className="px-6 py-4 font-medium">{role.name}</TableCell>
-          <TableCell className="px-6 py-4">{departmentName}</TableCell>
-          <TableCell className="hidden px-6 py-4 leading-relaxed wrap-break-word whitespace-normal lg:table-cell">
+    const columns = [
+      {
+        key: "name",
+        header: "Name",
+        cell: (role: Role) => <span className="font-medium">{role.name}</span>,
+      },
+      {
+        key: "department",
+        header: "Department",
+        cell: (role: Role) => {
+          const departmentName = role.department?.name || (role.department_id ? role.department_id : "System-wide")
+          return departmentName
+        },
+      },
+      {
+        key: "description",
+        header: "Description",
+        cell: (role: Role) => (
+          <span className="hidden leading-relaxed wrap-break-word whitespace-normal lg:table-cell">
             {role.description || ""}
-          </TableCell>
-          <TableCell className="px-6 py-4">
+          </span>
+        ),
+      },
+      {
+        key: "type",
+        header: "Type",
+        cell: (role: Role) => {
+          const system = isSystemRole(role)
+          return (
             <div className="inline-flex items-center gap-2">
               <Shield className="text-muted-foreground h-4 w-4" />
               {system ? "System" : "Custom"}
             </div>
-          </TableCell>
-          <TableCell className="px-6 py-4 text-right">
+          )
+        },
+      },
+      {
+        key: "actions",
+        header: "Actions",
+        cell: (role: Role) => {
+          const system = isSystemRole(role)
+          return (
             <div className="flex justify-end gap-2">
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={() => openEditDialog(role)}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  openEditDialog(role)
+                }}
                 disabled={system}
                 aria-label={`Edit role ${role.name}`}
               >
@@ -374,17 +351,32 @@ export function RoleManager() {
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={() => openDeleteDialog(role)}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  openDeleteDialog(role)
+                }}
                 disabled={system}
                 aria-label={`Delete role ${role.name}`}
               >
                 <Trash2 className="h-4 w-4" />
               </Button>
             </div>
-          </TableCell>
-        </TableRow>
-      )
-    })
+          )
+        },
+      },
+    ]
+
+    return (
+      <PaginatedTable
+        data={rolesToRender}
+        emptyMessage={emptyMessage}
+        pageSize={pageSize}
+        searchPlaceholder="Search roles..."
+        searchKeys={["name", "description"]}
+        rowHref={(role) => `/admin/role-and-access/${encodeURIComponent(role.id)}/permissions`}
+        columns={columns}
+      />
+    )
   }
 
   return (
@@ -457,97 +449,18 @@ export function RoleManager() {
             </div>
 
             <TabsContent value="all" className="mt-0">
-              <div className="bg-card text-card-foreground overflow-hidden rounded-xl border shadow-sm">
-                <Table>
-                  <TableHeader className="bg-muted/50">
-                    <TableRow>
-                      <TableHead className="text-muted-foreground px-6 py-4 text-xs font-semibold tracking-wider uppercase">
-                        Name
-                      </TableHead>
-                      <TableHead className="text-muted-foreground px-6 py-4 text-xs font-semibold tracking-wider uppercase">
-                        Department
-                      </TableHead>
-                      <TableHead className="text-muted-foreground hidden px-6 py-4 text-xs font-semibold tracking-wider uppercase lg:table-cell">
-                        Description
-                      </TableHead>
-                      <TableHead className="text-muted-foreground px-6 py-4 text-xs font-semibold tracking-wider uppercase">
-                        Type
-                      </TableHead>
-                      <TableHead className="text-muted-foreground px-6 py-4 text-right text-xs font-semibold tracking-wider uppercase">
-                        Actions
-                      </TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {renderRolesTable(
-                      allPagination.pageItems,
-                      searchQuery.trim() ? "No roles matched your search." : "No roles found. Create your first role."
-                    )}
-                  </TableBody>
-                </Table>
-                <PaginationFooter filter="all" total={allPagination.total} />
-              </div>
+              {renderRolesTable(
+                allPagination.pageItems,
+                searchQuery.trim() ? "No roles matched your search." : "No roles found. Create your first role."
+              )}
             </TabsContent>
 
             <TabsContent value="system" className="mt-0">
-              <div className="bg-card text-card-foreground overflow-hidden rounded-xl border shadow-sm">
-                <Table>
-                  <TableHeader className="bg-muted/50">
-                    <TableRow>
-                      <TableHead className="text-muted-foreground px-6 py-4 text-xs font-semibold tracking-wider uppercase">
-                        Name
-                      </TableHead>
-                      <TableHead className="text-muted-foreground px-6 py-4 text-xs font-semibold tracking-wider uppercase">
-                        Department
-                      </TableHead>
-                      <TableHead className="text-muted-foreground hidden px-6 py-4 text-xs font-semibold tracking-wider uppercase lg:table-cell">
-                        Description
-                      </TableHead>
-                      <TableHead className="text-muted-foreground px-6 py-4 text-xs font-semibold tracking-wider uppercase">
-                        Type
-                      </TableHead>
-                      <TableHead className="text-muted-foreground px-6 py-4 text-right text-xs font-semibold tracking-wider uppercase">
-                        Actions
-                      </TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>{renderRolesTable(systemPagination.pageItems, "No system roles found.")}</TableBody>
-                </Table>
-                <PaginationFooter filter="system" total={systemPagination.total} />
-              </div>
+              {renderRolesTable(systemPagination.pageItems, "No system roles found.")}
             </TabsContent>
 
             <TabsContent value="custom" className="mt-0">
-              <div className="bg-card text-card-foreground overflow-hidden rounded-xl border shadow-sm">
-                <Table>
-                  <TableHeader className="bg-muted/50">
-                    <TableRow>
-                      <TableHead className="text-muted-foreground px-6 py-4 text-xs font-semibold tracking-wider uppercase">
-                        Name
-                      </TableHead>
-                      <TableHead className="text-muted-foreground px-6 py-4 text-xs font-semibold tracking-wider uppercase">
-                        Department
-                      </TableHead>
-                      <TableHead className="text-muted-foreground hidden px-6 py-4 text-xs font-semibold tracking-wider uppercase lg:table-cell">
-                        Description
-                      </TableHead>
-                      <TableHead className="text-muted-foreground px-6 py-4 text-xs font-semibold tracking-wider uppercase">
-                        Type
-                      </TableHead>
-                      <TableHead className="text-muted-foreground px-6 py-4 text-right text-xs font-semibold tracking-wider uppercase">
-                        Actions
-                      </TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {renderRolesTable(
-                      customPagination.pageItems,
-                      "No custom roles found. Create your first custom role."
-                    )}
-                  </TableBody>
-                </Table>
-                <PaginationFooter filter="custom" total={customPagination.total} />
-              </div>
+              {renderRolesTable(customPagination.pageItems, "No custom roles found. Create your first custom role.")}
             </TabsContent>
           </Tabs>
 

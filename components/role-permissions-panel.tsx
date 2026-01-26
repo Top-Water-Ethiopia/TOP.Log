@@ -160,12 +160,6 @@ export function RolePermissionsPanel({ roleId }: { roleId: string }) {
     return allPermissionNames.filter((p) => p.toLowerCase().includes(q))
   }, [allPermissionNames, searchQuery])
 
-  const allGroupKeys = useMemo(() => grouped.map(([group]) => group), [grouped])
-
-  const toggleAllGroups = (expand: boolean) => {
-    setExpandedGroups(expand ? allGroupKeys : [])
-  }
-
   const grouped = useMemo(() => {
     const groups = new Map<string, string[]>()
     filteredPermissionNames.forEach((name) => {
@@ -197,6 +191,12 @@ export function RolePermissionsPanel({ roleId }: { roleId: string }) {
 
     return entries.sort(([a], [b]) => a.localeCompare(b))
   }, [filteredPermissionNames, displayAction])
+
+  const allGroupKeys = useMemo(() => grouped.map(([group]) => group), [grouped])
+
+  const toggleAllGroups = (expand: boolean) => {
+    setExpandedGroups(expand ? allGroupKeys : [])
+  }
 
   const toggle = (permission: string, enabled: boolean) => {
     setSelected((prev) => {

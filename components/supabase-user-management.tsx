@@ -1,8 +1,8 @@
 "use client"
 
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState, useCallback } from "react"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
@@ -10,13 +10,10 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { Separator } from "@/components/ui/separator"
 import {
-  Users,
   UserPlus,
-  Search,
   RefreshCw,
   Edit,
   CheckCircle2,
@@ -25,13 +22,14 @@ import {
   Eye,
   EyeOff,
   ChevronLeft,
+  Search,
 } from "lucide-react"
 import { toast } from "sonner"
 import { UsersTableSkeleton } from "@/components/skeletons/users-table-skeleton"
 import { apiFetch, getErrorMessage } from "@/lib/api-client"
 import { RightSidePanel } from "@/components/ui/right-side-panel"
 import useSWR from "swr"
-import { DataTable } from "@/components/ui/data-table"
+import { PaginatedTable } from "@/components/ui/paginated-table"
 
 // Role IDs from schema
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
@@ -118,7 +116,6 @@ export function SupabaseUserManagement() {
   const [searchTerm, setSearchTerm] = useState("")
   const [roleFilter, setRoleFilter] = useState<string>("all")
   const [statusFilter, setStatusFilter] = useState<string>("all")
-  const [page, setPage] = useState(1)
   const [showCreateUser, setShowCreateUser] = useState(false)
   const [showEditUser, setShowEditUser] = useState(false)
   const [editingUser, setEditingUser] = useState<UserWithProfile | null>(null)
@@ -295,18 +292,19 @@ export function SupabaseUserManagement() {
 
   useEffect(() => {
     if (!isAdmin) return
-    setPage(1)
   }, [isAdmin])
 
-  const departmentNameById = (departmentId: string) => {
-    return departments.find((d) => d.id === departmentId)?.name || departmentId
-  }
-
-  const getUserDepartmentNames = (userId: string, profileDepartmentId?: string | null) => {
-    const fromMemberships = userDepartmentsByUserId[userId] || []
-    const ids = profileDepartmentId ? Array.from(new Set([profileDepartmentId, ...fromMemberships])) : fromMemberships
-    return ids.map(departmentNameById).filter(Boolean)
-  }
+  const getUserDepartmentNames = useCallback(
+    (userId: string, profileDepartmentId?: string | null) => {
+      const departmentNameById = (departmentId: string) => {
+        return departments.find((d) => d.id === departmentId)?.name || departmentId
+      }
+      const fromMemberships = userDepartmentsByUserId[userId] || []
+      const ids = profileDepartmentId ? Array.from(new Set([profileDepartmentId, ...fromMemberships])) : fromMemberships
+      return ids.map(departmentNameById).filter(Boolean)
+    },
+    [userDepartmentsByUserId, departments]
+  )
 
   const editSystemRoles = (() => {
     const order = ["admin", SYSTEM_ADMIN_ROLE_NAME, "user"]
@@ -334,56 +332,24 @@ export function SupabaseUserManagement() {
 
   const pageSize = 6
 
-  const clampPage = (requestedPage: number, total: number) => {
-    const totalPages = Math.max(1, Math.ceil(total / pageSize))
-    return Math.min(Math.max(1, requestedPage), totalPages)
-  }
-
-  const paginate = <T,>(items: T[], requestedPage: number) => {
-    const total = items.length
-    const safePage = clampPage(requestedPage, total)
-    const totalPages = Math.max(1, Math.ceil(total / pageSize))
-    const startIndex = (safePage - 1) * pageSize
-    const endIndexExclusive = Math.min(startIndex + pageSize, total)
-
-    return {
-      page: safePage,
-      total,
-      totalPages,
-      start: total === 0 ? 0 : startIndex + 1,
-      end: total === 0 ? 0 : endIndexExclusive,
-      pageItems: items.slice(startIndex, endIndexExclusive),
-    }
-  }
-
   // Filter users
-  const filteredUsers = users.filter((user) => {
-    const departmentNames = getUserDepartmentNames(user.id, user.profile?.department_id)
-    const matchesSearch =
-      user.profile?.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (departmentNames.length > 0 && departmentNames.join(" ").toLowerCase().includes(searchTerm.toLowerCase()))
+  const filteredUsers = useMemo(() => {
+    return users.filter((user) => {
+      const departmentNames = getUserDepartmentNames(user.id, user.profile?.department_id)
+      const matchesSearch =
+        user.profile?.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (departmentNames.length > 0 && departmentNames.join(" ").toLowerCase().includes(searchTerm.toLowerCase()))
 
-    const matchesRole = roleFilter === "all" || user.profile?.role_id === roleFilter
-    const matchesStatus =
-      statusFilter === "all" ||
-      (statusFilter === "active" && user.profile?.is_active) ||
-      (statusFilter === "inactive" && !user.profile?.is_active)
+      const matchesRole = roleFilter === "all" || user.profile?.role_id === roleFilter
+      const matchesStatus =
+        statusFilter === "all" ||
+        (statusFilter === "active" && user.profile?.is_active) ||
+        (statusFilter === "inactive" && !user.profile?.is_active)
 
-    return matchesSearch && matchesRole && matchesStatus
-  })
-
-  const pagination = paginate(filteredUsers, page)
-
-  useEffect(() => {
-    setPage(1)
-  }, [searchTerm, roleFilter, statusFilter])
-
-  useEffect(() => {
-    const nextPage = clampPage(page, filteredUsers.length)
-    if (nextPage !== page) setPage(nextPage)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [filteredUsers.length])
+      return matchesSearch && matchesRole && matchesStatus
+    })
+  }, [users, searchTerm, roleFilter, statusFilter, getUserDepartmentNames])
 
   const validateCreateUserForm = () => {
     const errors: Record<string, string> = {}
@@ -920,192 +886,130 @@ export function SupabaseUserManagement() {
       </div>
 
       {/* Users Table */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            <Users className="h-5 w-5" />
-            Users ({filteredUsers.length})
-          </CardTitle>
-          <CardDescription>Manage user accounts and assign roles</CardDescription>
-        </CardHeader>
-        <CardContent className="p-6">
-          <DataTable
-            isLoading={isLoading}
-            isEmpty={filteredUsers.length === 0}
-            loadingFallback={
-              <div className="flex items-center justify-center py-12">
-                <RefreshCw className="text-muted-foreground h-6 w-6 animate-spin" />
-              </div>
-            }
-            emptyFallback={<div className="text-muted-foreground py-12 text-center">No users found</div>}
-          >
-            <div className="overflow-x-auto">
-              <div className="inline-block min-w-full align-middle">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>User</TableHead>
-                      <TableHead>Department</TableHead>
-                      <TableHead>Role</TableHead>
-                      <TableHead>Status</TableHead>
-                      <TableHead>Last Login</TableHead>
-                      <TableHead>Created</TableHead>
-                      <TableHead>Actions</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {pagination.pageItems.map((user) => (
-                      <TableRow key={user.id}>
-                        <TableCell>
-                          <div className="flex items-center gap-3">
-                            <Avatar className="h-8 w-8">
-                              <AvatarFallback>
-                                {user.profile?.name
-                                  .split(" ")
-                                  .map((n) => n[0])
-                                  .join("")
-                                  .toUpperCase() || "U"}
-                              </AvatarFallback>
-                            </Avatar>
-                            <div>
-                              <div className="font-medium">{user.profile?.name || "N/A"}</div>
-                              <button
-                                type="button"
-                                onClick={async () => {
-                                  if (!user.email || user.email === "N/A") return
-                                  try {
-                                    await navigator.clipboard.writeText(user.email)
-                                    toast.success("Email copied to clipboard")
-                                  } catch (error) {
-                                    console.error("Failed to copy email", error)
-                                    toast.error("Failed to copy email")
-                                  }
-                                }}
-                                className="text-muted-foreground hover:text-foreground text-sm"
-                              >
-                                {user.email}
-                              </button>
-                            </div>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          {(() => {
-                            const names = getUserDepartmentNames(user.id, user.profile?.department_id)
-                            if (names.length === 0) return "-"
-                            return names.join(", ")
-                          })()}
-                        </TableCell>
-                        <TableCell>
-                          <Badge variant={getRoleBadgeVariant(user.profile?.role_name || "user")}>
-                            {user.profile?.role_name || "user"}
-                          </Badge>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center gap-2">
-                            {user.profile?.is_active ? (
-                              <CheckCircle2 className="h-4 w-4 text-green-500" />
-                            ) : (
-                              <XCircle className="h-4 w-4 text-red-500" />
-                            )}
-                            <span className="text-sm">{user.profile?.is_active ? "Active" : "Inactive"}</span>
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="text-sm">
-                            {user.profile?.last_login
-                              ? new Date(user.profile.last_login).toLocaleDateString()
-                              : "Never"}
-                          </div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="text-sm">{new Date(user.created_at).toLocaleDateString()}</div>
-                        </TableCell>
-                        <TableCell>
-                          <div className="flex items-center justify-end gap-2">
-                            <Button
-                              variant="outline"
-                              size="icon"
-                              className="h-8 w-8"
-                              onClick={() => {
-                                setEditingUser(user)
-                                setEditUserPanelMode("edit")
-                                setResetPasswordMode("email")
-                                setNewPassword("")
-                                setConfirmNewPassword("")
-                                setDeleteConfirmation("")
-                                setEditUserForm({
-                                  name: user.profile?.name || "",
-                                  email: user.email,
-                                  role_id: user.profile?.role_id || USER_ROLE_ID,
-                                  is_active: user.profile?.is_active ?? true,
-                                  email_verified: !!user.email_confirmed_at,
-                                })
-                                setShowEditUser(true)
-                              }}
-                            >
-                              <Edit className="h-4 w-4" />
-                              <span className="sr-only">Edit user</span>
-                            </Button>
-                          </div>
-                        </TableCell>
-                      </TableRow>
-                    ))}
-                  </TableBody>
-                </Table>
-              </div>
-            </div>
-
-            <div className="flex items-center justify-between border-t px-4 py-3 sm:px-6">
-              <div className="hidden sm:block">
-                <p className="text-muted-foreground text-sm">
-                  Showing <span className="text-foreground font-medium">{pagination.start}</span> to{" "}
-                  <span className="text-foreground font-medium">{pagination.end}</span> of{" "}
-                  <span className="text-foreground font-medium">{pagination.total}</span> results
-                </p>
-              </div>
-
-              <div className="ml-auto flex items-center gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={pagination.total === 0 || pagination.page <= 1}
-                  onClick={() => setPage(pagination.page - 1)}
-                >
-                  Prev
-                </Button>
-
-                <div className="hidden items-center gap-1 sm:flex">
-                  {Array.from({ length: pagination.totalPages }).map((_, i) => {
-                    const p = i + 1
-                    const active = p === pagination.page
-                    return (
-                      <Button
-                        key={`user-page-${p}`}
-                        variant="outline"
-                        size="sm"
-                        disabled={pagination.total === 0}
-                        className={active ? "border-primary bg-primary/10 text-primary" : ""}
-                        onClick={() => setPage(p)}
-                      >
-                        {p}
-                      </Button>
-                    )
-                  })}
+      <PaginatedTable
+        data={filteredUsers}
+        isLoading={isLoading}
+        emptyMessage="No users found"
+        pageSize={pageSize}
+        searchPlaceholder="Search users..."
+        searchKeys={["email"]}
+        columns={[
+          {
+            key: "user",
+            header: "User",
+            cell: (user) => (
+              <div className="flex items-center gap-3">
+                <Avatar className="h-8 w-8">
+                  <AvatarFallback>
+                    {user.profile?.name
+                      .split(" ")
+                      .map((n) => n[0])
+                      .join("")
+                      .toUpperCase() || "U"}
+                  </AvatarFallback>
+                </Avatar>
+                <div>
+                  <div className="font-medium">{user.profile?.name || "N/A"}</div>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!user.email || user.email === "N/A") return
+                      try {
+                        await navigator.clipboard.writeText(user.email)
+                        toast.success("Email copied to clipboard")
+                      } catch (error) {
+                        console.error("Failed to copy email", error)
+                        toast.error("Failed to copy email")
+                      }
+                    }}
+                    className="text-muted-foreground hover:text-foreground text-sm"
+                  >
+                    {user.email}
+                  </button>
                 </div>
-
+              </div>
+            ),
+          },
+          {
+            key: "department",
+            header: "Department",
+            cell: (user) => {
+              const names = getUserDepartmentNames(user.id, user.profile?.department_id)
+              if (names.length === 0) return "-"
+              return names.join(", ")
+            },
+          },
+          {
+            key: "role",
+            header: "Role",
+            cell: (user) => (
+              <Badge variant={getRoleBadgeVariant(user.profile?.role_name || "user")}>
+                {user.profile?.role_name || "user"}
+              </Badge>
+            ),
+          },
+          {
+            key: "status",
+            header: "Status",
+            cell: (user) => (
+              <div className="flex items-center gap-2">
+                {user.profile?.is_active ? (
+                  <CheckCircle2 className="h-4 w-4 text-green-500" />
+                ) : (
+                  <XCircle className="h-4 w-4 text-red-500" />
+                )}
+                <span className="text-sm">{user.profile?.is_active ? "Active" : "Inactive"}</span>
+              </div>
+            ),
+          },
+          {
+            key: "last_login",
+            header: "Last Login",
+            cell: (user) => (
+              <div className="text-sm">
+                {user.profile?.last_login ? new Date(user.profile.last_login).toLocaleDateString() : "Never"}
+              </div>
+            ),
+          },
+          {
+            key: "created_at",
+            header: "Created",
+            cell: (user) => <div className="text-sm">{new Date(user.created_at).toLocaleDateString()}</div>,
+          },
+          {
+            key: "actions",
+            header: "Actions",
+            cell: (user) => (
+              <div className="flex items-center justify-end gap-2">
                 <Button
                   variant="outline"
-                  size="sm"
-                  disabled={pagination.total === 0 || pagination.page >= pagination.totalPages}
-                  onClick={() => setPage(pagination.page + 1)}
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => {
+                    setEditingUser(user)
+                    setEditUserPanelMode("edit")
+                    setResetPasswordMode("email")
+                    setNewPassword("")
+                    setConfirmNewPassword("")
+                    setDeleteConfirmation("")
+                    setEditUserForm({
+                      name: user.profile?.name || "",
+                      email: user.email,
+                      role_id: user.profile?.role_id || USER_ROLE_ID,
+                      is_active: user.profile?.is_active ?? true,
+                      email_verified: !!user.email_confirmed_at,
+                    })
+                    setShowEditUser(true)
+                  }}
                 >
-                  Next
+                  <Edit className="h-4 w-4" />
+                  <span className="sr-only">Edit user</span>
                 </Button>
               </div>
-            </div>
-          </DataTable>
-        </CardContent>
-      </Card>
+            ),
+          },
+        ]}
+      />
 
       {/* Create User Dialog */}
       <RightSidePanel
