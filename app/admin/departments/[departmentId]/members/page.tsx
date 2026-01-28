@@ -13,26 +13,8 @@ import { Switch } from "@/components/ui/switch"
 import { useToast } from "@/components/ui/use-toast"
 import { ToastAction } from "@/components/ui/toast"
 import { ActionMenu, type ActionMenuItem } from "@/components/ui/action-menu"
-import { MoreVertical, Pencil, Search, Trash2, X as XIcon } from "lucide-react"
+import { MoreVertical, Pencil, Search, Trash2, UserX, X as XIcon } from "lucide-react"
 import { RightSidePanel } from "@/components/ui/right-side-panel"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import useSWR from "swr"
@@ -199,19 +181,24 @@ export function DepartmentMembersPanel({ departmentId }: { departmentId: string 
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null)
   const [editingMembershipUserId, setEditingMembershipUserId] = useState<string | null>(null)
   const [selectedRole, setSelectedRole] = useState<string>("")
+  const [originalDepartmentRoleKey, setOriginalDepartmentRoleKey] = useState<string>("")
   const [selectedActive, setSelectedActive] = useState(true)
   const PROFESSION_ROLE_NONE = "__none__"
   const [selectedProfessionRoleId, setSelectedProfessionRoleId] = useState<string>(PROFESSION_ROLE_NONE)
   const [selectedProfessionActive, setSelectedProfessionActive] = useState(true)
+  const [originalProfessionRoleId, setOriginalProfessionRoleId] = useState<string>(PROFESSION_ROLE_NONE)
+  const [originalProfessionActive, setOriginalProfessionActive] = useState(true)
   const [saving, setSaving] = useState(false)
   const [checkingActiveMembership, setCheckingActiveMembership] = useState(false)
   const [activeMembershipElsewhere, setActiveMembershipElsewhere] = useState<{
     department_id: string
     department_name: string | null
   } | null>(null)
-  const [assignPanelMode, setAssignPanelMode] = useState<"form" | "confirm_move">("form")
+  const [assignPanelMode, setAssignPanelMode] = useState<
+    "form" | "confirm_move" | "confirm_department_role_change" | "confirm_profession_change"
+  >("form")
   const [removingUserId, setRemovingUserId] = useState<string | null>(null)
-  const [memberToRemove, setMemberToRemove] = useState<MembershipRow | null>(null)
+  const [memberToDeactivate, setMemberToDeactivate] = useState<MembershipRow | null>(null)
   const [memberToHardDelete, setMemberToHardDelete] = useState<MembershipRow | null>(null)
   const [hardDeleteConfirmText, setHardDeleteConfirmText] = useState("")
   const [searchQuery, setSearchQuery] = useState("")
@@ -345,22 +332,22 @@ export function DepartmentMembersPanel({ departmentId }: { departmentId: string 
     }
   }
 
-  const confirmRemoveMember = (m: MembershipRow) => {
-    setMemberToRemove(m)
+  const confirmDeactivateMember = (m: MembershipRow) => {
+    setMemberToDeactivate(m)
   }
 
-  const removeMember = async () => {
-    if (!memberToRemove) return
+  const deactivateMember = async () => {
+    if (!memberToDeactivate) return
     if (!departmentId) return
 
     const prevMembershipsResponse = membershipsResponse
     const prevProfessionAssignmentsResponse = professionAssignmentsResponse
 
     try {
-      setRemovingUserId(memberToRemove.user_id)
+      setRemovingUserId(memberToDeactivate.user_id)
       const nowIso = new Date().toISOString()
-      const removedUserId = memberToRemove.user_id
-      const removedDisplayName = memberToRemove.user?.name || memberToRemove.user?.email || removedUserId
+      const removedUserId = memberToDeactivate.user_id
+      const removedDisplayName = memberToDeactivate.user?.name || memberToDeactivate.user?.email || removedUserId
 
       mutateMemberships(
         (current) => {
@@ -385,20 +372,20 @@ export function DepartmentMembersPanel({ departmentId }: { departmentId: string 
       )
 
       const json = await apiFetch<{ data: unknown }>(
-        `/api/admin/departments/${departmentId}/memberships/${memberToRemove.user_id}`,
+        `/api/admin/departments/${departmentId}/memberships/${memberToDeactivate.user_id}`,
         { method: "DELETE" }
       )
 
       if (!json?.data) {
         await apiFetch<{ data: unknown }>(
-          `/api/admin/departments/${departmentId}/profession-assignments/${memberToRemove.user_id}`,
+          `/api/admin/departments/${departmentId}/profession-assignments/${memberToDeactivate.user_id}`,
           { method: "DELETE" }
         )
       }
 
       toast({
-        title: "Removed",
-        description: `${removedDisplayName} removed from department`,
+        title: "Deactivated",
+        description: `${removedDisplayName} deactivated in this department`,
         action: (
           <ToastAction
             altText="Undo"
@@ -461,7 +448,7 @@ export function DepartmentMembersPanel({ departmentId }: { departmentId: string 
         ),
       })
 
-      setMemberToRemove(null)
+      setMemberToDeactivate(null)
     } catch (error: unknown) {
       if (prevMembershipsResponse) {
         mutateMemberships(prevMembershipsResponse, { revalidate: false })
@@ -477,7 +464,7 @@ export function DepartmentMembersPanel({ departmentId }: { departmentId: string 
 
       toast({
         title: "Error",
-        description: getErrorMessage(error, "Failed to remove member"),
+        description: getErrorMessage(error, "Failed to deactivate member"),
         variant: "destructive",
       })
     } finally {
@@ -555,12 +542,15 @@ export function DepartmentMembersPanel({ departmentId }: { departmentId: string 
     setSelectedUserId(null)
     setEditingMembershipUserId(null)
     setSelectedRole(defaultDepartmentRoleKey)
+    setOriginalDepartmentRoleKey(defaultDepartmentRoleKey)
     setSelectedActive(true)
     setCheckingActiveMembership(false)
     setActiveMembershipElsewhere(null)
     setAssignPanelMode("form")
     setSelectedProfessionRoleId(PROFESSION_ROLE_NONE)
     setSelectedProfessionActive(true)
+    setOriginalProfessionRoleId(PROFESSION_ROLE_NONE)
+    setOriginalProfessionActive(true)
   }, [defaultDepartmentRoleKey])
 
   useEffect(() => {
@@ -576,6 +566,9 @@ export function DepartmentMembersPanel({ departmentId }: { departmentId: string 
     if (showAssignDialog) return
     setEditingMembershipUserId(null)
     setAssignPanelMode("form")
+    setOriginalDepartmentRoleKey("")
+    setOriginalProfessionRoleId(PROFESSION_ROLE_NONE)
+    setOriginalProfessionActive(true)
   }, [showAssignDialog])
 
   useEffect(() => {
@@ -947,7 +940,33 @@ export function DepartmentMembersPanel({ departmentId }: { departmentId: string 
   }
 
   const handleSaveClick = () => {
+    const isEditing = !!editingMembershipUserId
+    const departmentRoleChanged = isEditing && !!originalDepartmentRoleKey && selectedRole !== originalDepartmentRoleKey
+
+    const effectiveSelectedProfessionRoleId =
+      selectedProfessionRoleId !== PROFESSION_ROLE_NONE && !professionRolesById.has(selectedProfessionRoleId)
+        ? PROFESSION_ROLE_NONE
+        : selectedProfessionRoleId
+
+    const professionRoleChanged = isEditing && effectiveSelectedProfessionRoleId !== originalProfessionRoleId
+
+    const professionActiveChanged =
+      isEditing &&
+      !professionRoleChanged &&
+      effectiveSelectedProfessionRoleId !== PROFESSION_ROLE_NONE &&
+      selectedProfessionActive !== originalProfessionActive
+
+    const professionChanged = professionRoleChanged || professionActiveChanged
+
     if (!selectedActive || !activeMembershipElsewhere) {
+      if (departmentRoleChanged) {
+        setAssignPanelMode("confirm_department_role_change")
+        return
+      }
+      if (professionChanged) {
+        setAssignPanelMode("confirm_profession_change")
+        return
+      }
       saveMembership()
       return
     }
@@ -1195,24 +1214,32 @@ export function DepartmentMembersPanel({ departmentId }: { departmentId: string 
                                 setSelectedUserId(m.user_id)
                                 setEditingMembershipUserId(m.user_id)
                                 setSelectedRole(m.role)
+                                setOriginalDepartmentRoleKey(m.role)
                                 setSelectedActive(m.is_active)
                                 const prof = professionAssignmentByUserId.get(m.user_id)
                                 const nextProfessionRoleId =
                                   prof?.role_id && professionRolesById.has(prof.role_id)
                                     ? prof.role_id
-                                    : professionRoles[0]?.id || PROFESSION_ROLE_NONE
+                                    : PROFESSION_ROLE_NONE
                                 setSelectedProfessionRoleId(nextProfessionRoleId)
                                 setSelectedProfessionActive(prof?.is_active ?? true)
+                                setOriginalProfessionRoleId(
+                                  prof?.role_id && professionRolesById.has(prof.role_id)
+                                    ? prof.role_id
+                                    : PROFESSION_ROLE_NONE
+                                )
+                                setOriginalProfessionActive(prof?.is_active ?? true)
                                 setUserQuery(m.user?.email || m.user?.name || "")
                                 setSearchResults([])
+                                setAssignPanelMode("form")
                               },
                             },
                             {
                               type: "item",
-                              label: "Remove",
-                              icon: <Trash2 className="mr-2 h-4 w-4" />,
+                              label: "Deactivate",
+                              icon: <UserX className="mr-2 h-4 w-4" />,
                               destructive: true,
-                              onSelect: () => confirmRemoveMember(m),
+                              onSelect: () => confirmDeactivateMember(m),
                             },
                             { type: "separator" },
                             {
@@ -1243,19 +1270,73 @@ export function DepartmentMembersPanel({ departmentId }: { departmentId: string 
         title={
           assignPanelMode === "confirm_move"
             ? "Move active membership?"
-            : editingMembershipUserId
-              ? "Edit member"
-              : "Assign user"
+            : assignPanelMode === "confirm_department_role_change"
+              ? "Confirm access change?"
+              : assignPanelMode === "confirm_profession_change"
+                ? "Confirm profession role change?"
+                : editingMembershipUserId
+                  ? "Edit member"
+                  : "Assign user"
         }
         description={
           assignPanelMode === "confirm_move"
             ? "This user is active in another department. Continuing will move their active membership to this department."
-            : editingMembershipUserId
-              ? "Update this member's access and active status for this department."
-              : "Select a user and choose their role in this department."
+            : assignPanelMode === "confirm_department_role_change"
+              ? "This will change this member's department access control."
+              : assignPanelMode === "confirm_profession_change"
+                ? "This will update the member's profession role in this department."
+                : editingMembershipUserId
+                  ? "Update this member's access and active status for this department."
+                  : "Select a user and choose their role in this department."
         }
         footer={
           assignPanelMode === "confirm_move" ? (
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setAssignPanelMode("form")} disabled={saving}>
+                Back
+              </Button>
+              <Button onClick={saveMembership} disabled={saving}>
+                Continue
+              </Button>
+            </div>
+          ) : assignPanelMode === "confirm_department_role_change" ? (
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setAssignPanelMode("form")} disabled={saving}>
+                Back
+              </Button>
+              <Button
+                onClick={() => {
+                  const isEditing = !!editingMembershipUserId
+
+                  const effectiveSelectedProfessionRoleId =
+                    selectedProfessionRoleId !== PROFESSION_ROLE_NONE &&
+                    !professionRolesById.has(selectedProfessionRoleId)
+                      ? PROFESSION_ROLE_NONE
+                      : selectedProfessionRoleId
+
+                  const professionRoleChanged =
+                    isEditing && effectiveSelectedProfessionRoleId !== originalProfessionRoleId
+                  const professionActiveChanged =
+                    isEditing &&
+                    !professionRoleChanged &&
+                    effectiveSelectedProfessionRoleId !== PROFESSION_ROLE_NONE &&
+                    selectedProfessionActive !== originalProfessionActive
+
+                  const professionChanged = professionRoleChanged || professionActiveChanged
+
+                  if (professionChanged) {
+                    setAssignPanelMode("confirm_profession_change")
+                    return
+                  }
+
+                  saveMembership()
+                }}
+                disabled={saving}
+              >
+                Continue
+              </Button>
+            </div>
+          ) : assignPanelMode === "confirm_profession_change" ? (
             <div className="flex justify-end gap-2">
               <Button variant="outline" onClick={() => setAssignPanelMode("form")} disabled={saving}>
                 Back
@@ -1292,6 +1373,69 @@ export function DepartmentMembersPanel({ departmentId }: { departmentId: string 
                 Your selected role and profession settings will be saved along with this change.
               </div>
             </div>
+          ) : assignPanelMode === "confirm_department_role_change" ? (
+            <div className="space-y-3">
+              <div className="bg-muted/20 rounded-md border p-4">
+                <div className="text-sm font-semibold">Confirm department access change</div>
+                <div className="text-muted-foreground mt-1 text-sm">
+                  {(() => {
+                    const roleLabelByKey = new Map(departmentRoles.map((r) => [r.key, r.label]))
+                    const prevLabel = roleLabelByKey.get(originalDepartmentRoleKey) || originalDepartmentRoleKey || ""
+                    const nextLabel = roleLabelByKey.get(selectedRole) || selectedRole
+                    return `Department access: ${prevLabel} → ${nextLabel}`
+                  })()}
+                </div>
+              </div>
+
+              <div className="text-muted-foreground text-xs">Your changes will be applied after saving.</div>
+            </div>
+          ) : assignPanelMode === "confirm_profession_change" ? (
+            <div className="space-y-3">
+              <div className="bg-muted/20 rounded-md border p-4">
+                <div className="text-sm font-semibold">Confirm profession role change</div>
+                <div className="text-muted-foreground mt-1 text-sm">
+                  {(() => {
+                    const originalLabel =
+                      originalProfessionRoleId === PROFESSION_ROLE_NONE
+                        ? "Unassigned"
+                        : professionRolesById.get(originalProfessionRoleId)?.name || originalProfessionRoleId
+
+                    const effectiveSelectedProfessionRoleId =
+                      selectedProfessionRoleId !== PROFESSION_ROLE_NONE &&
+                      !professionRolesById.has(selectedProfessionRoleId)
+                        ? PROFESSION_ROLE_NONE
+                        : selectedProfessionRoleId
+
+                    const nextLabel =
+                      effectiveSelectedProfessionRoleId === PROFESSION_ROLE_NONE
+                        ? "Unassigned"
+                        : professionRolesById.get(effectiveSelectedProfessionRoleId)?.name ||
+                          effectiveSelectedProfessionRoleId
+
+                    return `Profession role: ${originalLabel} → ${nextLabel}`
+                  })()}
+                </div>
+                {(() => {
+                  const effectiveSelectedProfessionRoleId =
+                    selectedProfessionRoleId !== PROFESSION_ROLE_NONE &&
+                    !professionRolesById.has(selectedProfessionRoleId)
+                      ? PROFESSION_ROLE_NONE
+                      : selectedProfessionRoleId
+
+                  if (effectiveSelectedProfessionRoleId === PROFESSION_ROLE_NONE) return null
+                  if (effectiveSelectedProfessionRoleId !== originalProfessionRoleId) return null
+                  if (selectedProfessionActive === originalProfessionActive) return null
+
+                  const prev = originalProfessionActive ? "On" : "Off"
+                  const next = selectedProfessionActive ? "On" : "Off"
+                  return (
+                    <div className="text-muted-foreground mt-1 text-sm">{`Profession role active: ${prev} → ${next}`}</div>
+                  )
+                })()}
+              </div>
+
+              <div className="text-muted-foreground text-xs">This change takes effect immediately after saving.</div>
+            </div>
           ) : (
             <div className="space-y-4">
               <div className="space-y-2">
@@ -1303,8 +1447,9 @@ export function DepartmentMembersPanel({ departmentId }: { departmentId: string 
                       onChange={(e) => setUserQuery(e.target.value)}
                       placeholder="Search by email, name, or username"
                       className={userQuery ? "pr-8" : undefined}
+                      disabled={!!editingMembershipUserId}
                     />
-                    {userQuery && (
+                    {userQuery && !editingMembershipUserId && (
                       <button
                         type="button"
                         onClick={() => {
@@ -1322,9 +1467,18 @@ export function DepartmentMembersPanel({ departmentId }: { departmentId: string 
                   </div>
                 </div>
 
-                {searchLoading && userQuery.trim() && <div className="text-muted-foreground text-xs">Searching...</div>}
+                {!!editingMembershipUserId && (
+                  <div className="text-muted-foreground text-xs">
+                    User cannot be changed when editing a member. Close this panel and use Assign user to add a
+                    different member.
+                  </div>
+                )}
 
-                {searchResults.length > 0 && (
+                {!editingMembershipUserId && searchLoading && userQuery.trim() && (
+                  <div className="text-muted-foreground text-xs">Searching...</div>
+                )}
+
+                {!editingMembershipUserId && searchResults.length > 0 && (
                   <div className="max-h-48 overflow-auto rounded-md border">
                     {searchResults.map((u) => (
                       <button
@@ -1345,7 +1499,7 @@ export function DepartmentMembersPanel({ departmentId }: { departmentId: string 
                   </div>
                 )}
 
-                {selectedUserId && (
+                {!editingMembershipUserId && selectedUserId && (
                   <div className="text-muted-foreground text-xs">Selected user_id: {selectedUserId}</div>
                 )}
               </div>
@@ -1428,7 +1582,7 @@ export function DepartmentMembersPanel({ departmentId }: { departmentId: string 
                           </span>
                         </span>
                       ) : activeMembershipElsewhere ? (
-                        <span className="mt-2 block font-semibold">
+                        <span className="mt-2 block rounded-md border border-red-500 bg-red-50 p-2 font-semibold text-red-700">
                           {`This user is currently active in “${activeMembershipElsewhere.department_name || activeMembershipElsewhere.department_id}”. Saving will deactivate their membership there and activate them in this department.`}
                         </span>
                       ) : (
@@ -1449,35 +1603,55 @@ export function DepartmentMembersPanel({ departmentId }: { departmentId: string 
         </div>
       </RightSidePanel>
 
-      <AlertDialog open={!!memberToRemove} onOpenChange={(open) => !open && setMemberToRemove(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Remove member</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will remove access to this department. You can re-enable later.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={!!removingUserId}>Cancel</AlertDialogCancel>
+      <RightSidePanel
+        open={!!memberToDeactivate}
+        onOpenChange={(open) => {
+          if (!open) setMemberToDeactivate(null)
+        }}
+        title="Deactivate member"
+        description="This will deactivate access to this department. You can re-enable later."
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setMemberToDeactivate(null)} disabled={!!removingUserId}>
+              Cancel
+            </Button>
             <Button
-              variant="destructive"
+              variant="outline"
+              className="border-red-600 text-red-700 hover:bg-red-50 hover:text-red-800"
               disabled={!!removingUserId}
               onClick={() => {
-                if (!memberToRemove) return
-                setMemberToHardDelete(memberToRemove)
-                setMemberToRemove(null)
+                if (!memberToDeactivate) return
+                setMemberToHardDelete(memberToDeactivate)
+                setMemberToDeactivate(null)
               }}
             >
+              <Trash2 className="mr-2 h-4 w-4" />
               Permanently delete
             </Button>
-            <AlertDialogAction disabled={!!removingUserId} onClick={removeMember}>
-              Remove
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+            <Button variant="default" disabled={!!removingUserId} onClick={deactivateMember}>
+              <UserX className="mr-2 h-4 w-4" />
+              Deactivate
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4 pt-4">
+          <div className="bg-muted/20 rounded-md border p-4">
+            <div className="text-sm font-semibold">
+              {memberToDeactivate?.user?.name ||
+                memberToDeactivate?.user?.email ||
+                memberToDeactivate?.user_id ||
+                "Member"}
+            </div>
+            <div className="text-muted-foreground mt-1 text-sm">
+              {memberToDeactivate?.user?.email || memberToDeactivate?.user_id || ""}
+            </div>
+          </div>
+          <div className="text-muted-foreground text-xs">Deactivating does not delete history; it removes access.</div>
+        </div>
+      </RightSidePanel>
 
-      <Dialog
+      <RightSidePanel
         open={!!memberToHardDelete}
         onOpenChange={(open) => {
           if (!open) {
@@ -1485,18 +1659,10 @@ export function DepartmentMembersPanel({ departmentId }: { departmentId: string 
             setHardDeleteConfirmText("")
           }
         }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Permanently delete membership</DialogTitle>
-            <DialogDescription>This cannot be undone. Type DELETE to confirm.</DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-2">
-            <Input value={hardDeleteConfirmText} onChange={(e) => setHardDeleteConfirmText(e.target.value)} />
-          </div>
-
-          <DialogFooter>
+        title="Permanently delete membership"
+        description="This cannot be undone. Type DELETE to confirm."
+        footer={
+          <div className="flex justify-end gap-2">
             <Button
               variant="outline"
               onClick={() => {
@@ -1514,9 +1680,27 @@ export function DepartmentMembersPanel({ departmentId }: { departmentId: string 
             >
               Permanently delete
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </div>
+        }
+      >
+        <div className="space-y-4 pt-4">
+          <div className="bg-muted/20 rounded-md border border-red-500/40 p-4">
+            <div className="text-sm font-semibold">
+              {memberToHardDelete?.user?.name ||
+                memberToHardDelete?.user?.email ||
+                memberToHardDelete?.user_id ||
+                "Member"}
+            </div>
+            <div className="text-muted-foreground mt-1 text-sm">
+              {memberToHardDelete?.user?.email || memberToHardDelete?.user_id || ""}
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Input value={hardDeleteConfirmText} onChange={(e) => setHardDeleteConfirmText(e.target.value)} />
+          </div>
+        </div>
+      </RightSidePanel>
     </div>
   )
 }

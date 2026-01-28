@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -11,6 +11,7 @@ import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Switch } from "@/components/ui/switch"
+import { Checkbox } from "@/components/ui/checkbox"
 import { useToast } from "@/components/ui/use-toast"
 import { ToastAction } from "@/components/ui/toast"
 import { ActionMenu, type ActionMenuItem } from "@/components/ui/action-menu"
@@ -18,24 +19,6 @@ import { toast as sonnerToast } from "sonner"
 import useSWR from "swr"
 import { ApiError, apiFetch, getErrorMessage } from "@/lib/api-client"
 import { RightSidePanel } from "@/components/ui/right-side-panel"
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog"
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Briefcase, Minus, MoreVertical, Pencil, Plus, Search, Trash2, Users, UserPlus, X as XIcon } from "lucide-react"
@@ -51,12 +34,6 @@ type RoleRow = {
   level?: number
   created_at?: string
   updated_at?: string
-}
-
-type SearchUser = {
-  user_id: string
-  email: string | null
-  name: string | null
 }
 
 type DepartmentMembershipRow = {
@@ -197,30 +174,28 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
   })
   const [roleFormErrors, setRoleFormErrors] = useState<Record<string, string>>({})
 
-  const [showDeleteRoleDialog, setShowDeleteRoleDialog] = useState(false)
   const [roleToDelete, setRoleToDelete] = useState<RoleRow | null>(null)
   const [roleDeleting, setRoleDeleting] = useState(false)
+  const [showDeleteRolePanel, setShowDeleteRolePanel] = useState(false)
+  const [deleteRoleConfirmText, setDeleteRoleConfirmText] = useState("")
 
   const [showAssignDialog, setShowAssignDialog] = useState(false)
-  const [userQuery, setUserQuery] = useState("")
-  const [searchLoading, setSearchLoading] = useState(false)
-  const [searchResults, setSearchResults] = useState<SearchUser[]>([])
-  const [selectedUserId, setSelectedUserId] = useState<string | null>(null)
-  const [editingAssignmentUserId, setEditingAssignmentUserId] = useState<string | null>(null)
+  const [memberQuery, setMemberQuery] = useState("")
+  const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(() => new Set())
   const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null)
   const [selectedActive, setSelectedActive] = useState(true)
   const [assignSaving, setAssignSaving] = useState(false)
 
-  const [confirmReassignOpen, setConfirmReassignOpen] = useState(false)
-  const [pendingReassign, setPendingReassign] = useState<{
-    userId: string
-    fromRoleId: string
+  const [confirmBulkReassignOpen, setConfirmBulkReassignOpen] = useState(false)
+  const [pendingBulkReassign, setPendingBulkReassign] = useState<{
+    userIds: string[]
     toRoleId: string
   } | null>(null)
 
   const [removingUserId, setRemovingUserId] = useState<string | null>(null)
   const [assignmentToRemove, setAssignmentToRemove] = useState<AssignmentRow | null>(null)
-  const [assignmentToHardDelete, setAssignmentToHardDelete] = useState<AssignmentRow | null>(null)
+  const [showAssignmentDeletePanel, setShowAssignmentDeletePanel] = useState(false)
+  const [assignmentDeletePanelMode, setAssignmentDeletePanelMode] = useState<"deactivate" | "hard_delete">("deactivate")
   const [hardDeleteConfirmText, setHardDeleteConfirmText] = useState("")
 
   const [roleToViewMembers, setRoleToViewMembers] = useState<RoleRow | null>(null)
@@ -500,7 +475,7 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
       })
 
       setShowRoleDialog(false)
-    } catch (error: any) {
+    } catch (error: unknown) {
       const apiError = error instanceof ApiError ? error : null
       if (prevRolesResponse) {
         mutateRoles(prevRolesResponse, { revalidate: false })
@@ -527,11 +502,13 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
 
   const confirmDeleteRole = (r: RoleRow) => {
     setRoleToDelete(r)
-    setShowDeleteRoleDialog(true)
+    setDeleteRoleConfirmText("")
+    setShowDeleteRolePanel(true)
   }
 
   const deleteRole = async () => {
     if (!roleToDelete || roleDeleting) return
+    if (deleteRoleConfirmText !== "DELETE") return
 
     const prevRolesResponse = rolesResponse
 
@@ -554,8 +531,9 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
       )
 
       toast({ title: "Deleted", description: "Profession role deleted" })
-      setShowDeleteRoleDialog(false)
+      setShowDeleteRolePanel(false)
       setRoleToDelete(null)
+      setDeleteRoleConfirmText("")
     } catch (error: unknown) {
       if (error instanceof ApiError && error.status === 409) {
         toast({
@@ -589,87 +567,86 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
     }
   }
 
-  const openAssign = (preSelectedRoleId?: string) => {
+  const openAssign = (preSelectedRoleId?: string, preSelectedUserIds?: string[], preSelectedActive = true) => {
+    const roleId = preSelectedRoleId || sortedRoles[0]?.id || null
     setShowAssignDialog(true)
-    setUserQuery("")
-    setSearchResults([])
-    setSelectedUserId(null)
-    setEditingAssignmentUserId(null)
-    setSelectedRoleId(preSelectedRoleId || sortedRoles[0]?.id || null)
-    setSelectedActive(true)
+    setMemberQuery("")
+    setSelectedRoleId(roleId)
+    setSelectedActive(preSelectedActive)
+
+    if (roleId) {
+      if (preSelectedUserIds && preSelectedUserIds.length > 0) {
+        setSelectedUserIds(new Set(preSelectedUserIds))
+      } else {
+        const assigned = assignments.filter((a) => a.role_id === roleId).map((a) => a.user_id)
+        setSelectedUserIds(new Set(assigned))
+      }
+    } else {
+      setSelectedUserIds(new Set())
+    }
   }
 
   useEffect(() => {
     if (showAssignDialog) return
-    setConfirmReassignOpen(false)
-    setPendingReassign(null)
-    setEditingAssignmentUserId(null)
+    setConfirmBulkReassignOpen(false)
+    setPendingBulkReassign(null)
+    setMemberQuery("")
+    setSelectedUserIds(new Set())
   }, [showAssignDialog])
-
-  const runUserSearch = useCallback(
-    (query: string) => {
-      const qLower = query.trim().toLowerCase()
-      if (!qLower) {
-        setSearchResults([])
-        return
-      }
-
-      if (membershipsLoading) {
-        setSearchResults([])
-        return
-      }
-
-      const results: SearchUser[] = memberships
-        .map((m) => {
-          const u = m.user
-          return {
-            user_id: m.user_id,
-            email: u?.email || null,
-            name: u?.name || null,
-          }
-        })
-        .filter((u) => {
-          const name = (u.name || "").toLowerCase()
-          const email = (u.email || "").toLowerCase()
-          const id = (u.user_id || "").toLowerCase()
-          return name.includes(qLower) || email.includes(qLower) || id.includes(qLower)
-        })
-        .slice(0, 20)
-
-      setSearchResults(results)
-    },
-    [memberships, membershipsLoading]
-  )
 
   useEffect(() => {
     if (!showAssignDialog) return
+    if (!selectedRoleId) return
+    const assigned = assignments.filter((a) => a.role_id === selectedRoleId).map((a) => a.user_id)
+    setSelectedUserIds(new Set(assigned))
+  }, [assignments, selectedRoleId, showAssignDialog])
 
-    const q = userQuery.trim()
-    if (!q) {
-      setSearchLoading(false)
-      setSearchResults([])
-      return
+  const assignmentByUserId = useMemo(() => {
+    const map = new Map<string, AssignmentRow>()
+    for (const a of assignments) {
+      const existing = map.get(a.user_id)
+      if (!existing) {
+        map.set(a.user_id, a)
+        continue
+      }
+      if (existing.is_active && !a.is_active) continue
+      if (!existing.is_active && a.is_active) {
+        map.set(a.user_id, a)
+        continue
+      }
     }
+    return map
+  }, [assignments])
 
-    setSearchLoading(true)
-    const t = window.setTimeout(() => {
-      runUserSearch(q)
-      setSearchLoading(false)
-    }, 300)
+  const membersForPicker = useMemo(() => {
+    const q = memberQuery.trim().toLowerCase()
+    const sorted = [...memberships]
+      .map((m) => {
+        const u = m.user
+        return {
+          user_id: m.user_id,
+          name: u?.name || null,
+          email: u?.email || null,
+          is_active: m.is_active,
+        }
+      })
+      .sort((a, b) => {
+        const an = a.name || a.email || a.user_id
+        const bn = b.name || b.email || b.user_id
+        return an.localeCompare(bn)
+      })
 
-    return () => window.clearTimeout(t)
-  }, [showAssignDialog, userQuery, runUserSearch])
+    if (!q) return sorted
+
+    return sorted.filter((u) => {
+      const name = (u.name || "").toLowerCase()
+      const email = (u.email || "").toLowerCase()
+      const id = (u.user_id || "").toLowerCase()
+      return name.includes(q) || email.includes(q) || id.includes(q)
+    })
+  }, [memberQuery, memberships])
 
   const handleSaveAssignmentClick = () => {
-    if (!selectedUserId) {
-      toast({
-        title: "Missing user",
-        description: "Select a user to assign",
-        variant: "destructive",
-      })
-      return
-    }
-
     if (!selectedRoleId) {
       toast({
         title: "Missing role",
@@ -679,143 +656,56 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
       return
     }
 
-    const existing = assignments.find((a) => a.user_id === selectedUserId) || null
-    if (existing && existing.role_id !== selectedRoleId) {
-      setPendingReassign({ userId: selectedUserId, fromRoleId: existing.role_id, toRoleId: selectedRoleId })
-      setConfirmReassignOpen(true)
+    const ids = Array.from(selectedUserIds)
+    if (ids.length === 0) {
+      toast({
+        title: "No members selected",
+        description: "Select at least one member to assign",
+        variant: "destructive",
+      })
       return
     }
 
-    saveAssignment()
+    const conflicts = ids.filter((userId) => {
+      const existing = assignmentByUserId.get(userId)
+      return !!existing && existing.role_id !== selectedRoleId
+    })
+
+    if (conflicts.length > 0) {
+      setPendingBulkReassign({ userIds: ids, toRoleId: selectedRoleId })
+      setConfirmBulkReassignOpen(true)
+      return
+    }
+
+    saveAssignmentsBulk(ids, selectedRoleId)
   }
 
-  const saveAssignment = async () => {
-    if (!selectedUserId) {
-      toast({
-        title: "Missing user",
-        description: "Select a user to assign",
-        variant: "destructive",
-      })
-      return
-    }
-
-    if (!selectedRoleId) {
-      toast({
-        title: "Missing role",
-        description: "Select a profession role",
-        variant: "destructive",
-      })
-      return
-    }
-
+  const saveAssignmentsBulk = async (userIds: string[], roleId: string) => {
+    if (assignSaving) return
     const prevAssignmentsResponse = assignmentsResponse
 
     try {
       setAssignSaving(true)
-      const role = rolesById.get(selectedRoleId)
-      const selectedUser = searchResults.find((u) => u.user_id === selectedUserId) || null
-      const nowIso = new Date().toISOString()
-      const existing = assignments.find((a) => a.user_id === selectedUserId) || null
-
-      mutateAssignments(
-        (current) => {
-          const currentData = current?.data
-          const rows = Array.isArray(currentData) ? currentData : []
-          const optimistic: AssignmentRow = existing
-            ? {
-                ...existing,
-                role_id: selectedRoleId,
-                is_active: selectedActive,
-                updated_at: nowIso,
-                role: role
-                  ? {
-                      id: role.id,
-                      name: role.name,
-                      description: role.description,
-                      department_id: role.department_id,
-                      level: role.level,
-                    }
-                  : existing.role,
-                user:
-                  existing.user ||
-                  (selectedUser
-                    ? { user_id: selectedUser.user_id, email: selectedUser.email, name: selectedUser.name }
-                    : { user_id: selectedUserId, email: null, name: null }),
-              }
-            : {
-                id: `temp-${Date.now()}`,
-                user_id: selectedUserId,
-                department_id: departmentId,
-                role_id: selectedRoleId,
-                is_active: selectedActive,
-                created_at: nowIso,
-                updated_at: nowIso,
-                role: role
-                  ? {
-                      id: role.id,
-                      name: role.name,
-                      description: role.description,
-                      department_id: role.department_id,
-                      level: role.level,
-                    }
-                  : null,
-                user: selectedUser
-                  ? { user_id: selectedUser.user_id, email: selectedUser.email, name: selectedUser.name }
-                  : { user_id: selectedUserId, email: null, name: null },
-              }
-
-          const nextRows = existing
-            ? rows.map((a) => (a.user_id === selectedUserId ? optimistic : a))
-            : [...rows.filter((a) => a.user_id !== selectedUserId), optimistic]
-
-          return { data: nextRows }
-        },
-        { revalidate: false }
+      await Promise.all(
+        userIds.map((userId) =>
+          apiFetch<{ data: unknown }>(`/api/admin/departments/${departmentId}/profession-assignments`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              user_id: userId,
+              role_id: roleId,
+              is_active: selectedActive,
+            }),
+          })
+        )
       )
 
-      const saved = await apiFetch<{
-        data: {
-          id: string
-          user_id: string
-          department_id: string
-          role_id: string
-          is_active: boolean
-          created_at: string
-          updated_at: string
-        }
-      }>(`/api/admin/departments/${departmentId}/profession-assignments`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          user_id: selectedUserId,
-          role_id: selectedRoleId,
-          is_active: selectedActive,
-        }),
-      })
-
-      if (saved?.data?.id) {
-        mutateAssignments(
-          (current) => {
-            const currentData = current?.data
-            const rows = Array.isArray(currentData) ? currentData : []
-            const nextRows = rows.map((a) => {
-              if (a.user_id !== selectedUserId) return a
-              return {
-                ...a,
-                ...saved.data,
-              }
-            })
-            return { data: nextRows }
-          },
-          { revalidate: false }
-        )
-      }
-
       sonnerToast.success("Saved", {
-        description: "Profession assignment updated",
+        description: `Assigned ${userIds.length} member${userIds.length === 1 ? "" : "s"}`,
       })
+
       setShowAssignDialog(false)
-    } catch (error: any) {
+    } catch (error: unknown) {
       if (prevAssignmentsResponse) {
         mutateAssignments(prevAssignmentsResponse, { revalidate: false })
       } else {
@@ -824,7 +714,7 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
 
       toast({
         title: "Error",
-        description: getErrorMessage(error, "Failed to save assignment"),
+        description: getErrorMessage(error, "Failed to save assignments"),
         variant: "destructive",
       })
     } finally {
@@ -835,6 +725,9 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
 
   const confirmRemoveAssignment = (a: AssignmentRow) => {
     setAssignmentToRemove(a)
+    setHardDeleteConfirmText("")
+    setAssignmentDeletePanelMode(a.is_active ? "deactivate" : "hard_delete")
+    setShowAssignmentDeletePanel(true)
   }
 
   const removeAssignment = async () => {
@@ -896,7 +789,7 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
               sonnerToast.success("Restored", {
                 description: `${removedDisplayName}'s access has been restored`,
               })
-            } catch (e: any) {
+            } catch (e: unknown) {
               mutateAssignments()
               sonnerToast.error("Error", {
                 description: getErrorMessage(e, "Failed to restore assignment"),
@@ -908,8 +801,9 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
         },
       })
 
+      setShowAssignmentDeletePanel(false)
       setAssignmentToRemove(null)
-    } catch (error: any) {
+    } catch (error: unknown) {
       if (prevAssignmentsResponse) {
         mutateAssignments(prevAssignmentsResponse, { revalidate: false })
       } else {
@@ -926,15 +820,15 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
   }
 
   const hardDeleteAssignment = async () => {
-    if (!assignmentToHardDelete) return
+    if (!assignmentToRemove) return
+    if (hardDeleteConfirmText !== "DELETE") return
 
     const prevAssignmentsResponse = assignmentsResponse
 
     try {
-      setRemovingUserId(assignmentToHardDelete.user_id)
-      const removedUserId = assignmentToHardDelete.user_id
-      const removedDisplayName =
-        assignmentToHardDelete.user?.name || assignmentToHardDelete.user?.email || removedUserId
+      setRemovingUserId(assignmentToRemove.user_id)
+      const removedUserId = assignmentToRemove.user_id
+      const removedDisplayName = assignmentToRemove.user?.name || assignmentToRemove.user?.email || removedUserId
 
       // Remove the assignment from the list entirely
       mutateAssignments(
@@ -955,9 +849,10 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
         description: `${removedDisplayName}'s assignment was permanently deleted`,
       })
 
-      setAssignmentToHardDelete(null)
+      setShowAssignmentDeletePanel(false)
+      setAssignmentToRemove(null)
       setHardDeleteConfirmText("")
-    } catch (error: any) {
+    } catch (error: unknown) {
       if (prevAssignmentsResponse) {
         mutateAssignments(prevAssignmentsResponse, { revalidate: false })
       } else {
@@ -1176,7 +1071,7 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
                                 {
                                   type: "item",
                                   label: "Delete role",
-                                  icon: <Trash2 className="mr-2 h-4 w-4" />,
+                                  icon: <Trash2 className="text-destructive mr-2 h-4 w-4" />,
                                   destructive: true,
                                   onSelect: () => confirmDeleteRole(r),
                                 },
@@ -1199,10 +1094,6 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
               <CardTitle>Department Members</CardTitle>
               <CardDescription>Each member can have one profession role in this department.</CardDescription>
             </div>
-            <Button onClick={() => openAssign()} className="shrink-0" disabled={sortedRoles.length === 0}>
-              <Plus className="mr-2 h-4 w-4" />
-              Assign member
-            </Button>
           </CardHeader>
           <CardContent>
             {sortedRoles.length === 0 ? (
@@ -1243,14 +1134,16 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
                       >
                         <div className="min-w-0">
                           <div className="flex items-center gap-2">
-                            <div className="truncate font-medium">{a.user?.name || "Unknown"}</div>
+                            <div className="truncate text-sm leading-none font-medium">{a.user?.name || "Unknown"}</div>
                             {!a.is_active && (
                               <Badge variant="outline" className="border-dashed">
                                 Inactive
                               </Badge>
                             )}
                           </div>
-                          <div className="text-muted-foreground truncate text-sm">{a.user?.email || a.user_id}</div>
+                          <div className="text-muted-foreground truncate text-xs leading-none">
+                            {a.user?.email || a.user_id}
+                          </div>
                         </div>
                         <div className="flex items-center gap-2">
                           <Badge variant={a.is_active ? "secondary" : "outline"}>{roleName}</Badge>
@@ -1259,13 +1152,7 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
                             size="sm"
                             aria-label="Edit assignment"
                             onClick={() => {
-                              setShowAssignDialog(true)
-                              setSelectedUserId(a.user_id)
-                              setEditingAssignmentUserId(a.user_id)
-                              setSelectedRoleId(a.role_id)
-                              setSelectedActive(a.is_active)
-                              setUserQuery(a.user?.email || a.user?.name || "")
-                              setSearchResults([])
+                              openAssign(a.role_id, [a.user_id], a.is_active)
                             }}
                           >
                             <Pencil className="h-4 w-4" />
@@ -1391,137 +1278,115 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
         </div>
       </RightSidePanel>
 
-      <Dialog open={!!roleToViewMembers} onOpenChange={(open) => !open && setRoleToViewMembers(null)}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>{roleToViewMembers ? `Members: ${roleToViewMembers.name}` : "Members"}</DialogTitle>
-            <DialogDescription>Users assigned to this profession role in this department.</DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-2">
-            {assignmentsLoading ? (
-              <div className="space-y-3">
-                {[...Array(6)].map((_, i) => (
-                  <Skeleton key={i} className="h-10 w-full bg-gray-200/60 dark:bg-gray-800" />
-                ))}
-              </div>
-            ) : membersForViewedRole.length === 0 ? (
-              <div className="text-muted-foreground text-sm">No members assigned to this role.</div>
-            ) : (
-              <div className="space-y-2">
-                {membersForViewedRole.map((a) => (
-                  <div key={a.id} className="flex items-center justify-between rounded-md border p-3">
-                    <div className="min-w-0">
-                      <div className="truncate font-medium">{a.user?.name || "Unknown"}</div>
-                      <div className="text-muted-foreground truncate text-sm">{a.user?.email || a.user_id}</div>
-                    </div>
-                    <Badge variant={a.is_active ? "secondary" : "outline"}>{a.is_active ? "active" : "inactive"}</Badge>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          <DialogFooter>
+      <RightSidePanel
+        open={!!roleToViewMembers}
+        onOpenChange={(open) => {
+          if (!open) setRoleToViewMembers(null)
+        }}
+        title={roleToViewMembers ? `Members: ${roleToViewMembers.name}` : "Members"}
+        description="Users assigned to this profession role in this department."
+        footer={
+          <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setRoleToViewMembers(null)}>
               Close
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-      <AlertDialog
-        open={showDeleteRoleDialog}
-        onOpenChange={(open) => {
-          setShowDeleteRoleDialog(open)
-          if (!open) setRoleToDelete(null)
-        }}
+          </div>
+        }
       >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Delete role</AlertDialogTitle>
-            <AlertDialogDescription>
-              This deletes the role. If users are assigned or role questions exist, deletion will be blocked.
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={roleDeleting}>Cancel</AlertDialogCancel>
-            <AlertDialogAction disabled={roleDeleting} onClick={deleteRole}>
-              Delete
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+        <div className="space-y-2 pt-4">
+          {assignmentsLoading ? (
+            <div className="space-y-3">
+              {[...Array(6)].map((_, i) => (
+                <Skeleton key={i} className="h-10 w-full bg-gray-200/60 dark:bg-gray-800" />
+              ))}
+            </div>
+          ) : membersForViewedRole.length === 0 ? (
+            <div className="text-muted-foreground text-sm">No members assigned to this role.</div>
+          ) : (
+            <div className="space-y-2">
+              {membersForViewedRole.map((a) => (
+                <div key={a.id} className="flex items-center justify-between rounded-md border p-3">
+                  <div className="min-w-0">
+                    <div className="truncate font-medium">{a.user?.name || "Unknown"}</div>
+                    <div className="text-muted-foreground truncate text-sm">{a.user?.email || a.user_id}</div>
+                  </div>
+                  <Badge variant={a.is_active ? "secondary" : "outline"}>{a.is_active ? "active" : "inactive"}</Badge>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </RightSidePanel>
+
+      <RightSidePanel
+        open={showDeleteRolePanel}
+        onOpenChange={(open) => {
+          setShowDeleteRolePanel(open)
+          if (!open) {
+            setRoleToDelete(null)
+            setDeleteRoleConfirmText("")
+          }
+        }}
+        title="Delete profession role"
+        description="This action is permanent and cannot be undone."
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setShowDeleteRolePanel(false)} disabled={roleDeleting}>
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={deleteRole}
+              disabled={roleDeleting || deleteRoleConfirmText !== "DELETE" || !roleToDelete}
+            >
+              Delete role
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4 pt-4">
+          <div className="space-y-1">
+            <div className="text-sm font-medium">Role</div>
+            <div className="text-muted-foreground text-sm">{roleToDelete?.name || "—"}</div>
+          </div>
+
+          <div className="text-muted-foreground text-sm">
+            If users are assigned to this role or role questions exist, deletion will be blocked. Reassign users and
+            remove role questions before deleting.
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="delete_role_confirm">Type DELETE to confirm</Label>
+            <Input
+              id="delete_role_confirm"
+              value={deleteRoleConfirmText}
+              onChange={(e) => setDeleteRoleConfirmText(e.target.value)}
+              disabled={roleDeleting}
+            />
+          </div>
+        </div>
+      </RightSidePanel>
 
       <RightSidePanel
         open={showAssignDialog}
         onOpenChange={setShowAssignDialog}
-        title={editingAssignmentUserId ? "Edit assignment" : "Assign member to role"}
-        description={
-          editingAssignmentUserId
-            ? "Update this member’s profession role and active status."
-            : "Select a member, then choose their role for this department."
-        }
+        title="Assign members to role"
+        description="Select members from this department and assign them to a profession role."
         footer={
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setShowAssignDialog(false)} disabled={assignSaving}>
               Cancel
             </Button>
-            <Button onClick={handleSaveAssignmentClick} disabled={assignSaving}>
+            <Button
+              onClick={handleSaveAssignmentClick}
+              disabled={assignSaving || !selectedRoleId || selectedUserIds.size === 0}
+            >
               Save
             </Button>
           </div>
         }
       >
         <div className="space-y-4 pt-4">
-          <div className="space-y-2">
-            <div className="text-sm font-medium">User</div>
-            <div className="relative">
-              <Input
-                value={userQuery}
-                onChange={(e) => setUserQuery(e.target.value)}
-                placeholder="Search by email, name, or username"
-                className={userQuery ? "pr-8" : undefined}
-              />
-              {userQuery && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setUserQuery("")
-                    setSelectedUserId(null)
-                    setSearchResults([])
-                  }}
-                  className="text-muted-foreground hover:text-foreground absolute inset-y-0 right-2 my-auto flex h-4 w-4 items-center justify-center rounded-full focus:outline-none"
-                  aria-label="Clear user search"
-                >
-                  <XIcon className="h-3 w-3" />
-                </button>
-              )}
-            </div>
-
-            {searchLoading && userQuery.trim() && <div className="text-muted-foreground text-xs">Searching...</div>}
-
-            {searchResults.length > 0 && (
-              <div className="max-h-48 overflow-auto rounded-md border">
-                {searchResults.map((u) => (
-                  <button
-                    key={u.user_id}
-                    type="button"
-                    className={`hover:bg-muted w-full px-4 py-2 text-left text-sm ${
-                      selectedUserId === u.user_id ? "bg-muted" : ""
-                    }`}
-                    onClick={() => setSelectedUserId(u.user_id)}
-                  >
-                    <div className="font-medium">{u.name || "Unknown"}</div>
-                    <div className="text-muted-foreground">{u.email || u.user_id}</div>
-                  </button>
-                ))}
-              </div>
-            )}
-
-            {selectedUserId && <div className="text-muted-foreground text-xs">Selected user_id: {selectedUserId}</div>}
-          </div>
-
           <div className="space-y-2">
             <div className="text-sm font-medium">Profession role</div>
             <Select value={selectedRoleId || ""} onValueChange={(v) => setSelectedRoleId(v)}>
@@ -1538,6 +1403,105 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
             </Select>
           </div>
 
+          <div className="space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="text-sm font-medium">Members</div>
+              <div className="text-muted-foreground text-xs">{selectedUserIds.size} selected</div>
+            </div>
+
+            <div className="relative">
+              <Input
+                value={memberQuery}
+                onChange={(e) => setMemberQuery(e.target.value)}
+                placeholder="Filter members by name or email"
+                className={memberQuery ? "pr-8" : undefined}
+              />
+              {memberQuery && (
+                <button
+                  type="button"
+                  onClick={() => setMemberQuery("")}
+                  className="text-muted-foreground hover:text-foreground absolute inset-y-0 right-2 my-auto flex h-4 w-4 items-center justify-center rounded-full focus:outline-none"
+                  aria-label="Clear member filter"
+                >
+                  <XIcon className="h-3 w-3" />
+                </button>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setSelectedUserIds(new Set(membersForPicker.map((m) => m.user_id)))}
+                disabled={membersForPicker.length === 0}
+              >
+                Select all
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setSelectedUserIds(new Set())}
+                disabled={selectedUserIds.size === 0}
+              >
+                Clear
+              </Button>
+            </div>
+
+            <div className="max-h-72 overflow-auto rounded-md border">
+              {membershipsLoading ? (
+                <div className="space-y-2 p-3">
+                  {[...Array(6)].map((_, i) => (
+                    <Skeleton key={i} className="h-10 w-full bg-gray-200/60 dark:bg-gray-800" />
+                  ))}
+                </div>
+              ) : membersForPicker.length === 0 ? (
+                <div className="text-muted-foreground p-3 text-sm">No members found.</div>
+              ) : (
+                <div className="divide-y">
+                  {membersForPicker.map((m) => {
+                    const checked = selectedUserIds.has(m.user_id)
+                    const assignment = assignmentByUserId.get(m.user_id) || null
+                    const assignedRoleName =
+                      assignment?.role?.name || rolesById.get(assignment?.role_id || "")?.name || null
+                    const showRoleBadge = !!assignment && assignedRoleName
+
+                    return (
+                      <label key={m.user_id} className="hover:bg-muted/40 flex items-start gap-3 p-3">
+                        <div className="pt-0.5">
+                          <Checkbox
+                            checked={checked}
+                            onCheckedChange={(v) => {
+                              const next = v === true
+                              setSelectedUserIds((prev) => {
+                                const copy = new Set(prev)
+                                if (next) copy.add(m.user_id)
+                                else copy.delete(m.user_id)
+                                return copy
+                              })
+                            }}
+                          />
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex min-w-0 items-center justify-between gap-2">
+                            <div className="truncate text-sm font-medium">{m.name || "Unknown"}</div>
+                            {showRoleBadge && (
+                              <Badge variant={assignment?.is_active ? "secondary" : "outline"}>
+                                {assignment?.is_active ? assignedRoleName : `${assignedRoleName} (inactive)`}
+                              </Badge>
+                            )}
+                          </div>
+                          <div className="text-muted-foreground truncate text-sm">{m.email || m.user_id}</div>
+                        </div>
+                      </label>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
+
           <div className="flex items-center justify-between">
             <div>
               <div className="text-sm font-medium">Active</div>
@@ -1550,129 +1514,209 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
         </div>
       </RightSidePanel>
 
-      <AlertDialog
-        open={confirmReassignOpen}
+      <RightSidePanel
+        open={confirmBulkReassignOpen}
         onOpenChange={(open) => {
-          setConfirmReassignOpen(open)
-          if (!open) setPendingReassign(null)
+          setConfirmBulkReassignOpen(open)
+          if (!open) setPendingBulkReassign(null)
         }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>Change profession role?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {(() => {
-                if (!pendingReassign) {
-                  return "This user is already assigned to a profession role. Continuing will move them to the selected role."
-                }
-
-                const existing = assignments.find((a) => a.user_id === pendingReassign.userId) || null
-                const userLabel = existing?.user?.name || existing?.user?.email || pendingReassign.userId
-                const fromRoleName = rolesById.get(pendingReassign.fromRoleId)?.name || pendingReassign.fromRoleId
-                const toRoleName = rolesById.get(pendingReassign.toRoleId)?.name || pendingReassign.toRoleId
-
-                return `${userLabel} is already assigned to “${fromRoleName}”. Continuing will move them to “${toRoleName}”.`
-              })()}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={assignSaving}>Cancel</AlertDialogCancel>
-            <AlertDialogAction
-              disabled={assignSaving}
-              onClick={() => {
-                setConfirmReassignOpen(false)
-                setPendingReassign(null)
-                saveAssignment()
-              }}
-            >
-              Continue
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <AlertDialog open={!!assignmentToRemove} onOpenChange={(open) => !open && setAssignmentToRemove(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {assignmentToRemove?.is_active ? "Deactivate assignment" : "Delete assignment"}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {assignmentToRemove?.is_active
-                ? "This will deactivate the assignment. The user will no longer have access to this role, but the history will be preserved."
-                : "This will permanently delete the assignment. This action cannot be undone."}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel disabled={!!removingUserId}>Cancel</AlertDialogCancel>
-            {assignmentToRemove?.is_active && (
-              <Button
-                variant="destructive"
-                disabled={!!removingUserId}
-                onClick={() => {
-                  if (!assignmentToRemove) return
-                  setAssignmentToHardDelete(assignmentToRemove)
-                  setAssignmentToRemove(null)
-                }}
-              >
-                Permanently delete
-              </Button>
-            )}
-            <AlertDialogAction
-              disabled={!!removingUserId}
-              onClick={assignmentToRemove?.is_active ? removeAssignment : hardDeleteAssignment}
-              className={
-                !assignmentToRemove?.is_active
-                  ? "bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                  : ""
-              }
-            >
-              {assignmentToRemove?.is_active ? "Deactivate" : "Permanently delete"}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <Dialog
-        open={!!assignmentToHardDelete}
-        onOpenChange={(open) => {
-          if (!open) {
-            setAssignmentToHardDelete(null)
-            setHardDeleteConfirmText("")
-          }
-        }}
-      >
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Permanently delete assignment</DialogTitle>
-            <DialogDescription>This cannot be undone. Type DELETE to confirm.</DialogDescription>
-          </DialogHeader>
-
-          <div className="space-y-2">
-            <Input value={hardDeleteConfirmText} onChange={(e) => setHardDeleteConfirmText(e.target.value)} />
-          </div>
-
-          <DialogFooter>
+        title="Reassign members to a different role?"
+        description={(() => {
+          if (!pendingBulkReassign) return "Some selected members already have a different profession role."
+          const roleName = rolesById.get(pendingBulkReassign.toRoleId)?.name || pendingBulkReassign.toRoleId
+          const count = pendingBulkReassign.userIds.filter((id) => {
+            const existing = assignmentByUserId.get(id)
+            return !!existing && existing.role_id !== pendingBulkReassign.toRoleId
+          }).length
+          return `${count} selected member${count === 1 ? "" : "s"} already ${count === 1 ? "has" : "have"} a different profession role. Continuing will move them to “${roleName}”.`
+        })()}
+        footer={
+          <div className="flex justify-end gap-2">
             <Button
               variant="outline"
               onClick={() => {
-                setAssignmentToHardDelete(null)
-                setHardDeleteConfirmText("")
+                setConfirmBulkReassignOpen(false)
+                setPendingBulkReassign(null)
               }}
-              disabled={!!removingUserId}
+              disabled={assignSaving}
             >
               Cancel
             </Button>
             <Button
-              variant="destructive"
-              onClick={hardDeleteAssignment}
-              disabled={!!removingUserId || hardDeleteConfirmText !== "DELETE"}
+              disabled={assignSaving || !pendingBulkReassign}
+              onClick={() => {
+                if (!pendingBulkReassign) return
+                setConfirmBulkReassignOpen(false)
+                const ids = pendingBulkReassign.userIds
+                const roleId = pendingBulkReassign.toRoleId
+                setPendingBulkReassign(null)
+                saveAssignmentsBulk(ids, roleId)
+              }}
             >
-              Permanently delete
+              Continue
             </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+          </div>
+        }
+      >
+        <div className="space-y-3 pt-4">
+          {(() => {
+            if (!pendingBulkReassign) return null
+
+            const toRoleName = rolesById.get(pendingBulkReassign.toRoleId)?.name || pendingBulkReassign.toRoleId
+
+            const affected = pendingBulkReassign.userIds
+              .map((id) => {
+                const existing = assignmentByUserId.get(id)
+                if (!existing) return null
+                if (existing.role_id === pendingBulkReassign.toRoleId) return null
+
+                const member = memberships.find((m) => m.user_id === id)
+                const displayName = member?.user?.name || member?.user?.email || id
+                const email = member?.user?.email || null
+
+                const fromRoleName = rolesById.get(existing.role_id)?.name || existing.role?.name || existing.role_id
+
+                return {
+                  userId: id,
+                  displayName,
+                  email,
+                  fromRoleName,
+                }
+              })
+              .filter(Boolean) as Array<{
+              userId: string
+              displayName: string
+              email: string | null
+              fromRoleName: string
+            }>
+
+            if (affected.length === 0) return null
+
+            return (
+              <div className="space-y-2">
+                <div className="text-sm font-medium">New reassignments</div>
+                <div className="max-h-64 overflow-auto rounded-md border">
+                  {affected.map((a) => (
+                    <div
+                      key={a.userId}
+                      className="flex items-start justify-between gap-3 border-b px-3 py-2 last:border-b-0"
+                    >
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium">{a.displayName}</div>
+                        <div className="text-muted-foreground truncate text-xs">{a.email || a.userId}</div>
+                      </div>
+                      <div className="text-muted-foreground shrink-0 text-right text-xs">
+                        <div className="whitespace-nowrap">
+                          {a.fromRoleName} -&gt; {toRoleName}
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )
+          })()}
+        </div>
+      </RightSidePanel>
+
+      <RightSidePanel
+        open={showAssignmentDeletePanel}
+        onOpenChange={(open) => {
+          setShowAssignmentDeletePanel(open)
+          if (!open) {
+            setAssignmentToRemove(null)
+            setHardDeleteConfirmText("")
+            setAssignmentDeletePanelMode("deactivate")
+          }
+        }}
+        title={
+          assignmentDeletePanelMode === "hard_delete"
+            ? "Permanently delete assignment"
+            : assignmentToRemove?.is_active
+              ? "Deactivate assignment"
+              : "Delete assignment"
+        }
+        description={
+          assignmentDeletePanelMode === "hard_delete"
+            ? "This action is permanent and cannot be undone."
+            : "The user will lose access to this role, but history will be preserved."
+        }
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setShowAssignmentDeletePanel(false)} disabled={!!removingUserId}>
+              Cancel
+            </Button>
+            {assignmentDeletePanelMode === "hard_delete" && (
+              <Button
+                variant="destructive"
+                onClick={hardDeleteAssignment}
+                disabled={!!removingUserId || !assignmentToRemove || hardDeleteConfirmText !== "DELETE"}
+              >
+                Permanently delete
+              </Button>
+            )}
+          </div>
+        }
+      >
+        <div className="space-y-4 pt-4">
+          <div className="space-y-1">
+            <div className="text-sm font-medium">User</div>
+            <div className="text-muted-foreground text-sm">
+              {assignmentToRemove?.user?.name || assignmentToRemove?.user?.email || assignmentToRemove?.user_id || "—"}
+            </div>
+          </div>
+
+          <div className="space-y-1">
+            <div className="text-sm font-medium">Role</div>
+            <div className="text-muted-foreground text-sm">
+              {assignmentToRemove?.role?.name || rolesById.get(assignmentToRemove?.role_id || "")?.name || "—"}
+            </div>
+          </div>
+
+          {assignmentDeletePanelMode === "deactivate" && assignmentToRemove?.is_active && (
+            <div className="space-y-3">
+              <div className="border-primary/30 bg-primary/5 space-y-2 rounded-md border p-3">
+                <div className="text-primary text-sm font-medium">Deactivate</div>
+                <div className="text-muted-foreground text-sm">
+                  Deactivating preserves history. The user will no longer have access to this role.
+                </div>
+                <Button
+                  variant="outline"
+                  className="border-primary/40 text-primary hover:bg-primary/10"
+                  disabled={!!removingUserId}
+                  onClick={removeAssignment}
+                >
+                  Deactivate
+                </Button>
+              </div>
+
+              <div className="border-destructive/40 bg-destructive/5 space-y-2 rounded-md border p-3">
+                <div className="text-destructive text-sm font-medium">Danger zone</div>
+                <div className="text-muted-foreground text-sm">
+                  Permanently delete removes this assignment completely. This cannot be undone.
+                </div>
+                <Button
+                  variant="destructive"
+                  disabled={!!removingUserId}
+                  onClick={() => {
+                    setHardDeleteConfirmText("")
+                    setAssignmentDeletePanelMode("hard_delete")
+                  }}
+                >
+                  Permanently delete
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {assignmentDeletePanelMode === "hard_delete" && (
+            <div className="space-y-2">
+              <div className="text-muted-foreground text-sm">Type DELETE to confirm.</div>
+              <Input value={hardDeleteConfirmText} onChange={(e) => setHardDeleteConfirmText(e.target.value)} />
+            </div>
+          )}
+        </div>
+      </RightSidePanel>
     </div>
   )
 }
