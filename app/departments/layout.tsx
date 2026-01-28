@@ -1,7 +1,8 @@
 "use client"
 
-import type { ReactNode } from "react"
+import { useEffect, useState, type ReactNode } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { Building2, Shield } from "lucide-react"
 import { useSupabaseAuth } from "../../contexts/supabase-auth-context"
 import { useRBAC } from "../../hooks/use-rbac"
@@ -11,6 +12,8 @@ import { Button } from "../../components/ui/button"
 export default function DepartmentsLayout({ children }: { children: ReactNode }) {
   const { user } = useSupabaseAuth()
   const { canAccessAdmin, hasPermission, hasRole, rbacLoading } = useRBAC()
+  const router = useRouter()
+  const [membershipChecked, setMembershipChecked] = useState(false)
 
   const canAccessDepartments =
     hasRole("admin") ||
@@ -19,6 +22,33 @@ export default function DepartmentsLayout({ children }: { children: ReactNode })
     hasPermission("departments.read") ||
     hasPermission("departments.members.read") ||
     hasPermission("departments.members.manage")
+
+  useEffect(() => {
+    if (!user) {
+      setMembershipChecked(false)
+      return
+    }
+
+    if (rbacLoading) return
+    if (!canAccessAdmin) return
+    if (membershipChecked) return
+
+    const run = async () => {
+      try {
+        const res = await fetch("/api/departments")
+        const json = await res.json().catch(() => ({}))
+        if (!res.ok) return
+        const rows = Array.isArray(json.data) ? json.data : []
+        if (rows.length === 0) {
+          router.replace("/admin")
+        }
+      } finally {
+        setMembershipChecked(true)
+      }
+    }
+
+    run()
+  }, [user, rbacLoading, canAccessAdmin, membershipChecked, router])
 
   return (
     <div className="bg-background flex min-h-screen flex-col">

@@ -23,6 +23,7 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { isFeatureEnabledClient } from "@/lib/feature-flags/client"
 import { canCreateEntryForDate, getToday } from "@/lib/date-restrictions"
+import { useRouter } from "next/navigation"
 
 interface MainLayoutUpdatedProps {
   initialRoleQuestions: RoleQuestion[]
@@ -43,6 +44,7 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
   const { entries } = useCaptainLog()
   const { canAccessAdmin, canCreateEntries, hasPermission, hasRole, rbacLoading } = useRBAC()
   const { user } = useSupabaseAuth()
+  const router = useRouter()
 
   const canAccessDepartments =
     hasRole("admin") ||
@@ -112,6 +114,15 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
     // activeDepartmentId intentionally excluded to avoid refetch loops
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user?.id, rbacLoading, canAccessDepartments])
+
+  useEffect(() => {
+    if (!user) return
+    if (rbacLoading) return
+    if (!canAccessAdmin) return
+    if (departmentsLoadStatus !== "loaded") return
+    if (memberships.length !== 0) return
+    router.replace("/admin")
+  }, [user, rbacLoading, canAccessAdmin, departmentsLoadStatus, memberships.length, router])
 
   const showNoMembershipsMessage = !!user && departmentsLoadStatus === "loaded" && memberships.length === 0
 
