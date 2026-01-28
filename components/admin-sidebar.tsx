@@ -58,6 +58,7 @@ export function AdminSidebar() {
 
   const permissionsEnabled = isFeatureEnabledClient("ADMIN_PERMISSIONS")
   const notificationsEnabled = isFeatureEnabledClient("ADMIN_NOTIFICATIONS")
+  const settingsEnabled = isFeatureEnabledClient("ADMIN_SETTINGS")
   const darkModeEnabled = isFeatureEnabledClient("DARK_MODE")
 
   const canAccessAdmin = hasPermission("admin.system")
@@ -139,7 +140,7 @@ export function AdminSidebar() {
         ]
       : []),
     // Settings visible on desktop only
-    ...(!isMobile
+    ...(!isMobile && settingsEnabled
       ? [
           {
             name: "Settings",

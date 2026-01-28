@@ -17,6 +17,9 @@ export const FEATURE_FLAGS = {
   ADMIN_PERMISSIONS: {
     defaultValue: false,
   },
+  ADMIN_SETTINGS: {
+    defaultValue: false,
+  },
   REQUEST_ACCESS: {
     defaultValue: false,
   },

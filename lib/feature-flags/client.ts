@@ -15,9 +15,11 @@ export function isFeatureEnabledClient(flag: FeatureFlagKey): boolean {
               ? process.env.NEXT_PUBLIC_FF_ADMIN_NOTIFICATIONS
               : flag === "ADMIN_PERMISSIONS"
                 ? process.env.NEXT_PUBLIC_FF_ADMIN_PERMISSIONS
-                : flag === "REQUEST_ACCESS"
-                  ? process.env.NEXT_PUBLIC_FF_REQUEST_ACCESS
-                  : undefined
+                : flag === "ADMIN_SETTINGS"
+                  ? process.env.NEXT_PUBLIC_FF_ADMIN_SETTINGS
+                  : flag === "REQUEST_ACCESS"
+                    ? process.env.NEXT_PUBLIC_FF_REQUEST_ACCESS
+                    : undefined
   const parsed = parseBooleanEnvValue(raw)
 
   if (parsed !== undefined) return parsed
