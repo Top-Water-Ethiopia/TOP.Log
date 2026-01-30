@@ -172,7 +172,23 @@ export async function createEntry(entry: CaptainLogEntryInsert) {
     version: entry.version || 1,
   }
 
+  console.log("[createEntry] inserting", {
+    id: entryWithDefaults.id ?? null,
+    user_id: entryWithDefaults.user_id ?? null,
+    date: entryWithDefaults.date ?? null,
+    department_id: entryWithDefaults.department_id ?? null,
+  })
+
   const { data, error } = await supabase.from("captain_log_entries").insert(entryWithDefaults).select("*").single()
+
+  if (error) {
+    console.error("[createEntry] insert failed", {
+      message: error.message,
+      code: error.code,
+      details: error.details,
+      hint: error.hint,
+    })
+  }
 
   if (error) handleSupabaseError(error)
   return data as CaptainLogEntry
@@ -222,7 +238,23 @@ export async function createCustomResponse(response: CustomResponseInsert) {
     timestamp: response.timestamp || new Date().toISOString(),
   }
 
+  console.log("[createCustomResponse] inserting", {
+    entry_id: responseWithDefaults.entry_id ?? null,
+    question_id: responseWithDefaults.question_id ?? null,
+    question_key: responseWithDefaults.question_key ?? null,
+    question_category: responseWithDefaults.question_category ?? null,
+  })
+
   const { data, error } = await supabase.from("custom_responses").insert(responseWithDefaults).select("*").single()
+
+  if (error) {
+    console.error("[createCustomResponse] insert failed", {
+      message: error.message,
+      code: error.code,
+      details: error.details,
+      hint: error.hint,
+    })
+  }
 
   if (error) handleSupabaseError(error)
   return data as CustomResponse

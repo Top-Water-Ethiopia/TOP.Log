@@ -240,6 +240,14 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
         throw new Error(dateValidation.error || "This date is locked for new reports")
       }
 
+      console.log("[addEntry] start", {
+        userId: user.id,
+        profileRoleId: profile?.role_id ?? null,
+        profileDepartmentId: profile?.department_id ?? null,
+        entryDate: entry.date,
+        entryDepartmentId: entry.department_id,
+      })
+
       if (!("department_id" in entry)) {
         throw new Error("department_id is required")
       }
@@ -254,11 +262,22 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
         // Check for duplicate by date
         const existingEntry = await supabaseData.getEntryByDate(user.id, entry.date, entry.department_id)
         if (existingEntry) {
+          console.log("[addEntry] duplicate", {
+            userId: user.id,
+            date: entry.date,
+            departmentId: entry.department_id,
+            existingEntryId: existingEntry.id,
+          })
           throw new Error(`Entry already exists for ${entry.date}`)
         }
 
         // Create the entry
         const now = new Date().toISOString()
+        console.log("[addEntry] creating", {
+          userId: user.id,
+          date: entry.date,
+          departmentId: entry.department_id,
+        })
         const newEntry = await supabaseData.createEntry({
           ...dbEntry,
           id: uuidv4(),
@@ -268,6 +287,13 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
           created_at: now,
           updated_at: now,
           version: 1,
+        })
+
+        console.log("[addEntry] created", {
+          entryId: newEntry.id,
+          userId: newEntry.user_id,
+          date: newEntry.date,
+          departmentId: newEntry.department_id,
         })
 
         // Save standard fields as custom responses
@@ -339,7 +365,7 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
         setIsLoading(false)
       }
     },
-    [user]
+    [profile?.department_id, profile?.role_id, user]
   )
 
   // Update entry

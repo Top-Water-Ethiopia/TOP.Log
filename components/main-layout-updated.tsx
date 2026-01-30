@@ -42,7 +42,18 @@ type DepartmentMembership = {
 
 export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedProps) {
   const { entries } = useCaptainLog()
-  const { canAccessAdmin, canCreateEntries, hasPermission, hasRole, rbacLoading } = useRBAC()
+  const {
+    user: rbacUser,
+    userInfo,
+    permissions,
+    rbacLoaded,
+    rbacChecked,
+    canAccessAdmin,
+    canCreateEntries,
+    hasPermission,
+    hasRole,
+    rbacLoading,
+  } = useRBAC()
   const { user } = useSupabaseAuth()
   const router = useRouter()
 
@@ -63,17 +74,11 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
 
   useEffect(() => {
     if (!user) {
-      setMemberships([])
-      setActiveDepartmentId(null)
-      setDepartmentsLoadStatus("idle")
-      return
-    }
-
-    if (rbacLoading) {
-      return
-    }
-
-    if (!canAccessDepartments) {
+      if (process.env.NODE_ENV === "development") {
+        console.log("=== DEPARTMENTS LOAD SKIPPED ===")
+        console.log("Reason: no authenticated user")
+        console.log("================================")
+      }
       setMemberships([])
       setActiveDepartmentId(null)
       setDepartmentsLoadStatus("idle")
@@ -88,6 +93,26 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
         const rows = (json.data || []) as DepartmentMembership[]
         setMemberships(rows)
         setDepartmentsLoadStatus("loaded")
+
+        if (process.env.NODE_ENV === "development") {
+          console.log("=== USER DEPARTMENTS / ACCESS CONTROL ===")
+          console.log("Supabase User ID:", user.id)
+          console.log("Professional Role (RBAC user.role):", rbacUser?.role)
+          console.log("Effective Role (userInfo.role.name):", userInfo?.role?.name)
+          console.log("RBAC Loaded:", rbacLoaded, "RBAC Checked:", rbacChecked)
+          console.log("RBAC Permissions Count:", Array.isArray(permissions) ? permissions.length : 0)
+          console.log(
+            "Memberships:",
+            rows.map((m) => ({
+              department_id: m.department_id,
+              department_name: m.department?.name,
+              access_control_role: m.role,
+              is_department_active: m.department?.is_active,
+            }))
+          )
+          console.log("========================================")
+        }
+
         if (rows.length === 0) {
           setActiveDepartmentId(null)
           return
@@ -100,6 +125,11 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
           return rows[0].department_id
         })
       } catch (error) {
+        if (process.env.NODE_ENV === "development") {
+          console.log("=== DEPARTMENTS LOAD ERROR ===")
+          console.log("Error:", error)
+          console.log("================================")
+        }
         if (!(error instanceof ApiError && error.status === 403)) {
           toast.error(getErrorMessage(error, "Failed to load departments"))
         }
@@ -113,7 +143,21 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
     loadDepartments()
     // activeDepartmentId intentionally excluded to avoid refetch loops
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [user?.id, rbacLoading, canAccessDepartments])
+  }, [user?.id])
+
+  useEffect(() => {
+    if (process.env.NODE_ENV !== "development") return
+    if (!user) return
+    if (!activeDepartmentId) return
+
+    const membership = memberships.find((m) => m.department_id === activeDepartmentId)
+    console.log("=== ACTIVE DEPARTMENT (ACCESS CONTROL) ===")
+    console.log("Supabase User ID:", user.id)
+    console.log("Active Department ID:", activeDepartmentId)
+    console.log("Active Department Name:", membership?.department?.name)
+    console.log("Department Access-Control Role:", membership?.role)
+    console.log("========================================")
+  }, [activeDepartmentId, memberships, user])
 
   useEffect(() => {
     if (!user) return

@@ -33,7 +33,7 @@ import { mapSupabaseUserToRbacUser } from "@/lib/supabase/user-mapping"
 
 export function useRBAC() {
   const { user: supabaseUser, profile } = useSupabaseAuth()
-  const user = useMemo(() => mapSupabaseUserToRbacUser(supabaseUser, profile), [supabaseUser, profile])
+  const user = useMemo(() => mapSupabaseUserToRbacUser(supabaseUser, profile ?? undefined), [supabaseUser, profile])
 
   const rbacKey = supabaseUser ? (["/api/rbac/me", supabaseUser.id] as const) : null
   const {
@@ -62,14 +62,28 @@ export function useRBAC() {
       return { loading: false, checked: true, loaded: false, permissions: [], roleName: null }
     }
 
-    return {
+    const result = {
       loading: false,
       checked: true,
       loaded: true,
       permissions: Array.isArray(rbacResponse.permissions) ? rbacResponse.permissions : [],
       roleName: typeof rbacResponse.role?.name === "string" ? rbacResponse.role.name : null,
     }
-  }, [supabaseUser, rbacError, rbacLoading, rbacResponse])
+
+    // Console.log RBAC data for testing (local development only)
+    if (process.env.NODE_ENV === "development") {
+      console.log("=== RBAC DATA ===")
+      console.log("Supabase User ID:", supabaseUser.id)
+      console.log("Profile:", profile)
+      console.log("Mapped User:", user)
+      console.log("DB Role Name:", result.roleName)
+      console.log("DB Permissions:", result.permissions)
+      console.log("RBAC Response:", rbacResponse)
+      console.log("==============")
+    }
+
+    return result
+  }, [supabaseUser, rbacError, rbacLoading, rbacResponse, profile, user])
 
   // Load roles from storage (normalize missing access scopes)
   // Always fallback to DEFAULT_ROLES to ensure permissions work even if localStorage is empty
@@ -247,7 +261,7 @@ export function useRBAC() {
 
     const userRole = getRoleByName(effectiveRoleName ?? user.role, roles)
 
-    return {
+    const result = {
       ...user,
       role: userRole,
       permissions: userPermissions,
@@ -257,6 +271,21 @@ export function useRBAC() {
           ? ROLE_HIERARCHY[effectiveRoleName]
           : ROLE_HIERARCHY[user.role]) || 0,
     }
+
+    // Console.log user info for testing (local development only)
+    if (process.env.NODE_ENV === "development") {
+      console.log("=== USER INFO ===")
+      console.log("User:", user)
+      console.log("Effective Role Name:", effectiveRoleName)
+      console.log("User Role:", userRole)
+      console.log("User Permissions:", userPermissions)
+      console.log("Permission Categories:", permissionCategories)
+      console.log("User Level:", result.level)
+      console.log("All Available Roles:", roles)
+      console.log("================")
+    }
+
+    return result
   }, [user, roles, userPermissions, permissionCategories, effectiveRoleName])
 
   const getAssignableRolesForUser = useCallback(() => {
