@@ -1,7 +1,7 @@
 "use client"
 
 import { useEffect } from "react"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { useRBAC } from "@/hooks/use-rbac"
 import { RoleQuestionsCreator } from "@/components/role-questions-creator"
@@ -14,6 +14,24 @@ import Link from "next/link"
 export default function NewRoleQuestionsPage() {
   const { user, profile, isLoading } = useSupabaseAuth()
   const router = useRouter()
+  const searchParams = useSearchParams()
+
+  const scope = searchParams?.get("scope")
+  const departmentId = searchParams?.get("departmentId")
+  const roleId = searchParams?.get("roleId")
+
+  const isDepartmentScope = scope === "department"
+  const isRoleScope = scope === "role" || !scope
+
+  const backHref = isDepartmentScope
+    ? departmentId
+      ? `/admin/questions/by-department/${encodeURIComponent(departmentId)}`
+      : "/admin/questions/by-department"
+    : isRoleScope
+      ? roleId
+        ? `/admin/questions/${encodeURIComponent(roleId)}`
+        : "/admin/questions"
+      : "/admin/questions"
 
   const { hasPermission, rbacChecked, rbacLoading } = useRBAC()
   const canAccessAdmin = hasPermission("admin.system")
@@ -60,7 +78,7 @@ export default function NewRoleQuestionsPage() {
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-4">
-        <Link href="/admin/questions">
+        <Link href={backHref}>
           <Button variant="ghost" size="sm">
             <ArrowLeft className="mr-2 h-4 w-4" />
             Back
@@ -69,8 +87,9 @@ export default function NewRoleQuestionsPage() {
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Create Questions</h1>
           <p className="text-muted-foreground mt-2">
-            Create multiple custom questions for a role. Users assigned to this role will see these questions when
-            submitting reports.
+            {isDepartmentScope
+              ? "Create multiple custom questions for a department. Eligible users will see these questions when submitting reports."
+              : "Create multiple custom questions for a role. Users assigned to this role will see these questions when submitting reports."}
           </p>
         </div>
       </div>
