@@ -7,9 +7,22 @@ import { useRBAC } from "@/hooks/use-rbac"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { ArrowLeft } from "lucide-react"
+import { ArrowLeft, Loader2, Trash2 } from "lucide-react"
 import { ReportDetailsSkeleton } from "@/components/skeletons/report-details-skeleton"
 import { format, parseISO } from "date-fns"
+import { apiFetch, getErrorMessage } from "@/lib/api-client"
+import { toast } from "sonner"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog"
 
 interface CustomResponse {
   question_id: string
@@ -52,6 +65,7 @@ export default function AdminReportDetailsPage() {
   const [entry, setEntry] = useState<EnrichedEntry | null>(null)
   const [isEntryLoading, setIsEntryLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [isDeleting, setIsDeleting] = useState(false)
 
   useEffect(() => {
     if (isLoading) return
@@ -168,13 +182,60 @@ export default function AdminReportDetailsPage() {
     }
   })()
 
+  const handleDelete = async () => {
+    if (!entryId) return
+    if (isDeleting) return
+
+    try {
+      setIsDeleting(true)
+      await apiFetch(`/api/admin/captain-log-entries/${entryId}`, { method: "DELETE" })
+      toast.success("Report deleted")
+      router.push("/admin/reports")
+      router.refresh()
+    } catch (e) {
+      toast.error(getErrorMessage(e, "Failed to delete report"))
+    } finally {
+      setIsDeleting(false)
+    }
+  }
+
   return (
     <div className="bg-background min-h-screen">
       <div className="space-y-6">
-        <Button variant="outline" onClick={() => router.push("/admin/reports")} className="gap-2">
-          <ArrowLeft className="h-4 w-4" />
-          Back to All Entries
-        </Button>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <Button variant="outline" onClick={() => router.push("/admin/reports")} className="gap-2">
+            <ArrowLeft className="h-4 w-4" />
+            Back to All Entries
+          </Button>
+
+          <AlertDialog>
+            <AlertDialogTrigger asChild>
+              <Button variant="destructive" className="gap-2" disabled={isDeleting}>
+                {isDeleting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                Delete Report
+              </Button>
+            </AlertDialogTrigger>
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete report?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will permanently delete this report and its responses. This action cannot be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+                <AlertDialogAction
+                  onClick={handleDelete}
+                  disabled={isDeleting}
+                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                >
+                  {isDeleting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+                  Delete
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </div>
 
         <div>
           <h1 className="text-3xl font-bold tracking-tight">Individual Report Details</h1>
