@@ -1,0 +1,9 @@
+BEGIN;
+
+ALTER TABLE public.department_role_permissions
+  DROP CONSTRAINT IF EXISTS department_role_permissions_department_id_department_role_resource_action_key;
+
+ALTER TABLE public.department_role_permissions
+  DROP CONSTRAINT IF EXISTS department_role_permissions_department_id_department_role_r_key;
+
+COMMIT;

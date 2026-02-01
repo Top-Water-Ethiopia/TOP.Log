@@ -242,8 +242,9 @@ export type Database = {
           action: string
           created_at: string
           created_by: string | null
-          department_id: string
+          department_id: string | null
           department_role: string
+          effect: string
           id: string
           resource: string
           updated_at: string
@@ -253,8 +254,9 @@ export type Database = {
           action: string
           created_at?: string
           created_by?: string | null
-          department_id: string
+          department_id?: string | null
           department_role: string
+          effect?: string
           id?: string
           resource: string
           updated_at?: string
@@ -264,8 +266,9 @@ export type Database = {
           action?: string
           created_at?: string
           created_by?: string | null
-          department_id?: string
+          department_id?: string | null
           department_role?: string
+          effect?: string
           id?: string
           resource?: string
           updated_at?: string
