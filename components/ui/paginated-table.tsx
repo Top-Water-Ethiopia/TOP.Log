@@ -176,7 +176,10 @@ export function PaginatedTable<T>({
                     className={
                       isClickable ? "cursor-pointer transition-colors hover:bg-gray-50 dark:hover:bg-gray-800" : ""
                     }
-                    onClick={() => {
+                    onClick={(event) => {
+                      if (event.defaultPrevented) return
+                      const target = event.target as HTMLElement | null
+                      if (target?.closest("[data-row-action]")) return
                       if (rowHref) {
                         // Use window.location for external navigation to avoid React Router issues
                         window.location.href = rowHref(row)

@@ -237,198 +237,174 @@ export default function AdminRoleQuestionsPage() {
   }
 
   return (
-    <div className="space-y-6">
-      <div className="bg-background flex flex-col gap-4 rounded-xl border p-6 shadow-sm">
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-          <div className="space-y-2">
-            <Breadcrumb>
-              <BreadcrumbList>
-                <BreadcrumbItem>
-                  <BreadcrumbLink asChild>
-                    <Link href="/admin">Overview</Link>
-                  </BreadcrumbLink>
-                </BreadcrumbItem>
-                <BreadcrumbSeparator />
-                <BreadcrumbItem>
-                  <BreadcrumbPage>Questions</BreadcrumbPage>
-                </BreadcrumbItem>
-              </BreadcrumbList>
-            </Breadcrumb>
-            <h1 className="text-3xl font-semibold tracking-tight">Question Management</h1>
-            <p className="text-muted-foreground mt-2">
-              Manage and refine the survey questions assigned to each crew role.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2">
-            <Link href="/admin/questions/new">
-              <Button className="gap-2">
-                <Plus className="h-4 w-4" />
-                Create Questions
-              </Button>
-            </Link>
-          </div>
+    <div>
+      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="space-y-2">
+          <Breadcrumb>
+            <BreadcrumbList>
+              <BreadcrumbItem>
+                <BreadcrumbLink asChild>
+                  <Link href="/admin">Overview</Link>
+                </BreadcrumbLink>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator />
+              <BreadcrumbItem>
+                <BreadcrumbPage>Questions</BreadcrumbPage>
+              </BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
+          <h1 className="text-3xl font-bold tracking-tight">Question Management</h1>
+          <p className="text-muted-foreground mt-2">
+            Manage and refine the survey questions assigned to each crew role.
+          </p>
         </div>
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Professions Questions</CardTitle>
-            <CardDescription>Select a profession to manage its questions.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-2">
-            <Tabs defaultValue={defaultTab} className="w-full">
-              <TabsList>
-                <TabsTrigger value="professions">Professions Questions</TabsTrigger>
-                <TabsTrigger value="department_lead">Department Lead Questions</TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="professions" className="mt-4 space-y-2">
-                {isRolesLoading || isQuestionsLoading ? (
-                  <div className="space-y-2">
-                    {[...Array(8)].map((_, i) => (
-                      <div key={i} className="flex items-center justify-between rounded-lg border p-4">
-                        <div className="space-y-2">
-                          <Skeleton className="h-4 w-56 bg-gray-200/70 dark:bg-gray-800" />
-                          <Skeleton className="h-3 w-80 bg-gray-200/60 dark:bg-gray-800" />
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Skeleton className="h-6 w-20 bg-gray-200/70 dark:bg-gray-800" />
-                          <Skeleton className="h-6 w-16 bg-gray-200/70 dark:bg-gray-800" />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : rolesByDepartment.length === 0 ? (
-                  <div className="text-muted-foreground py-10 text-center">No professions found.</div>
-                ) : (
-                  <Accordion
-                    type="multiple"
-                    defaultValue={rolesByDepartment.map((_, i) => String(i))}
-                    className="space-y-2"
-                  >
-                    {rolesByDepartment.map(([departmentName, deptRoles], idx) => (
-                      <AccordionItem key={departmentName} value={String(idx)}>
-                        <AccordionTrigger className="text-muted-foreground px-4 py-3 text-sm font-semibold tracking-wide uppercase">
-                          {departmentName} ({deptRoles.length})
-                        </AccordionTrigger>
-                        <AccordionContent className="p-0">
-                          <PaginatedTable
-                            data={deptRoles.map((role) => {
-                              const counts = roleQuestionCounts.get(role.id) || { total: 0, active: 0 }
-                              const displayName =
-                                role.name.charAt(0).toUpperCase() + role.name.slice(1).replace(/-/g, " ")
-                              return {
-                                roleId: role.id,
-                                professionName: displayName,
-                                departmentName: role.department?.name || "Unassigned",
-                                totalQuestions: counts.total,
-                                activeQuestions: counts.active,
-                              }
-                            })}
-                            columns={[
-                              { key: "professionName", header: "Profession" },
-                              { key: "departmentName", header: "Department" },
-                              {
-                                key: "totalQuestions",
-                                header: "Total Questions",
-                                cell: (row) => <Badge variant="secondary">{row.totalQuestions}</Badge>,
-                              },
-                              {
-                                key: "activeQuestions",
-                                header: "Active",
-                                cell: (row) => <Badge variant="outline">{row.activeQuestions}</Badge>,
-                              },
-                              {
-                                key: "actions",
-                                header: "Actions",
-                                cell: (row) => (
-                                  <Link href={`/admin/questions/${row.roleId}`}>
-                                    <Button variant="outline" size="sm" onClick={(e) => e.stopPropagation()}>
-                                      Manage
-                                    </Button>
-                                  </Link>
-                                ),
-                              },
-                            ]}
-                            searchKeys={["professionName", "departmentName"]}
-                            searchPlaceholder="Search professions..."
-                            rowHref={(row) => `/admin/questions/${row.roleId}`}
-                            pageSize={10}
-                            className="border-0 shadow-none"
-                            headerClassName="border-b px-4"
-                            tableClassName="px-0"
-                          />
-                        </AccordionContent>
-                      </AccordionItem>
-                    ))}
-                  </Accordion>
-                )}
-              </TabsContent>
-
-              <TabsContent value="department_lead" className="mt-4 space-y-2">
-                {isDepartmentsLoading || isQuestionsLoading ? (
-                  <div className="space-y-2">
-                    {[...Array(8)].map((_, i) => (
-                      <div key={i} className="flex items-center justify-between rounded-lg border p-4">
-                        <div className="space-y-2">
-                          <Skeleton className="h-4 w-56 bg-gray-200/70 dark:bg-gray-800" />
-                          <Skeleton className="h-3 w-80 bg-gray-200/60 dark:bg-gray-800" />
-                        </div>
-                        <div className="flex items-center gap-2">
-                          <Skeleton className="h-6 w-20 bg-gray-200/70 dark:bg-gray-800" />
-                          <Skeleton className="h-6 w-16 bg-gray-200/70 dark:bg-gray-800" />
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ) : departmentsWithLeadQuestions.length === 0 ? (
-                  <div className="text-muted-foreground py-10 text-center">No departments with questions found.</div>
-                ) : (
-                  <PaginatedTable
-                    data={departmentsWithLeadQuestions.map((dept) => {
-                      const counts = departmentQuestionCounts.get(dept.id) || { total: 0, active: 0 }
-                      return {
-                        departmentId: dept.id,
-                        departmentName: dept.name,
-                        totalQuestions: counts.total,
-                        activeQuestions: counts.active,
-                      }
-                    })}
-                    columns={[
-                      { key: "departmentName", header: "Department" },
-                      {
-                        key: "totalQuestions",
-                        header: "Total Questions",
-                        cell: (row) => <Badge variant="secondary">{row.totalQuestions}</Badge>,
-                      },
-                      {
-                        key: "activeQuestions",
-                        header: "Active",
-                        cell: (row) => <Badge variant="outline">{row.activeQuestions}</Badge>,
-                      },
-                      {
-                        key: "actions",
-                        header: "Actions",
-                        cell: (row) => (
-                          <Link href={`/admin/questions/by-department/${row.departmentId}`}>
-                            <Button variant="outline" size="sm" onClick={(e) => e.stopPropagation()}>
-                              Manage
-                            </Button>
-                          </Link>
-                        ),
-                      },
-                    ]}
-                    searchKeys={["departmentName"]}
-                    searchPlaceholder="Search departments..."
-                    rowHref={(row) => `/admin/questions/by-department/${row.departmentId}`}
-                    pageSize={10}
-                  />
-                )}
-              </TabsContent>
-            </Tabs>
-          </CardContent>
-        </Card>
+        <div className="flex items-center gap-2">
+          <Link href="/admin/questions/new">
+            <Button className="gap-2">
+              <Plus className="h-4 w-4" />
+              Create Questions
+            </Button>
+          </Link>
+        </div>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Professions Questions</CardTitle>
+          <CardDescription>Select a profession to manage its questions.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-2">
+          <Tabs defaultValue={defaultTab} className="w-full">
+            <TabsList>
+              <TabsTrigger value="professions">Professions Questions</TabsTrigger>
+              <TabsTrigger value="department_lead">Department Lead Questions</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="professions" className="mt-4 space-y-2">
+              {isRolesLoading || isQuestionsLoading ? (
+                <div className="space-y-2">
+                  {[...Array(8)].map((_, i) => (
+                    <div key={i} className="flex items-center justify-between rounded-lg border p-4">
+                      <div className="space-y-2">
+                        <Skeleton className="h-4 w-56 bg-gray-200/70 dark:bg-gray-800" />
+                        <Skeleton className="h-3 w-80 bg-gray-200/60 dark:bg-gray-800" />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Skeleton className="h-6 w-20 bg-gray-200/70 dark:bg-gray-800" />
+                        <Skeleton className="h-6 w-16 bg-gray-200/70 dark:bg-gray-800" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : rolesByDepartment.length === 0 ? (
+                <div className="text-muted-foreground py-10 text-center">No professions found.</div>
+              ) : (
+                <Accordion
+                  type="multiple"
+                  defaultValue={rolesByDepartment.map((_, i) => String(i))}
+                  className="space-y-2"
+                >
+                  {rolesByDepartment.map(([departmentName, deptRoles], idx) => (
+                    <AccordionItem key={departmentName} value={String(idx)}>
+                      <AccordionTrigger className="text-muted-foreground px-4 py-3 text-sm font-semibold tracking-wide uppercase">
+                        {departmentName} ({deptRoles.length})
+                      </AccordionTrigger>
+                      <AccordionContent className="p-0">
+                        <PaginatedTable
+                          data={deptRoles.map((role) => {
+                            const counts = roleQuestionCounts.get(role.id) || { total: 0, active: 0 }
+                            const displayName =
+                              role.name.charAt(0).toUpperCase() + role.name.slice(1).replace(/-/g, " ")
+                            return {
+                              roleId: role.id,
+                              professionName: displayName,
+                              departmentName: role.department?.name || "Unassigned",
+                              totalQuestions: counts.total,
+                              activeQuestions: counts.active,
+                            }
+                          })}
+                          columns={[
+                            { key: "professionName", header: "Profession" },
+                            { key: "departmentName", header: "Department" },
+                            {
+                              key: "totalQuestions",
+                              header: "Total Questions",
+                              cell: (row) => <Badge variant="secondary">{row.totalQuestions}</Badge>,
+                            },
+                            {
+                              key: "activeQuestions",
+                              header: "Active",
+                              cell: (row) => <Badge variant="outline">{row.activeQuestions}</Badge>,
+                            },
+                          ]}
+                          searchKeys={["professionName", "departmentName"]}
+                          searchPlaceholder="Search professions..."
+                          rowHref={(row) => `/admin/questions/${row.roleId}`}
+                          pageSize={10}
+                          className="border-0 shadow-none"
+                          headerClassName="border-b px-4"
+                          tableClassName="px-0"
+                        />
+                      </AccordionContent>
+                    </AccordionItem>
+                  ))}
+                </Accordion>
+              )}
+            </TabsContent>
+
+            <TabsContent value="department_lead" className="mt-4 space-y-2">
+              {isDepartmentsLoading || isQuestionsLoading ? (
+                <div className="space-y-2">
+                  {[...Array(8)].map((_, i) => (
+                    <div key={i} className="flex items-center justify-between rounded-lg border p-4">
+                      <div className="space-y-2">
+                        <Skeleton className="h-4 w-56 bg-gray-200/70 dark:bg-gray-800" />
+                        <Skeleton className="h-3 w-80 bg-gray-200/60 dark:bg-gray-800" />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Skeleton className="h-6 w-20 bg-gray-200/70 dark:bg-gray-800" />
+                        <Skeleton className="h-6 w-16 bg-gray-200/70 dark:bg-gray-800" />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : departmentsWithLeadQuestions.length === 0 ? (
+                <div className="text-muted-foreground py-10 text-center">No departments with questions found.</div>
+              ) : (
+                <PaginatedTable
+                  data={departmentsWithLeadQuestions.map((dept) => {
+                    const counts = departmentQuestionCounts.get(dept.id) || { total: 0, active: 0 }
+                    return {
+                      departmentId: dept.id,
+                      departmentName: dept.name,
+                      totalQuestions: counts.total,
+                      activeQuestions: counts.active,
+                    }
+                  })}
+                  columns={[
+                    { key: "departmentName", header: "Department" },
+                    {
+                      key: "totalQuestions",
+                      header: "Total Questions",
+                      cell: (row) => <Badge variant="secondary">{row.totalQuestions}</Badge>,
+                    },
+                    {
+                      key: "activeQuestions",
+                      header: "Active",
+                      cell: (row) => <Badge variant="outline">{row.activeQuestions}</Badge>,
+                    },
+                  ]}
+                  searchKeys={["departmentName"]}
+                  searchPlaceholder="Search departments..."
+                  rowHref={(row) => `/admin/questions/by-department/${row.departmentId}`}
+                  pageSize={10}
+                />
+              )}
+            </TabsContent>
+          </Tabs>
+        </CardContent>
+      </Card>
     </div>
   )
 }

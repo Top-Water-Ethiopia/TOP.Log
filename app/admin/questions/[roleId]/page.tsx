@@ -147,43 +147,41 @@ export default function AdminRoleQuestionsRolePage() {
 
   return (
     <div className="space-y-6">
-      <div className="bg-background flex flex-col gap-4 rounded-xl border p-6 shadow-sm">
-        <div className="flex items-start justify-between gap-4">
-          <div className="space-y-2">
-            <Breadcrumb>
-              <BreadcrumbList>
-                <BreadcrumbItem>
-                  <BreadcrumbLink asChild>
-                    <Link href="/admin">Overview</Link>
-                  </BreadcrumbLink>
-                </BreadcrumbItem>
-                <BreadcrumbSeparator />
-                <BreadcrumbItem>
-                  <BreadcrumbLink asChild>
-                    <Link href="/admin/questions">Questions</Link>
-                  </BreadcrumbLink>
-                </BreadcrumbItem>
-                <BreadcrumbSeparator />
-                <BreadcrumbItem>
-                  <BreadcrumbPage>{displayName}</BreadcrumbPage>
-                </BreadcrumbItem>
-              </BreadcrumbList>
-            </Breadcrumb>
-            <h1 className="text-3xl font-semibold tracking-tight">{displayName}</h1>
-            <p className="text-muted-foreground mt-2">{subtitle}</p>
-          </div>
+      <div className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="space-y-2">
+          <Breadcrumb>
+            <BreadcrumbList>
+              <BreadcrumbItem>
+                <BreadcrumbLink asChild>
+                  <Link href="/admin">Overview</Link>
+                </BreadcrumbLink>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator />
+              <BreadcrumbItem>
+                <BreadcrumbLink asChild>
+                  <Link href="/admin/questions">Questions</Link>
+                </BreadcrumbLink>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator />
+              <BreadcrumbItem>
+                <BreadcrumbPage>{displayName}</BreadcrumbPage>
+              </BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
+          <h1 className="text-3xl font-bold tracking-tight">{displayName}</h1>
+          <p className="text-muted-foreground mt-2">{subtitle}</p>
+        </div>
 
-          <div className="flex items-center gap-2">
-            <Link href="/admin/questions">
-              <Button variant="ghost" className="gap-2">
-                <ArrowLeft className="h-4 w-4" />
-                Back to Roles
-              </Button>
-            </Link>
-            <Link href="/admin/questions/new">
-              <Button className="gap-2">Create Multiple Questions</Button>
-            </Link>
-          </div>
+        <div className="flex items-center gap-2">
+          <Link href="/admin/questions">
+            <Button variant="ghost" className="gap-2">
+              <ArrowLeft className="h-4 w-4" />
+              Back to Roles
+            </Button>
+          </Link>
+          <Link href="/admin/questions/new">
+            <Button className="gap-2">Create Multiple Questions</Button>
+          </Link>
         </div>
       </div>
 

@@ -29,7 +29,6 @@ import {
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Badge } from "@/components/ui/badge"
 import { Switch } from "@/components/ui/switch"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -239,8 +238,6 @@ export function RoleQuestionsManager({
 
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
   const [optionInput, setOptionInput] = useState("")
-  const [showPreview, setShowPreview] = useState(false)
-  const [previewAnswers, setPreviewAnswers] = useState<Record<string, string>>({})
   const [showTemplates, setShowTemplates] = useState(false)
 
   const [quickAddByRole, setQuickAddByRole] = useState<Record<string, string>>({})
@@ -1838,8 +1835,6 @@ export function RoleQuestionsManager({
     })
     setFormErrors({})
     setOptionInput("")
-    setShowPreview(false)
-    setPreviewAnswers({})
     setShowTemplates(false)
   }
 
@@ -3258,275 +3253,272 @@ export function RoleQuestionsManager({
 
       {/* Create/Edit Dialog */}
       <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
-        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[800px]">
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[1100px]">
           <DialogHeader>
-            <DialogTitle>{editingQuestion ? "Edit Question" : "Create Question"}</DialogTitle>
-            <DialogDescription>
-              {editingQuestion
-                ? "Update question information"
-                : "Create a new question for a role. Use 'Create Multiple Questions' to add several questions at once."}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="space-y-4 py-4">
-            {!isDepartmentScopedForm && (
-              <div className="space-y-2">
-                <Label htmlFor="role_id">
-                  Role <span className="text-destructive">*</span>
-                </Label>
-                <Select
-                  value={formData.role_id || ""}
-                  onValueChange={(value) => setFormData({ ...formData, role_id: value, department_id: null })}
-                  disabled={!!editingQuestion}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder={roles.length === 0 ? "Loading roles..." : "Select a role"} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {roles.length === 0 ? (
-                      editingQuestion ? (
-                        <SelectItem value={editingQuestion.role_id ?? "__unknown_role__"}>
-                          <div className="flex w-full items-center justify-between">
-                            <span>{editingQuestion.role?.name || editingQuestion.role_id || "Current role"}</span>
-                          </div>
-                        </SelectItem>
-                      ) : (
-                        <SelectItem value="__no_roles__" disabled>
-                          {isLoading ? "Loading roles..." : "No roles available"}
-                        </SelectItem>
-                      )
-                    ) : (
-                      <>
-                        {editingQuestion &&
-                          editingQuestion.role_id &&
-                          !roles.some((role) => role.id === editingQuestion.role_id) && (
-                            <SelectItem value={editingQuestion.role_id}>
-                              <div className="flex w-full items-center justify-between">
-                                <span>{editingQuestion.role?.name || editingQuestion.role_id || "Current role"}</span>
-                              </div>
-                            </SelectItem>
-                          )}
-                        {roles.map((role) => {
-                          const questionCount = questions.filter((q) => q.role_id === role.id).length
-                          const isAssignedRole = !!editingQuestion && role.id === editingQuestion.role_id
-
-                          return (
-                            <SelectItem key={role.id} value={role.id}>
-                              <div className="flex w-full items-center justify-between">
-                                <span className="flex items-center gap-2">
-                                  <span>{role.name}</span>
-                                  {isAssignedRole && (
-                                    <Badge
-                                      variant="default"
-                                      className="flex items-center gap-1 text-[10px] font-medium"
-                                    >
-                                      <CheckSquare className="h-3 w-3" />
-                                      Assigned
-                                    </Badge>
-                                  )}
-                                </span>
-                                {questionCount > 0 && (
-                                  <Badge variant="secondary" className="ml-2">
-                                    {questionCount} question{questionCount !== 1 ? "s" : ""}
-                                  </Badge>
-                                )}
-                              </div>
-                            </SelectItem>
-                          )
-                        })}
-                      </>
-                    )}
-                  </SelectContent>
-                </Select>
-                {formErrors.role_id && <p className="text-destructive text-sm">{formErrors.role_id}</p>}
-                {editingQuestion && (
-                  <p className="text-muted-foreground text-xs">Role cannot be changed after creation.</p>
-                )}
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <DialogTitle>{editingQuestion ? "Edit Question" : "Create Question"}</DialogTitle>
+                <DialogDescription>
+                  {editingQuestion
+                    ? "Update question information"
+                    : "Create a new question for a role. Use 'Create Multiple Questions' to add several questions at once."}
+                </DialogDescription>
               </div>
-            )}
-            <div className="space-y-2">
-              <Label htmlFor="question_label">
-                Question Label <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                id="question_label"
-                value={formData.question_label || ""}
-                onChange={(e) => setFormData({ ...formData, question_label: e.target.value })}
-                placeholder="e.g., What tasks did you complete today?"
-              />
-              {formErrors.question_label && <p className="text-destructive text-sm">{formErrors.question_label}</p>}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="question_type">
-                Question Type <span className="text-destructive">*</span>
-              </Label>
-              <Select
-                value={formData.question_type || "text"}
-                onValueChange={(value) => setFormData({ ...formData, question_type: value })}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="max-h-[400px]">
-                  {/* Text Input Types */}
-                  <SelectItem value="text">📝 Text Input (Short)</SelectItem>
-                  <SelectItem value="textarea">📄 Textarea (Long Text)</SelectItem>
-
-                  {/* Validated Input Types */}
-                  <SelectItem value="email">📧 Email Address</SelectItem>
-                  <SelectItem value="url">🔗 URL/Website Link</SelectItem>
-                  <SelectItem value="phone">📱 Phone Number</SelectItem>
-
-                  {/* Numeric Types */}
-                  <SelectItem value="number">🔢 Number (Integer/Decimal)</SelectItem>
-                  <SelectItem value="currency">💰 Currency/Money</SelectItem>
-                  <SelectItem value="percentage">📊 Percentage</SelectItem>
-
-                  {/* Date and Time Types */}
-                  <SelectItem value="date">📅 Date Picker</SelectItem>
-                  <SelectItem value="time">🕐 Time Picker</SelectItem>
-                  <SelectItem value="datetime">📅🕐 Date & Time</SelectItem>
-                  <SelectItem value="daterange">📅➡️📅 Date Range</SelectItem>
-                  <SelectItem value="duration">⏱️ Duration (Hours/Minutes)</SelectItem>
-
-                  {/* Selection Types */}
-                  <SelectItem value="select">▼ Dropdown Select (Single)</SelectItem>
-                  <SelectItem value="radio">◉ Radio Buttons (Single)</SelectItem>
-                  <SelectItem value="multiselect">☑️ Multi-Select (Checkboxes)</SelectItem>
-                  <SelectItem value="checkbox">✓ Checkbox (Yes/No)</SelectItem>
-
-                  {/* Rating and Scale Types */}
-                  <SelectItem value="rating">⭐ Rating Scale (Stars)</SelectItem>
-                  <SelectItem value="slider">━ Slider Scale</SelectItem>
-                  <SelectItem value="nps">📈 NPS Score (0-10)</SelectItem>
-
-                  {/* File and Media Types */}
-                  <SelectItem value="file">📎 File Upload (Documents)</SelectItem>
-                  <SelectItem value="image">🖼️ Image Upload</SelectItem>
-
-                  {/* Special Business Types */}
-                  <SelectItem value="priority">🎯 Priority Level</SelectItem>
-                  <SelectItem value="status">🚦 Status Indicator</SelectItem>
-                  <SelectItem value="tags">🏷️ Tags (Multiple)</SelectItem>
-                  <SelectItem value="rich-text">✍️ Rich Text Editor</SelectItem>
-                </SelectContent>
-              </Select>
-              {formErrors.question_type && <p className="text-destructive text-sm">{formErrors.question_type}</p>}
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="question_description">Description</Label>
-              <Textarea
-                id="question_description"
-                value={formData.question_description || ""}
-                onChange={(e) => setFormData({ ...formData, question_description: e.target.value })}
-                placeholder="Additional context for the question"
-                rows={2}
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor="placeholder">Placeholder</Label>
-              <Input
-                id="placeholder"
-                value={formData.placeholder || ""}
-                onChange={(e) => setFormData({ ...formData, placeholder: e.target.value })}
-                placeholder="Placeholder text"
-              />
-            </div>
-            {/* Options for select, multiselect, radio, rating, priority, status, nps, tags */}
-            {(formData.question_type === "select" ||
-              formData.question_type === "multiselect" ||
-              formData.question_type === "radio" ||
-              formData.question_type === "rating" ||
-              formData.question_type === "priority" ||
-              formData.question_type === "status" ||
-              formData.question_type === "tags") && (
-              <div className="space-y-2">
-                <Label>
-                  Options
-                  {formData.question_type === "rating" && " (e.g., 1,2,3,4,5 or Poor,Fair,Good,Very Good,Excellent)"}
-                  {formData.question_type === "priority" && " (e.g., Low, Medium, High, Critical)"}
-                  {formData.question_type === "status" && " (e.g., Not Started, In Progress, Completed, Blocked)"}
-                  {formData.question_type === "tags" && " (Multiple tags available for selection)"}
-                  <span className="text-destructive">*</span>
-                </Label>
-                <div className="flex gap-2">
-                  <Input
-                    value={optionInput}
-                    onChange={(e) => setOptionInput(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") {
-                        e.preventDefault()
-                        addOption()
-                      }
-                    }}
-                    placeholder={
-                      formData.question_type === "rating"
-                        ? "Enter rating option (e.g., 1 or Poor)"
-                        : formData.question_type === "priority"
-                          ? "Enter priority level (e.g., High)"
-                          : formData.question_type === "status"
-                            ? "Enter status option (e.g., In Progress)"
-                            : formData.question_type === "tags"
-                              ? "Enter tag option (e.g., Bug, Feature)"
-                              : "Enter option and press Enter"
-                    }
-                  />
-                  <Button type="button" onClick={addOption}>
-                    Add
-                  </Button>
-                </div>
-                {formData.options && formData.options.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {formData.options.map((option) => (
-                      <Badge
-                        key={option}
-                        variant="secondary"
-                        className="cursor-pointer"
-                        onClick={() => removeOption(option)}
-                      >
-                        {option} ×
-                      </Badge>
-                    ))}
-                  </div>
-                )}
-                {formErrors.options && <p className="text-destructive text-sm">{formErrors.options}</p>}
-              </div>
-            )}
-
-            {/* Advanced Configuration Tabs */}
-            <Tabs defaultValue="basic" className="w-full">
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="basic">Basic</TabsTrigger>
-                <TabsTrigger value="validation">
-                  <Shield className="mr-1 h-4 w-4" />
-                  Validation
-                </TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="basic" className="mt-4 space-y-4">
-                <div className="flex items-center space-x-2">
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
                   <Switch
-                    id="is_required"
-                    checked={formData.is_required || false}
-                    onCheckedChange={(checked) => setFormData({ ...formData, is_required: checked })}
-                  />
-                  <Label htmlFor="is_required" className="cursor-pointer">
-                    Required Field
-                  </Label>
-                </div>
-
-                <div className="flex items-center space-x-2">
-                  <Switch
-                    id="is_active"
+                    id="dialog_is_active"
                     checked={formData.is_active !== false}
                     onCheckedChange={(checked) => setFormData({ ...formData, is_active: checked })}
                   />
-                  <Label htmlFor="is_active" className="cursor-pointer">
-                    Active (visible to users)
+                  <Label htmlFor="dialog_is_active" className="cursor-pointer">
+                    Active
                   </Label>
                 </div>
-              </TabsContent>
+                <div className="flex items-center gap-2">
+                  <Switch
+                    id="dialog_is_required"
+                    checked={formData.is_required || false}
+                    onCheckedChange={(checked) => setFormData({ ...formData, is_required: checked })}
+                  />
+                  <Label htmlFor="dialog_is_required" className="cursor-pointer">
+                    Required
+                  </Label>
+                </div>
+              </div>
+            </div>
+          </DialogHeader>
+          <div className="grid gap-6 py-4 lg:grid-cols-3">
+            <div className="space-y-4 lg:col-span-2">
+              {!isDepartmentScopedForm && (
+                <div className="space-y-2">
+                  <Label htmlFor="role_id">
+                    Role <span className="text-destructive">*</span>
+                  </Label>
+                  <Select
+                    value={formData.role_id || ""}
+                    onValueChange={(value) => setFormData({ ...formData, role_id: value, department_id: null })}
+                    disabled={!!editingQuestion}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder={roles.length === 0 ? "Loading roles..." : "Select a role"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {roles.length === 0 ? (
+                        editingQuestion ? (
+                          <SelectItem value={editingQuestion.role_id ?? "__unknown_role__"}>
+                            <div className="flex w-full items-center justify-between">
+                              <span>{editingQuestion.role?.name || editingQuestion.role_id || "Current role"}</span>
+                            </div>
+                          </SelectItem>
+                        ) : (
+                          <SelectItem value="__no_roles__" disabled>
+                            {isLoading ? "Loading roles..." : "No roles available"}
+                          </SelectItem>
+                        )
+                      ) : (
+                        <>
+                          {editingQuestion &&
+                            editingQuestion.role_id &&
+                            !roles.some((role) => role.id === editingQuestion.role_id) && (
+                              <SelectItem value={editingQuestion.role_id}>
+                                <div className="flex w-full items-center justify-between">
+                                  <span>{editingQuestion.role?.name || editingQuestion.role_id || "Current role"}</span>
+                                </div>
+                              </SelectItem>
+                            )}
+                          {roles.map((role) => {
+                            const questionCount = questions.filter((q) => q.role_id === role.id).length
+                            const isAssignedRole = !!editingQuestion && role.id === editingQuestion.role_id
 
-              <TabsContent value="validation" className="mt-4 space-y-4">
+                            return (
+                              <SelectItem key={role.id} value={role.id}>
+                                <div className="flex w-full items-center justify-between">
+                                  <span className="flex items-center gap-2">
+                                    <span>{role.name}</span>
+                                    {isAssignedRole && (
+                                      <Badge
+                                        variant="default"
+                                        className="flex items-center gap-1 text-[10px] font-medium"
+                                      >
+                                        <CheckSquare className="h-3 w-3" />
+                                        Assigned
+                                      </Badge>
+                                    )}
+                                  </span>
+                                  {questionCount > 0 && (
+                                    <Badge variant="secondary" className="ml-2">
+                                      {questionCount} question{questionCount !== 1 ? "s" : ""}
+                                    </Badge>
+                                  )}
+                                </div>
+                              </SelectItem>
+                            )
+                          })}
+                        </>
+                      )}
+                    </SelectContent>
+                  </Select>
+                  {formErrors.role_id && <p className="text-destructive text-sm">{formErrors.role_id}</p>}
+                  {editingQuestion && (
+                    <p className="text-muted-foreground text-xs">Role cannot be changed after creation.</p>
+                  )}
+                </div>
+              )}
+              <div className="space-y-2">
+                <Label htmlFor="question_label">
+                  Question Label <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  id="question_label"
+                  value={formData.question_label || ""}
+                  onChange={(e) => setFormData({ ...formData, question_label: e.target.value })}
+                  placeholder="e.g., What tasks did you complete today?"
+                  className="bg-[#f3f3f5]"
+                />
+                {formErrors.question_label && <p className="text-destructive text-sm">{formErrors.question_label}</p>}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="question_type">
+                  Question Type <span className="text-destructive">*</span>
+                </Label>
+                <Select
+                  value={formData.question_type || "text"}
+                  onValueChange={(value) => setFormData({ ...formData, question_type: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-[400px]">
+                    {/* Text Input Types */}
+                    <SelectItem value="text">📝 Text Input (Short)</SelectItem>
+                    <SelectItem value="textarea">📄 Textarea (Long Text)</SelectItem>
+
+                    {/* Validated Input Types */}
+                    <SelectItem value="email">📧 Email Address</SelectItem>
+                    <SelectItem value="url">🔗 URL/Website Link</SelectItem>
+                    <SelectItem value="phone">📱 Phone Number</SelectItem>
+
+                    {/* Numeric Types */}
+                    <SelectItem value="number">🔢 Number (Integer/Decimal)</SelectItem>
+                    <SelectItem value="currency">💰 Currency/Money</SelectItem>
+                    <SelectItem value="percentage">📊 Percentage</SelectItem>
+
+                    {/* Date and Time Types */}
+                    <SelectItem value="date">📅 Date Picker</SelectItem>
+                    <SelectItem value="time">🕐 Time Picker</SelectItem>
+                    <SelectItem value="datetime">📅🕐 Date & Time</SelectItem>
+                    <SelectItem value="daterange">📅➡️📅 Date Range</SelectItem>
+                    <SelectItem value="duration">⏱️ Duration (Hours/Minutes)</SelectItem>
+
+                    {/* Selection Types */}
+                    <SelectItem value="select">▼ Dropdown Select (Single)</SelectItem>
+                    <SelectItem value="radio">◉ Radio Buttons (Single)</SelectItem>
+                    <SelectItem value="multiselect">☑️ Multi-Select (Checkboxes)</SelectItem>
+                    <SelectItem value="checkbox">✓ Checkbox (Yes/No)</SelectItem>
+
+                    {/* Rating and Scale Types */}
+                    <SelectItem value="rating">⭐ Rating Scale (Stars)</SelectItem>
+                    <SelectItem value="slider">━ Slider Scale</SelectItem>
+                    <SelectItem value="nps">📈 NPS Score (0-10)</SelectItem>
+
+                    {/* File and Media Types */}
+                    <SelectItem value="file">📎 File Upload (Documents)</SelectItem>
+                    <SelectItem value="image">🖼️ Image Upload</SelectItem>
+
+                    {/* Special Business Types */}
+                    <SelectItem value="priority">🎯 Priority Level</SelectItem>
+                    <SelectItem value="status">🚦 Status Indicator</SelectItem>
+                    <SelectItem value="tags">🏷️ Tags (Multiple)</SelectItem>
+                    <SelectItem value="rich-text">✍️ Rich Text Editor</SelectItem>
+                  </SelectContent>
+                </Select>
+                {formErrors.question_type && <p className="text-destructive text-sm">{formErrors.question_type}</p>}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="question_description">Description</Label>
+                <Textarea
+                  id="question_description"
+                  value={formData.question_description || ""}
+                  onChange={(e) => setFormData({ ...formData, question_description: e.target.value })}
+                  placeholder="Additional context for the question"
+                  rows={2}
+                  className="bg-[#f3f3f5]"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="placeholder">Placeholder</Label>
+                <Input
+                  id="placeholder"
+                  value={formData.placeholder || ""}
+                  onChange={(e) => setFormData({ ...formData, placeholder: e.target.value })}
+                  placeholder="Placeholder text"
+                  className="bg-[#f3f3f5]"
+                />
+              </div>
+              {/* Options for select, multiselect, radio, rating, priority, status, nps, tags */}
+              {(formData.question_type === "select" ||
+                formData.question_type === "multiselect" ||
+                formData.question_type === "radio" ||
+                formData.question_type === "rating" ||
+                formData.question_type === "priority" ||
+                formData.question_type === "status" ||
+                formData.question_type === "tags") && (
+                <div className="space-y-2">
+                  <Label>
+                    Options
+                    {formData.question_type === "rating" && " (e.g., 1,2,3,4,5 or Poor,Fair,Good,Very Good,Excellent)"}
+                    {formData.question_type === "priority" && " (e.g., Low, Medium, High, Critical)"}
+                    {formData.question_type === "status" && " (e.g., Not Started, In Progress, Completed, Blocked)"}
+                    {formData.question_type === "tags" && " (Multiple tags available for selection)"}
+                    <span className="text-destructive">*</span>
+                  </Label>
+                  <div className="flex gap-2">
+                    <Input
+                      value={optionInput}
+                      onChange={(e) => setOptionInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault()
+                          addOption()
+                        }
+                      }}
+                      placeholder={
+                        formData.question_type === "rating"
+                          ? "Enter rating option (e.g., 1 or Poor)"
+                          : formData.question_type === "priority"
+                            ? "Enter priority level (e.g., High)"
+                            : formData.question_type === "status"
+                              ? "Enter status option (e.g., In Progress)"
+                              : formData.question_type === "tags"
+                                ? "Enter tag option (e.g., Bug, Feature)"
+                                : "Enter option and press Enter"
+                      }
+                      className="bg-[#f3f3f5]"
+                    />
+                    <Button type="button" onClick={addOption}>
+                      Add
+                    </Button>
+                  </div>
+                  {formData.options && formData.options.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {formData.options.map((option) => (
+                        <Badge
+                          key={option}
+                          variant="secondary"
+                          className="cursor-pointer"
+                          onClick={() => removeOption(option)}
+                        >
+                          {option} ×
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                  {formErrors.options && <p className="text-destructive text-sm">{formErrors.options}</p>}
+                </div>
+              )}
+
+              <div className="mt-4 space-y-4">
                 {/* Text validation */}
                 {(formData.question_type === "text" ||
                   formData.question_type === "textarea" ||
@@ -3549,6 +3541,7 @@ export function RoleQuestionsManager({
                             })
                           }
                           placeholder="Min characters"
+                          className="bg-[#f3f3f5]"
                         />
                         {formErrors.min_length && <p className="text-destructive text-sm">{formErrors.min_length}</p>}
                       </div>
@@ -3566,6 +3559,7 @@ export function RoleQuestionsManager({
                             })
                           }
                           placeholder="Max characters"
+                          className="bg-[#f3f3f5]"
                         />
                         {formErrors.max_length && <p className="text-destructive text-sm">{formErrors.max_length}</p>}
                       </div>
@@ -3577,6 +3571,7 @@ export function RoleQuestionsManager({
                         value={formData.pattern || ""}
                         onChange={(e) => setFormData({ ...formData, pattern: e.target.value })}
                         placeholder="e.g., ^[A-Za-z]+$ (letters only)"
+                        className="bg-[#f3f3f5]"
                       />
                       <p className="text-muted-foreground text-xs">Regular expression pattern for validation</p>
                     </div>
@@ -3601,6 +3596,7 @@ export function RoleQuestionsManager({
                           })
                         }
                         placeholder={formData.question_type === "percentage" ? "0" : "Min value"}
+                        className="bg-[#f3f3f5]"
                       />
                       {formErrors.min_value && <p className="text-destructive text-sm">{formErrors.min_value}</p>}
                     </div>
@@ -3617,6 +3613,7 @@ export function RoleQuestionsManager({
                           })
                         }
                         placeholder={formData.question_type === "percentage" ? "100" : "Max value"}
+                        className="bg-[#f3f3f5]"
                       />
                       {formErrors.max_value && <p className="text-destructive text-sm">{formErrors.max_value}</p>}
                     </div>
@@ -3636,6 +3633,7 @@ export function RoleQuestionsManager({
                         placeholder={
                           formData.question_type === "percentage" ? "1" : "e.g., 0.1 for decimals, 1 for integers"
                         }
+                        className="bg-[#f3f3f5]"
                       />
                       <p className="text-muted-foreground text-xs">
                         {formData.question_type === "currency" && "Increment step (e.g., 0.01 for cents)"}
@@ -3669,6 +3667,7 @@ export function RoleQuestionsManager({
                               })
                             }
                             placeholder="0"
+                            className="bg-[#f3f3f5]"
                           />
                         </div>
                         <div className="space-y-2">
@@ -3684,6 +3683,7 @@ export function RoleQuestionsManager({
                               })
                             }
                             placeholder="100"
+                            className="bg-[#f3f3f5]"
                           />
                         </div>
                         <div className="space-y-2">
@@ -3699,6 +3699,7 @@ export function RoleQuestionsManager({
                               })
                             }
                             placeholder="1"
+                            className="bg-[#f3f3f5]"
                           />
                         </div>
                       </div>
@@ -3718,6 +3719,7 @@ export function RoleQuestionsManager({
                         type="date"
                         value={formData.min_date || ""}
                         onChange={(e) => setFormData({ ...formData, min_date: e.target.value })}
+                        className="bg-[#f3f3f5]"
                       />
                       <p className="text-muted-foreground text-xs">
                         {formData.question_type === "daterange" && "Start date cannot be before this"}
@@ -3730,6 +3732,7 @@ export function RoleQuestionsManager({
                         type="date"
                         value={formData.max_date || ""}
                         onChange={(e) => setFormData({ ...formData, max_date: e.target.value })}
+                        className="bg-[#f3f3f5]"
                       />
                       <p className="text-muted-foreground text-xs">
                         {formData.question_type === "daterange" && "End date cannot be after this"}
@@ -3759,6 +3762,7 @@ export function RoleQuestionsManager({
                             })
                           }
                           placeholder="Min duration in minutes"
+                          className="bg-[#f3f3f5]"
                         />
                       </div>
                       <div className="space-y-2">
@@ -3775,168 +3779,123 @@ export function RoleQuestionsManager({
                             })
                           }
                           placeholder="Max duration in minutes"
+                          className="bg-[#f3f3f5]"
                         />
                       </div>
                     </div>
                   </div>
                 )}
-              </TabsContent>
-            </Tabs>
-          </div>
-
-          {/* Preview Section */}
-          {showPreview && (
-            <div className="mt-6 border-t pt-6">
-              <h3 className="mb-4 text-lg font-semibold">Question Preview</h3>
-              <div className="bg-muted space-y-4 rounded-lg p-4">
-                <div className="space-y-2">
-                  <Label className="text-sm font-medium">
-                    {formData.question_label || "Question Label"}
-                    {formData.is_required && <span className="text-destructive ml-1">*</span>}
-                  </Label>
-                  {formData.question_description && (
-                    <p className="text-muted-foreground text-xs">{formData.question_description}</p>
-                  )}
-
-                  {/* Preview based on question type */}
-                  {formData.question_type === "text" && (
-                    <Input
-                      placeholder={formData.placeholder || ""}
-                      value={previewAnswers.preview || ""}
-                      onChange={(e) =>
-                        setPreviewAnswers({
-                          ...previewAnswers,
-                          preview: e.target.value,
-                        })
-                      }
-                      disabled
-                    />
-                  )}
-
-                  {formData.question_type === "textarea" && (
-                    <Textarea
-                      placeholder={formData.placeholder || ""}
-                      rows={4}
-                      value={previewAnswers.preview || ""}
-                      onChange={(e) =>
-                        setPreviewAnswers({
-                          ...previewAnswers,
-                          preview: e.target.value,
-                        })
-                      }
-                      disabled
-                    />
-                  )}
-
-                  {formData.question_type === "select" && formData.options && (
-                    <Select disabled>
-                      <SelectTrigger>
-                        <SelectValue placeholder={formData.placeholder || "Select an option"} />
-                      </SelectTrigger>
-                      <SelectContent>
-                        {formData.options.map((opt) => (
-                          <SelectItem key={opt} value={opt}>
-                            {opt}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  )}
-
-                  {formData.question_type === "radio" && formData.options && (
-                    <RadioGroup disabled>
-                      {formData.options.map((opt) => (
-                        <div key={opt} className="flex items-center space-x-2">
-                          <RadioGroupItem value={opt} id={`preview-${opt}`} />
-                          <Label htmlFor={`preview-${opt}`} className="cursor-pointer">
-                            {opt}
-                          </Label>
-                        </div>
-                      ))}
-                    </RadioGroup>
-                  )}
-
-                  {formData.question_type === "multiselect" && formData.options && (
-                    <div className="space-y-2">
-                      {formData.options.map((opt) => (
-                        <div key={opt} className="flex items-center space-x-2">
-                          <Checkbox disabled />
-                          <Label className="text-sm font-normal">{opt}</Label>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  {formData.question_type === "checkbox" && (
-                    <div className="flex items-center space-x-2">
-                      <Checkbox disabled />
-                      <Label className="text-sm font-normal">{formData.placeholder || "Yes"}</Label>
-                    </div>
-                  )}
-
-                  {formData.question_type === "number" && (
-                    <Input
-                      type="number"
-                      placeholder={formData.placeholder || ""}
-                      min={formData.min_value || undefined}
-                      max={formData.max_value || undefined}
-                      step={formData.step || undefined}
-                      disabled
-                    />
-                  )}
-
-                  {formData.question_type === "date" && (
-                    <Input
-                      type="date"
-                      min={formData.min_date || undefined}
-                      max={formData.max_date || undefined}
-                      disabled
-                    />
-                  )}
-
-                  {formData.question_type === "email" && (
-                    <Input type="email" placeholder={formData.placeholder || "example@email.com"} disabled />
-                  )}
-
-                  {formData.question_type === "url" && (
-                    <Input type="url" placeholder={formData.placeholder || "https://example.com"} disabled />
-                  )}
-
-                  {formData.question_type === "phone" && (
-                    <Input type="tel" placeholder={formData.placeholder || "+1 (555) 123-4567"} disabled />
-                  )}
-
-                  {formData.question_type === "time" && <Input type="time" disabled />}
-
-                  {formData.question_type === "datetime" && <Input type="datetime-local" disabled />}
-
-                  {formData.question_type === "rating" && formData.options && (
-                    <div className="flex flex-wrap gap-2">
-                      {formData.options.map((opt) => (
-                        <Button key={opt} type="button" variant="outline" disabled>
-                          {opt}
-                        </Button>
-                      ))}
-                    </div>
-                  )}
-
-                  {formData.question_type === "file" && <Input type="file" disabled />}
-                </div>
               </div>
             </div>
-          )}
+
+            <div className="lg:col-span-1">
+              <div className="sticky top-6 space-y-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Question Preview</CardTitle>
+                    <CardDescription>Preview how this question will appear to users</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <Label className="text-sm font-medium">
+                          {formData.question_label || "Question Label"}
+                          {formData.is_required && <span className="text-destructive ml-1">*</span>}
+                        </Label>
+                        {formData.question_description && (
+                          <p className="text-muted-foreground text-xs">{formData.question_description}</p>
+                        )}
+                      </div>
+
+                      {formData.question_type === "textarea" ? (
+                        <Textarea placeholder={formData.placeholder || ""} rows={4} disabled className="bg-[#f3f3f5]" />
+                      ) : formData.question_type === "select" && formData.options ? (
+                        <Select disabled>
+                          <SelectTrigger>
+                            <SelectValue placeholder={formData.placeholder || "Select an option"} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {formData.options.map((opt) => (
+                              <SelectItem key={opt} value={opt}>
+                                {opt}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : formData.question_type === "radio" && formData.options ? (
+                        <RadioGroup disabled>
+                          {formData.options.map((opt) => (
+                            <div key={opt} className="flex items-center space-x-2">
+                              <RadioGroupItem value={opt} id={`preview-${opt}`} />
+                              <Label htmlFor={`preview-${opt}`} className="cursor-pointer font-normal">
+                                {opt}
+                              </Label>
+                            </div>
+                          ))}
+                        </RadioGroup>
+                      ) : formData.question_type === "multiselect" && formData.options ? (
+                        <div className="space-y-2">
+                          {formData.options.map((opt) => (
+                            <div key={opt} className="flex items-center space-x-2">
+                              <Checkbox disabled />
+                              <Label className="text-sm font-normal">{opt}</Label>
+                            </div>
+                          ))}
+                        </div>
+                      ) : formData.question_type === "checkbox" ? (
+                        <div className="flex items-center space-x-2">
+                          <Checkbox disabled />
+                          <Label className="text-sm font-normal">{formData.placeholder || "Yes"}</Label>
+                        </div>
+                      ) : formData.question_type === "rating" && formData.options ? (
+                        <div className="flex flex-wrap gap-2">
+                          {formData.options.map((opt) => (
+                            <Button key={opt} type="button" variant="outline" disabled>
+                              {opt}
+                            </Button>
+                          ))}
+                        </div>
+                      ) : formData.question_type === "file" ? (
+                        <Input type="file" disabled className="bg-[#f3f3f5]" />
+                      ) : (
+                        <Input
+                          type={
+                            formData.question_type === "email"
+                              ? "email"
+                              : formData.question_type === "url"
+                                ? "url"
+                                : formData.question_type === "phone"
+                                  ? "tel"
+                                  : formData.question_type === "number" ||
+                                      formData.question_type === "currency" ||
+                                      formData.question_type === "percentage"
+                                    ? "number"
+                                    : formData.question_type === "date"
+                                      ? "date"
+                                      : formData.question_type === "time"
+                                        ? "time"
+                                        : formData.question_type === "datetime"
+                                          ? "datetime-local"
+                                          : "text"
+                          }
+                          placeholder={formData.placeholder || ""}
+                          disabled
+                          className="bg-[#f3f3f5]"
+                        />
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          </div>
 
           <DialogFooter className="flex items-center justify-between">
-            <Button type="button" variant="outline" onClick={() => setShowPreview(!showPreview)}>
-              <Eye className="mr-2 h-4 w-4" />
-              {showPreview ? "Hide Preview" : "Preview"}
-            </Button>
             <div className="flex gap-2">
               <Button
                 variant="outline"
                 onClick={() => {
                   setShowCreateDialog(false)
-                  setShowPreview(false)
                 }}
               >
                 Cancel

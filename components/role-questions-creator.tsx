@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef } from "react"
+import { useState, useEffect, useRef, useCallback } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -11,24 +11,11 @@ import { Textarea } from "@/components/ui/textarea"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Badge } from "@/components/ui/badge"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Separator } from "@/components/ui/separator"
-import {
-  ArrowLeft,
-  ArrowRight,
-  Plus,
-  Trash2,
-  CheckCircle2,
-  AlertCircle,
-  Loader2,
-  Shield,
-  Eye,
-  Save,
-  X,
-} from "lucide-react"
+import { Plus, Trash2, CheckCircle2, AlertCircle, Loader2, Shield, Eye, EyeOff, Save, X, Users } from "lucide-react"
 import { toast } from "sonner"
 
 type ApiRoleQuestion = {
@@ -157,6 +144,12 @@ export function RoleQuestionsCreator() {
   const [createdQuestions, setCreatedQuestions] = useState<SavedQuestion[]>([])
   const [roleQuestionCount, setRoleQuestionCount] = useState(0)
   const [existingRoleQuestionKeys, setExistingRoleQuestionKeys] = useState<string[]>([])
+  const [showPreview, setShowPreview] = useState(true)
+
+  useEffect(() => {
+    const canSubmit = questions.length > 0
+    window.dispatchEvent(new CustomEvent("role-questions:can-submit", { detail: { canSubmit } }))
+  }, [questions.length])
 
   useEffect(() => {
     if (didApplyUrlDefaultsRef.current) return
@@ -343,7 +336,9 @@ export function RoleQuestionsCreator() {
   }, [questionScope, selectedRole, selectedDepartment, questions.length])
 
   const addQuestion = () => {
-    setQuestions([...questions, createEmptyQuestion(questions.length)])
+    const nextIndex = questions.length
+    setQuestions([...questions, createEmptyQuestion(nextIndex)])
+    setCurrentQuestionIndex(nextIndex)
   }
 
   const removeQuestion = (id: string) => {
@@ -380,7 +375,7 @@ export function RoleQuestionsCreator() {
     }
   }
 
-  const validateQuestions = (): boolean => {
+  const validateQuestions = useCallback((): boolean => {
     if (questions.length === 0) {
       toast.error("Please add at least one question")
       return false
@@ -412,9 +407,9 @@ export function RoleQuestionsCreator() {
     }
 
     return true
-  }
+  }, [questions])
 
-  const handleSubmit = async () => {
+  const handleSubmit = useCallback(async () => {
     const scopeOk = questionScope === "role" ? !!selectedRole : !!selectedDepartment
     if (!validateQuestions() || !scopeOk || !user) return
 
@@ -493,34 +488,33 @@ export function RoleQuestionsCreator() {
     } finally {
       setIsSubmitting(false)
     }
-  }
+  }, [existingRoleQuestionKeys, questionScope, questions, selectedDepartment, selectedRole, user, validateQuestions])
 
-  const handleWizardNext = () => {
-    if (currentQuestionIndex < questions.length - 1) {
-      setCurrentQuestionIndex(currentQuestionIndex + 1)
+  useEffect(() => {
+    const onSubmit = () => {
+      void handleSubmit()
     }
-  }
 
-  const handleWizardPrevious = () => {
-    if (currentQuestionIndex > 0) {
-      setCurrentQuestionIndex(currentQuestionIndex - 1)
+    window.addEventListener("role-questions:submit", onSubmit)
+    return () => {
+      window.removeEventListener("role-questions:submit", onSubmit)
     }
-  }
+  }, [handleSubmit])
 
   // Render Role Selection Step
   const roleSelection = (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Shield className="h-5 w-5" />
-          Role
+    <Card className="border-gray-200 p-6 shadow-sm">
+      <CardHeader className="pb-4">
+        <CardTitle className="flex items-center gap-2 text-lg font-semibold text-gray-900">
+          <Users className="h-5 w-5" />
+          Target Audience
         </CardTitle>
-        <CardDescription>Select the role you want to create questions for</CardDescription>
+        <CardDescription className="text-gray-600">Choose who will answer these questions</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="space-y-2">
-          <Label>Scope</Label>
-          <RadioGroup
+          <Label htmlFor="scope">Scope</Label>
+          <Select
             value={questionScope}
             onValueChange={(val) => {
               const next = val === "department" ? "department" : "role"
@@ -532,17 +526,24 @@ export function RoleQuestionsCreator() {
               setRoleQuestionCount(0)
               setExistingRoleQuestionKeys([])
             }}
-            className="flex gap-6"
           >
-            <div className="flex items-center space-x-2">
-              <RadioGroupItem value="role" id="scope-role" />
-              <Label htmlFor="scope-role">Role</Label>
-            </div>
-            <div className="flex items-center space-x-2">
-              <RadioGroupItem value="department" id="scope-department" />
-              <Label htmlFor="scope-department">Department</Label>
-            </div>
-          </RadioGroup>
+            <SelectTrigger id="scope" className="mt-1.5" aria-describedby="scope-description">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="role" aria-describedby="role-help">
+                Role-based
+              </SelectItem>
+              <SelectItem value="department" aria-describedby="department-help">
+                Department-based
+              </SelectItem>
+            </SelectContent>
+          </Select>
+          <p id="scope-description" className="mt-1.5 text-xs text-gray-500">
+            {questionScope === "role"
+              ? "Questions will be assigned to specific job roles"
+              : "Questions will be assigned to entire departments"}
+          </p>
         </div>
 
         {isLoadingRoles || isLoadingDepartments ? (
@@ -553,45 +554,45 @@ export function RoleQuestionsCreator() {
           <>
             {questionScope === "role" ? (
               <div className="space-y-2">
-                <Label>Role</Label>
+                <Label htmlFor="target-role">Select Role</Label>
                 <Select value={selectedRole?.id || ""} onValueChange={handleRoleSelect}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a role" />
+                  <SelectTrigger id="target-role" className="mt-1.5">
+                    <SelectValue placeholder="Choose a role..." />
                   </SelectTrigger>
                   <SelectContent>
                     {roles.map((role) => (
                       <SelectItem key={role.id} value={role.id}>
                         <div className="flex flex-col">
                           <span className="font-medium">{role.name}</span>
-                          {role.description && (
-                            <span className="text-muted-foreground text-xs">{role.description}</span>
-                          )}
                         </div>
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+                <p id="role-help" className="mt-1.5 text-xs text-gray-500">
+                  Questions will be assigned to specific job roles
+                </p>
               </div>
             ) : (
               <div className="space-y-2">
-                <Label>Department</Label>
+                <Label htmlFor="target-department">Select Department</Label>
                 <Select value={selectedDepartment?.id || ""} onValueChange={handleDepartmentSelect}>
-                  <SelectTrigger>
-                    <SelectValue placeholder={isLoadingDepartments ? "Loading..." : "Select a department"} />
+                  <SelectTrigger id="target-department" className="mt-1.5">
+                    <SelectValue placeholder={isLoadingDepartments ? "Loading..." : "Choose a department..."} />
                   </SelectTrigger>
                   <SelectContent>
                     {departments.map((dept) => (
                       <SelectItem key={dept.id} value={dept.id}>
                         <div className="flex flex-col">
                           <span className="font-medium">{dept.name}</span>
-                          {dept.description && (
-                            <span className="text-muted-foreground text-xs">{dept.description}</span>
-                          )}
                         </div>
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
+                <p id="department-help" className="mt-1.5 text-xs text-gray-500">
+                  Questions will be assigned to entire departments
+                </p>
               </div>
             )}
 
@@ -760,12 +761,16 @@ export function RoleQuestionsCreator() {
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle>Create Questions for {selectedScopeName || ""}</CardTitle>
-                  <CardDescription>{`Question ${currentQuestionIndex + 1} of ${questions.length}`}</CardDescription>
+                  <CardDescription>{`Selected: Question ${Math.min(currentQuestionIndex + 1, questions.length)} of ${questions.length}`}</CardDescription>
                 </div>
                 <div className="flex items-center gap-2">
                   <Badge variant="secondary">
                     {questions.length} question{questions.length !== 1 ? "s" : ""}
                   </Badge>
+                  <Button variant="outline" onClick={addQuestion} disabled={isSubmitting} size="default">
+                    <Plus className="mr-2 h-4 w-4" />
+                    Add Question
+                  </Button>
                   <Button onClick={handleSubmit} disabled={isSubmitting || questions.length === 0} size="default">
                     {isSubmitting ? (
                       <>
@@ -785,54 +790,118 @@ export function RoleQuestionsCreator() {
           </Card>
 
           {/* Questions Form */}
-          <div className="space-y-6">
-            <QuestionForm
-              question={questions[currentQuestionIndex]}
-              index={currentQuestionIndex}
-              onUpdate={(updates) => updateQuestion(questions[currentQuestionIndex].id, updates)}
-              onRemove={() => removeQuestion(questions[currentQuestionIndex].id)}
-              canRemove={questions.length > 1}
-            />
-
-            {/* Wizard Navigation */}
-            <Card>
-              <CardContent className="pt-6">
-                <div className="flex items-center justify-between">
-                  <Button variant="outline" onClick={handleWizardPrevious} disabled={currentQuestionIndex === 0}>
-                    <ArrowLeft className="mr-2 h-4 w-4" />
-                    Previous
-                  </Button>
-
-                  <div className="flex items-center gap-2">
-                    <Button variant="outline" size="sm" onClick={addQuestion}>
-                      <Plus className="mr-2 h-4 w-4" />
-                      Add Another
-                    </Button>
-                  </div>
-
-                  <Button
-                    variant="outline"
-                    onClick={handleWizardNext}
-                    disabled={currentQuestionIndex === questions.length - 1}
+          <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
+            <div className="space-y-4 lg:col-span-2">
+              <div className="space-y-4">
+                {questions.map((q, idx) => (
+                  <div
+                    key={q.id}
+                    className={idx === currentQuestionIndex ? "ring-primary/20 rounded-xl ring-2" : ""}
+                    onClick={() => setCurrentQuestionIndex(idx)}
                   >
-                    Next
-                    <ArrowRight className="ml-2 h-4 w-4" />
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          </div>
+                    <QuestionForm
+                      question={q}
+                      index={idx}
+                      onUpdate={(updates) => updateQuestion(q.id, updates)}
+                      onRemove={() => removeQuestion(q.id)}
+                      canRemove={questions.length > 1}
+                    />
+                  </div>
+                ))}
 
-          {/* Footer Actions */}
-          <Card>
-            <CardContent className="pt-6">
-              <div className="flex justify-end gap-2">
-                <Button variant="outline" onClick={() => router.push("/admin/questions")}>
-                  Cancel
-                </Button>
+                <Card>
+                  <CardContent className="pt-6">
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <Button
+                        variant="outline"
+                        className="w-full sm:flex-1"
+                        onClick={addQuestion}
+                        disabled={isSubmitting}
+                        type="button"
+                      >
+                        <Plus className="mr-2 h-4 w-4" />
+                        Add Question
+                      </Button>
+                      <Button
+                        variant="outline"
+                        className="w-full sm:flex-1"
+                        onClick={() => router.push("/admin/questions")}
+                        disabled={isSubmitting}
+                        type="button"
+                      >
+                        Cancel
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
               </div>
-            </CardContent>
-          </Card>
+            </div>
+
+            <div className="lg:col-span-1">
+              <div className="sticky top-6 space-y-4">
+                <Card>
+                  <CardHeader>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <CardTitle className="text-lg">Live Preview</CardTitle>
+                        <CardDescription>Preview active questions as users will see them</CardDescription>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setShowPreview((v) => !v)}
+                        aria-label={showPreview ? "Hide preview" : "Show preview"}
+                      >
+                        {showPreview ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent>
+                    {showPreview ? (
+                      <div className="space-y-6">
+                        {questions.filter((qq) => qq.is_active).length === 0 ? (
+                          <div className="text-muted-foreground py-10 text-center text-sm">No active questions.</div>
+                        ) : (
+                          questions
+                            .filter((qq) => qq.is_active)
+                            .map((qq, i) => (
+                              <div key={qq.id} className="space-y-3">
+                                {i > 0 && <Separator />}
+                                <QuestionPreview question={qq} isPreviewMode={true} displayIndex={i} />
+                              </div>
+                            ))
+                        )}
+                      </div>
+                    ) : (
+                      <div className="text-muted-foreground flex flex-col items-center justify-center py-10 text-center text-sm">
+                        <Eye className="mb-2 h-8 w-8 opacity-50" />
+                        Preview hidden
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+
+                <Card>
+                  <CardContent className="space-y-3 pt-6">
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Total Questions</span>
+                      <Badge>{questions.length}</Badge>
+                    </div>
+                    <Separator />
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Active</span>
+                      <Badge variant="secondary">{questions.filter((qq) => qq.is_active).length}</Badge>
+                    </div>
+                    <Separator />
+                    <div className="flex items-center justify-between text-sm">
+                      <span className="text-muted-foreground">Required</span>
+                      <Badge variant="secondary">{questions.filter((qq) => qq.is_required).length}</Badge>
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          </div>
         </>
       )}
     </div>
@@ -851,11 +920,10 @@ interface QuestionFormProps {
 function QuestionForm({ question, index, onUpdate, onRemove, canRemove }: QuestionFormProps) {
   const [optionInput, setOptionInput] = useState("")
   const [isExpanded, setIsExpanded] = useState(true)
-  const [previewMode, setPreviewMode] = useState(false)
 
   useEffect(() => {
     if (question.options) {
-      setOptionInput(question.options.join(", "))
+      setOptionInput("")
     }
   }, [question.options])
 
@@ -883,18 +951,23 @@ function QuestionForm({ question, index, onUpdate, onRemove, canRemove }: Questi
       <CardHeader>
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Badge variant="outline">Question {index + 1}</Badge>
-            <CardTitle className="text-lg">{question.question_label || "New Question"}</CardTitle>
+            <Badge variant="outline">Q{index + 1}</Badge>
+            <CardTitle className="text-lg">Question {index + 1}</CardTitle>
           </div>
           <div className="flex items-center gap-2">
-            <Button
-              variant={previewMode ? "default" : "ghost"}
-              size="sm"
-              onClick={() => setPreviewMode(!previewMode)}
-              title={previewMode ? "Exit Preview" : "Preview Mode"}
-            >
-              <Eye className="h-4 w-4" />
-            </Button>
+            <div className="hidden items-center gap-3 pr-1 sm:flex">
+              <div className="flex items-center gap-2">
+                <Switch checked={question.is_active} onCheckedChange={(checked) => onUpdate({ is_active: checked })} />
+                <span className="text-muted-foreground text-xs">Active</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={question.is_required}
+                  onCheckedChange={(checked) => onUpdate({ is_required: checked })}
+                />
+                <span className="text-muted-foreground text-xs">Required</span>
+              </div>
+            </div>
             <Button variant="ghost" size="sm" onClick={() => setIsExpanded(!isExpanded)}>
               {isExpanded ? <X className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
             </Button>
@@ -907,281 +980,233 @@ function QuestionForm({ question, index, onUpdate, onRemove, canRemove }: Questi
         </div>
       </CardHeader>
 
-      {/* Preview Mode - Clean Final Output */}
-      {previewMode && isExpanded ? (
-        <CardContent className="pt-6">
-          <div className="mx-auto max-w-2xl space-y-4">
-            <div className="flex items-center justify-between border-b pb-4">
-              <div className="flex items-center gap-2">
-                <Badge variant="secondary">Preview Mode</Badge>
-                <span className="text-muted-foreground text-sm">Final output - how users will see this question</span>
-              </div>
-            </div>
-            <QuestionPreview question={question} isPreviewMode={true} />
+      {isExpanded && (
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <Label>
+              Question Type <span className="text-destructive">*</span>
+            </Label>
+            <Select value={question.question_type} onValueChange={(value) => onUpdate({ question_type: value })}>
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="text">Text Input</SelectItem>
+                <SelectItem value="textarea">Textarea</SelectItem>
+                <SelectItem value="email">Email</SelectItem>
+                <SelectItem value="url">URL</SelectItem>
+                <SelectItem value="phone">Phone</SelectItem>
+                <SelectItem value="number">Number</SelectItem>
+                <SelectItem value="date">Date</SelectItem>
+                <SelectItem value="time">Time</SelectItem>
+                <SelectItem value="datetime">Date & Time</SelectItem>
+                <SelectItem value="select">Select (Dropdown)</SelectItem>
+                <SelectItem value="radio">Radio Buttons</SelectItem>
+                <SelectItem value="multiselect">Multi-Select</SelectItem>
+                <SelectItem value="checkbox">Checkbox</SelectItem>
+                <SelectItem value="rating">Rating Scale</SelectItem>
+                <SelectItem value="file">File Upload</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
-        </CardContent>
-      ) : (
-        isExpanded && (
-          <CardContent className="space-y-4">
+
+          <div className="space-y-2">
+            <Label>
+              Question Label <span className="text-destructive">*</span>
+            </Label>
+            <Input
+              value={question.question_label}
+              onChange={(e) => onUpdate({ question_label: e.target.value })}
+              placeholder="What is your project name?"
+              className="bg-[#f3f3f5]"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label>Description</Label>
+            <Textarea
+              value={question.question_description}
+              onChange={(e) => onUpdate({ question_description: e.target.value })}
+              placeholder="Additional context for the question"
+              rows={2}
+              className="bg-[#f3f3f5]"
+            />
+          </div>
+
+          <div className="space-y-2">
+            <Label>Placeholder</Label>
+            <Input
+              value={question.placeholder}
+              onChange={(e) => onUpdate({ placeholder: e.target.value })}
+              placeholder="Enter placeholder text"
+              className="bg-[#f3f3f5]"
+            />
+          </div>
+
+          {/* Options for select/radio/rating/multiselect */}
+          {(question.question_type === "select" ||
+            question.question_type === "multiselect" ||
+            question.question_type === "radio" ||
+            question.question_type === "rating") && (
             <div className="space-y-2">
               <Label>
-                Question Type <span className="text-destructive">*</span>
+                Options <span className="text-destructive">*</span>
               </Label>
-              <Select value={question.question_type} onValueChange={(value) => onUpdate({ question_type: value })}>
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="text">Text Input</SelectItem>
-                  <SelectItem value="textarea">Textarea</SelectItem>
-                  <SelectItem value="email">Email</SelectItem>
-                  <SelectItem value="url">URL</SelectItem>
-                  <SelectItem value="phone">Phone</SelectItem>
-                  <SelectItem value="number">Number</SelectItem>
-                  <SelectItem value="date">Date</SelectItem>
-                  <SelectItem value="time">Time</SelectItem>
-                  <SelectItem value="datetime">Date & Time</SelectItem>
-                  <SelectItem value="select">Select (Dropdown)</SelectItem>
-                  <SelectItem value="radio">Radio Buttons</SelectItem>
-                  <SelectItem value="multiselect">Multi-Select</SelectItem>
-                  <SelectItem value="checkbox">Checkbox</SelectItem>
-                  <SelectItem value="rating">Rating Scale</SelectItem>
-                  <SelectItem value="file">File Upload</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-
-            <div className="space-y-2">
-              <Label>
-                Question Label <span className="text-destructive">*</span>
-              </Label>
-              <Input
-                value={question.question_label}
-                onChange={(e) => onUpdate({ question_label: e.target.value })}
-                placeholder="What is your project name?"
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>Description</Label>
-              <Textarea
-                value={question.question_description}
-                onChange={(e) => onUpdate({ question_description: e.target.value })}
-                placeholder="Additional context for the question"
-                rows={2}
-              />
-            </div>
-
-            <div className="space-y-2">
-              <Label>Placeholder</Label>
-              <Input
-                value={question.placeholder}
-                onChange={(e) => onUpdate({ placeholder: e.target.value })}
-                placeholder="Enter placeholder text"
-              />
-            </div>
-
-            {/* Options for select/radio/rating/multiselect */}
-            {(question.question_type === "select" ||
-              question.question_type === "multiselect" ||
-              question.question_type === "radio" ||
-              question.question_type === "rating") && (
-              <div className="space-y-2">
-                <Label>
-                  Options <span className="text-destructive">*</span>
-                </Label>
-                <div className="flex gap-2">
-                  <Input
-                    value={optionInput}
-                    onChange={(e) => setOptionInput(e.target.value)}
-                    onKeyDown={handleOptionInputKeyDown}
-                    placeholder="Enter option and press Enter"
-                  />
-                  <Button type="button" onClick={addOption}>
-                    Add
-                  </Button>
+              <div className="flex gap-2">
+                <Input
+                  value={optionInput}
+                  onChange={(e) => setOptionInput(e.target.value)}
+                  onKeyDown={handleOptionInputKeyDown}
+                  placeholder="Enter option and press Enter"
+                  className="bg-[#f3f3f5]"
+                />
+                <Button type="button" onClick={addOption}>
+                  Add
+                </Button>
+              </div>
+              {question.options && question.options.length > 0 && (
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {question.options.map((option) => (
+                    <Badge
+                      key={option}
+                      variant="secondary"
+                      className="cursor-pointer"
+                      onClick={() => removeOption(option)}
+                    >
+                      {option} ×
+                    </Badge>
+                  ))}
                 </div>
-                {question.options && question.options.length > 0 && (
-                  <div className="mt-2 flex flex-wrap gap-2">
-                    {question.options.map((option) => (
-                      <Badge
-                        key={option}
-                        variant="secondary"
-                        className="cursor-pointer"
-                        onClick={() => removeOption(option)}
-                      >
-                        {option} ×
-                      </Badge>
-                    ))}
+              )}
+            </div>
+          )}
+
+          <div className="space-y-4">
+            {/* Text validation */}
+            {(question.question_type === "text" ||
+              question.question_type === "textarea" ||
+              question.question_type === "email" ||
+              question.question_type === "url" ||
+              question.question_type === "phone") && (
+              <>
+                <div className="grid grid-cols-2 gap-4">
+                  <div className="space-y-2">
+                    <Label>Minimum Length</Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      value={question.min_length || ""}
+                      onChange={(e) =>
+                        onUpdate({
+                          min_length: e.target.value ? parseInt(e.target.value) : null,
+                        })
+                      }
+                      placeholder="Min characters"
+                      className="bg-[#f3f3f5]"
+                    />
                   </div>
-                )}
+                  <div className="space-y-2">
+                    <Label>Maximum Length</Label>
+                    <Input
+                      type="number"
+                      min="0"
+                      value={question.max_length || ""}
+                      onChange={(e) =>
+                        onUpdate({
+                          max_length: e.target.value ? parseInt(e.target.value) : null,
+                        })
+                      }
+                      placeholder="Max characters"
+                      className="bg-[#f3f3f5]"
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label>Pattern (Regex)</Label>
+                  <Input
+                    value={question.pattern}
+                    onChange={(e) => onUpdate({ pattern: e.target.value })}
+                    placeholder="e.g., ^[A-Za-z]+$"
+                    className="bg-[#f3f3f5]"
+                  />
+                </div>
+              </>
+            )}
+
+            {/* Number validation */}
+            {question.question_type === "number" && (
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Minimum Value</Label>
+                  <Input
+                    type="number"
+                    value={question.min_value || ""}
+                    onChange={(e) =>
+                      onUpdate({
+                        min_value: e.target.value ? parseFloat(e.target.value) : null,
+                      })
+                    }
+                    placeholder="Min value"
+                    className="bg-[#f3f3f5]"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Maximum Value</Label>
+                  <Input
+                    type="number"
+                    value={question.max_value || ""}
+                    onChange={(e) =>
+                      onUpdate({
+                        max_value: e.target.value ? parseFloat(e.target.value) : null,
+                      })
+                    }
+                    placeholder="Max value"
+                    className="bg-[#f3f3f5]"
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label>Step</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={question.step || ""}
+                    onChange={(e) =>
+                      onUpdate({
+                        step: e.target.value ? parseFloat(e.target.value) : null,
+                      })
+                    }
+                    placeholder="e.g., 0.1 or 1"
+                    className="bg-[#f3f3f5]"
+                  />
+                </div>
               </div>
             )}
 
-            <Tabs defaultValue="basic" className="w-full">
-              <TabsList className="grid w-full grid-cols-2">
-                <TabsTrigger value="basic">Basic</TabsTrigger>
-                <TabsTrigger value="validation">
-                  <Shield className="mr-2 h-4 w-4" />
-                  Validation
-                </TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="basic" className="mt-4 space-y-4">
-                <div className="flex items-center space-x-2">
-                  <Switch
-                    checked={question.is_required}
-                    onCheckedChange={(checked) => onUpdate({ is_required: checked })}
+            {/* Date validation */}
+            {(question.question_type === "date" || question.question_type === "datetime") && (
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-2">
+                  <Label>Minimum Date</Label>
+                  <Input
+                    type="date"
+                    value={question.min_date}
+                    onChange={(e) => onUpdate({ min_date: e.target.value })}
+                    className="bg-[#f3f3f5]"
                   />
-                  <Label>Required Field</Label>
                 </div>
-
-                <div className="flex items-center space-x-2">
-                  <Switch
-                    checked={question.is_active}
-                    onCheckedChange={(checked) => onUpdate({ is_active: checked })}
+                <div className="space-y-2">
+                  <Label>Maximum Date</Label>
+                  <Input
+                    type="date"
+                    value={question.max_date}
+                    onChange={(e) => onUpdate({ max_date: e.target.value })}
+                    className="bg-[#f3f3f5]"
                   />
-                  <Label>Active (visible to users)</Label>
                 </div>
-              </TabsContent>
-
-              <TabsContent value="validation" className="mt-4 space-y-4">
-                {/* Text validation */}
-                {(question.question_type === "text" ||
-                  question.question_type === "textarea" ||
-                  question.question_type === "email" ||
-                  question.question_type === "url" ||
-                  question.question_type === "phone") && (
-                  <>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="space-y-2">
-                        <Label>Minimum Length</Label>
-                        <Input
-                          type="number"
-                          min="0"
-                          value={question.min_length || ""}
-                          onChange={(e) =>
-                            onUpdate({
-                              min_length: e.target.value ? parseInt(e.target.value) : null,
-                            })
-                          }
-                          placeholder="Min characters"
-                        />
-                      </div>
-                      <div className="space-y-2">
-                        <Label>Maximum Length</Label>
-                        <Input
-                          type="number"
-                          min="0"
-                          value={question.max_length || ""}
-                          onChange={(e) =>
-                            onUpdate({
-                              max_length: e.target.value ? parseInt(e.target.value) : null,
-                            })
-                          }
-                          placeholder="Max characters"
-                        />
-                      </div>
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Pattern (Regex)</Label>
-                      <Input
-                        value={question.pattern}
-                        onChange={(e) => onUpdate({ pattern: e.target.value })}
-                        placeholder="e.g., ^[A-Za-z]+$"
-                      />
-                    </div>
-                  </>
-                )}
-
-                {/* Number validation */}
-                {question.question_type === "number" && (
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label>Minimum Value</Label>
-                      <Input
-                        type="number"
-                        value={question.min_value || ""}
-                        onChange={(e) =>
-                          onUpdate({
-                            min_value: e.target.value ? parseFloat(e.target.value) : null,
-                          })
-                        }
-                        placeholder="Min value"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Maximum Value</Label>
-                      <Input
-                        type="number"
-                        value={question.max_value || ""}
-                        onChange={(e) =>
-                          onUpdate({
-                            max_value: e.target.value ? parseFloat(e.target.value) : null,
-                          })
-                        }
-                        placeholder="Max value"
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Step</Label>
-                      <Input
-                        type="number"
-                        step="0.01"
-                        value={question.step || ""}
-                        onChange={(e) =>
-                          onUpdate({
-                            step: e.target.value ? parseFloat(e.target.value) : null,
-                          })
-                        }
-                        placeholder="e.g., 0.1 or 1"
-                      />
-                    </div>
-                  </div>
-                )}
-
-                {/* Date validation */}
-                {(question.question_type === "date" || question.question_type === "datetime") && (
-                  <div className="grid grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label>Minimum Date</Label>
-                      <Input
-                        type="date"
-                        value={question.min_date}
-                        onChange={(e) => onUpdate({ min_date: e.target.value })}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label>Maximum Date</Label>
-                      <Input
-                        type="date"
-                        value={question.max_date}
-                        onChange={(e) => onUpdate({ max_date: e.target.value })}
-                      />
-                    </div>
-                  </div>
-                )}
-              </TabsContent>
-            </Tabs>
-
-            {/* Live Preview Section */}
-            <Separator className="my-6" />
-            <div className="space-y-4">
-              <div className="flex items-center gap-2">
-                <Eye className="h-4 w-4" />
-                <Label className="text-base font-semibold">Live Preview</Label>
-                <Badge variant="outline" className="text-xs">
-                  How users will see this question
-                </Badge>
               </div>
-              <Card className="bg-muted/30 border-2 border-dashed">
-                <CardContent className="pt-6">
-                  <QuestionPreview question={question} isPreviewMode={false} />
-                </CardContent>
-              </Card>
-            </div>
-          </CardContent>
-        )
+            )}
+          </div>
+        </CardContent>
       )}
     </Card>
   )
@@ -1191,9 +1216,10 @@ function QuestionForm({ question, index, onUpdate, onRemove, canRemove }: Questi
 interface QuestionPreviewProps {
   question: QuestionFormData
   isPreviewMode?: boolean
+  displayIndex?: number
 }
 
-function QuestionPreview({ question, isPreviewMode = false }: QuestionPreviewProps) {
+function QuestionPreview({ question, isPreviewMode = false, displayIndex }: QuestionPreviewProps) {
   const [previewValue, setPreviewValue] = useState<string>("")
   const [previewError, setPreviewError] = useState<string>("")
   const [touched, setTouched] = useState(false)
@@ -1305,6 +1331,7 @@ function QuestionPreview({ question, isPreviewMode = false }: QuestionPreviewPro
         htmlFor={isPreviewMode ? `preview-${question.id}` : undefined}
         className={`${isPreviewMode ? "text-base" : "text-sm"} block font-medium`}
       >
+        {typeof displayIndex === "number" ? `Q${displayIndex + 1}. ` : ""}
         {question.question_label || "Question Label"}
         {question.is_required && <span className="text-destructive ml-2">*</span>}
       </Label>
@@ -1329,7 +1356,7 @@ function QuestionPreview({ question, isPreviewMode = false }: QuestionPreviewPro
           minLength={question.min_length || undefined}
           maxLength={question.max_length || undefined}
           pattern={question.pattern || undefined}
-          className={previewError ? "border-destructive" : ""}
+          className={`bg-[#f3f3f5]${previewError ? "border-destructive" : ""}`}
         />
       )}
 
@@ -1344,7 +1371,7 @@ function QuestionPreview({ question, isPreviewMode = false }: QuestionPreviewPro
           required={question.is_required}
           minLength={question.min_length || undefined}
           maxLength={question.max_length || undefined}
-          className={previewError ? "border-destructive" : ""}
+          className={`bg-[#f3f3f5]${previewError ? "border-destructive" : ""}`}
         />
       )}
 
@@ -1359,7 +1386,7 @@ function QuestionPreview({ question, isPreviewMode = false }: QuestionPreviewPro
           minLength={question.min_length || undefined}
           maxLength={question.max_length || undefined}
           pattern={question.pattern || undefined}
-          className={previewError ? "border-destructive" : ""}
+          className={`bg-[#f3f3f5]${previewError ? "border-destructive" : ""}`}
         />
       )}
 
@@ -1374,7 +1401,7 @@ function QuestionPreview({ question, isPreviewMode = false }: QuestionPreviewPro
           minLength={question.min_length || undefined}
           maxLength={question.max_length || undefined}
           pattern={question.pattern || undefined}
-          className={previewError ? "border-destructive" : ""}
+          className={`bg-[#f3f3f5]${previewError ? "border-destructive" : ""}`}
         />
       )}
 
@@ -1389,7 +1416,7 @@ function QuestionPreview({ question, isPreviewMode = false }: QuestionPreviewPro
           minLength={question.min_length || undefined}
           maxLength={question.max_length || undefined}
           pattern={question.pattern || undefined}
-          className={previewError ? "border-destructive" : ""}
+          className={`bg-[#f3f3f5]${previewError ? "border-destructive" : ""}`}
         />
       )}
 
@@ -1404,7 +1431,7 @@ function QuestionPreview({ question, isPreviewMode = false }: QuestionPreviewPro
           min={question.min_value !== null ? question.min_value : undefined}
           max={question.max_value !== null ? question.max_value : undefined}
           step={question.step || undefined}
-          className={previewError ? "border-destructive" : ""}
+          className={`bg-[#f3f3f5]${previewError ? "border-destructive" : ""}`}
         />
       )}
 
@@ -1417,7 +1444,7 @@ function QuestionPreview({ question, isPreviewMode = false }: QuestionPreviewPro
           required={question.is_required}
           min={question.min_date || undefined}
           max={question.max_date || undefined}
-          className={previewError ? "border-destructive" : ""}
+          className={`bg-[#f3f3f5]${previewError ? "border-destructive" : ""}`}
         />
       )}
 
@@ -1428,7 +1455,7 @@ function QuestionPreview({ question, isPreviewMode = false }: QuestionPreviewPro
           onChange={(e) => handleChange(e.target.value)}
           onBlur={handleBlur}
           required={question.is_required}
-          className={previewError ? "border-destructive" : ""}
+          className={`bg-[#f3f3f5]${previewError ? "border-destructive" : ""}`}
         />
       )}
 
@@ -1441,7 +1468,7 @@ function QuestionPreview({ question, isPreviewMode = false }: QuestionPreviewPro
           required={question.is_required}
           min={question.min_date ? `${question.min_date}T00:00` : undefined}
           max={question.max_date ? `${question.max_date}T23:59` : undefined}
-          className={previewError ? "border-destructive" : ""}
+          className={`bg-[#f3f3f5]${previewError ? "border-destructive" : ""}`}
         />
       )}
 
@@ -1538,7 +1565,7 @@ function QuestionPreview({ question, isPreviewMode = false }: QuestionPreviewPro
             }
           }}
           required={question.is_required}
-          className={previewError ? "border-destructive" : ""}
+          className={`bg-[#f3f3f5]${previewError ? "border-destructive" : ""}`}
         />
       )}
 

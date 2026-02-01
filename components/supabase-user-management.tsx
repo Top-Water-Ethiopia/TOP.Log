@@ -51,6 +51,8 @@ interface UserWithProfile {
     department_id: string | null
     role_id: string
     role_name: string
+    profession_role_id: string | null
+    profession_role_name: string | null
     is_active: boolean
     created_at: string
     last_login: string | null
@@ -368,6 +370,8 @@ export function SupabaseUserManagement() {
         department_id: user.profile.department_id,
         role_id: user.profile.role_id,
         role_name: user.profile.role_name || "user",
+        profession_role_id: user.profile.profession_role_id ?? null,
+        profession_role_name: user.profile.profession_role_name ?? null,
         is_active: user.profile.is_active,
         created_at: user.profile.created_at,
         last_login: user.profile.last_login,
@@ -568,6 +572,10 @@ export function SupabaseUserManagement() {
     const nextDepartmentId = createUserForm.department_id
     const nextDepartmentRole = createUserForm.department_role
     const nextProfessionRoleId = createUserForm.profession_role_id
+    const nextProfessionRoleName =
+      nextProfessionRoleId !== PROFESSION_ROLE_NONE
+        ? roles.find((r) => r.id === nextProfessionRoleId)?.name || null
+        : null
 
     let createdUserId: string | null = null
 
@@ -582,6 +590,8 @@ export function SupabaseUserManagement() {
         department_id: nextDepartmentId,
         role_id: createUserForm.role_id,
         role_name: roleName,
+        profession_role_id: nextProfessionRoleId !== PROFESSION_ROLE_NONE ? nextProfessionRoleId : null,
+        profession_role_name: nextProfessionRoleName,
         is_active: true,
         created_at: nowIso,
         last_login: null,
@@ -627,6 +637,8 @@ export function SupabaseUserManagement() {
           department_id: created.profile.department_id,
           role_id: created.profile.role_id,
           role_name: createdRoleName,
+          profession_role_id: nextProfessionRoleId !== PROFESSION_ROLE_NONE ? nextProfessionRoleId : null,
+          profession_role_name: nextProfessionRoleName,
           is_active: created.profile.is_active,
           created_at: created.profile.created_at,
           last_login: created.profile.last_login || null,
@@ -765,6 +777,10 @@ export function SupabaseUserManagement() {
     const nextDepartmentId = editUserForm.department_id
     const nextDepartmentRole = editUserForm.department_role
     const nextProfessionRoleId = editUserForm.profession_role_id
+    const nextProfessionRoleName =
+      nextProfessionRoleId !== PROFESSION_ROLE_NONE
+        ? roles.find((r) => r.id === nextProfessionRoleId)?.name || null
+        : null
 
     mutateUsers(
       (current) => {
@@ -781,6 +797,8 @@ export function SupabaseUserManagement() {
               role_id: nextRoleId,
               role_name: nextRoleName,
               department_id: nextDepartmentId,
+              profession_role_id: nextProfessionRoleId !== PROFESSION_ROLE_NONE ? nextProfessionRoleId : null,
+              profession_role_name: nextProfessionRoleName,
               is_active: nextIsActive,
             },
           }
@@ -1259,6 +1277,21 @@ export function SupabaseUserManagement() {
               const names = getUserDepartmentNames(user.id, user.profile?.department_id)
               if (names.length === 0) return "-"
               return names.join(", ")
+            },
+          },
+          {
+            key: "profession_role",
+            header: "Profession Role",
+            cell: (user) => {
+              const roleName = user.profile?.profession_role_name
+              if (!roleName) {
+                return (
+                  <Badge variant="outline" className="border-dashed">
+                    Unassigned
+                  </Badge>
+                )
+              }
+              return <Badge variant="secondary">{roleName}</Badge>
             },
           },
           {

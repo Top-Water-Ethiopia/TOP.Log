@@ -1,6 +1,6 @@
-import { Database } from './database.types'
+import { Database } from "./database.types"
 
-export type UserProfile = Database['public']['Tables']['user_profiles']['Row'] & {
+export type UserProfile = Database["public"]["Tables"]["user_profiles"]["Row"] & {
   roles?: {
     id: string
     name: string
@@ -24,6 +24,8 @@ export interface UserWithProfile {
     department_id: string | null
     role_id: string
     role_name: string
+    profession_role_id?: string | null
+    profession_role_name?: string | null
     is_active: boolean
     created_at: string
     last_login: string | null

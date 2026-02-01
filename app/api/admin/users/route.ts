@@ -449,6 +449,42 @@ export async function GET(request: Request) {
       } as PaginatedUsersResponse)
     }
 
+    const profileUserIds = profiles
+      .map((profile: any) => profile.user_id)
+      .filter((userId: string | null) => typeof userId === "string" && userId.trim().length > 0)
+
+    let professionAssignments: Array<{
+      user_id: string | null
+      role_id: string | null
+      is_active: boolean | null
+      role?: { name?: string | null } | null
+    }> = []
+
+    if (profileUserIds.length > 0) {
+      const { data: professionAssignmentsData, error: professionAssignmentsError } = await adminSupabase
+        .from("user_department_professions")
+        .select("user_id, role_id, is_active, updated_at, role:roles(name)")
+        .in("user_id", profileUserIds)
+        .order("is_active", { ascending: false })
+        .order("updated_at", { ascending: false })
+
+      if (professionAssignmentsError) {
+        console.error("Error fetching profession assignments:", professionAssignmentsError)
+      } else {
+        professionAssignments = (professionAssignmentsData || []) as typeof professionAssignments
+      }
+    }
+
+    const professionByUserId = new Map<string, { role_id: string | null; role_name: string | null }>()
+    for (const assignment of professionAssignments) {
+      if (!assignment?.user_id || !assignment.is_active) continue
+      if (professionByUserId.has(assignment.user_id)) continue
+      professionByUserId.set(assignment.user_id, {
+        role_id: assignment.role_id ?? null,
+        role_name: assignment.role?.name ?? null,
+      })
+    }
+
     // Get auth data for all users in one go
     const {
       data: { users: authUsers = [] },
@@ -463,6 +499,7 @@ export async function GET(request: Request) {
     // Combine the profile data with auth data
     const usersWithAuth: UserWithProfile[] = profiles.map((profile: any) => {
       const authUser = authUsersMap.get(profile.user_id)
+      const profession = profile.user_id ? professionByUserId.get(profile.user_id) : null
 
       return {
         id: profile.user_id,
@@ -477,6 +514,8 @@ export async function GET(request: Request) {
           department_id: profile.department_id,
           role_id: profile.role_id,
           role_name: profile.roles?.name || "user",
+          profession_role_id: profession?.role_id ?? null,
+          profession_role_name: profession?.role_name ?? null,
           is_active: profile.is_active,
           created_at: profile.created_at,
           last_login: profile.last_login,
