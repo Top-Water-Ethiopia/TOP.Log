@@ -154,7 +154,11 @@ export function AdminReportsView() {
     isLoading,
     isValidating,
     mutate,
-  } = useSWR<AdminCaptainLogEntriesResponse>("/api/admin/captain-log-entries")
+  } = useSWR<AdminCaptainLogEntriesResponse>("/api/admin/captain-log-entries", {
+    revalidateOnFocus: false,
+    revalidateOnReconnect: false,
+    refreshInterval: 0,
+  })
 
   const entries = useMemo(() => data?.entries ?? [], [data?.entries])
   const allUsers = useMemo(() => data?.users ?? [], [data?.users])
@@ -169,8 +173,14 @@ export function AdminReportsView() {
   type DepartmentRolesResponse = { data: Array<{ id: string; name: string }> }
   const departmentRolesKey =
     isAdmin && selectedDepartment !== "all" ? `/api/admin/departments/${selectedDepartment}/profession-roles` : null
-  const { data: departmentRolesData, isLoading: isDepartmentRolesLoading } =
-    useSWR<DepartmentRolesResponse>(departmentRolesKey)
+  const { data: departmentRolesData, isLoading: isDepartmentRolesLoading } = useSWR<DepartmentRolesResponse>(
+    departmentRolesKey,
+    {
+      revalidateOnFocus: false,
+      revalidateOnReconnect: false,
+      refreshInterval: 0,
+    }
+  )
   const departmentRoles = useMemo(() => {
     return (departmentRolesData?.data || []).map((r) => ({ id: r.id, name: r.name }))
   }, [departmentRolesData?.data])
@@ -856,7 +866,7 @@ export function AdminReportsView() {
                     header: "Actions",
                     className: "text-right",
                     cell: (entry) => (
-                      <div className="flex items-center justify-end gap-2">
+                      <div className="flex items-center justify-end gap-2" data-row-action>
                         <Button
                           variant="outline"
                           size="icon"
@@ -873,12 +883,7 @@ export function AdminReportsView() {
                         {isAdmin ? (
                           <AlertDialog>
                             <AlertDialogTrigger asChild>
-                              <Button
-                                variant="destructive"
-                                size="icon"
-                                className="h-8 w-8"
-                                onClick={(e) => e.stopPropagation()}
-                              >
+                              <Button variant="destructive" size="icon" className="h-8 w-8">
                                 <Trash2 className="h-4 w-4" />
                                 <span className="sr-only">Delete report</span>
                               </Button>
@@ -893,8 +898,10 @@ export function AdminReportsView() {
                                 <AlertDialogAction
                                   onClick={(e) => {
                                     e.preventDefault()
+                                    e.stopPropagation()
                                     deleteEntry(entry.id)
                                   }}
+                                  className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                                 >
                                   Delete
                                 </AlertDialogAction>

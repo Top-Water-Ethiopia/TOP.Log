@@ -60,25 +60,49 @@ export function CalendarView({ selectedDate, onDateSelect, entries: entriesProp 
     return formatLocalDate(date)
   }
 
-  const monthName = currentMonth.toLocaleString("default", { month: "long", year: "numeric" })
+  const monthLabel = currentMonth.toLocaleString("default", { month: "long" })
+  const yearLabel = currentMonth.getFullYear()
   const weekDays = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"]
 
   return (
     <div className="bg-card border-border flex h-full flex-col rounded-lg border p-4 shadow-sm sm:p-6 lg:p-8">
       <div className="flex flex-1 flex-col space-y-4">
         {/* Month Navigation */}
-        <div className="mb-4 flex flex-col gap-3 sm:mb-8 sm:flex-row sm:items-center sm:justify-between">
-          <h2 className="text-foreground text-xl font-bold sm:text-2xl">{monthName}</h2>
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" size="default" onClick={previousMonth} className="h-10 w-10 p-0">
-              <ChevronLeft className="h-5 w-5" />
-            </Button>
-            <Button variant="outline" size="sm" onClick={() => setCurrentMonth(new Date())} className="px-3">
+        <div className="mb-4 flex flex-wrap items-center gap-3 sm:mb-8">
+          <div className="flex items-baseline gap-2">
+            <h2 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">{monthLabel}</h2>
+            <span className="text-muted-foreground text-base font-semibold sm:text-lg">{yearLabel}</span>
+          </div>
+          <div className="ml-auto flex w-full items-center justify-end gap-2 sm:w-auto">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCurrentMonth(new Date())}
+              className="border-border h-9 rounded-full px-4 text-xs font-semibold sm:text-sm"
+            >
               Today
             </Button>
-            <Button variant="outline" size="default" onClick={nextMonth} className="h-10 w-10 p-0">
-              <ChevronRight className="h-5 w-5" />
-            </Button>
+            <div className="border-border bg-background flex items-center rounded-full border p-1 shadow-sm">
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={previousMonth}
+                className="text-muted-foreground hover:bg-muted h-8 w-8 rounded-full"
+              >
+                <ChevronLeft className="h-4 w-4" />
+                <span className="sr-only">Previous month</span>
+              </Button>
+              <div className="bg-border h-5 w-px" />
+              <Button
+                variant="ghost"
+                size="icon"
+                onClick={nextMonth}
+                className="text-muted-foreground hover:bg-muted h-8 w-8 rounded-full"
+              >
+                <ChevronRight className="h-4 w-4" />
+                <span className="sr-only">Next month</span>
+              </Button>
+            </div>
           </div>
         </div>
 
