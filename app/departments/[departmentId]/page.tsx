@@ -1,6 +1,7 @@
 "use client"
 
 import { useEffect, useMemo, useState } from "react"
+import Link from "next/link"
 import { useParams, useRouter } from "next/navigation"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { useRBAC } from "@/hooks/use-rbac"
@@ -13,6 +14,7 @@ import { Input } from "@/components/ui/input"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { toast } from "sonner"
 import { CalendarDays, ChevronLeft, ChevronRight, ArrowLeft, ExternalLink } from "lucide-react"
+import { isFeatureEnabledClient } from "@/lib/feature-flags/client"
 import {
   addDays,
   endOfMonth,
@@ -57,19 +59,15 @@ type EntryRow = {
 }
 
 export default function DepartmentDetailsPage() {
+  const departmentsEnabled = isFeatureEnabledClient("DEPARTMENTS")
   const { user, isLoading } = useSupabaseAuth()
-  const { hasPermission, hasRole, canAccessAdmin, rbacLoading } = useRBAC()
+  const { rbacLoading, hasPermission } = useRBAC()
   const router = useRouter()
   const params = useParams<{ departmentId: string }>()
   const departmentId = typeof params?.departmentId === "string" ? params.departmentId : ""
+  const userId = user?.id
 
-  const canAccessDepartments =
-    hasRole("admin") ||
-    hasRole("system-admin") ||
-    canAccessAdmin ||
-    hasPermission("departments.read") ||
-    hasPermission("departments.members.read") ||
-    hasPermission("departments.members.manage")
+  const canAccessAdmin = hasPermission("admin.system")
 
   const [members, setMembers] = useState<MemberRow[]>([])
   const [entries, setEntries] = useState<EntryRow[]>([])
@@ -79,6 +77,8 @@ export default function DepartmentDetailsPage() {
     description: string | null
     is_active: boolean
   } | null>(null)
+  const [membersLoaded, setMembersLoaded] = useState(false)
+  const [entriesLoaded, setEntriesLoaded] = useState(false)
   const [loadingMembers, setLoadingMembers] = useState(true)
   const [loadingEntries, setLoadingEntries] = useState(true)
   const [loadingDepartment, setLoadingDepartment] = useState(true)
@@ -91,24 +91,26 @@ export default function DepartmentDetailsPage() {
   const [selectedEntry, setSelectedEntry] = useState<EntryRow | null>(null)
 
   useEffect(() => {
+    if (!departmentsEnabled) return
     if (!isLoading && !user) {
       router.push("/login")
     }
-  }, [user, isLoading, router])
+  }, [departmentsEnabled, user, isLoading, router])
 
   useEffect(() => {
-    if (isLoading || rbacLoading) return
-    if (!user) return
-    if (!canAccessDepartments) {
-      toast.error("Access denied")
-      router.replace("/")
+    if (!userId) return
+    if (!departmentsEnabled) {
+      setMembers([])
+      setEntries([])
+      setDepartment(null)
+      setMembersLoaded(false)
+      setEntriesLoaded(false)
+      setLoadingDepartment(false)
+      setLoadingMembers(false)
+      setLoadingEntries(false)
+      return
     }
-  }, [canAccessDepartments, isLoading, rbacLoading, router, user])
-
-  useEffect(() => {
-    if (!user) return
     if (isLoading || rbacLoading) return
-    if (!canAccessDepartments) return
     const id = departmentId.trim()
     if (!id || id === "undefined" || id === "null") {
       setLoadingDepartment(false)
@@ -122,7 +124,18 @@ export default function DepartmentDetailsPage() {
         setLoadingDepartment(true)
         const res = await fetch(`/api/departments/${id}`)
         const json = await res.json().catch(() => ({}))
-        if (!res.ok) throw new Error(json.message || json.error || `HTTP ${res.status}`)
+        if (!res.ok) {
+          if (res.status === 401) {
+            router.replace("/login")
+            return
+          }
+          if (res.status === 403) {
+            toast.error("Access denied")
+            router.replace("/departments")
+            return
+          }
+          throw new Error(json.message || json.error || `HTTP ${res.status}`)
+        }
         setDepartment(json.data)
       } catch (error) {
         console.error("Failed to load department:", error)
@@ -136,10 +149,22 @@ export default function DepartmentDetailsPage() {
         setLoadingMembers(true)
         const res = await fetch(`/api/departments/${id}/members`)
         const json = await res.json().catch(() => ({}))
-        if (!res.ok) throw new Error(json.message || json.error || `HTTP ${res.status}`)
+        if (!res.ok) {
+          if (res.status === 401) {
+            router.replace("/login")
+            return
+          }
+          if (res.status === 403) {
+            toast.error("Access denied")
+            router.replace("/departments")
+            return
+          }
+          throw new Error(json.message || json.error || `HTTP ${res.status}`)
+        }
         setMembers((json.data || []) as MemberRow[])
       } finally {
         setLoadingMembers(false)
+        setMembersLoaded(true)
       }
     }
 
@@ -148,17 +173,29 @@ export default function DepartmentDetailsPage() {
         setLoadingEntries(true)
         const res = await fetch(`/api/departments/${id}/entries`)
         const json = await res.json().catch(() => ({}))
-        if (!res.ok) throw new Error(json.message || json.error || `HTTP ${res.status}`)
+        if (!res.ok) {
+          if (res.status === 401) {
+            router.replace("/login")
+            return
+          }
+          if (res.status === 403) {
+            toast.error("Access denied")
+            router.replace("/departments")
+            return
+          }
+          throw new Error(json.message || json.error || `HTTP ${res.status}`)
+        }
         setEntries((json.data || []) as EntryRow[])
       } finally {
         setLoadingEntries(false)
+        setEntriesLoaded(true)
       }
     }
 
     loadDepartment()
     loadMembers()
     loadEntries()
-  }, [user, user?.id, departmentId, canAccessDepartments, isLoading, rbacLoading])
+  }, [userId, departmentsEnabled, departmentId, isLoading, rbacLoading, router])
 
   const sortedMembers = useMemo(() => {
     return [...members].sort((a, b) => {
@@ -201,7 +238,30 @@ export default function DepartmentDetailsPage() {
     return String(value)
   }
 
-  if (isLoading || rbacLoading || !user || loadingDepartment) {
+  if (!departmentsEnabled) {
+    return (
+      <div className="space-y-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>Departments</CardTitle>
+            <CardDescription>This feature is not available yet.</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap gap-2">
+            {canAccessAdmin ? (
+              <Button asChild>
+                <Link href="/admin/departments">Go to Admin Departments</Link>
+              </Button>
+            ) : null}
+            <Button asChild variant="outline">
+              <Link href="/">Back</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  if (isLoading || rbacLoading || !user || (loadingDepartment && !department)) {
     return (
       <div className="space-y-6">
         <div className="space-y-2">
@@ -226,7 +286,7 @@ export default function DepartmentDetailsPage() {
         </TabsList>
 
         <TabsContent value="reports" className="space-y-4">
-          {loadingEntries ? (
+          {loadingEntries && !entriesLoaded ? (
             <Card className="border border-gray-200 shadow-sm">
               <CardHeader>
                 <Skeleton className="h-5 w-44 bg-gray-200/70 dark:bg-gray-800" />
@@ -560,7 +620,7 @@ export default function DepartmentDetailsPage() {
         </TabsContent>
 
         <TabsContent value="members" className="space-y-4">
-          {loadingMembers ? (
+          {loadingMembers && !membersLoaded ? (
             <Card>
               <CardHeader>
                 <Skeleton className="h-5 w-40 bg-gray-200/70 dark:bg-gray-800" />

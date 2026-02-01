@@ -6,9 +6,11 @@ import { useRouter } from "next/navigation"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { useRBAC } from "@/hooks/use-rbac"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
 import { toast } from "sonner"
+import { isFeatureEnabledClient } from "@/lib/feature-flags/client"
 
 type Department = {
   id: string
@@ -24,40 +26,31 @@ type Membership = {
 }
 
 export default function DepartmentsPage() {
+  const departmentsEnabled = isFeatureEnabledClient("DEPARTMENTS")
   const { user, isLoading } = useSupabaseAuth()
-  const { hasPermission, hasRole, canAccessAdmin, rbacLoading } = useRBAC()
+  const { rbacLoading, hasPermission } = useRBAC()
   const router = useRouter()
   const [memberships, setMemberships] = useState<Membership[]>([])
   const [loading, setLoading] = useState(true)
   const userId = user?.id
 
-  const canAccessDepartments =
-    hasRole("admin") ||
-    hasRole("system-admin") ||
-    canAccessAdmin ||
-    hasPermission("departments.read") ||
-    hasPermission("departments.members.read") ||
-    hasPermission("departments.members.manage")
+  const canAccessAdmin = hasPermission("admin.system")
 
   useEffect(() => {
+    if (!departmentsEnabled) return
     if (!isLoading && !user) {
       router.push("/login")
     }
-  }, [user, isLoading, router])
-
-  useEffect(() => {
-    if (isLoading || rbacLoading) return
-    if (!user) return
-    if (!canAccessDepartments) {
-      toast.error("Access denied")
-      router.replace("/")
-    }
-  }, [canAccessDepartments, isLoading, rbacLoading, router, user])
+  }, [departmentsEnabled, user, isLoading, router])
 
   useEffect(() => {
     if (!userId) return
+    if (!departmentsEnabled) {
+      setMemberships([])
+      setLoading(false)
+      return
+    }
     if (isLoading || rbacLoading) return
-    if (!canAccessDepartments) return
 
     const load = async () => {
       try {
@@ -88,11 +81,34 @@ export default function DepartmentsPage() {
     }
 
     load()
-  }, [userId, router, canAccessDepartments, isLoading, rbacLoading])
+  }, [userId, departmentsEnabled, router, isLoading, rbacLoading])
 
   const activeMemberships = useMemo(() => {
     return memberships.filter((m) => m.department?.is_active)
   }, [memberships])
+
+  if (!departmentsEnabled) {
+    return (
+      <div className="space-y-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>Departments</CardTitle>
+            <CardDescription>This feature is not available yet.</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap gap-2">
+            {canAccessAdmin ? (
+              <Button asChild>
+                <Link href="/admin/departments">Go to Admin Departments</Link>
+              </Button>
+            ) : null}
+            <Button asChild variant="outline">
+              <Link href="/">Back</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
 
   if (isLoading || rbacLoading || !user) {
     return (

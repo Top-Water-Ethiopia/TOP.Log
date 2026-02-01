@@ -1,21 +1,10 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
-import { verifyAnyPermission } from "@/lib/rbac/server"
 
 export const dynamic = "force-dynamic"
 
 export async function GET(request: Request, { params }: { params: Promise<{ departmentId: string }> }) {
   try {
-    const perm = await verifyAnyPermission([
-      "departments.read",
-      "departments.members.read",
-      "departments.members.manage",
-      "admin.system",
-    ])
-    if (!perm.ok) {
-      return NextResponse.json({ error: perm.error }, { status: perm.status })
-    }
-
     const { departmentId } = await params
 
     if (!departmentId) {
@@ -32,20 +21,37 @@ export async function GET(request: Request, { params }: { params: Promise<{ depa
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const { data, error } = await supabase
-      .from("departments")
-      .select("id, name, description, is_active")
-      .eq("id", departmentId)
-      .single()
+    const { data: membership, error: membershipError } = await supabase
+      .from("user_department_roles")
+      .select(
+        `
+        department_id,
+        departments (
+          id,
+          name,
+          description,
+          is_active
+        )
+      `
+      )
+      .eq("user_id", user.id)
+      .eq("department_id", departmentId)
+      .eq("is_active", true)
+      .maybeSingle()
 
-    if (error) {
-      if (error.code === "PGRST116") {
-        return NextResponse.json({ error: "Department not found" }, { status: 404 })
-      }
-      return NextResponse.json({ error: "Failed to load department", message: error.message }, { status: 500 })
+    if (membershipError) {
+      return NextResponse.json(
+        { error: "Failed to load department", message: membershipError.message },
+        { status: 500 }
+      )
     }
 
-    return NextResponse.json({ data })
+    const dept = membership?.departments
+    if (!dept) {
+      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+    }
+
+    return NextResponse.json({ data: dept })
   } catch (error) {
     return NextResponse.json(
       {

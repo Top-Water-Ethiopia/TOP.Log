@@ -1,21 +1,10 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
-import { verifyAnyPermission } from "@/lib/rbac/server"
 
 export const dynamic = "force-dynamic"
 
 export async function GET(_request: Request, { params }: { params: Promise<{ departmentId: string }> }) {
   try {
-    const perm = await verifyAnyPermission([
-      "departments.read",
-      "departments.members.read",
-      "departments.members.manage",
-      "admin.system",
-    ])
-    if (!perm.ok) {
-      return NextResponse.json({ error: perm.error }, { status: perm.status })
-    }
-
     const supabase = await createClient()
     const {
       data: { user },
@@ -27,6 +16,30 @@ export async function GET(_request: Request, { params }: { params: Promise<{ dep
     }
 
     const { departmentId } = await params
+
+    if (!departmentId) {
+      return NextResponse.json({ error: "Department ID is required" }, { status: 400 })
+    }
+
+    const { data: selfMembership, error: selfMembershipError } = await supabase
+      .from("user_department_roles")
+      .select("department_id")
+      .eq("department_id", departmentId)
+      .eq("user_id", user.id)
+      .eq("is_active", true)
+      .limit(1)
+      .maybeSingle()
+
+    if (selfMembershipError) {
+      return NextResponse.json(
+        { error: "Failed to verify department membership", message: selfMembershipError.message },
+        { status: 500 }
+      )
+    }
+
+    if (!selfMembership) {
+      return NextResponse.json({ error: "Access denied" }, { status: 403 })
+    }
 
     // Get all user_ids in this department
     // RLS on user_department_roles limits visibility:
