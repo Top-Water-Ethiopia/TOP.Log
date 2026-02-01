@@ -9,28 +9,27 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
+import { Avatar, AvatarFallback } from "@/components/ui/avatar"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Separator } from "@/components/ui/separator"
 import { Skeleton } from "@/components/ui/skeleton"
+import { PaginatedTable } from "@/components/ui/paginated-table"
 import {
   Search,
   Filter,
-  Calendar,
   CalendarDays,
   FileText,
   BarChart3,
   Users,
   Eye,
-  ChevronDown,
-  ChevronUp,
   Loader2,
   ChevronLeft,
   ChevronRight,
   TableIcon,
   RefreshCw,
   Info,
-  PlusCircle,
+  Trash2,
 } from "lucide-react"
 import {
   addDays,
@@ -86,6 +85,10 @@ interface CaptainLogEntry {
   version: number
   metadata: unknown
   custom_responses: CustomResponse[]
+  department_id?: string | null
+  profession_role_id?: string | null
+  profession_role_name?: string | null
+  total_questions?: number
 }
 
 interface UserProfile {
@@ -94,6 +97,9 @@ interface UserProfile {
   email: string
   role_name: string
   department_name: string | null
+  department_id?: string | null
+  profession_role_id?: string | null
+  profession_role_name?: string | null
 }
 
 interface EnrichedEntry extends CaptainLogEntry {
@@ -122,10 +128,9 @@ interface DashboardStats {
  * Following Fortune 500 standards for data visualization and user experience
  */
 export function AdminReportsView() {
-  const { user, profile } = useSupabaseAuth()
+  const { profile } = useSupabaseAuth()
   const router = useRouter()
   const [selectedView, setSelectedView] = useState<"dashboard" | "entries" | "calendar">("dashboard")
-  const [expandedEntries, setExpandedEntries] = useState<Set<string>>(new Set())
 
   const [calendarMonth, setCalendarMonth] = useState<Date>(() => startOfMonth(new Date()))
   const [selectedDate, setSelectedDate] = useState<Date | null>(null)
@@ -184,13 +189,6 @@ export function AdminReportsView() {
   }, [loadError])
 
   const deleteEntry = async (entryId: string) => {
-    const prevExpanded = expandedEntries
-    setExpandedEntries((prev) => {
-      const next = new Set(prev)
-      next.delete(entryId)
-      return next
-    })
-
     const prevData = data
     mutate(
       (current) => {
@@ -208,7 +206,6 @@ export function AdminReportsView() {
       toast.success("Report deleted")
       await mutate()
     } catch (error) {
-      setExpandedEntries(prevExpanded)
       if (prevData) {
         mutate(prevData, { revalidate: false })
       } else {
@@ -294,7 +291,7 @@ export function AdminReportsView() {
 
     // If a role is selected, filter users by role
     if (selectedRole !== "all") {
-      filtered = filtered.filter((user) => user.role_name === selectedRole)
+      filtered = filtered.filter((user) => user.profession_role_name === selectedRole)
     }
 
     setFilteredUsers(filtered)
@@ -308,15 +305,6 @@ export function AdminReportsView() {
   const departmentsWithRoles = useMemo(() => {
     return allDepartments.filter((dept) => Boolean(dept?.name))
   }, [allDepartments])
-
-  // Get unique values for filters
-  const filterOptions = useMemo(() => {
-    return {
-      users: filteredUsers,
-      departments: departmentsWithRoles,
-      roles: filteredRoles,
-    }
-  }, [filteredUsers, departmentsWithRoles, filteredRoles])
 
   const userOptions = useMemo(() => {
     const base = (filteredUsers.length > 0 ? filteredUsers : allUsers).filter((u) => Boolean(u?.user_id))
@@ -344,11 +332,11 @@ export function AdminReportsView() {
 
       // If role is also selected, filter by role within the department
       if (selectedRole !== "all") {
-        filtered = filtered.filter((e) => e.user_profile?.role_name === selectedRole)
+        filtered = filtered.filter((e) => e.profession_role_name === selectedRole)
       }
     } else if (selectedRole !== "all") {
       // If only role is selected (no department), filter by role
-      filtered = filtered.filter((e) => e.user_profile?.role_name === selectedRole)
+      filtered = filtered.filter((e) => e.profession_role_name === selectedRole)
     }
 
     // Filter by date range
@@ -384,16 +372,13 @@ export function AdminReportsView() {
       const query = searchQuery.toLowerCase()
       filtered = filtered.filter((entry) => {
         // Search in user name
-        if (entry.user_profile?.name.toLowerCase().includes(query)) return true
-        if (entry.user_profile?.email.toLowerCase().includes(query)) return true
+        if ((entry.user_profile?.name || "").toLowerCase().includes(query)) return true
+        if ((entry.user_profile?.email || "").toLowerCase().includes(query)) return true
 
-        // Search in custom responses
-        return entry.custom_responses?.some(
-          (response) =>
-            String(response.value).toLowerCase().includes(query) ||
-            response.question_label?.toLowerCase().includes(query) ||
-            response.question_key?.toLowerCase().includes(query)
-        )
+        if ((entry.user_profile?.department_name || "").toLowerCase().includes(query)) return true
+        if ((entry.profession_role_name || "").toLowerCase().includes(query)) return true
+
+        return false
       })
     }
 
@@ -401,37 +386,25 @@ export function AdminReportsView() {
     return filtered.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
   }, [entries, selectedUser, selectedDepartment, selectedRole, dateRange, searchQuery, allDepartments])
 
-  // Toggle entry expansion
-  const toggleEntry = (entryId: string) => {
-    const newExpanded = new Set(expandedEntries)
-    if (newExpanded.has(entryId)) {
-      newExpanded.delete(entryId)
-    } else {
-      newExpanded.add(entryId)
-    }
-    setExpandedEntries(newExpanded)
-  }
-
   // Export functions
   const exportToCSV = () => {
     try {
       // CSV header
-      let csv = "Date,User,Email,Department,Role,Question,Answer,Created At\n"
+      let csv = "Submitted By,Department,Professional Role,Submitted At,Responses\n"
 
       // CSV rows
       filteredEntries.forEach((entry) => {
-        const user = entry.user_profile?.name || "Unknown"
-        const email = entry.user_profile?.email || "Unknown"
+        const userName = entry.user_profile?.name || "Unknown"
+        const userEmail = entry.user_profile?.email || ""
+        const user = userEmail ? `${userName} <${userEmail}>` : userName
         const dept = entry.user_profile?.department_name || "N/A"
-        const role = entry.user_profile?.role_name || "N/A"
-        const date = entry.date
         const createdAt = entry.created_at
 
-        entry.custom_responses?.forEach((response) => {
-          const question = (response.question_label || response.question_key).replace(/"/g, '""')
-          const answer = String(response.value).replace(/"/g, '""')
-          csv += `"${date}","${user}","${email}","${dept}","${role}","${question}","${answer}","${createdAt}"\n`
-        })
+        const professionalRole = entry.profession_role_name || "N/A"
+        const answered = entry.custom_responses?.length || 0
+        const total = typeof entry.total_questions === "number" ? entry.total_questions : 0
+        const responses = `${answered}/${total > 0 ? total : "-"}`
+        csv += `"${user}","${dept}","${professionalRole}","${createdAt}","${responses}"\n`
       })
 
       const blob = new Blob([csv], { type: "text/csv" })
@@ -445,7 +418,7 @@ export function AdminReportsView() {
       URL.revokeObjectURL(url)
 
       toast.success(`Exported ${filteredEntries.length} entries to CSV`)
-    } catch (error) {
+    } catch {
       toast.error("Failed to export CSV")
     }
   }
@@ -574,7 +547,7 @@ export function AdminReportsView() {
                   <Search className="text-muted-foreground absolute top-1/2 left-4 h-4 w-4 -translate-y-1/2 transform" />
                   <Input
                     id="search"
-                    placeholder="Search by user, email, or content..."
+                    placeholder="Search by user, email, department, or professional role..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     className="pl-12"
@@ -615,7 +588,7 @@ export function AdminReportsView() {
                 {/* Role Filter - Disabled if no department selected */}
                 <div className="space-y-2">
                   <Label htmlFor="role-filter">
-                    Role
+                    Professional Role
                     {selectedDepartment === "all" && (
                       <span className="text-muted-foreground ml-2 text-xs">(select department first)</span>
                     )}
@@ -642,7 +615,7 @@ export function AdminReportsView() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">
-                        <span className="text-muted-foreground font-semibold">All Roles</span>
+                        <span className="text-muted-foreground font-semibold">All Professional Roles</span>
                       </SelectItem>
                       {isDepartmentRolesLoading && (
                         <SelectItem value="__loading_roles" disabled>
@@ -807,163 +780,133 @@ export function AdminReportsView() {
             </Card>
           ) : (
             <div className="space-y-4">
-              {filteredEntries.map((entry) => {
-                const isExpanded = expandedEntries.has(entry.id)
-                const entryDate = parseISO(entry.date)
-                const createdDate = parseISO(entry.created_at)
-
-                return (
-                  <Card
-                    key={entry.id}
-                    className="overflow-hidden border border-gray-200 shadow-sm transition-shadow duration-200 hover:shadow-md"
-                  >
-                    <CardHeader
-                      className="cursor-pointer p-4 transition-colors duration-150 ease-in-out hover:bg-gray-50"
-                      onClick={() => toggleEntry(entry.id)}
-                    >
-                      <div className="flex items-start justify-between">
-                        <div className="min-w-0 flex-1">
-                          {/* User Info - MODIFIED FOR INITIALS AND SIMPLIFIED LAYOUT */}
-                          <div className="mb-2 flex items-center gap-4">
-                            {/* Replaced generic User icon with Initials placeholder (similar to Image 2) */}
-                            <div className="bg-muted text-primary/80 flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-full text-sm font-semibold">
-                              {entry.user_profile?.name
-                                ? entry.user_profile.name
-                                    .split(" ")
-                                    .map((n) => n[0])
-                                    .join("")
-                                    .toUpperCase()
-                                    .substring(0, 2)
-                                : "??"}
-                            </div>
-                            <div className="min-w-0 flex-1">
-                              {/* Name and Email side-by-side, or stacked if necessary */}
-                              <div className="flex items-baseline gap-2">
-                                <div className="truncate font-semibold">
-                                  {entry.user_profile?.name || "Unknown User"}
-                                </div>
-                                {entry.user_profile?.email && (
-                                  <div className="text-muted-foreground truncate text-sm">
-                                    {entry.user_profile.email}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Metadata - MODIFIED FOR IMAGE 2 LAYOUT */}
-                          <div className="text-muted-foreground flex flex-wrap items-center gap-4 text-xs">
-                            {/* Entry Date (no icon) */}
-                            <div className="flex items-center gap-2">
-                              <span>{format(entryDate, "MMM d, yyyy")}</span>
-                            </div>
-
-                            {/* Entry Time (no icon) - Assuming this is the '11:27' time shown in Image 2. */}
-                            {/* Note: The format in the original code's Clock element was 'MMM d, yyyy HH:mm', 
-                       but Image 2 shows only the time/date next to the first date. We'll show the time here. */}
-                            <div className="flex items-center gap-2">
-                              <span>{format(createdDate, "HH:mm")}</span>
-                            </div>
-
-                            {/* RETAINED Badge: Responses (Pushed to new line if space is limited) */}
-                            <Badge variant="outline" className="text-xs">
-                              {entry.custom_responses?.length || 0} responses
-                            </Badge>
-
-                            {/* REMOVED Badges: role_name and department_name to simplify the layout */}
+              <PaginatedTable
+                data={filteredEntries}
+                pageSize={25}
+                emptyMessage="No entries found"
+                headerClassName="hidden"
+                onRowClick={(entry) => {
+                  router.push(`/admin/reports/${entry.id}`)
+                }}
+                columns={[
+                  {
+                    key: "submitted_by",
+                    header: "Submitted By",
+                    cell: (entry) => (
+                      <div className="flex items-center gap-3">
+                        <Avatar className="h-8 w-8">
+                          <AvatarFallback>
+                            {(entry.user_profile?.name || "Unknown")
+                              .split(" ")
+                              .map((n) => n[0])
+                              .join("")
+                              .toUpperCase()
+                              .slice(0, 2) || "U"}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="min-w-0">
+                          <div className="truncate font-medium">{entry.user_profile?.name || "Unknown"}</div>
+                          <div className="text-muted-foreground truncate text-sm">
+                            {entry.user_profile?.email || ""}
                           </div>
                         </div>
-
+                      </div>
+                    ),
+                  },
+                  {
+                    key: "department",
+                    header: "Department",
+                    cell: (entry) => {
+                      const dept = entry.user_profile?.department_name
+                      return dept ? <Badge variant="secondary">{dept}</Badge> : "-"
+                    },
+                  },
+                  {
+                    key: "professional_role",
+                    header: "Professional Role",
+                    cell: (entry) => {
+                      const role = entry.profession_role_name
+                      return role ? <Badge variant="secondary">{role}</Badge> : "-"
+                    },
+                  },
+                  {
+                    key: "submitted_at",
+                    header: "Submitted At",
+                    cell: (entry) => {
+                      try {
+                        return <div className="text-sm">{format(parseISO(entry.created_at), "MMM d, yyyy HH:mm")}</div>
+                      } catch {
+                        return <div className="text-sm">{entry.created_at}</div>
+                      }
+                    },
+                  },
+                  {
+                    key: "responses",
+                    header: "Responses",
+                    className: "text-right",
+                    cell: (entry) => {
+                      const answered = entry.custom_responses?.length || 0
+                      const total = typeof entry.total_questions === "number" ? entry.total_questions : 0
+                      const formatted = `${answered}/${total > 0 ? total : "-"}`
+                      return <div className="text-sm">{formatted}</div>
+                    },
+                  },
+                  {
+                    key: "actions",
+                    header: "Actions",
+                    className: "text-right",
+                    cell: (entry) => (
+                      <div className="flex items-center justify-end gap-2">
                         <Button
-                          variant="ghost"
+                          variant="outline"
                           size="icon"
-                          className="ml-2 h-8 w-8 flex-shrink-0"
+                          className="h-8 w-8"
                           onClick={(e) => {
                             e.stopPropagation()
-                            toggleEntry(entry.id)
+                            router.push(`/admin/reports/${entry.id}`)
                           }}
                         >
-                          {isExpanded ? <ChevronUp className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+                          <Eye className="h-4 w-4" />
+                          <span className="sr-only">View report</span>
                         </Button>
-                      </div>
-                    </CardHeader>
 
-                    {isExpanded && (
-                      <CardContent className="px-4 pt-0 pb-4">
-                        <Separator className="mb-4" />
-                        <div className="mb-4 flex items-center justify-end gap-2">
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              router.push(`/admin/reports/${entry.id}`)
-                            }}
-                          >
-                            View
-                          </Button>
-                          {isAdmin && (
-                            <AlertDialog>
-                              <AlertDialogTrigger asChild>
-                                <Button
-                                  variant="destructive"
-                                  size="sm"
+                        {isAdmin ? (
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button
+                                variant="destructive"
+                                size="icon"
+                                className="h-8 w-8"
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                <Trash2 className="h-4 w-4" />
+                                <span className="sr-only">Delete report</span>
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Delete report?</AlertDialogTitle>
+                                <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction
                                   onClick={(e) => {
-                                    e.stopPropagation()
+                                    e.preventDefault()
+                                    deleteEntry(entry.id)
                                   }}
                                 >
                                   Delete
-                                </Button>
-                              </AlertDialogTrigger>
-                              <AlertDialogContent>
-                                <AlertDialogHeader>
-                                  <AlertDialogTitle>Delete report?</AlertDialogTitle>
-                                  <AlertDialogDescription>This action cannot be undone.</AlertDialogDescription>
-                                </AlertDialogHeader>
-                                <AlertDialogFooter>
-                                  <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                  <AlertDialogAction
-                                    onClick={(e) => {
-                                      e.preventDefault()
-                                      deleteEntry(entry.id)
-                                    }}
-                                  >
-                                    Delete
-                                  </AlertDialogAction>
-                                </AlertDialogFooter>
-                              </AlertDialogContent>
-                            </AlertDialog>
-                          )}
-                        </div>
-                        <div className="max-h-96 space-y-4 overflow-y-auto pr-2">
-                          {entry.custom_responses && entry.custom_responses.length > 0 ? (
-                            entry.custom_responses.map((response, index) => (
-                              <div key={index} className="space-y-2">
-                                <h4 className="text-foreground text-sm font-semibold">
-                                  {response.question_label || response.question_key}
-                                </h4>
-                                <div className="text-muted-foreground bg-muted/50 max-h-40 overflow-y-auto rounded-md p-4 text-sm">
-                                  {typeof response.value === "string" ? (
-                                    <p className="whitespace-pre-wrap">{response.value}</p>
-                                  ) : (
-                                    <pre className="overflow-auto text-xs">
-                                      {JSON.stringify(response.value, null, 2)}
-                                    </pre>
-                                  )}
-                                </div>
-                              </div>
-                            ))
-                          ) : (
-                            <p className="text-muted-foreground text-sm italic">
-                              No responses submitted for this entry.
-                            </p>
-                          )}
-                        </div>
-                      </CardContent>
-                    )}
-                  </Card>
-                )
-              })}
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        ) : null}
+                      </div>
+                    ),
+                  },
+                ]}
+              />
             </div>
           )}
         </TabsContent>
@@ -1022,9 +965,9 @@ export function AdminReportsView() {
                   </div>
 
                   {/* Role Filter - Disabled if no department selected */}
-                  <div className="flex items-center space-x-2">
+                  <div className="space-y-2">
                     <Label htmlFor="cal-role-filter" className="hidden text-sm text-gray-700 sm:block">
-                      Role:
+                      Professional Role:
                     </Label>
                     <Select
                       value={selectedRole}
@@ -1047,7 +990,7 @@ export function AdminReportsView() {
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="all">
-                          <span className="text-muted-foreground font-semibold">All Roles</span>
+                          <span className="text-muted-foreground font-semibold">All Professional Roles</span>
                         </SelectItem>
                         {isDepartmentRolesLoading && (
                           <SelectItem value="__loading_roles" disabled>

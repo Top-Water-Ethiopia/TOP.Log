@@ -157,6 +157,35 @@ export async function GET() {
     const roleMap = new Map((allRoles as any[])?.map((r) => [r.id, r.name]) || [])
     const deptMap = new Map((allDepartments as any[])?.map((d) => [d.id, d.name]) || [])
 
+    const allUserIds = (allUsers as any[])?.map((u) => u.user_id).filter(Boolean) || []
+    const { data: professionRows, error: professionsError } =
+      allUserIds.length > 0
+        ? await adminSupabase
+            .from("user_department_professions")
+            .select("user_id, department_id, role_id, role:roles(name)")
+            .in("user_id", allUserIds)
+            .eq("is_active", true)
+        : { data: [], error: null }
+
+    if (professionsError) {
+      console.error("Error fetching user department professions:", professionsError)
+    }
+
+    const professionByUserId = new Map<
+      string,
+      { department_id: string | null; role_id: string | null; role_name: string | null }
+    >()
+    ;(professionRows as any[])?.forEach((row) => {
+      const userId = typeof row?.user_id === "string" ? row.user_id : null
+      if (!userId) return
+
+      const departmentId = typeof row?.department_id === "string" ? row.department_id : null
+      const roleId = typeof row?.role_id === "string" ? row.role_id : null
+      const roleName = typeof row?.role?.name === "string" ? row.role.name : null
+
+      professionByUserId.set(userId, { department_id: departmentId, role_id: roleId, role_name: roleName })
+    })
+
     const normalizedUsers =
       (allUsers as any[])?.map((u) => ({
         user_id: u.user_id,
@@ -164,6 +193,9 @@ export async function GET() {
         email: userEmailMap.get(u.user_id) || "",
         role_name: roleMap.get(u.role_id) || "Unknown",
         department_name: deptMap.get(u.department_id) || null,
+        department_id: u.department_id || null,
+        profession_role_id: professionByUserId.get(u.user_id)?.role_id || null,
+        profession_role_name: professionByUserId.get(u.user_id)?.role_name || null,
       })) || []
 
     // If no entries, return empty result with filter options
@@ -205,12 +237,76 @@ export async function GET() {
       responsesMap.set(response.entry_id, entryResponses)
     })
 
+    const entryDeptIds = Array.from(
+      new Set(
+        (entries as any[])
+          .map((e) => (typeof (e as any)?.department_id === "string" ? (e as any).department_id : null))
+          .filter((id): id is string => Boolean(id))
+      )
+    )
+    const entryProfessionRoleIds = Array.from(
+      new Set(
+        (entries as any[])
+          .map((e) => professionByUserId.get((e as any).user_id)?.role_id || null)
+          .filter((id): id is string => Boolean(id))
+      )
+    )
+
+    const [{ data: deptQuestions, error: deptQuestionsError }, { data: roleQuestions, error: roleQuestionsError }] =
+      await Promise.all([
+        entryDeptIds.length > 0
+          ? adminSupabase
+              .from("role_questions")
+              .select("department_id")
+              .in("department_id", entryDeptIds)
+              .eq("is_active", true)
+          : Promise.resolve({ data: [], error: null }),
+        entryProfessionRoleIds.length > 0
+          ? adminSupabase
+              .from("role_questions")
+              .select("role_id")
+              .in("role_id", entryProfessionRoleIds)
+              .eq("is_active", true)
+          : Promise.resolve({ data: [], error: null }),
+      ])
+
+    if (deptQuestionsError) {
+      console.error("Error fetching department role questions:", deptQuestionsError)
+    }
+    if (roleQuestionsError) {
+      console.error("Error fetching profession role questions:", roleQuestionsError)
+    }
+
+    const deptQuestionCountByDepartmentId = new Map<string, number>()
+    ;(deptQuestions as any[])?.forEach((row) => {
+      const departmentId = typeof row?.department_id === "string" ? row.department_id : null
+      if (!departmentId) return
+      deptQuestionCountByDepartmentId.set(departmentId, (deptQuestionCountByDepartmentId.get(departmentId) || 0) + 1)
+    })
+
+    const roleQuestionCountByRoleId = new Map<string, number>()
+    ;(roleQuestions as any[])?.forEach((row) => {
+      const roleId = typeof row?.role_id === "string" ? row.role_id : null
+      if (!roleId) return
+      roleQuestionCountByRoleId.set(roleId, (roleQuestionCountByRoleId.get(roleId) || 0) + 1)
+    })
+
     // Enrich entries with user profiles and custom responses
-    const enrichedEntries = (entries as any[]).map((entry) => ({
-      ...entry,
-      user_profile: userMap.get(entry.user_id) || null,
-      custom_responses: responsesMap.get(entry.id) || [],
-    }))
+    const enrichedEntries = (entries as any[]).map((entry) => {
+      const profession = professionByUserId.get(entry.user_id) || null
+      const departmentId = typeof (entry as any)?.department_id === "string" ? (entry as any).department_id : null
+      const deptQuestionCount = departmentId ? deptQuestionCountByDepartmentId.get(departmentId) || 0 : 0
+      const roleQuestionCount = profession?.role_id ? roleQuestionCountByRoleId.get(profession.role_id) || 0 : 0
+
+      return {
+        ...entry,
+        user_profile: userMap.get(entry.user_id) || null,
+        custom_responses: responsesMap.get(entry.id) || [],
+        profession_role_id: profession?.role_id || null,
+        profession_role_name: profession?.role_name || null,
+        total_questions: deptQuestionCount + roleQuestionCount,
+      }
+    })
 
     // Return enriched entries along with filter options
     return NextResponse.json({
