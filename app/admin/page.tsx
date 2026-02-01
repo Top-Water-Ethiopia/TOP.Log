@@ -82,6 +82,7 @@ export default function AdminPage() {
   const canAccessAdmin = hasPermission("admin.system")
 
   const permissionsEnabled = isFeatureEnabledClient("ADMIN_PERMISSIONS")
+  const roleAndAccessEnabled = isFeatureEnabledClient("ADMIN_ROLE_AND_ACCESS")
 
   const fetchStats = async () => {
     try {
@@ -270,6 +271,7 @@ export default function AdminPage() {
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-5">
           {quickActions
             .filter((action) => (permissionsEnabled ? true : action.href !== "/admin/permissions"))
+            .filter((action) => (roleAndAccessEnabled ? true : action.href !== "/admin/role-and-access"))
             .map((action) => (
               <Link key={action.name} href={action.href}>
                 <Card className="hover:bg-accent/50 h-full transition-colors">
@@ -292,7 +294,10 @@ export default function AdminPage() {
 
       {/* Recent Activity */}
       <div className="mb-8">
-        <h2 className="text-foreground mb-4 text-lg font-medium">Recent Activity</h2>
+        <div className="mb-4">
+          <h2 className="text-foreground text-lg font-medium">Recent Activity</h2>
+          <p className="text-muted-foreground text-sm">Coming soon (future version)</p>
+        </div>
         <Card>
           <CardContent className="p-6">
             <div className="flex h-40 items-center justify-center">

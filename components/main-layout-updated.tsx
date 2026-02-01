@@ -56,11 +56,13 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
   } = useRBAC()
   const { user } = useSupabaseAuth()
   const router = useRouter()
+  const departmentsEnabled = isFeatureEnabledClient("DEPARTMENTS")
 
   const canAccessDepartments =
     hasRole("admin") ||
     hasRole("system-admin") ||
     canAccessAdmin ||
+    hasPermission("departments.own.read") ||
     hasPermission("departments.read") ||
     hasPermission("departments.members.read") ||
     hasPermission("departments.members.manage")
@@ -352,7 +354,7 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
                 </Button>
               )}
 
-              {user && !rbacLoading && !showNoMembershipsMessage && canAccessDepartments && (
+              {user && !rbacLoading && (canAccessDepartments || memberships.length > 0) && departmentsEnabled && (
                 <Link href="/departments">
                   <Button variant="outline" size="sm" className="gap-2">
                     <Building2 className="h-4 w-4" />

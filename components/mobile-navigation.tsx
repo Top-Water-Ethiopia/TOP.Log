@@ -30,6 +30,7 @@ export function MobileNavigation() {
   const [isOpen, setIsOpen] = useState(false)
 
   const profileEnabled = isFeatureEnabledClient("PROFILE")
+  const roleAndAccessEnabled = isFeatureEnabledClient("ADMIN_ROLE_AND_ACCESS")
 
   // Handle logout
   const handleLogout = async () => {
@@ -84,10 +85,11 @@ export function MobileNavigation() {
       active: pathname.startsWith("/admin/departments"),
     },
     {
-      name: "Role and Access",
-      href: "/admin/role-and-access",
+      name: roleAndAccessEnabled ? "Role and Access" : "Role and Access (Future)",
+      href: roleAndAccessEnabled ? "/admin/role-and-access" : "#",
       icon: Shield,
-      active: pathname.startsWith("/admin/role-and-access"),
+      active: roleAndAccessEnabled && pathname.startsWith("/admin/role-and-access"),
+      disabled: !roleAndAccessEnabled,
     },
   ]
 
@@ -193,11 +195,19 @@ export function MobileNavigation() {
                     <Link
                       key={item.name}
                       href={item.href}
-                      onClick={() => setIsOpen(false)}
+                      onClick={(event) => {
+                        if (item.disabled) {
+                          event.preventDefault()
+                          return
+                        }
+                        setIsOpen(false)
+                      }}
                       className={`flex items-center gap-2 rounded-lg px-4 py-2 text-sm transition-colors duration-150 ease-in-out ${
                         item.active
                           ? "bg-primary text-primary-foreground"
-                          : "text-muted-foreground hover:bg-muted hover:text-foreground"
+                          : item.disabled
+                            ? "text-muted-foreground cursor-not-allowed opacity-60"
+                            : "text-muted-foreground hover:bg-muted hover:text-foreground"
                       }`}
                     >
                       <item.icon className="h-4 w-4" />

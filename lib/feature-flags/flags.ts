@@ -11,10 +11,16 @@ export const FEATURE_FLAGS = {
   PROFILE: {
     defaultValue: false,
   },
+  DEPARTMENTS: {
+    defaultValue: false,
+  },
   ADMIN_NOTIFICATIONS: {
     defaultValue: false,
   },
   ADMIN_PERMISSIONS: {
+    defaultValue: false,
+  },
+  ADMIN_ROLE_AND_ACCESS: {
     defaultValue: false,
   },
   ADMIN_SETTINGS: {

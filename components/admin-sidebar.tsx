@@ -60,6 +60,7 @@ export function AdminSidebar() {
   const notificationsEnabled = isFeatureEnabledClient("ADMIN_NOTIFICATIONS")
   const settingsEnabled = isFeatureEnabledClient("ADMIN_SETTINGS")
   const darkModeEnabled = isFeatureEnabledClient("DARK_MODE")
+  const roleAndAccessEnabled = isFeatureEnabledClient("ADMIN_ROLE_AND_ACCESS")
 
   const canAccessAdmin = hasPermission("admin.system")
 
@@ -80,11 +81,15 @@ export function AdminSidebar() {
       icon: Users,
       path: "/admin/users",
     },
-    {
-      name: "Role and Access",
-      icon: Shield,
-      path: "/admin/role-and-access",
-    },
+    ...(roleAndAccessEnabled
+      ? [
+          {
+            name: "Role and Access",
+            icon: Shield,
+            path: "/admin/role-and-access",
+          },
+        ]
+      : []),
     ...(permissionsEnabled && canAccessAdmin
       ? [
           {
@@ -127,7 +132,8 @@ export function AdminSidebar() {
   ]
 
   const systemNavItems = [
-    ...(hasPermission("departments.read") ||
+    ...(hasPermission("departments.own.read") ||
+    hasPermission("departments.read") ||
     hasPermission("departments.members.read") ||
     hasPermission("departments.members.manage") ||
     hasPermission("admin.system")

@@ -9,6 +9,8 @@ import { RoleManager } from "@/components/role-manager"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { ListSkeleton } from "@/components/skeletons/list-skeleton"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Button } from "@/components/ui/button"
+import { isFeatureEnabledClient } from "@/lib/feature-flags/client"
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -21,6 +23,8 @@ import {
 export default function AdminRolesPage() {
   const { user, profile, isLoading } = useSupabaseAuth()
   const router = useRouter()
+
+  const roleAndAccessEnabled = isFeatureEnabledClient("ADMIN_ROLE_AND_ACCESS")
 
   const { hasPermission, rbacChecked, rbacLoading } = useRBAC()
   const canAccessAdmin = hasPermission("admin.system")
@@ -48,6 +52,27 @@ export default function AdminRolesPage() {
           <Skeleton className="mt-2 h-5 w-80 bg-gray-200/70 dark:bg-gray-800" />
         </div>
         <ListSkeleton itemCount={5} />
+      </div>
+    )
+  }
+
+  if (!roleAndAccessEnabled) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle>Role and Access</CardTitle>
+            <CardDescription>This feature is not available yet.</CardDescription>
+          </CardHeader>
+          <CardContent className="flex flex-wrap gap-2">
+            <Button asChild variant="outline">
+              <Link href="/admin">Back to Admin</Link>
+            </Button>
+            <Button asChild>
+              <Link href="/admin/permissions">Permissions</Link>
+            </Button>
+          </CardContent>
+        </Card>
       </div>
     )
   }
