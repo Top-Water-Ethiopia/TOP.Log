@@ -448,6 +448,14 @@ export const DEFAULT_PERMISSIONS: Permission[] = [
     category: "read",
   },
   {
+    id: "perm-departments-own-read",
+    name: "departments.own.read",
+    resource: "departments",
+    action: "own.read",
+    description: "View own departments",
+    category: "read",
+  },
+  {
     id: "perm-departments-update",
     name: "departments.update",
     resource: "departments",

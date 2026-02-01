@@ -11,7 +11,6 @@ type DepartmentRoleRow = {
   sort_order: number
   is_active: boolean
   is_default: boolean
-  default_can_answer_department_questions: boolean
 }
 
 type DepartmentRoleUpdate = Database["public"]["Tables"]["department_roles"]["Update"]
@@ -44,7 +43,7 @@ export async function GET(request: Request) {
 
   const { data, error } = await adminSupabase
     .from("department_roles")
-    .select("key, label, sort_order, is_active, is_default, default_can_answer_department_questions")
+    .select("key, label, sort_order, is_active, is_default")
     .order("sort_order", { ascending: true })
     .order("key", { ascending: true })
 
@@ -69,7 +68,6 @@ export async function POST(request: Request) {
   const sort_order = Number.isFinite(Number(body.sort_order)) ? Number(body.sort_order) : 0
   const is_active = body.is_active !== false
   const is_default = body.is_default === true
-  const default_can_answer_department_questions = body.default_can_answer_department_questions === true
 
   if (!key) {
     return NextResponse.json({ error: "Invalid key" }, { status: 400 })
@@ -100,10 +98,9 @@ export async function POST(request: Request) {
       sort_order,
       is_active,
       is_default,
-      default_can_answer_department_questions,
       updated_at: new Date().toISOString(),
     })
-    .select("key, label, sort_order, is_active, is_default, default_can_answer_department_questions")
+    .select("key, label, sort_order, is_active, is_default")
     .single()
 
   if (error) {
@@ -155,10 +152,6 @@ export async function PUT(request: Request) {
     updates.is_default = body.is_default === true
   }
 
-  if (body.default_can_answer_department_questions !== undefined) {
-    updates.default_can_answer_department_questions = body.default_can_answer_department_questions === true
-  }
-
   if (updates.is_default === true) {
     const { error: unsetError } = await adminSupabase
       .from("department_roles")
@@ -178,7 +171,7 @@ export async function PUT(request: Request) {
     .from("department_roles")
     .update(updates)
     .eq("key", key)
-    .select("key, label, sort_order, is_active, is_default, default_can_answer_department_questions")
+    .select("key, label, sort_order, is_active, is_default")
     .single()
 
   if (error) {
