@@ -12,6 +12,13 @@ function normalizeName(raw: unknown) {
   return v
 }
 
+function normalizeEffect(raw: unknown) {
+  if (typeof raw !== "string") return null
+  const v = raw.trim().toLowerCase()
+  if (v === "allow" || v === "deny") return v as "allow" | "deny"
+  return null
+}
+
 async function validateDepartmentRole(role: string) {
   const { data, error } = await adminSupabase
     .from("department_roles")
@@ -44,7 +51,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ depa
 
     const { data, error } = await adminSupabase
       .from("department_role_permissions")
-      .select("id, department_id, department_role, resource, action, created_at, updated_at")
+      .select("id, department_id, department_role, resource, action, effect, created_at, updated_at")
       .eq("department_id", departmentId)
       .order("resource", { ascending: true })
       .order("action", { ascending: true })
@@ -81,6 +88,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ dep
     const department_role = normalizeName(body.department_role)
     const resource = normalizeName(body.resource)
     const action = normalizeName(body.action)
+    const effect = normalizeEffect(body.effect) || "allow"
 
     if (!department_role) {
       return NextResponse.json({ error: "department_role is required" }, { status: 400 })
@@ -108,11 +116,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ dep
         department_role,
         resource,
         action,
+        effect,
         created_by: auth.userId,
         updated_by: auth.userId,
         updated_at: new Date().toISOString(),
       })
-      .select("id, department_id, department_role, resource, action, created_at, updated_at")
+      .select("id, department_id, department_role, resource, action, effect, created_at, updated_at")
       .single()
 
     if (error) {
@@ -152,6 +161,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ depa
       department_role?: string
       resource?: string
       action?: string
+      effect?: string
       updated_by: string
       updated_at: string
     } = {
@@ -191,12 +201,20 @@ export async function PUT(request: Request, { params }: { params: Promise<{ depa
       updates.action = v
     }
 
+    if (body.effect !== undefined) {
+      const v = normalizeEffect(body.effect)
+      if (!v) {
+        return NextResponse.json({ error: "Invalid effect" }, { status: 400 })
+      }
+      updates.effect = v
+    }
+
     const { data, error } = await adminSupabase
       .from("department_role_permissions")
       .update(updates)
       .eq("id", id)
       .eq("department_id", departmentId)
-      .select("id, department_id, department_role, resource, action, created_at, updated_at")
+      .select("id, department_id, department_role, resource, action, effect, created_at, updated_at")
       .maybeSingle()
 
     if (error) {

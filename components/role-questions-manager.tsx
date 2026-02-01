@@ -1063,7 +1063,9 @@ export function RoleQuestionsManager({
           .limit(1)
 
         if (isDepartmentScopedForm) {
-          orderQuery = orderQuery.eq("department_id", effectiveDepartmentId)
+          if (effectiveDepartmentId) {
+            orderQuery = orderQuery.eq("department_id", effectiveDepartmentId)
+          }
         } else {
           orderQuery = orderQuery.eq("role_id", formData.role_id!)
         }
@@ -2268,6 +2270,9 @@ export function RoleQuestionsManager({
       if (question.role_id) {
         orderQuery = orderQuery.eq("role_id", question.role_id)
       } else {
+        if (!departmentId) {
+          throw new Error("Department is required")
+        }
         orderQuery = orderQuery.eq("department_id", departmentId)
       }
 
@@ -2277,9 +2282,10 @@ export function RoleQuestionsManager({
 
       const nextDisplayOrder = lastQuestion && lastQuestion.length > 0 ? lastQuestion[0].display_order + 1 : 0
 
-      const { error } = await supabase.from("role_questions").insert({
-        role_id: question.role_id || null,
-        department_id: question.role_id ? null : departmentId,
+      const insertPayload = {
+        ...(question.role_id
+          ? { role_id: question.role_id, department_id: null }
+          : { role_id: null, department_id: departmentId }),
         question_label: `${question.question_label} (Copy)`,
         question_type: question.question_type,
         question_description: question.question_description,
@@ -2294,7 +2300,9 @@ export function RoleQuestionsManager({
         },
         created_by: currentUser.id,
         updated_by: currentUser.id,
-      })
+      }
+
+      const { error } = await supabase.from("role_questions").insert(insertPayload as any)
 
       if (error) throw error
 

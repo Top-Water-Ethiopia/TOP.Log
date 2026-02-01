@@ -130,20 +130,73 @@ export async function GET(request: Request) {
         if (!membershipRole) {
           canAnswerDepartmentQuestions = false
         } else {
-          const { data: deptPermRows, error: deptPermError } = await supabase
-            .from("department_role_permissions")
-            .select("id")
-            .eq("department_id", departmentId)
-            .eq("department_role", membershipRole)
-            .eq("resource", "department_questions")
-            .eq("action", "answer")
-            .limit(1)
+          const checkPermission = async () => {
+            const resource = "department_questions"
+            const action = "answer"
 
-          if (deptPermError) {
+            const { data: denyOverride, error: denyOverrideError } = await supabase
+              .from("department_role_permissions")
+              .select("id")
+              .eq("department_id", departmentId)
+              .eq("department_role", membershipRole)
+              .eq("resource", resource)
+              .eq("action", action)
+              .eq("effect", "deny")
+              .limit(1)
+              .maybeSingle()
+
+            if (denyOverrideError) throw denyOverrideError
+            if (denyOverride?.id) return false
+
+            const { data: allowOverride, error: allowOverrideError } = await supabase
+              .from("department_role_permissions")
+              .select("id")
+              .eq("department_id", departmentId)
+              .eq("department_role", membershipRole)
+              .eq("resource", resource)
+              .eq("action", action)
+              .eq("effect", "allow")
+              .limit(1)
+              .maybeSingle()
+
+            if (allowOverrideError) throw allowOverrideError
+            if (allowOverride?.id) return true
+
+            const { data: denyDefault, error: denyDefaultError } = await supabase
+              .from("department_role_permissions")
+              .select("id")
+              .is("department_id", null)
+              .eq("department_role", membershipRole)
+              .eq("resource", resource)
+              .eq("action", action)
+              .eq("effect", "deny")
+              .limit(1)
+              .maybeSingle()
+
+            if (denyDefaultError) throw denyDefaultError
+            if (denyDefault?.id) return false
+
+            const { data: allowDefault, error: allowDefaultError } = await supabase
+              .from("department_role_permissions")
+              .select("id")
+              .is("department_id", null)
+              .eq("department_role", membershipRole)
+              .eq("resource", resource)
+              .eq("action", action)
+              .eq("effect", "allow")
+              .limit(1)
+              .maybeSingle()
+
+            if (allowDefaultError) throw allowDefaultError
+
+            return !!allowDefault?.id
+          }
+
+          try {
+            canAnswerDepartmentQuestions = await checkPermission()
+          } catch (deptPermError) {
             console.error("Error checking department role permissions:", deptPermError)
             canAnswerDepartmentQuestions = false
-          } else {
-            canAnswerDepartmentQuestions = Array.isArray(deptPermRows) && deptPermRows.length > 0
           }
         }
       }

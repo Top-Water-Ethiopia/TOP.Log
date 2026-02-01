@@ -1109,16 +1109,27 @@ export function DepartmentProfessionsManager({ departmentId, embedded = false, d
             ) : (
               <div className="space-y-2">
                 <div className="mb-2 flex items-center justify-between">
-                  <div className="text-muted-foreground text-sm">
-                    {sortedAssignments.length} assignment{sortedAssignments.length !== 1 ? "s" : ""} •{" "}
-                    {assignments.filter((a) => !a.is_active).length} inactive
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <label htmlFor="show-inactive" className="text-muted-foreground text-sm font-medium">
-                      Show inactive
-                    </label>
-                    <Switch id="show-inactive" checked={showInactive} onCheckedChange={setShowInactive} />
-                  </div>
+                  {(() => {
+                    const inactiveCount = assignments.filter((a) => !a.is_active).length
+                    const activeCount = assignments.length - inactiveCount
+
+                    return (
+                      <>
+                        <div className="text-muted-foreground text-sm">
+                          {sortedAssignments.length} assignment{sortedAssignments.length !== 1 ? "s" : ""} •{" "}
+                          {inactiveCount} inactive
+                        </div>
+                        {activeCount > 0 ? (
+                          <div className="flex items-center space-x-2">
+                            <label htmlFor="show-inactive" className="text-muted-foreground text-sm font-medium">
+                              Show inactive
+                            </label>
+                            <Switch id="show-inactive" checked={showInactive} onCheckedChange={setShowInactive} />
+                          </div>
+                        ) : null}
+                      </>
+                    )
+                  })()}
                 </div>
                 {sortedAssignments
                   .filter((a) => showInactive || a.is_active)

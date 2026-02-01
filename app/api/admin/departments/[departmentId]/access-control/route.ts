@@ -19,6 +19,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ depa
       .eq("department_id", departmentId)
       .eq("resource", "department_questions")
       .eq("action", "answer")
+      .eq("effect", "allow")
       .limit(10000)
 
     if (error) {
@@ -83,6 +84,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ depa
       .eq("department_id", departmentId)
       .eq("resource", "department_questions")
       .eq("action", "answer")
+      .eq("effect", "allow")
       .limit(10000)
 
     if (existingError) {
@@ -108,6 +110,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ depa
         .eq("department_id", departmentId)
         .eq("resource", "department_questions")
         .eq("action", "answer")
+        .eq("effect", "allow")
         .in("department_role", toRemove)
 
       if (deleteError) {
@@ -122,6 +125,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ depa
           department_role,
           resource: "department_questions",
           action: "answer",
+          effect: "allow",
           created_by: auth.userId,
           updated_by: auth.userId,
           updated_at: new Date().toISOString(),

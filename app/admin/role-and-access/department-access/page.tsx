@@ -345,6 +345,7 @@ type DepartmentRolePermissionRow = {
   department_role: string
   resource: string
   action: string
+  effect: string
   created_at: string
   updated_at: string
 }
