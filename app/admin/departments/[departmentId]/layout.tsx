@@ -56,10 +56,9 @@ function AdminDepartmentLayoutInner({ children }: { children: ReactNode }) {
 
   const activeTab = useMemo(() => {
     const t = searchParams.get("tab") ?? searchParams.get("tabs")
-    if (t === "members" || t === "roles" || t === "access-control") return t
+    if (t === "members" || t === "roles") return t
     if (pathname.endsWith(`/admin/departments/${departmentId}/members`)) return "members"
     if (pathname.endsWith(`/admin/departments/${departmentId}/professions`)) return "roles"
-    if (pathname.endsWith(`/admin/departments/${departmentId}/access-control`)) return "access-control"
     return "members"
   }, [searchParams, pathname, departmentId])
 
@@ -434,7 +433,6 @@ function AdminDepartmentLayoutInner({ children }: { children: ReactNode }) {
                   <TabsList>
                     <TabsTrigger value="members">Members</TabsTrigger>
                     <TabsTrigger value="roles">Professional Roles</TabsTrigger>
-                    <TabsTrigger value="access-control">Access Control</TabsTrigger>
                   </TabsList>
                 </Tabs>
               </div>
