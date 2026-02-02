@@ -18,6 +18,7 @@ export default function LoginForm() {
   const { login, isLoading, error, session } = useSupabaseAuth()
   const { theme, setTheme } = useTheme()
   const darkModeEnabled = isFeatureEnabledClient("DARK_MODE")
+  const selfServiceAuthEnabled = isFeatureEnabledClient("SELF_SERVICE_AUTH")
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
@@ -41,7 +42,7 @@ export default function LoginForm() {
     try {
       await login(email, password, redirectTo)
       // Redirect happens in the auth context after successful login
-    } catch (error) {
+    } catch {
       // Error handling is done in the auth context via the error state
       // No need to log here as it's already displayed in the UI
     }
@@ -100,9 +101,11 @@ export default function LoginForm() {
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label htmlFor="password">Password</Label>
-                <Link href="/reset-password" className="text-primary text-sm underline-offset-4 hover:underline">
-                  Forgot password?
-                </Link>
+                {selfServiceAuthEnabled ? (
+                  <Link href="/reset-password" className="text-primary text-sm underline-offset-4 hover:underline">
+                    Forgot password?
+                  </Link>
+                ) : null}
               </div>
               <div className="relative">
                 <Input
@@ -131,12 +134,14 @@ export default function LoginForm() {
               {isLoading ? "Signing in..." : "Sign in"}
             </Button>
 
-            <div className="text-center text-sm">
-              Don't have an account?{" "}
-              <Link href="/register" className="text-primary underline-offset-4 hover:underline">
-                Create an account
-              </Link>
-            </div>
+            {selfServiceAuthEnabled ? (
+              <div className="text-center text-sm">
+                Don't have an account?{" "}
+                <Link href="/register" className="text-primary underline-offset-4 hover:underline">
+                  Create an account
+                </Link>
+              </div>
+            ) : null}
           </CardFooter>
         </form>
       </Card>

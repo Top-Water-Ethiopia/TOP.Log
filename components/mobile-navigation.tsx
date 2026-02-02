@@ -31,6 +31,7 @@ export function MobileNavigation() {
 
   const profileEnabled = isFeatureEnabledClient("PROFILE")
   const roleAndAccessEnabled = isFeatureEnabledClient("ADMIN_ROLE_AND_ACCESS")
+  const selfServiceAuthEnabled = isFeatureEnabledClient("SELF_SERVICE_AUTH")
 
   // Handle logout
   const handleLogout = async () => {
@@ -326,14 +327,16 @@ export function MobileNavigation() {
                     <User className="h-4 w-4" />
                     Login
                   </Link>
-                  <Link
-                    href="/register"
-                    onClick={() => setIsOpen(false)}
-                    className="text-muted-foreground hover:bg-muted hover:text-foreground flex items-center gap-2 rounded-lg px-4 py-2 text-sm transition-colors duration-150 ease-in-out"
-                  >
-                    <Settings className="h-4 w-4" />
-                    Register
-                  </Link>
+                  {selfServiceAuthEnabled ? (
+                    <Link
+                      href="/register"
+                      onClick={() => setIsOpen(false)}
+                      className="text-muted-foreground hover:bg-muted hover:text-foreground flex items-center gap-2 rounded-lg px-4 py-2 text-sm transition-colors duration-150 ease-in-out"
+                    >
+                      <Settings className="h-4 w-4" />
+                      Register
+                    </Link>
+                  ) : null}
                 </>
               )}
             </div>

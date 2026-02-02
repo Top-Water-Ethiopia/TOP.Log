@@ -2,6 +2,9 @@ export const FEATURE_FLAGS = {
   ANALYTICS: {
     defaultValue: false,
   },
+  SELF_SERVICE_AUTH: {
+    defaultValue: false,
+  },
   SEARCH: {
     defaultValue: false,
   },

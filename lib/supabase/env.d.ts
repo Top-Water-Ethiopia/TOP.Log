@@ -6,6 +6,8 @@ declare namespace NodeJS {
     SUPABASE_SERVICE_ROLE_KEY: string
     NEXT_PUBLIC_FF_ANALYTICS?: string
     FF_ANALYTICS?: string
+    NEXT_PUBLIC_FF_SELF_SERVICE_AUTH?: string
+    FF_SELF_SERVICE_AUTH?: string
     NEXT_PUBLIC_FF_DEPARTMENTS?: string
     FF_DEPARTMENTS?: string
     NEXT_PUBLIC_FF_ADMIN_NOTIFICATIONS?: string
