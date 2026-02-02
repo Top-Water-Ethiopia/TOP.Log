@@ -68,7 +68,7 @@ export function CalendarView({ selectedDate, onDateSelect, entries: entriesProp 
     <div className="bg-card border-border flex h-full flex-col rounded-lg border p-4 shadow-sm sm:p-6 lg:p-8">
       <div className="flex flex-1 flex-col space-y-4">
         {/* Month Navigation */}
-        <div className="mb-4 flex flex-wrap items-center gap-3 sm:mb-8">
+        <div className="mb-4 flex flex-wrap items-center gap-4 sm:mb-8">
           <div className="flex items-baseline gap-2">
             <h2 className="text-foreground text-2xl font-semibold tracking-tight sm:text-3xl">{monthLabel}</h2>
             <span className="text-muted-foreground text-base font-semibold sm:text-lg">{yearLabel}</span>
@@ -82,7 +82,7 @@ export function CalendarView({ selectedDate, onDateSelect, entries: entriesProp 
             >
               Today
             </Button>
-            <div className="border-border bg-background flex items-center rounded-full border p-1 shadow-sm">
+            <div className="border-border bg-background flex items-center rounded-full border p-2 shadow-sm">
               <Button
                 variant="ghost"
                 size="icon"
@@ -107,11 +107,11 @@ export function CalendarView({ selectedDate, onDateSelect, entries: entriesProp 
         </div>
 
         {/* Week Day Headers */}
-        <div className="mb-2 grid grid-cols-7 gap-1 sm:mb-3 sm:gap-2">
+        <div className="mb-2 grid grid-cols-7 gap-2 sm:mb-4 sm:gap-2">
           {weekDays.map((day) => (
             <div
               key={day}
-              className="text-muted-foreground py-1 text-center text-[11px] font-semibold sm:py-2 sm:text-sm"
+              className="text-muted-foreground py-2 text-center text-[11px] font-semibold sm:py-2 sm:text-sm"
             >
               {day}
             </div>
@@ -119,7 +119,7 @@ export function CalendarView({ selectedDate, onDateSelect, entries: entriesProp 
         </div>
 
         {/* Calendar Days */}
-        <div className="grid grid-cols-7 grid-rows-6 gap-1 sm:gap-2">
+        <div className="grid grid-cols-7 grid-rows-6 gap-2 sm:gap-2">
           {calendarDays.map((day, index) => {
             if (day === null) {
               return <div key={`empty-${index}`} className="aspect-square" />
@@ -140,7 +140,7 @@ export function CalendarView({ selectedDate, onDateSelect, entries: entriesProp 
                 key={day}
                 onClick={() => !isFuture && !isCreateLocked && onDateSelect(dateString)}
                 disabled={isFuture || isCreateLocked}
-                className={`group relative flex aspect-square w-full flex-col items-center justify-start rounded-xl p-1.5 text-sm font-semibold transition-all sm:p-2 sm:text-base ${
+                className={`group relative flex aspect-square w-full flex-col items-center justify-start rounded-xl p-2 text-sm font-semibold transition-all sm:p-2 sm:text-base ${
                   isFuture
                     ? "bg-secondary/30 text-muted-foreground cursor-not-allowed opacity-40"
                     : isSelected
@@ -168,17 +168,17 @@ export function CalendarView({ selectedDate, onDateSelect, entries: entriesProp 
                 }
               >
                 <div className="flex w-full items-start justify-between">
-                  <span className="mb-1 text-sm">{day}</span>
+                  <span className="mb-0 text-sm">{day}</span>
                 </div>
 
                 {isToday && !isSelected && (
-                  <span className="bg-primary/10 text-primary pointer-events-none absolute top-1 right-1 inline-flex max-w-[calc(100%-2.5rem)] truncate rounded-full px-1.5 py-0.5 text-[9px] leading-none font-medium sm:top-2 sm:right-2 sm:max-w-[calc(100%-3rem)] sm:px-2 sm:text-[10px]">
+                  <span className="bg-primary/10 text-primary pointer-events-none absolute top-2 right-2 inline-flex max-w-[calc(100%-2.5rem)] truncate rounded-full px-2 py-0.5 text-[9px] leading-none font-medium sm:top-2 sm:right-2 sm:max-w-[calc(100%-3rem)] sm:px-2 sm:text-[10px]">
                     Today
                   </span>
                 )}
 
                 {!isFuture && isLockedForEdits ? (
-                  <div className="absolute top-1 right-1 sm:top-2 sm:right-2">
+                  <div className="absolute top-2 right-2 sm:top-2 sm:right-2">
                     <Lock
                       className={
                         isSelected ? "text-primary-foreground/90 h-3.5 w-3.5" : "text-muted-foreground/70 h-3.5 w-3.5"

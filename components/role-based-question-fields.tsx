@@ -8,12 +8,30 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import type { CustomQuestion } from "@/lib/rbac/types"
+import { cn } from "@/lib/utils"
 
 interface RoleBasedQuestionFieldsProps {
-  questions: (CustomQuestion | { id?: string; key: string; label: string; type: string; description?: string; placeholder?: string; options?: any; required: boolean; order: number; category?: string; validation?: any; defaultValue?: any })[]
+  questions: (
+    | CustomQuestion
+    | {
+        id?: string
+        key: string
+        label: string
+        type: string
+        description?: string
+        placeholder?: string
+        options?: any
+        required: boolean
+        order: number
+        category?: string
+        validation?: any
+        defaultValue?: any
+      }
+  )[]
   responses: Record<string, any>
   errors?: Record<string, string>
   onChange: (questionKey: string, value: any) => void
+  renderMode?: "full" | "fieldsOnly"
 }
 
 export function RoleBasedQuestionFields({
@@ -21,6 +39,7 @@ export function RoleBasedQuestionFields({
   responses,
   errors = {},
   onChange,
+  renderMode = "full",
 }: RoleBasedQuestionFieldsProps) {
   if (questions.length === 0) {
     return null
@@ -29,13 +48,19 @@ export function RoleBasedQuestionFields({
   const renderField = (question: any, value: any, error?: string) => {
     const validation = question?.validation as any
 
+    const ariaInvalid = !!error
+    const ariaDescribedBy = error ? `${question.key}-error` : undefined
+
     switch (question.type) {
       case "text":
         return (
           <Input
+            id={question.key}
             value={value ?? ""}
             onChange={(event) => onChange(question.key, event.target.value)}
             placeholder={question.placeholder}
+            aria-invalid={ariaInvalid}
+            aria-describedby={ariaDescribedBy}
             className={error ? "border-destructive" : ""}
           />
         )
@@ -43,10 +68,13 @@ export function RoleBasedQuestionFields({
       case "textarea":
         return (
           <Textarea
+            id={question.key}
             value={value ?? ""}
             onChange={(event) => onChange(question.key, event.target.value)}
             placeholder={question.placeholder}
-            className={error ? "border-destructive" : ""}
+            aria-invalid={ariaInvalid}
+            aria-describedby={ariaDescribedBy}
+            className={cn("min-h-[200px]", error ? "border-destructive" : "")}
             rows={4}
           />
         )
@@ -54,10 +82,13 @@ export function RoleBasedQuestionFields({
       case "email":
         return (
           <Input
+            id={question.key}
             type="email"
             value={value ?? ""}
             onChange={(event) => onChange(question.key, event.target.value)}
             placeholder={question.placeholder || "youremail@topwaterethiopia.com"}
+            aria-invalid={ariaInvalid}
+            aria-describedby={ariaDescribedBy}
             className={error ? "border-destructive" : ""}
           />
         )
@@ -65,10 +96,13 @@ export function RoleBasedQuestionFields({
       case "url":
         return (
           <Input
+            id={question.key}
             type="url"
             value={value ?? ""}
             onChange={(event) => onChange(question.key, event.target.value)}
             placeholder={question.placeholder || "https://topwaterethiopia.com"}
+            aria-invalid={ariaInvalid}
+            aria-describedby={ariaDescribedBy}
             className={error ? "border-destructive" : ""}
           />
         )
@@ -76,10 +110,13 @@ export function RoleBasedQuestionFields({
       case "phone":
         return (
           <Input
+            id={question.key}
             type="tel"
             value={value ?? ""}
             onChange={(event) => onChange(question.key, event.target.value)}
             placeholder={question.placeholder || "+251 901-234-567"}
+            aria-invalid={ariaInvalid}
+            aria-describedby={ariaDescribedBy}
             className={error ? "border-destructive" : ""}
           />
         )
@@ -88,6 +125,7 @@ export function RoleBasedQuestionFields({
         return (
           <div className="relative">
             <Input
+              id={question.key}
               type="number"
               value={value ?? ""}
               onChange={(event) => onChange(question.key, event.target.value)}
@@ -95,17 +133,20 @@ export function RoleBasedQuestionFields({
               min={validation?.min ?? 0}
               max={validation?.max ?? 100}
               step={validation?.step ?? 1}
+              aria-invalid={ariaInvalid}
+              aria-describedby={ariaDescribedBy}
               className={error ? "border-destructive" : ""}
             />
-            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">/100</span>
+            <span className="text-muted-foreground absolute top-1/2 right-3 -translate-y-1/2">/100</span>
           </div>
         )
 
       case "currency":
         return (
           <div className="relative">
-            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+            <span className="text-muted-foreground absolute top-1/2 left-3 -translate-y-1/2">$</span>
             <Input
+              id={question.key}
               type="number"
               value={value ?? ""}
               onChange={(event) => onChange(question.key, event.target.value)}
@@ -113,6 +154,8 @@ export function RoleBasedQuestionFields({
               min={validation?.min ?? 0}
               max={validation?.max}
               step={validation?.step ?? "0.01"}
+              aria-invalid={ariaInvalid}
+              aria-describedby={ariaDescribedBy}
               className={`pl-7 ${error ? "border-destructive" : ""}`}
             />
           </div>
@@ -122,6 +165,7 @@ export function RoleBasedQuestionFields({
         return (
           <div className="relative">
             <Input
+              id={question.key}
               type="number"
               value={value ?? ""}
               onChange={(event) => onChange(question.key, event.target.value)}
@@ -129,20 +173,25 @@ export function RoleBasedQuestionFields({
               min={validation?.min ?? 0}
               max={validation?.max ?? 100}
               step={validation?.step ?? 1}
+              aria-invalid={ariaInvalid}
+              aria-describedby={ariaDescribedBy}
               className={`pr-7 ${error ? "border-destructive" : ""}`}
             />
-            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">%</span>
+            <span className="text-muted-foreground absolute top-1/2 right-3 -translate-y-1/2">%</span>
           </div>
         )
 
       case "date":
         return (
           <Input
+            id={question.key}
             type="date"
             value={value ?? ""}
             onChange={(event) => onChange(question.key, event.target.value)}
             min={validation?.min_date}
             max={validation?.max_date}
+            aria-invalid={ariaInvalid}
+            aria-describedby={ariaDescribedBy}
             className={error ? "border-destructive" : ""}
           />
         )
@@ -150,9 +199,12 @@ export function RoleBasedQuestionFields({
       case "time":
         return (
           <Input
+            id={question.key}
             type="time"
             value={value ?? ""}
             onChange={(event) => onChange(question.key, event.target.value)}
+            aria-invalid={ariaInvalid}
+            aria-describedby={ariaDescribedBy}
             className={error ? "border-destructive" : ""}
           />
         )
@@ -160,11 +212,14 @@ export function RoleBasedQuestionFields({
       case "datetime":
         return (
           <Input
+            id={question.key}
             type="datetime-local"
             value={value ?? ""}
             onChange={(event) => onChange(question.key, event.target.value)}
             min={validation?.min_date}
             max={validation?.max_date}
+            aria-invalid={ariaInvalid}
+            aria-describedby={ariaDescribedBy}
             className={error ? "border-destructive" : ""}
           />
         )
@@ -173,7 +228,7 @@ export function RoleBasedQuestionFields({
         return (
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label className="text-xs text-muted-foreground">Start Date</Label>
+              <Label className="text-muted-foreground text-xs">Start Date</Label>
               <Input
                 type="date"
                 value={value?.start ?? ""}
@@ -184,7 +239,7 @@ export function RoleBasedQuestionFields({
               />
             </div>
             <div className="space-y-2">
-              <Label className="text-xs text-muted-foreground">End Date</Label>
+              <Label className="text-muted-foreground text-xs">End Date</Label>
               <Input
                 type="date"
                 value={value?.end ?? ""}
@@ -201,7 +256,7 @@ export function RoleBasedQuestionFields({
         return (
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
-              <Label className="text-xs text-muted-foreground">Hours</Label>
+              <Label className="text-muted-foreground text-xs">Hours</Label>
               <Input
                 type="number"
                 value={value?.hours ?? ""}
@@ -212,7 +267,7 @@ export function RoleBasedQuestionFields({
               />
             </div>
             <div className="space-y-2">
-              <Label className="text-xs text-muted-foreground">Minutes</Label>
+              <Label className="text-muted-foreground text-xs">Minutes</Label>
               <Input
                 type="number"
                 value={value?.minutes ?? ""}
@@ -230,10 +285,7 @@ export function RoleBasedQuestionFields({
       case "priority":
       case "status":
         return (
-          <Select
-            value={value ?? ""}
-            onValueChange={(newValue) => onChange(question.key, newValue)}
-          >
+          <Select value={value ?? ""} onValueChange={(newValue) => onChange(question.key, newValue)}>
             <SelectTrigger className={error ? "border-destructive" : ""}>
               <SelectValue placeholder={question.placeholder || "Select an option"} />
             </SelectTrigger>
@@ -259,9 +311,9 @@ export function RoleBasedQuestionFields({
                   value={option}
                   checked={value === option}
                   onChange={(event) => onChange(question.key, event.target.value)}
-                  className="h-4 w-4 border-gray-300 text-primary focus:ring-2 focus:ring-primary"
+                  className="text-primary focus:ring-primary h-4 w-4 border-gray-300 focus:ring-2"
                 />
-                <Label htmlFor={`${question.key}-${option}`} className="text-sm font-normal cursor-pointer">
+                <Label htmlFor={`${question.key}-${option}`} className="cursor-pointer text-sm font-normal">
                   {option}
                 </Label>
               </div>
@@ -286,11 +338,14 @@ export function RoleBasedQuestionFields({
                       if (checked) {
                         onChange(question.key, [...currentValues, option])
                       } else {
-                        onChange(question.key, currentValues.filter((item: string) => item !== option))
+                        onChange(
+                          question.key,
+                          currentValues.filter((item: string) => item !== option)
+                        )
                       }
                     }}
                   />
-                  <Label htmlFor={checkboxId} className="text-sm font-normal cursor-pointer">
+                  <Label htmlFor={checkboxId} className="cursor-pointer text-sm font-normal">
                     {option}
                   </Label>
                 </div>
@@ -307,7 +362,7 @@ export function RoleBasedQuestionFields({
               checked={!!value}
               onCheckedChange={(checked) => onChange(question.key, !!checked)}
             />
-            <Label htmlFor={question.key} className="text-sm font-normal cursor-pointer">
+            <Label htmlFor={question.key} className="cursor-pointer text-sm font-normal">
               {question.placeholder || "Check this option"}
             </Label>
           </div>
@@ -315,10 +370,7 @@ export function RoleBasedQuestionFields({
 
       case "rating":
         return (
-          <Select
-            value={value ?? ""}
-            onValueChange={(newValue) => onChange(question.key, newValue)}
-          >
+          <Select value={value ?? ""} onValueChange={(newValue) => onChange(question.key, newValue)}>
             <SelectTrigger className={error ? "border-destructive" : ""}>
               <SelectValue placeholder="Select rating" />
             </SelectTrigger>
@@ -342,18 +394,12 @@ export function RoleBasedQuestionFields({
               min={question.validation?.min ?? 0}
               max={question.validation?.max ?? 100}
               step={question.validation?.step ?? 1}
-              className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+              className="h-2 w-full cursor-pointer appearance-none rounded-lg bg-gray-200"
             />
-            <div className="flex justify-between items-center">
-              <span className="text-sm text-muted-foreground">
-                {question.validation?.min ?? 0}
-              </span>
-              <span className="text-lg font-semibold text-primary">
-                {value ?? question.validation?.min ?? 0}
-              </span>
-              <span className="text-sm text-muted-foreground">
-                {question.validation?.max ?? 100}
-              </span>
+            <div className="flex items-center justify-between">
+              <span className="text-muted-foreground text-sm">{question.validation?.min ?? 0}</span>
+              <span className="text-primary text-lg font-semibold">{value ?? question.validation?.min ?? 0}</span>
+              <span className="text-muted-foreground text-sm">{question.validation?.max ?? 100}</span>
             </div>
           </div>
         )
@@ -370,14 +416,14 @@ export function RoleBasedQuestionFields({
                   className={`h-12 rounded-md border-2 font-semibold transition-all ${
                     value === score
                       ? "border-primary bg-primary text-primary-foreground"
-                      : "border-gray-300 hover:border-primary/50 hover:bg-primary/10"
+                      : "hover:border-primary/50 hover:bg-primary/10 border-gray-300"
                   }`}
                 >
                   {score}
                 </button>
               ))}
             </div>
-            <div className="flex justify-between text-xs text-muted-foreground">
+            <div className="text-muted-foreground flex justify-between text-xs">
               <span>Not at all likely</span>
               <span>Extremely likely</span>
             </div>
@@ -389,6 +435,7 @@ export function RoleBasedQuestionFields({
         return (
           <div className="space-y-2">
             <Input
+              id={question.key}
               type="file"
               onChange={(event) => {
                 const file = event.target.files?.[0]
@@ -397,20 +444,23 @@ export function RoleBasedQuestionFields({
                 }
               }}
               accept={question.type === "image" ? "image/*" : undefined}
+              aria-invalid={ariaInvalid}
+              aria-describedby={ariaDescribedBy}
               className={error ? "border-destructive" : ""}
             />
-            {value && (
-              <p className="text-sm text-muted-foreground">Selected: {value}</p>
-            )}
+            {value && <p className="text-muted-foreground text-sm">Selected: {value}</p>}
           </div>
         )
 
       case "rich-text":
         return (
           <Textarea
+            id={question.key}
             value={value ?? ""}
             onChange={(event) => onChange(question.key, event.target.value)}
             placeholder={question.placeholder || "Enter formatted text..."}
+            aria-invalid={ariaInvalid}
+            aria-describedby={ariaDescribedBy}
             className={error ? "border-destructive" : ""}
             rows={6}
           />
@@ -419,9 +469,12 @@ export function RoleBasedQuestionFields({
       default:
         return (
           <Input
+            id={question.key}
             value={value ?? ""}
             onChange={(event) => onChange(question.key, event.target.value)}
             placeholder={question.placeholder}
+            aria-invalid={ariaInvalid}
+            aria-describedby={ariaDescribedBy}
             className={error ? "border-destructive" : ""}
           />
         )
@@ -434,31 +487,47 @@ export function RoleBasedQuestionFields({
         const value = responses[question.key]
         const error = errors[question.key]
 
+        if (renderMode === "fieldsOnly") {
+          return (
+            <div key={question.key || (question as any).id} className="space-y-2">
+              {renderField(question, value, error)}
+              {error && (
+                <p id={`${question.key}-error`} className="text-destructive mt-2 text-sm">
+                  {error}
+                </p>
+              )}
+            </div>
+          )
+        }
+
         return (
-          <Card
-            key={question.key || (question as any).id}
-            className="border-0 shadow-none bg-transparent p-0"
-          >
+          <Card key={question.key || (question as any).id} className="border-0 bg-transparent p-0 shadow-none">
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between gap-3">
                 <div className="flex flex-col gap-1">
                   <div className="flex items-center gap-2">
                     <CardTitle className="text-base font-semibold">{question.label}</CardTitle>
-                    {question.required && <Badge variant="destructive" className="text-xs">Required</Badge>}
+                    {question.required && (
+                      <Badge variant="destructive" className="text-xs">
+                        Required
+                      </Badge>
+                    )}
                   </div>
-                  {question.description && (
-                    <CardDescription>{question.description}</CardDescription>
-                  )}
+                  {question.description && <CardDescription>{question.description}</CardDescription>}
                 </div>
                 {question.category && (
-                  <Badge variant="secondary" className="text-xs">{question.category}</Badge>
+                  <Badge variant="secondary" className="text-xs">
+                    {question.category}
+                  </Badge>
                 )}
               </div>
             </CardHeader>
             <CardContent>
               {renderField(question, value, error)}
               {error && (
-                <p className="text-sm text-destructive mt-2">{error}</p>
+                <p id={`${question.key}-error`} className="text-destructive mt-2 text-sm">
+                  {error}
+                </p>
               )}
             </CardContent>
           </Card>
@@ -467,4 +536,3 @@ export function RoleBasedQuestionFields({
     </div>
   )
 }
-

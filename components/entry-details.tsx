@@ -41,6 +41,27 @@ export function EntryDetails({ date, departmentId, entry, isLoading, onBack }: E
   const [isSaving, setIsSaving] = useState(false)
   const [editResponses, setEditResponses] = useState<Record<string, unknown>>({})
   const [editErrors, setEditErrors] = useState<Record<string, string>>({})
+  const [didSaveRecently, setDidSaveRecently] = useState(false)
+
+  const getQuestionLabel = (question: unknown) => {
+    const label = (question as { label?: unknown })?.label
+    return typeof label === "string" && label.trim().length > 0 ? label : "Question"
+  }
+
+  const getQuestionId = (question: unknown) => {
+    const id = (question as { id?: unknown })?.id
+    return typeof id === "string" && id.trim().length > 0 ? id : null
+  }
+
+  const findResponseForQuestion = (entryToSearch: CaptainLogEntry, question: unknown, questionKey: string) => {
+    const questionId = getQuestionId(question)
+    return (entryToSearch.customResponses || []).find((r: unknown) => {
+      if (!r || typeof r !== "object") return false
+      const response = r as { questionId?: unknown; questionKey?: unknown }
+      if (questionId && response.questionId === questionId) return true
+      return response.questionKey === questionKey
+    }) as QuestionResponse | undefined
+  }
 
   // Use useMemo to avoid re-creating on every render and prevent audit log spam
   const currentEntry = useMemo(() => {
@@ -85,6 +106,12 @@ export function EntryDetails({ date, departmentId, entry, isLoading, onBack }: E
     if (!Array.isArray(roleQuestions)) return ""
     return roleQuestions.map((q) => String((q as { key?: unknown })?.key ?? "")).join("|")
   }, [roleQuestions])
+
+  useEffect(() => {
+    if (!didSaveRecently) return
+    const t = window.setTimeout(() => setDidSaveRecently(false), 2000)
+    return () => window.clearTimeout(t)
+  }, [didSaveRecently])
 
   // Initialize edit responses when entering edit mode (once) or when entry changes.
   useEffect(() => {
@@ -168,7 +195,7 @@ export function EntryDetails({ date, departmentId, entry, isLoading, onBack }: E
         <div className="flex items-center justify-between">
           <div>
             <h2 className="text-foreground text-2xl font-semibold">Entry Details</h2>
-            <p className="text-muted-foreground mt-1 text-sm">{formatDate(date)}</p>
+            <p className="text-muted-foreground mt-2 text-sm">{formatDate(date)}</p>
           </div>
           <Button variant="outline" size="sm" onClick={onBack} className="gap-2">
             <ArrowLeft className="h-4 w-4" />
@@ -184,6 +211,7 @@ export function EntryDetails({ date, departmentId, entry, isLoading, onBack }: E
 
   const handleStartEdit = () => {
     if (!canEdit) return
+    setDidSaveRecently(false)
     setIsEditing(true)
   }
 
@@ -191,6 +219,7 @@ export function EntryDetails({ date, departmentId, entry, isLoading, onBack }: E
     setIsEditing(false)
     setIsSaving(false)
     setEditErrors({})
+    setDidSaveRecently(false)
   }
 
   const handleSaveEdit = async () => {
@@ -226,6 +255,7 @@ export function EntryDetails({ date, departmentId, entry, isLoading, onBack }: E
       })
 
       toast.success("Entry updated")
+      setDidSaveRecently(true)
       setIsEditing(false)
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : "Failed to update entry")
@@ -240,10 +270,10 @@ export function EntryDetails({ date, departmentId, entry, isLoading, onBack }: E
       <div className="flex shrink-0 items-center justify-between">
         <div className="flex-1">
           <h2 className="text-foreground text-2xl font-semibold">Daily Log</h2>
-          <p className="text-muted-foreground mt-1 text-sm">{formatDate(date)}</p>
+          <p className="text-muted-foreground mt-2 text-sm">{formatDate(date)}</p>
           {!canEdit ? (
             <div className="mt-2">
-              <Badge variant="secondary" className="gap-1" title="Entries older than 2 days are locked for editing">
+              <Badge variant="secondary" className="gap-2" title="Entries older than 2 days are locked for editing">
                 <Lock className="h-3.5 w-3.5" />
                 Locked
               </Badge>
@@ -251,6 +281,11 @@ export function EntryDetails({ date, departmentId, entry, isLoading, onBack }: E
           ) : null}
         </div>
         <div className="flex items-center gap-2">
+          {isSaving ? (
+            <span className="text-muted-foreground text-xs">Saving...</span>
+          ) : didSaveRecently ? (
+            <span className="text-muted-foreground text-xs">Saved</span>
+          ) : null}
           {isEditing ? (
             <>
               <Button variant="outline" size="sm" onClick={handleCancelEdit} disabled={isSaving}>
@@ -279,19 +314,100 @@ export function EntryDetails({ date, departmentId, entry, isLoading, onBack }: E
       <Card className="flex-1 overflow-y-auto p-6 shadow-sm">
         <div className="space-y-8">
           {isEditing ? (
+            Array.isArray(roleQuestions) && roleQuestions.length > 0 ? (
+              <div className="space-y-4">
+                {(roleQuestions as unknown as CustomQuestion[]).map((question, index) => {
+                  const key = String((question as { key?: unknown })?.key ?? "")
+                  const required = !!(question as { required?: unknown })?.required
+                  const questionType = (question as { type?: unknown })?.type
+                  const valueForCount = (editResponses as Record<string, unknown>)[key]
+                  const showCharacterCount =
+                    (questionType === "text" || questionType === "textarea") && typeof valueForCount === "string"
+
+                  return (
+                    <div key={key} className="bg-background rounded-xl border p-6">
+                      <div className="flex items-start gap-4">
+                        <div className="bg-muted mt-0 flex h-6 w-6 shrink-0 items-center justify-center rounded-full">
+                          <span className="text-muted-foreground text-xs font-medium">{index + 1}</span>
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                            <h3 className="text-sm font-medium">{getQuestionLabel(question)}</h3>
+                            {required ? <span className="text-muted-foreground text-xs">Required field</span> : null}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="mt-4">
+                        <RoleBasedQuestionFields
+                          questions={[question]}
+                          responses={editResponses as unknown as Record<string, unknown>}
+                          errors={editErrors}
+                          onChange={(questionKey, value) => {
+                            setEditResponses((prev) => ({ ...prev, [questionKey]: value as unknown }))
+                            setEditErrors((prev) => {
+                              if (!prev[questionKey]) return prev
+                              return { ...prev, [questionKey]: "" }
+                            })
+                          }}
+                          renderMode="fieldsOnly"
+                        />
+
+                        {showCharacterCount ? (
+                          <div className="mt-4 flex items-center justify-between">
+                            <span className="text-muted-foreground text-xs">{valueForCount.length} characters</span>
+                          </div>
+                        ) : null}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <RoleBasedQuestionFields
+                  questions={roleQuestions as unknown as CustomQuestion[]}
+                  responses={editResponses as unknown as Record<string, unknown>}
+                  errors={editErrors}
+                  onChange={(questionKey, value) => {
+                    setEditResponses((prev) => ({ ...prev, [questionKey]: value as unknown }))
+                    setEditErrors((prev) => {
+                      if (!prev[questionKey]) return prev
+                      return { ...prev, [questionKey]: "" }
+                    })
+                  }}
+                />
+              </div>
+            )
+          ) : Array.isArray(roleQuestions) && roleQuestions.length > 0 ? (
             <div className="space-y-4">
-              <RoleBasedQuestionFields
-                questions={roleQuestions as unknown as CustomQuestion[]}
-                responses={editResponses as unknown as Record<string, unknown>}
-                errors={editErrors}
-                onChange={(questionKey, value) => {
-                  setEditResponses((prev) => ({ ...prev, [questionKey]: value as unknown }))
-                  setEditErrors((prev) => {
-                    if (!prev[questionKey]) return prev
-                    return { ...prev, [questionKey]: "" }
-                  })
-                }}
-              />
+              {(roleQuestions as unknown as CustomQuestion[]).map((question, index) => {
+                const key = String((question as { key?: unknown })?.key ?? "")
+                const required = !!(question as { required?: unknown })?.required
+                const response = findResponseForQuestion(currentEntry, question, key)
+
+                return (
+                  <div key={key} className="bg-background rounded-xl border p-6">
+                    <div className="flex items-start gap-4">
+                      <div className="bg-muted mt-0 flex h-6 w-6 shrink-0 items-center justify-center rounded-full">
+                        <span className="text-muted-foreground text-xs font-medium">{index + 1}</span>
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                          <h3 className="text-sm font-medium">{getQuestionLabel(question)}</h3>
+                          {required ? <span className="text-muted-foreground text-xs">Required field</span> : null}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-4">
+                      <p className="text-muted-foreground text-sm leading-relaxed whitespace-pre-wrap">
+                        {response ? formatCustomResponseValue(response) : "Not provided"}
+                      </p>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           ) : currentEntry.customResponses && currentEntry.customResponses.length > 0 ? (
             <div>

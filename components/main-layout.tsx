@@ -2,8 +2,7 @@
 
 import { useMemo, useState } from "react"
 import { CalendarView } from "./calendar-view"
-import { EntryFormMultistep } from "./entry-form-multistep"
-import { EntryDetails } from "./entry-details"
+import { EntryDetails, EntryFormMultistep } from "./features/daily-log/organisms"
 import { LandingPage } from "./landing-page"
 import { ThankYouPage } from "./thank-you-page"
 import { ExportDialog } from "./export-dialog"
