@@ -9,6 +9,10 @@ export default async function Home() {
     data: { user },
   } = await supabase.auth.getUser()
 
+  if (!user) {
+    redirect("/login")
+  }
+
   if (user) {
     const { data: profile } = await supabase
       .from("user_profiles")

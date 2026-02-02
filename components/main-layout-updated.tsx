@@ -61,9 +61,15 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
     hasRole,
     rbacLoading,
   } = useRBAC()
-  const { user } = useSupabaseAuth()
+  const { user, isLoading: isAuthLoading } = useSupabaseAuth()
   const router = useRouter()
   const departmentsEnabled = isFeatureEnabledClient("DEPARTMENTS")
+
+  useEffect(() => {
+    if (isAuthLoading) return
+    if (user) return
+    router.replace("/login")
+  }, [isAuthLoading, router, user])
 
   const canAccessDepartments =
     hasRole("admin") ||
