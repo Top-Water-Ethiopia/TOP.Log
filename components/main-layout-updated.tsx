@@ -1,9 +1,8 @@
 "use client"
 
-import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { CalendarView } from "./calendar-view"
-import { EntryFormMultistep } from "./entry-form-multistep"
-import { EntryDetails } from "./entry-details"
+import { EntryDetails, EntryFormMultistep } from "./features/daily-log/organisms"
 import { LandingPage } from "./landing-page"
 import { ThankYouPage } from "./thank-you-page"
 import { SearchDialog } from "./search-dialog"
@@ -24,6 +23,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { isFeatureEnabledClient } from "@/lib/feature-flags/client"
 import { canCreateEntryForDate, getToday } from "@/lib/date-restrictions"
 import { useRouter } from "next/navigation"
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { ChevronDown } from "lucide-react"
 
 interface MainLayoutUpdatedProps {
   initialRoleQuestions: RoleQuestion[]
@@ -42,6 +43,12 @@ type DepartmentMembership = {
 
 export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedProps) {
   const { entries } = useCaptainLog()
+  const entriesRef = useRef(entries)
+
+  useEffect(() => {
+    entriesRef.current = entries
+  }, [entries])
+
   const {
     user: rbacUser,
     userInfo,
@@ -191,20 +198,17 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
   const [logDetail, setLogDetail] = useState<(typeof entries)[number] | null>(null)
   const [isLogDetailLoading, setIsLogDetailLoading] = useState(false)
 
-  const loadLogDetail = useCallback(
-    async (date: string, departmentId: string) => {
-      setLogDetail(null)
-      setIsLogDetailLoading(true)
-      try {
-        await Promise.resolve()
-        const entry = entries.find((e) => e.date === date && e.department_id === departmentId) ?? null
-        setLogDetail(entry)
-      } finally {
-        setIsLogDetailLoading(false)
-      }
-    },
-    [entries]
-  )
+  const loadLogDetail = useCallback(async (date: string, departmentId: string) => {
+    setLogDetail(null)
+    setIsLogDetailLoading(true)
+    try {
+      await Promise.resolve()
+      const entry = entriesRef.current.find((e) => e.date === date && e.department_id === departmentId) ?? null
+      setLogDetail(entry)
+    } finally {
+      setIsLogDetailLoading(false)
+    }
+  }, [])
 
   const hasRoleQuestions = roleQuestions.length > 0
   const canStartNewReport =
@@ -336,9 +340,8 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
               )}
 
               {/* New Report */}
-              {user && !showNoMembershipsMessage && (
+              {user && !showNoMembershipsMessage && viewMode !== "form" && (
                 <Button
-                  variant="outline"
                   size="sm"
                   className="gap-2"
                   disabled={!canStartNewReport}
@@ -376,7 +379,37 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
               )}
 
               {/* Utility Items - Right side */}
-              <SupabaseNav />
+              {/* <SupabaseNav /> */}
+
+              {/* User Profile Dropdown */}
+              {user && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <button className="flex items-center gap-2 rounded-lg px-3 py-2 transition-colors hover:bg-zinc-100">
+                      <div className="bg-primary flex h-8 w-8 items-center justify-center rounded-full">
+                        <span className="text-sm font-medium text-white">
+                          {userInfo?.name?.charAt(0).toUpperCase() || user?.email?.charAt(0).toUpperCase() || "U"}
+                        </span>
+                      </div>
+                      <span className="text-sm font-medium text-zinc-900">
+                        {userInfo?.name || user?.email || "User"}
+                      </span>
+                      <ChevronDown className="h-4 w-4 text-zinc-500" />
+                    </button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-48">
+                    <DropdownMenuItem
+                      onClick={async () => {
+                        const { supabase } = await import("@/lib/supabase/client")
+                        await supabase.auth.signOut()
+                        router.push("/login")
+                      }}
+                    >
+                      Sign out
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              )}
             </div>
           </div>
         </div>
