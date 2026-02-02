@@ -10,14 +10,15 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Moon, Sun } from "lucide-react"
 import { useTheme } from "next-themes"
-import { supabase } from "@/lib/supabase/client"
 import { isFeatureEnabledClient } from "@/lib/feature-flags/client"
 
 interface Department {
   id: string
   name: string
-  code: string | null
+  code?: string | null
 }
+
+const NO_DEPARTMENTS_VALUE = "__no_departments__"
 
 export default function RegisterPage() {
   const { register, isLoading, error } = useSupabaseAuth()
@@ -39,23 +40,23 @@ export default function RegisterPage() {
 
   // Fetch departments from database
   useEffect(() => {
+    const controller = new AbortController()
+
     const fetchDepartments = async () => {
       try {
         setLoadingDepartments(true)
-        const { data, error } = await supabase
-          .from("departments")
-          .select("id, name, code")
-          .eq("is_active", true)
-          .order("name", { ascending: true })
-
-        if (error) {
-          console.error("Error fetching departments:", error)
-          // Fallback to empty array if fetch fails
+        const resp = await fetch("/api/public/departments", { signal: controller.signal })
+        if (!resp.ok) {
+          const body = await resp.text().catch(() => "")
+          console.error("Error fetching departments:", { status: resp.status, body })
           setDepartments([])
-        } else {
-          setDepartments(data || [])
+          return
         }
+
+        const json = (await resp.json()) as { data?: Department[] }
+        setDepartments(Array.isArray(json?.data) ? json.data : [])
       } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return
         console.error("Error fetching departments:", err)
         setDepartments([])
       } finally {
@@ -64,6 +65,7 @@ export default function RegisterPage() {
     }
 
     fetchDepartments()
+    return () => controller.abort()
   }, [])
 
   const handleRegister = async (e: React.FormEvent) => {
@@ -84,7 +86,9 @@ export default function RegisterPage() {
     }
 
     try {
-      await register(email, password, name, departmentId)
+      const normalizedDepartmentId = departmentId && departmentId !== NO_DEPARTMENTS_VALUE ? departmentId : undefined
+
+      await register(email, password, name, normalizedDepartmentId)
       // Redirect happens in the auth context after successful registration
     } catch (error) {
       // Error handling is done in the auth context
@@ -163,7 +167,7 @@ export default function RegisterPage() {
                       </SelectItem>
                     ))
                   ) : (
-                    <SelectItem value="" disabled>
+                    <SelectItem value={NO_DEPARTMENTS_VALUE} disabled>
                       No departments available
                     </SelectItem>
                   )}
