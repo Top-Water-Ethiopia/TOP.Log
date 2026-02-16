@@ -1,6 +1,6 @@
 "use client"
 
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
 import { CalendarView } from "./calendar-view"
 import { EntryDetails, EntryFormMultistep } from "./features/daily-log/organisms"
 import { LandingPage } from "./landing-page"
@@ -8,22 +8,21 @@ import { ThankYouPage } from "./thank-you-page"
 import { SearchDialog } from "./search-dialog"
 import { AnalyticsDashboard } from "./analytics-dashboard"
 import { Button } from "./ui/button"
+import { Skeleton } from "./ui/skeleton"
 import { useRoleQuestions } from "@/hooks/use-role-questions"
 import type { RoleQuestion } from "@/hooks/use-role-questions"
 import { toast } from "sonner"
 import { Shield, FileText, Building2 } from "lucide-react"
-import Link from "next/link"
 import { useCaptainLog } from "@/contexts/supabase-log-context"
 import { useRBAC } from "@/hooks/use-rbac"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { ApiError, apiFetch, getErrorMessage } from "@/lib/api-client"
-import { Skeleton } from "@/components/ui/skeleton"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { isFeatureEnabledClient } from "@/lib/feature-flags/client"
 import { canCreateEntryForDate, getAllowedDates, getToday } from "@/lib/date-restrictions"
 import { useRouter } from "next/navigation"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { ChevronDown } from "lucide-react"
+import Link from "next/link"
 
 interface MainLayoutUpdatedProps {
   initialRoleQuestions: RoleQuestion[]
@@ -40,12 +39,7 @@ type DepartmentMembership = {
 }
 
 export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedProps) {
-  const { entries } = useCaptainLog()
-  const entriesRef = useRef(entries)
-
-  useEffect(() => {
-    entriesRef.current = entries
-  }, [entries])
+  const { entries, refreshEntries } = useCaptainLog()
 
   const {
     user: rbacUser,
@@ -55,8 +49,6 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
     rbacChecked,
     canAccessAdmin,
     canCreateEntries,
-    hasPermission,
-    hasRole,
     rbacLoading,
   } = useRBAC()
   const { user, isLoading: isAuthLoading } = useSupabaseAuth()
@@ -73,7 +65,6 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
 
   const [memberships, setMemberships] = useState<DepartmentMembership[]>([])
   const [hasSystemWideDeptAccess, setHasSystemWideDeptAccess] = useState(false)
-  const [isLoadingDepartments, setIsLoadingDepartments] = useState(false)
   const [departmentsLoadStatus, setDepartmentsLoadStatus] = useState<"idle" | "loading" | "loaded" | "error">("idle")
   const [activeDepartmentId, setActiveDepartmentId] = useState<string | null>(null)
 
@@ -86,13 +77,12 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
       }
       setMemberships([])
       setActiveDepartmentId(null)
-      setDepartmentsLoadStatus("idle")
+      setDepartmentsLoadStatus("loaded")
       return
     }
 
     const loadDepartments = async () => {
       try {
-        setIsLoadingDepartments(true)
         setDepartmentsLoadStatus("loading")
         const json = await apiFetch<{ data: DepartmentMembership[]; hasSystemWideAccess: boolean }>("/api/departments")
         const rows = (json.data || []) as DepartmentMembership[]
@@ -123,12 +113,8 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
           return
         }
 
-        const departmentIds = rows.map((r) => r.department_id)
-        setActiveDepartmentId((prev) => {
-          if (rows.length === 1) return rows[0].department_id
-          if (prev && departmentIds.includes(prev)) return prev
-          return rows[0].department_id
-        })
+        // With single active department principle, just set the first (and only) active department
+        setActiveDepartmentId(rows[0].department_id)
       } catch (error: unknown) {
         if (process.env.NODE_ENV === "development") {
           console.log("=== DEPARTMENTS LOAD ERROR ===")
@@ -140,8 +126,6 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
         }
         setMemberships([])
         setDepartmentsLoadStatus("error")
-      } finally {
-        setIsLoadingDepartments(false)
       }
     }
 
@@ -199,21 +183,6 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
   )
   const [editingDate, setEditingDate] = useState<string | undefined>(undefined)
 
-  const [logDetail, setLogDetail] = useState<(typeof entries)[number] | null>(null)
-  const [isLogDetailLoading, setIsLogDetailLoading] = useState(false)
-
-  const loadLogDetail = useCallback(async (date: string, departmentId: string) => {
-    setLogDetail(null)
-    setIsLogDetailLoading(true)
-    try {
-      await Promise.resolve()
-      const entry = entriesRef.current.find((e) => e.date === date && e.department_id === departmentId) ?? null
-      setLogDetail(entry)
-    } finally {
-      setIsLogDetailLoading(false)
-    }
-  }, [])
-
   const hasRoleQuestions = roleQuestions.length > 0
   const canStartNewReport =
     !!user && !!activeDepartmentId && canCreateEntries && hasRoleQuestions && !isRoleQuestionsLoading
@@ -257,7 +226,6 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
   }, [activeDepartmentId, isRequestingAccess, newReportDisabledReason, user])
 
   const handleDateSelect = (date: string) => {
-    setLogDetail(null)
     setSelectedDate(date)
     // Check if entry exists for this date (without creating audit logs)
     const existingEntry = activeDepartmentId
@@ -265,9 +233,6 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
       : undefined
     // If entry exists, show details (read mode), otherwise show form (edit mode)
     if (existingEntry) {
-      if (activeDepartmentId) {
-        void loadLogDetail(date, activeDepartmentId)
-      }
       setViewMode("details")
     } else {
       const createValidation = canCreateEntryForDate(date)
@@ -283,19 +248,9 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
   }
 
   const handleSearchSelect = (date: string) => {
-    setLogDetail(null)
     setSelectedDate(date)
-    if (activeDepartmentId) {
-      void loadLogDetail(date, activeDepartmentId)
-    }
     setViewMode("details")
   }
-
-  useEffect(() => {
-    if (viewMode !== "details") return
-    if (!activeDepartmentId) return
-    void loadLogDetail(selectedDate, activeDepartmentId)
-  }, [activeDepartmentId, loadLogDetail, selectedDate, viewMode])
 
   return (
     <div className="bg-background flex h-screen flex-col overflow-hidden">
@@ -318,61 +273,30 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
                 <SearchDialog onSelectEntry={handleSearchSelect} entries={entriesForDepartment} />
               ) : null}
 
-              {memberships.length > 1 && (
-                <Select
-                  value={activeDepartmentId || ""}
-                  onValueChange={(value) => {
-                    setActiveDepartmentId(value)
-                    setSelectedDate(getToday())
-                    setLogDetail(null)
+              {/* New Report */}
+              {user && !showNoMembershipsMessage && viewMode !== "form" && !hasReportsForAllAllowedDates && (
+                <Button
+                  size="sm"
+                  className="gap-2"
+                  disabled={!canStartNewReport}
+                  title={!canStartNewReport ? newReportDisabledReason : undefined}
+                  onClick={() => {
+                    if (!canStartNewReport) return
                     setEditingDate(undefined)
-                    setViewMode("landing")
+                    setSelectedDate(getToday())
+                    setViewMode("form")
                   }}
-                  disabled={!user || isLoadingDepartments}
                 >
-                  <SelectTrigger className="min-w-[220px]" aria-label="Select department">
-                    <SelectValue placeholder={isLoadingDepartments ? "Loading departments..." : "Select department"} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {memberships.map((m) => (
-                      <SelectItem key={m.department_id} value={m.department_id}>
-                        {m.department?.name || m.department_id}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                  <FileText className="h-4 w-4" />
+                  New Report
+                </Button>
               )}
 
-              {/* New Report */}
-              {user &&
-                !showNoMembershipsMessage &&
-                viewMode !== "form" &&
-                (hasReportsForAllAllowedDates ? (
-                  <div className="text-muted-foreground max-w-[260px] text-xs leading-snug">
-                    You've already submitted reports for the last 3 allowed days.
-                  </div>
-                ) : (
-                  <Button
-                    size="sm"
-                    className="gap-2"
-                    disabled={!canStartNewReport}
-                    title={!canStartNewReport ? newReportDisabledReason : undefined}
-                    onClick={() => {
-                      if (!canStartNewReport) return
-                      setEditingDate(undefined)
-                      setViewMode("form")
-                    }}
-                  >
-                    <FileText className="h-4 w-4" />
-                    New Report
-                  </Button>
-                ))}
-
-              {user && !rbacLoading && hasSystemWideDeptAccess && departmentsEnabled && (
-                <Link href="/departments">
+              {user && !rbacLoading && hasSystemWideDeptAccess && departmentsEnabled && activeDepartmentId && (
+                <Link href={`/departments/${activeDepartmentId}`}>
                   <Button variant="outline" size="sm" className="gap-2">
                     <Building2 className="h-4 w-4" />
-                    Departments
+                    My Department
                   </Button>
                 </Link>
               )}
@@ -469,6 +393,7 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
             />
           ) : viewMode === "thankYou" ? (
             <ThankYouPage
+              hasReportsForAllAllowedDates={hasReportsForAllAllowedDates}
               onNewReport={() => {
                 setEditingDate(undefined)
                 setViewMode("form")
@@ -490,6 +415,7 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
                   onSave={() => {
                     setEditingDate(undefined)
                     setViewMode("thankYou")
+                    refreshEntries()
                   }}
                   onCancel={() => {
                     setEditingDate(undefined)
@@ -539,15 +465,9 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
                       <EntryDetails
                         date={selectedDate}
                         departmentId={activeDepartmentId}
-                        entry={logDetail}
-                        isLoading={isLogDetailLoading}
                         onBack={() => setViewMode("calendar")}
                         onViewEntry={(date) => {
-                          setLogDetail(null)
                           setSelectedDate(date)
-                          if (activeDepartmentId) {
-                            void loadLogDetail(date, activeDepartmentId)
-                          }
                           setViewMode("details")
                         }}
                       />

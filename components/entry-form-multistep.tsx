@@ -606,6 +606,15 @@ export function EntryFormMultistep({
         customResponses
       )
 
+      // Synchronize standard fields from customResponses back to formData
+      // This ensures that SupabaseLogContext sees the data in the "standard" properties it expects
+      const updatedFormData = { ...formData }
+      Object.keys(customResponses).forEach((key) => {
+        if (key in updatedFormData) {
+          updatedFormData[key as keyof typeof formData] = String(customResponses[key] || "")
+        }
+      })
+
       // Add authentication check before any operation
       // Check both localStorage auth and Supabase auth
       const isUserAuthenticated = (isAuthenticated && user) || supabaseUser
@@ -615,28 +624,24 @@ export function EntryFormMultistep({
         return
       }
 
+      const submissionData = {
+        date: selectedDate,
+        ...updatedFormData,
+        customResponses: processedCustom.processedResponses,
+      }
+
       if (existingEntry) {
         // Update existing entry
         console.log("[handleSubmit] Updating existing entry:", existingEntry.id)
-        console.log("[handleSubmit] Updates payload:", {
-          date: selectedDate,
-          ...formData,
-          customResponses: processedCustom.processedResponses,
-        })
-        await updateEntry(existingEntry.id, {
-          date: selectedDate,
-          ...formData,
-          customResponses: processedCustom.processedResponses,
-        })
+        console.log("[handleSubmit] Updates payload:", submissionData)
+        await updateEntry(existingEntry.id, submissionData)
         toast.success("Entry updated successfully!")
       } else {
         // Create new entry
         const now = new Date().toISOString()
         await addEntry({
-          date: selectedDate,
           department_id: departmentId,
-          ...formData,
-          customResponses: processedCustom.processedResponses,
+          ...submissionData,
           createdAt: now,
           updatedAt: now,
           metadata: null,
