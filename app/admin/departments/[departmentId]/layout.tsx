@@ -59,7 +59,7 @@ function AdminDepartmentLayoutInner({ children }: { children: ReactNode }) {
     if (t === "members" || t === "roles") return t
     if (pathname.endsWith(`/admin/departments/${departmentId}/members`)) return "members"
     if (pathname.endsWith(`/admin/departments/${departmentId}/professions`)) return "roles"
-    return "members"
+    return "roles"
   }, [searchParams, pathname, departmentId])
 
   const departmentsKey = canAccessAdmin ? "/api/admin/departments" : null
@@ -431,8 +431,8 @@ function AdminDepartmentLayoutInner({ children }: { children: ReactNode }) {
                   }}
                 >
                   <TabsList>
-                    <TabsTrigger value="members">Members</TabsTrigger>
                     <TabsTrigger value="roles">Professional Roles</TabsTrigger>
+                    <TabsTrigger value="members">Members</TabsTrigger>
                   </TabsList>
                 </Tabs>
               </div>
@@ -445,7 +445,7 @@ function AdminDepartmentLayoutInner({ children }: { children: ReactNode }) {
                     size="sm"
                     className="dark:bg-background dark:hover:bg-background/90 bg-white hover:bg-white/90"
                     onClick={() => {
-                      router.push(`/admin/departments/${departmentId}?tab=members&assign=1`)
+                      router.push(`/admin/departments/${departmentId}?assign=1`)
                     }}
                   >
                     <UserPlus className="mr-2 h-4 w-4" />

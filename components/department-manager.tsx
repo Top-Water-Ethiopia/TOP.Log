@@ -212,7 +212,7 @@ export function DepartmentManager() {
         pageSize={pageSize}
         searchPlaceholder="Search departments..."
         searchKeys={["name", "description"]}
-        rowHref={(dept) => `/admin/departments/${dept.id}?tab=members`}
+        rowHref={(dept) => `/admin/departments/${dept.id}?tab=roles`}
         columns={[
           {
             key: "name",

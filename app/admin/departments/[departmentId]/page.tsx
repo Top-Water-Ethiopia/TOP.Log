@@ -1,9 +1,10 @@
 "use client"
 
-import { Suspense, useEffect, useMemo } from "react"
-import { useParams, useRouter, useSearchParams } from "next/navigation"
-import { DepartmentProfessionsManager } from "@/components/department-professions-manager"
+import { Suspense, useMemo } from "react"
+import { useParams, useSearchParams } from "next/navigation"
 import AdminDepartmentMembersPage from "./members/page"
+import { DepartmentRolesTab } from "./roles-tab"
+import { DepartmentAssignDialog } from "./assign-dialog"
 
 export default function AdminDepartmentPage() {
   return (
@@ -16,22 +17,13 @@ export default function AdminDepartmentPage() {
 function AdminDepartmentPageInner() {
   const params = useParams<{ departmentId: string }>()
   const departmentId = params.departmentId
-  const router = useRouter()
   const searchParams = useSearchParams()
 
   const tab = useMemo(() => {
     const t = searchParams.get("tab") ?? searchParams.get("tabs")
     if (t === "members" || t === "roles") return t
-    return "members"
+    return "roles"
   }, [searchParams])
-
-  useEffect(() => {
-    if (!departmentId) return
-    const t = searchParams.get("tab") ?? searchParams.get("tabs")
-    if (!t || (t !== "members" && t !== "roles")) {
-      router.replace(`/admin/departments/${departmentId}?tab=members`)
-    }
-  }, [departmentId, router, searchParams])
 
   const main = (() => {
     if (tab === "members") {
@@ -39,13 +31,16 @@ function AdminDepartmentPageInner() {
     }
 
     if (tab === "roles") {
-      const rolesTab = searchParams.get("rolesTab")
-      const defaultTab = rolesTab === "assignments" || rolesTab === "members" ? "assignments" : "roles"
-      return <DepartmentProfessionsManager departmentId={departmentId} embedded defaultTab={defaultTab} />
+      return <DepartmentRolesTab departmentId={departmentId} />
     }
 
-    return <AdminDepartmentMembersPage />
+    return <DepartmentRolesTab departmentId={departmentId} />
   })()
 
-  return <>{main}</>
+  return (
+    <>
+      {main}
+      <DepartmentAssignDialog departmentId={departmentId} />
+    </>
+  )
 }

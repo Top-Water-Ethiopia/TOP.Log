@@ -10,7 +10,7 @@ export default function AdminDepartmentAccessDepartmentPage() {
 
   useEffect(() => {
     if (!departmentId) return
-    router.replace(`/admin/role-and-access/department-access?departmentId=${encodeURIComponent(departmentId)}`)
+    router.replace("/admin/role-and-access")
   }, [departmentId, router])
 
   return null
