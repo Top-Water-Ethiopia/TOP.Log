@@ -36,12 +36,28 @@ export default function DepartmentsPage() {
 
   const canAccessAdmin = hasPermission("admin.system")
 
+  // Check for system-wide department access permissions
+  const hasSystemWideDeptAccess =
+    hasPermission("departments.read") ||
+    hasPermission("departments.create") ||
+    hasPermission("departments.update") ||
+    hasPermission("departments.delete") ||
+    hasPermission("departments.members.read") ||
+    hasPermission("departments.members.manage") ||
+    canAccessAdmin
+
   useEffect(() => {
     if (!departmentsEnabled) return
     if (!isLoading && !user) {
       router.push("/login")
+      return
     }
-  }, [departmentsEnabled, user, isLoading, router])
+    // Redirect if user doesn't have system-wide department access
+    if (!isLoading && !rbacLoading && user && !hasSystemWideDeptAccess) {
+      router.replace("/")
+      toast.error("Access denied")
+    }
+  }, [departmentsEnabled, user, isLoading, rbacLoading, hasSystemWideDeptAccess, router])
 
   useEffect(() => {
     if (!userId) return
@@ -110,7 +126,7 @@ export default function DepartmentsPage() {
     )
   }
 
-  if (isLoading || rbacLoading || !user) {
+  if (isLoading || rbacLoading || !user || !hasSystemWideDeptAccess) {
     return (
       <div className="space-y-6">
         <div className="space-y-2">

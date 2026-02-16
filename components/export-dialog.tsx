@@ -78,11 +78,15 @@ export function ExportDialog() {
         <div className="space-y-4 py-4">
           {/* Summary */}
           {summary.totalDays > 0 && (
-            <div className="rounded-lg bg-muted p-3 text-sm">
-              <div className="font-medium mb-1">Export Summary</div>
+            <div className="bg-muted rounded-lg p-3 text-sm">
+              <div className="mb-1 font-medium">Export Summary</div>
               <div className="text-muted-foreground space-y-1">
                 <div>Total Entries: {summary.totalDays}</div>
-                {summary.earliest && <div>Date Range: {summary.earliest} - {summary.latest}</div>}
+                {summary.earliest && (
+                  <div>
+                    Date Range: {summary.earliest} - {summary.latest}
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -91,35 +95,35 @@ export function ExportDialog() {
           <div className="space-y-3">
             <Label>Export Format</Label>
             <RadioGroup value={format} onValueChange={(value) => setFormat(value as ExportFormat)}>
-              <div className="flex items-center space-x-2 rounded-lg border p-3 hover:bg-accent cursor-pointer">
+              <div className="hover:bg-accent flex cursor-pointer items-center space-x-2 rounded-lg border p-3">
                 <RadioGroupItem value="json" id="json" />
-                <Label htmlFor="json" className="flex items-center gap-2 flex-1 cursor-pointer">
+                <Label htmlFor="json" className="flex flex-1 cursor-pointer items-center gap-2">
                   <FileJson className="h-4 w-4 text-blue-500" />
                   <div>
                     <div className="font-medium">JSON</div>
-                    <div className="text-xs text-muted-foreground">Best for backup and data portability</div>
+                    <div className="text-muted-foreground text-xs">Best for backup and data portability</div>
                   </div>
                 </Label>
               </div>
 
-              <div className="flex items-center space-x-2 rounded-lg border p-3 hover:bg-accent cursor-pointer">
+              <div className="hover:bg-accent flex cursor-pointer items-center space-x-2 rounded-lg border p-3">
                 <RadioGroupItem value="csv" id="csv" />
-                <Label htmlFor="csv" className="flex items-center gap-2 flex-1 cursor-pointer">
-                  <FileSpreadsheet className="h-4 w-4" style={{ color: '#099748' }} />
+                <Label htmlFor="csv" className="flex flex-1 cursor-pointer items-center gap-2">
+                  <FileSpreadsheet className="h-4 w-4" style={{ color: "#099748" }} />
                   <div>
                     <div className="font-medium">CSV</div>
-                    <div className="text-xs text-muted-foreground">Open in Excel or Google Sheets</div>
+                    <div className="text-muted-foreground text-xs">Open in Excel or Google Sheets</div>
                   </div>
                 </Label>
               </div>
 
-              <div className="flex items-center space-x-2 rounded-lg border p-3 hover:bg-accent cursor-pointer">
+              <div className="hover:bg-accent flex cursor-pointer items-center space-x-2 rounded-lg border p-3">
                 <RadioGroupItem value="markdown" id="markdown" />
-                <Label htmlFor="markdown" className="flex items-center gap-2 flex-1 cursor-pointer">
+                <Label htmlFor="markdown" className="flex flex-1 cursor-pointer items-center gap-2">
                   <FileText className="h-4 w-4 text-purple-500" />
                   <div>
                     <div className="font-medium">Markdown</div>
-                    <div className="text-xs text-muted-foreground">Human-readable formatted document</div>
+                    <div className="text-muted-foreground text-xs">Human-readable formatted document</div>
                   </div>
                 </Label>
               </div>
@@ -132,7 +136,7 @@ export function ExportDialog() {
             Cancel
           </Button>
           <Button onClick={handleExport} disabled={entries.length === 0}>
-            <Download className="h-4 w-4 mr-2" />
+            <Download className="mr-2 h-4 w-4" />
             Export
           </Button>
         </DialogFooter>

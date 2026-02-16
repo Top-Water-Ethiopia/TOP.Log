@@ -28,6 +28,7 @@ import { toast } from "sonner"
 import { UsersTableSkeleton } from "@/components/skeletons/users-table-skeleton"
 import { apiFetch, getErrorMessage } from "@/lib/api-client"
 import { RightSidePanel } from "@/components/ui/right-side-panel"
+import { DepartmentAccessLevelManager } from "@/components/department-access-level-manager"
 import useSWR, { useSWRConfig } from "swr"
 import { PaginatedTable } from "@/components/ui/paginated-table"
 
@@ -36,7 +37,6 @@ const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
 const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
 const USER_ROLE_ID = "00000000-0000-0000-0000-000000000002"
 const SYSTEM_ADMIN_ROLE_NAME = "system-admin"
-const PROFESSION_ROLE_NONE = "__none__"
 const DEPARTMENT_NONE = "__none__"
 const DEPARTMENT_ROLE_NONE = "__none__"
 
@@ -51,8 +51,6 @@ interface UserWithProfile {
     department_id: string | null
     role_id: string
     role_name: string
-    profession_role_id: string | null
-    profession_role_name: string | null
     is_active: boolean
     created_at: string
     last_login: string | null
@@ -204,7 +202,6 @@ export function SupabaseUserManagement() {
     role_id: USER_ROLE_ID,
     department_id: null as string | null,
     department_role: DEPARTMENT_ROLE_NONE,
-    profession_role_id: PROFESSION_ROLE_NONE,
   })
 
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
@@ -219,7 +216,6 @@ export function SupabaseUserManagement() {
     role_id: USER_ROLE_ID,
     department_id: null as string | null,
     department_role: DEPARTMENT_ROLE_NONE,
-    profession_role_id: PROFESSION_ROLE_NONE,
     is_active: true,
     email_verified: false,
   })
@@ -370,8 +366,6 @@ export function SupabaseUserManagement() {
         department_id: user.profile.department_id,
         role_id: user.profile.role_id,
         role_name: user.profile.role_name || "user",
-        profession_role_id: user.profile.profession_role_id ?? null,
-        profession_role_name: user.profile.profession_role_name ?? null,
         is_active: user.profile.is_active,
         created_at: user.profile.created_at,
         last_login: user.profile.last_login,
@@ -430,13 +424,11 @@ export function SupabaseUserManagement() {
     const nextDepartmentId =
       activeMembership?.department_id || activeProfession?.department_id || editingUser.profile?.department_id || null
     const nextDepartmentRole = activeMembership?.role || DEPARTMENT_ROLE_NONE
-    const nextProfessionRoleId = activeProfession?.role_id || PROFESSION_ROLE_NONE
 
     setEditUserForm((prev) => ({
       ...prev,
       department_id: nextDepartmentId,
       department_role: nextDepartmentRole,
-      profession_role_id: nextProfessionRoleId,
     }))
 
     prefilledAssignmentsUserIdRef.current = editingUser.id
@@ -507,18 +499,6 @@ export function SupabaseUserManagement() {
     return (departmentRoles || []).filter((r) => r.is_active)
   }, [departmentRoles])
 
-  const professionRoleOptions = useMemo(() => {
-    const departmentId = editUserForm.department_id
-    if (!departmentId) return []
-    return roles.filter((r) => r.department_id === departmentId)
-  }, [editUserForm.department_id, roles])
-
-  const createProfessionRoleOptions = useMemo(() => {
-    const departmentId = createUserForm.department_id
-    if (!departmentId) return []
-    return roles.filter((r) => r.department_id === departmentId)
-  }, [createUserForm.department_id, roles])
-
   const validateCreateUserForm = () => {
     const errors: Record<string, string> = {}
 
@@ -554,10 +534,6 @@ export function SupabaseUserManagement() {
       errors.department_role = "Department role is required"
     }
 
-    if (!createUserForm.department_id && createUserForm.profession_role_id !== PROFESSION_ROLE_NONE) {
-      errors.profession_role_id = "Select a department first"
-    }
-
     setFormErrors(errors)
     return Object.keys(errors).length === 0
   }
@@ -571,11 +547,6 @@ export function SupabaseUserManagement() {
     const roleName = roles.find((r) => r.id === createUserForm.role_id)?.name || "user"
     const nextDepartmentId = createUserForm.department_id
     const nextDepartmentRole = createUserForm.department_role
-    const nextProfessionRoleId = createUserForm.profession_role_id
-    const nextProfessionRoleName =
-      nextProfessionRoleId !== PROFESSION_ROLE_NONE
-        ? roles.find((r) => r.id === nextProfessionRoleId)?.name || null
-        : null
 
     let createdUserId: string | null = null
 
@@ -590,8 +561,6 @@ export function SupabaseUserManagement() {
         department_id: nextDepartmentId,
         role_id: createUserForm.role_id,
         role_name: roleName,
-        profession_role_id: nextProfessionRoleId !== PROFESSION_ROLE_NONE ? nextProfessionRoleId : null,
-        profession_role_name: nextProfessionRoleName,
         is_active: true,
         created_at: nowIso,
         last_login: null,
@@ -637,8 +606,6 @@ export function SupabaseUserManagement() {
           department_id: created.profile.department_id,
           role_id: created.profile.role_id,
           role_name: createdRoleName,
-          profession_role_id: nextProfessionRoleId !== PROFESSION_ROLE_NONE ? nextProfessionRoleId : null,
-          profession_role_name: nextProfessionRoleName,
           is_active: created.profile.is_active,
           created_at: created.profile.created_at,
           last_login: created.profile.last_login || null,
@@ -675,20 +642,6 @@ export function SupabaseUserManagement() {
               is_active: true,
             }),
           })
-
-          if (nextProfessionRoleId !== PROFESSION_ROLE_NONE) {
-            await apiFetch(`/api/admin/departments/${nextDepartmentId}/profession-assignments`, {
-              method: "POST",
-              headers: {
-                "Content-Type": "application/json",
-              },
-              body: JSON.stringify({
-                user_id: createdUserId,
-                role_id: nextProfessionRoleId,
-                is_active: true,
-              }),
-            })
-          }
         } catch (assignmentError: unknown) {
           console.error("Failed to save new user assignments:", assignmentError)
           toast.error(getErrorMessage(assignmentError, "User created but failed to save assignments"))
@@ -704,7 +657,6 @@ export function SupabaseUserManagement() {
         role_id: USER_ROLE_ID,
         department_id: null,
         department_role: DEPARTMENT_ROLE_NONE,
-        profession_role_id: PROFESSION_ROLE_NONE,
       })
       setFormErrors({})
       setShowPassword(false)
@@ -754,10 +706,6 @@ export function SupabaseUserManagement() {
       errors.department_role = "Department role is required"
     }
 
-    if (!editUserForm.department_id && editUserForm.profession_role_id !== PROFESSION_ROLE_NONE) {
-      errors.profession_role_id = "Select a department first"
-    }
-
     setEditFormErrors(errors)
     return Object.keys(errors).length === 0
   }
@@ -776,11 +724,6 @@ export function SupabaseUserManagement() {
     const nextIsActive = editUserForm.is_active
     const nextDepartmentId = editUserForm.department_id
     const nextDepartmentRole = editUserForm.department_role
-    const nextProfessionRoleId = editUserForm.profession_role_id
-    const nextProfessionRoleName =
-      nextProfessionRoleId !== PROFESSION_ROLE_NONE
-        ? roles.find((r) => r.id === nextProfessionRoleId)?.name || null
-        : null
 
     mutateUsers(
       (current) => {
@@ -797,8 +740,6 @@ export function SupabaseUserManagement() {
               role_id: nextRoleId,
               role_name: nextRoleName,
               department_id: nextDepartmentId,
-              profession_role_id: nextProfessionRoleId !== PROFESSION_ROLE_NONE ? nextProfessionRoleId : null,
-              profession_role_name: nextProfessionRoleName,
               is_active: nextIsActive,
             },
           }
@@ -832,37 +773,15 @@ export function SupabaseUserManagement() {
       const memberships = Array.isArray(userAssignmentsResponse?.data?.memberships)
         ? userAssignmentsResponse!.data.memberships
         : []
-      const professions = Array.isArray(userAssignmentsResponse?.data?.profession_assignments)
-        ? userAssignmentsResponse!.data.profession_assignments
-        : []
 
       const prevActiveMembership = memberships.find((m) => m.is_active) || null
-      const prevActiveProfession = professions.find((p) => p.is_active) || null
-
       const prevActiveMembershipDeptId = prevActiveMembership?.department_id || null
-      const prevActiveProfessionDeptId = prevActiveProfession?.department_id || null
-
-      if (prevActiveProfessionDeptId && prevActiveProfessionDeptId !== nextDepartmentId) {
-        await apiFetch(
-          `/api/admin/departments/${prevActiveProfessionDeptId}/profession-assignments/${editingUser.id}`,
-          {
-            method: "DELETE",
-          }
-        )
-      }
 
       if (!nextDepartmentId) {
         if (prevActiveMembershipDeptId) {
           await apiFetch(`/api/admin/departments/${prevActiveMembershipDeptId}/memberships/${editingUser.id}`, {
             method: "DELETE",
           })
-        } else if (prevActiveProfessionDeptId) {
-          await apiFetch(
-            `/api/admin/departments/${prevActiveProfessionDeptId}/profession-assignments/${editingUser.id}`,
-            {
-              method: "DELETE",
-            }
-          )
         }
       } else {
         if (!nextDepartmentRole || nextDepartmentRole === DEPARTMENT_ROLE_NONE) {
@@ -880,24 +799,6 @@ export function SupabaseUserManagement() {
             is_active: true,
           }),
         })
-
-        if (nextProfessionRoleId === PROFESSION_ROLE_NONE) {
-          await apiFetch(`/api/admin/departments/${nextDepartmentId}/profession-assignments/${editingUser.id}`, {
-            method: "DELETE",
-          })
-        } else {
-          await apiFetch(`/api/admin/departments/${nextDepartmentId}/profession-assignments`, {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              user_id: editingUser.id,
-              role_id: nextProfessionRoleId,
-              is_active: true,
-            }),
-          })
-        }
       }
 
       toast.success("User updated successfully")
@@ -1280,21 +1181,6 @@ export function SupabaseUserManagement() {
             },
           },
           {
-            key: "profession_role",
-            header: "Profession Role",
-            cell: (user) => {
-              const roleName = user.profile?.profession_role_name
-              if (!roleName) {
-                return (
-                  <Badge variant="outline" className="border-dashed">
-                    Unassigned
-                  </Badge>
-                )
-              }
-              return <Badge variant="secondary">{roleName}</Badge>
-            },
-          },
-          {
             key: "role",
             header: "Role",
             cell: (user) => (
@@ -1354,7 +1240,6 @@ export function SupabaseUserManagement() {
                       role_id: user.profile?.role_id || USER_ROLE_ID,
                       department_id: user.profile?.department_id || null,
                       department_role: DEPARTMENT_ROLE_NONE,
-                      profession_role_id: PROFESSION_ROLE_NONE,
                       is_active: user.profile?.is_active ?? true,
                       email_verified: !!user.email_confirmed_at,
                     })
@@ -1387,7 +1272,6 @@ export function SupabaseUserManagement() {
               role_id: USER_ROLE_ID,
               department_id: null,
               department_role: DEPARTMENT_ROLE_NONE,
-              profession_role_id: PROFESSION_ROLE_NONE,
             })
           }
         }}
@@ -1514,7 +1398,6 @@ export function SupabaseUserManagement() {
                     ...prev,
                     department_id: nextDepartmentId,
                     department_role: DEPARTMENT_ROLE_NONE,
-                    profession_role_id: PROFESSION_ROLE_NONE,
                   }))
                 }}
               >
@@ -1552,30 +1435,6 @@ export function SupabaseUserManagement() {
                 </SelectContent>
               </Select>
               {formErrors.department_role && <p className="text-destructive text-sm">{formErrors.department_role}</p>}
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="create-profession-role">Profession role</Label>
-              <Select
-                value={createUserForm.profession_role_id || PROFESSION_ROLE_NONE}
-                onValueChange={(value) => setCreateUserForm((prev) => ({ ...prev, profession_role_id: value }))}
-                disabled={!createUserForm.department_id}
-              >
-                <SelectTrigger id="create-profession-role">
-                  <SelectValue placeholder="Select a profession role" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value={PROFESSION_ROLE_NONE}>None</SelectItem>
-                  {createProfessionRoleOptions.map((role) => (
-                    <SelectItem key={role.id} value={role.id}>
-                      {role.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {formErrors.profession_role_id && (
-                <p className="text-destructive text-sm">{formErrors.profession_role_id}</p>
-              )}
             </div>
           </div>
         </form>
@@ -1808,7 +1667,6 @@ export function SupabaseUserManagement() {
                       ...prev,
                       department_id: nextDepartmentId,
                       department_role: DEPARTMENT_ROLE_NONE,
-                      profession_role_id: PROFESSION_ROLE_NONE,
                     }))
                   }}
                   disabled={isUserAssignmentsLoading}
@@ -1851,29 +1709,13 @@ export function SupabaseUserManagement() {
                 )}
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="edit-profession-role">Profession role</Label>
-                <Select
-                  value={editUserForm.profession_role_id || PROFESSION_ROLE_NONE}
-                  onValueChange={(value) => setEditUserForm((prev) => ({ ...prev, profession_role_id: value }))}
-                  disabled={!editUserForm.department_id || isUserAssignmentsLoading}
-                >
-                  <SelectTrigger id="edit-profession-role">
-                    <SelectValue placeholder={isUserAssignmentsLoading ? "Loading..." : "Select a profession role"} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={PROFESSION_ROLE_NONE}>None</SelectItem>
-                    {professionRoleOptions.map((role) => (
-                      <SelectItem key={role.id} value={role.id}>
-                        {role.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {editFormErrors.profession_role_id && (
-                  <p className="text-destructive text-sm">{editFormErrors.profession_role_id}</p>
-                )}
-              </div>
+              {/* Department Access Level Manager */}
+              {editUserForm.department_id && editingUser && (
+                <div className="space-y-4">
+                  <Separator />
+                  <DepartmentAccessLevelManager userId={editingUser.id} departmentId={editUserForm.department_id} />
+                </div>
+              )}
 
               <div className="rounded-lg border p-3">
                 <div className="flex items-center justify-between gap-4">

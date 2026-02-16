@@ -144,7 +144,6 @@ export function AdminReportsView() {
   const [selectedDepartment, setSelectedDepartment] = useState<string>("all")
   const [selectedRole, setSelectedRole] = useState<string>("all")
   const [filteredUsers, setFilteredUsers] = useState<UserProfile[]>([])
-  const [filteredRoles, setFilteredRoles] = useState<{ id: string; name: string }[]>([])
 
   const lastLoadErrorRef = useRef<string | null>(null)
 
@@ -169,21 +168,6 @@ export function AdminReportsView() {
     const roleId = profile?.role_id
     return roleId === ADMIN_ROLE_ID || roleId === SYSTEM_ADMIN_ROLE_ID
   }, [profile?.role_id])
-
-  type DepartmentRolesResponse = { data: Array<{ id: string; name: string }> }
-  const departmentRolesKey =
-    isAdmin && selectedDepartment !== "all" ? `/api/admin/departments/${selectedDepartment}/profession-roles` : null
-  const { data: departmentRolesData, isLoading: isDepartmentRolesLoading } = useSWR<DepartmentRolesResponse>(
-    departmentRolesKey,
-    {
-      revalidateOnFocus: false,
-      revalidateOnReconnect: false,
-      refreshInterval: 0,
-    }
-  )
-  const departmentRoles = useMemo(() => {
-    return (departmentRolesData?.data || []).map((r) => ({ id: r.id, name: r.name }))
-  }, [departmentRolesData?.data])
 
   useEffect(() => {
     if (!loadError) {
@@ -288,20 +272,11 @@ export function AdminReportsView() {
     // Filter users by department if a department is selected
     if (selectedDepartment !== "all") {
       filtered = filtered.filter((u) => u.department_name === selectedDepartmentName)
-
-      setFilteredRoles(departmentRoles)
-
-      if (selectedRole !== "all" && !departmentRoles.some((r) => r.name === selectedRole)) {
-        setSelectedRole("all")
-      }
-    } else {
-      // If no department selected, show all roles
-      setFilteredRoles(allRoles)
     }
 
     // If a role is selected, filter users by role
     if (selectedRole !== "all") {
-      filtered = filtered.filter((user) => user.profession_role_name === selectedRole)
+      filtered = filtered.filter((user) => user.role_name === selectedRole)
     }
 
     setFilteredUsers(filtered)
@@ -310,7 +285,7 @@ export function AdminReportsView() {
     if (selectedUser !== "all" && !filtered.some((u) => u.user_id === selectedUser)) {
       setSelectedUser("all")
     }
-  }, [allUsers, allRoles, allDepartments, departmentRoles, selectedDepartment, selectedRole, selectedUser])
+  }, [allUsers, allRoles, allDepartments, selectedDepartment, selectedRole, selectedUser])
 
   const departmentsWithRoles = useMemo(() => {
     return allDepartments.filter((dept) => Boolean(dept?.name))
@@ -441,7 +416,6 @@ export function AdminReportsView() {
     setSelectedRole("all")
     setDateRange("all")
     setFilteredUsers(allUsers)
-    setFilteredRoles(allRoles)
   }
 
   if (isLoading) {
@@ -610,29 +584,15 @@ export function AdminReportsView() {
                       // Reset user when role changes
                       setSelectedUser("all")
                     }}
-                    disabled={selectedDepartment === "all" || isDepartmentRolesLoading}
                   >
                     <SelectTrigger id="role-filter" className="min-w-[160px]">
-                      <SelectValue
-                        placeholder={
-                          selectedDepartment === "all"
-                            ? "Select department first"
-                            : isDepartmentRolesLoading
-                              ? "Loading roles..."
-                              : "All roles"
-                        }
-                      />
+                      <SelectValue placeholder="All roles" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">
                         <span className="text-muted-foreground font-semibold">All Professional Roles</span>
                       </SelectItem>
-                      {isDepartmentRolesLoading && (
-                        <SelectItem value="__loading_roles" disabled>
-                          Loading...
-                        </SelectItem>
-                      )}
-                      {filteredRoles.map((role) => (
+                      {allRoles.map((role) => (
                         <SelectItem key={role.id} value={role.name}>
                           {role.name}
                         </SelectItem>
@@ -982,29 +942,16 @@ export function AdminReportsView() {
                         setSelectedRole(value)
                         setSelectedUser("all")
                       }}
-                      disabled={selectedDepartment === "all" || isDepartmentRolesLoading}
+                      disabled={selectedDepartment === "all"}
                     >
                       <SelectTrigger id="cal-role-filter" className="h-8 w-24 sm:w-32">
-                        <SelectValue
-                          placeholder={
-                            selectedDepartment === "all"
-                              ? "Select dept"
-                              : isDepartmentRolesLoading
-                                ? "Loading roles..."
-                                : "All roles"
-                          }
-                        />
+                        <SelectValue placeholder={selectedDepartment === "all" ? "Select dept" : "All roles"} />
                       </SelectTrigger>
                       <SelectContent>
                         <SelectItem value="all">
                           <span className="text-muted-foreground font-semibold">All Professional Roles</span>
                         </SelectItem>
-                        {isDepartmentRolesLoading && (
-                          <SelectItem value="__loading_roles" disabled>
-                            Loading...
-                          </SelectItem>
-                        )}
-                        {filteredRoles.map((role) => (
+                        {allRoles.map((role) => (
                           <SelectItem key={role.id} value={role.name}>
                             {role.name}
                           </SelectItem>

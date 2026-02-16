@@ -7,7 +7,6 @@ import { LandingPage } from "./landing-page"
 import { ThankYouPage } from "./thank-you-page"
 import { SearchDialog } from "./search-dialog"
 import { AnalyticsDashboard } from "./analytics-dashboard"
-import { SupabaseNav } from "./supabase-nav"
 import { Button } from "./ui/button"
 import { useRoleQuestions } from "@/hooks/use-role-questions"
 import type { RoleQuestion } from "@/hooks/use-role-questions"
@@ -21,7 +20,7 @@ import { ApiError, apiFetch, getErrorMessage } from "@/lib/api-client"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { isFeatureEnabledClient } from "@/lib/feature-flags/client"
-import { canCreateEntryForDate, getToday } from "@/lib/date-restrictions"
+import { canCreateEntryForDate, getAllowedDates, getToday } from "@/lib/date-restrictions"
 import { useRouter } from "next/navigation"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { ChevronDown } from "lucide-react"
@@ -32,7 +31,6 @@ interface MainLayoutUpdatedProps {
 
 type DepartmentMembership = {
   department_id: string
-  role: string
   department: {
     id: string
     name: string
@@ -71,18 +69,10 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
     router.replace("/login")
   }, [isAuthLoading, router, user])
 
-  const canAccessDepartments =
-    hasRole("admin") ||
-    hasRole("system-admin") ||
-    canAccessAdmin ||
-    hasPermission("departments.own.read") ||
-    hasPermission("departments.read") ||
-    hasPermission("departments.members.read") ||
-    hasPermission("departments.members.manage")
-
   const [isRequestingAccess, setIsRequestingAccess] = useState(false)
 
   const [memberships, setMemberships] = useState<DepartmentMembership[]>([])
+  const [hasSystemWideDeptAccess, setHasSystemWideDeptAccess] = useState(false)
   const [isLoadingDepartments, setIsLoadingDepartments] = useState(false)
   const [departmentsLoadStatus, setDepartmentsLoadStatus] = useState<"idle" | "loading" | "loaded" | "error">("idle")
   const [activeDepartmentId, setActiveDepartmentId] = useState<string | null>(null)
@@ -104,9 +94,10 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
       try {
         setIsLoadingDepartments(true)
         setDepartmentsLoadStatus("loading")
-        const json = await apiFetch<{ data: DepartmentMembership[] }>("/api/departments")
+        const json = await apiFetch<{ data: DepartmentMembership[]; hasSystemWideAccess: boolean }>("/api/departments")
         const rows = (json.data || []) as DepartmentMembership[]
         setMemberships(rows)
+        setHasSystemWideDeptAccess(json.hasSystemWideAccess || false)
         setDepartmentsLoadStatus("loaded")
 
         if (process.env.NODE_ENV === "development") {
@@ -121,7 +112,6 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
             rows.map((m) => ({
               department_id: m.department_id,
               department_name: m.department?.name,
-              access_control_role: m.role,
               is_department_active: m.department?.is_active,
             }))
           )
@@ -139,7 +129,7 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
           if (prev && departmentIds.includes(prev)) return prev
           return rows[0].department_id
         })
-      } catch (error) {
+      } catch (error: unknown) {
         if (process.env.NODE_ENV === "development") {
           console.log("=== DEPARTMENTS LOAD ERROR ===")
           console.log("Error:", error)
@@ -170,7 +160,7 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
     console.log("Supabase User ID:", user.id)
     console.log("Active Department ID:", activeDepartmentId)
     console.log("Active Department Name:", membership?.department?.name)
-    console.log("Department Access-Control Role:", membership?.role)
+    console.log("Department Access via access_levels:", membership ? "Yes" : "No")
     console.log("========================================")
   }, [activeDepartmentId, memberships, user])
 
@@ -189,6 +179,14 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
     if (!activeDepartmentId) return []
     return entries.filter((e) => e.department_id === activeDepartmentId)
   }, [entries, activeDepartmentId])
+
+  const allowedDates = useMemo(() => getAllowedDates(), [])
+  const hasReportsForAllAllowedDates = useMemo(() => {
+    if (!activeDepartmentId) return false
+    return allowedDates.every((d) =>
+      entriesForDepartment.some((e) => e.date === d && Array.isArray(e.customResponses) && e.customResponses.length > 0)
+    )
+  }, [activeDepartmentId, allowedDates, entriesForDepartment])
 
   const { questions: roleQuestions, isLoading: isRoleQuestionsLoading } = useRoleQuestions(
     initialRoleQuestions,
@@ -346,24 +344,31 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
               )}
 
               {/* New Report */}
-              {user && !showNoMembershipsMessage && viewMode !== "form" && (
-                <Button
-                  size="sm"
-                  className="gap-2"
-                  disabled={!canStartNewReport}
-                  title={!canStartNewReport ? newReportDisabledReason : undefined}
-                  onClick={() => {
-                    if (!canStartNewReport) return
-                    setEditingDate(undefined)
-                    setViewMode("form")
-                  }}
-                >
-                  <FileText className="h-4 w-4" />
-                  New Report
-                </Button>
-              )}
+              {user &&
+                !showNoMembershipsMessage &&
+                viewMode !== "form" &&
+                (hasReportsForAllAllowedDates ? (
+                  <div className="text-muted-foreground max-w-[260px] text-xs leading-snug">
+                    You've already submitted reports for the last 3 allowed days.
+                  </div>
+                ) : (
+                  <Button
+                    size="sm"
+                    className="gap-2"
+                    disabled={!canStartNewReport}
+                    title={!canStartNewReport ? newReportDisabledReason : undefined}
+                    onClick={() => {
+                      if (!canStartNewReport) return
+                      setEditingDate(undefined)
+                      setViewMode("form")
+                    }}
+                  >
+                    <FileText className="h-4 w-4" />
+                    New Report
+                  </Button>
+                ))}
 
-              {user && !rbacLoading && (canAccessDepartments || memberships.length > 0) && departmentsEnabled && (
+              {user && !rbacLoading && hasSystemWideDeptAccess && departmentsEnabled && (
                 <Link href="/departments">
                   <Button variant="outline" size="sm" className="gap-2">
                     <Building2 className="h-4 w-4" />
@@ -424,7 +429,21 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
       {/* Main Content */}
       <main className="w-full flex-1 overflow-hidden">
         <div className="mx-auto h-full max-w-7xl px-4 py-6 sm:px-6 lg:px-8">
-          {showNoMembershipsMessage ? (
+          {isAuthLoading ? (
+            <div className="flex h-full items-center justify-center">
+              <div className="text-muted-foreground flex items-center gap-2 text-sm">
+                <div className="border-primary h-4 w-4 animate-spin rounded-full border-2 border-t-transparent" />
+                <span>Loading…</span>
+              </div>
+            </div>
+          ) : !user ? (
+            <div className="flex h-full items-center justify-center">
+              <div className="text-muted-foreground flex items-center gap-2 text-sm">
+                <div className="border-primary h-4 w-4 animate-spin rounded-full border-2 border-t-transparent" />
+                <span>Redirecting to login…</span>
+              </div>
+            </div>
+          ) : showNoMembershipsMessage ? (
             <div className="flex h-full items-center justify-center">
               <div className="bg-card w-full max-w-xl rounded-xl border p-8 shadow-sm">
                 <h2 className="text-xl font-semibold">Not assigned</h2>
@@ -439,6 +458,7 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
               canCreateNewReport={canStartNewReport}
               newReportDisabledReason={newReportDisabledReason}
               hasSubmittedReports={hasSubmittedReports}
+              hasReportsForAllAllowedDates={hasReportsForAllAllowedDates}
               onRequestAccess={canRequestAccess ? handleRequestAccess : undefined}
               isRequestingAccess={isRequestingAccess}
               onNewReport={() => {
@@ -502,35 +522,37 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
                 </div>
               }
             >
-              <div className="flex h-full gap-6">
-                <div className="w-[380px] shrink-0">
-                  <div className="sticky top-0 flex h-full flex-col">
-                    <CalendarView
-                      selectedDate={selectedDate}
-                      onDateSelect={handleDateSelect}
-                      entries={entriesForDepartment}
-                    />
+              <div className="flex h-full flex-col gap-6">
+                <div className="flex flex-1 gap-6 overflow-hidden">
+                  <div className="w-[380px] shrink-0">
+                    <div className="sticky top-0 flex flex-col">
+                      <CalendarView
+                        selectedDate={selectedDate}
+                        onDateSelect={handleDateSelect}
+                        entries={entriesForDepartment}
+                      />
+                    </div>
                   </div>
-                </div>
 
-                <div className="min-w-0 flex-1 overflow-y-auto">
-                  {activeDepartmentId && (
-                    <EntryDetails
-                      date={selectedDate}
-                      departmentId={activeDepartmentId}
-                      entry={logDetail}
-                      isLoading={isLogDetailLoading}
-                      onBack={() => setViewMode("calendar")}
-                      onViewEntry={(date) => {
-                        setLogDetail(null)
-                        setSelectedDate(date)
-                        if (activeDepartmentId) {
-                          void loadLogDetail(date, activeDepartmentId)
-                        }
-                        setViewMode("details")
-                      }}
-                    />
-                  )}
+                  <div className="min-w-0 flex-1 overflow-y-auto">
+                    {activeDepartmentId && (
+                      <EntryDetails
+                        date={selectedDate}
+                        departmentId={activeDepartmentId}
+                        entry={logDetail}
+                        isLoading={isLogDetailLoading}
+                        onBack={() => setViewMode("calendar")}
+                        onViewEntry={(date) => {
+                          setLogDetail(null)
+                          setSelectedDate(date)
+                          if (activeDepartmentId) {
+                            void loadLogDetail(date, activeDepartmentId)
+                          }
+                          setViewMode("details")
+                        }}
+                      />
+                    )}
+                  </div>
                 </div>
               </div>
             </Suspense>

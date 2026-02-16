@@ -12,10 +12,10 @@ import { useCaptainLog } from "@/contexts/supabase-log-context"
 import { useAuth } from "@/contexts/auth-context"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { useRBAC } from "@/hooks/use-rbac"
-import { useRoleQuestions } from "@/hooks/use-role-questions"
+import { useRoleQuestions, type RoleQuestion } from "@/hooks/use-role-questions"
 import { RoleBasedQuestionFields } from "@/components/role-based-question-fields"
 import { DateRestrictionBanner, QuickDateChips } from "@/components/features/daily-log/molecules"
-import type { QuestionResponse } from "@/lib/rbac/types"
+import type { CustomQuestion, QuestionResponse } from "@/lib/rbac/types"
 import { ArrowLeft, ArrowRight, Save, Eye, AlertCircle, ListChecks, Pencil, CalendarDays, Lock } from "lucide-react"
 import { toast } from "sonner"
 import {
@@ -35,7 +35,7 @@ interface EntryFormMultistepProps {
   departmentId: string
   onSave: () => void
   onCancel: () => void
-  initialRoleQuestions?: any[]
+  initialRoleQuestions?: unknown[]
 }
 
 export function EntryFormMultistep({
@@ -49,8 +49,12 @@ export function EntryFormMultistep({
   const { isAuthenticated, user } = useAuth()
   const { user: supabaseUser } = useSupabaseAuth() // Supabase authentication
   const { validateResponse, processResponses } = useRBAC()
-  const { questions: roleQuestions } = useRoleQuestions(initialRoleQuestions, departmentId)
+  const { questions: roleQuestions } = useRoleQuestions(
+    initialRoleQuestions as RoleQuestion[] | undefined,
+    departmentId
+  )
   const roleQuestionsRef = useRef(roleQuestions)
+  const didAutoPickDefaultDateRef = useRef(false)
   const roleQuestionsSignature = useMemo(() => {
     return roleQuestions
       .map((q) => {
@@ -79,6 +83,28 @@ export function EntryFormMultistep({
   const datePickerTriggerRef = useRef<HTMLButtonElement | null>(null)
   const [datePickerWidth, setDatePickerWidth] = useState<number | null>(null)
 
+  useEffect(() => {
+    if (initialDate) return
+    if (didAutoPickDefaultDateRef.current) return
+
+    const today = getToday()
+    if (selectedDate !== today) return
+
+    const yesterday = getDaysAgo(1)
+    const twoDaysAgo = getMinAllowedDate()
+
+    const hasEntry = (date: string) => entriesForDepartment.some((e) => e.date === date)
+    const candidate = [today, yesterday, twoDaysAgo].find((d) => !hasEntry(d))
+
+    if (candidate && candidate !== selectedDate) {
+      didAutoPickDefaultDateRef.current = true
+      setSelectedDate(candidate)
+      return
+    }
+
+    didAutoPickDefaultDateRef.current = true
+  }, [entriesForDepartment, initialDate, selectedDate])
+
   const [formData, setFormData] = useState({
     // Legacy fields (kept for backward compatibility with existing entries)
     objectives: "",
@@ -91,7 +117,7 @@ export function EntryFormMultistep({
     systemImprovements: "",
     projectUpdates: "",
   })
-  const [customResponses, setCustomResponses] = useState<Record<string, any>>({})
+  const [customResponses, setCustomResponses] = useState<Record<string, unknown>>({})
   const [customErrors, setCustomErrors] = useState<Record<string, string>>({})
   const [dateError, setDateError] = useState<string | null>(null)
   const [liveMessage, setLiveMessage] = useState("")
@@ -107,9 +133,9 @@ export function EntryFormMultistep({
   }, [selectedDate])
 
   const userIdForDraft = useMemo(() => {
-    const anyUser = user as unknown as { id?: unknown; email?: unknown }
-    const id = typeof anyUser?.id === "string" ? anyUser.id : null
-    const email = typeof anyUser?.email === "string" ? anyUser.email : null
+    const userWithId = user as unknown as { id?: unknown; email?: unknown }
+    const id = typeof userWithId?.id === "string" ? userWithId.id : null
+    const email = typeof userWithId?.email === "string" ? userWithId.email : null
     return supabaseUser?.id || id || email || "anon"
   }, [supabaseUser?.id, user])
 
@@ -136,11 +162,11 @@ export function EntryFormMultistep({
       if (!key) return
 
       if (!required) {
-        shape[key] = z.any().optional()
+        shape[key] = z.unknown().optional()
         return
       }
 
-      shape[key] = z.any().refine(
+      shape[key] = z.unknown().refine(
         (value) => {
           if (type === "checkbox") {
             return value === true
@@ -207,24 +233,24 @@ export function EntryFormMultistep({
   }, [])
 
   const buildInitialCustomResponses = useCallback((existingResponses?: QuestionResponse[]) => {
-    const responseMap: Record<string, any> = {}
+    const responseMap: Record<string, unknown> = {}
 
     roleQuestionsRef.current.forEach((question) => {
-      const q = question as any
+      const q = question as Record<string, unknown>
       const existing = existingResponses?.find(
         (response) => response.questionId === q.id || response.questionKey === q.key
       )
 
       if (existing) {
-        responseMap[q.key] = existing.value
+        responseMap[String(q.key)] = existing.value
       } else if (q.defaultValue !== undefined) {
-        responseMap[q.key] = q.defaultValue
+        responseMap[String(q.key)] = q.defaultValue
       } else if (q.type === "multiselect") {
-        responseMap[q.key] = []
+        responseMap[String(q.key)] = []
       } else if (q.type === "checkbox") {
-        responseMap[q.key] = false
+        responseMap[String(q.key)] = false
       } else {
-        responseMap[q.key] = ""
+        responseMap[String(q.key)] = ""
       }
     })
 
@@ -265,9 +291,9 @@ export function EntryFormMultistep({
 
     if (existingEntry) {
       const baseFormData = {
-        objectives: (existingEntry as any).objectives || "",
-        keyResults: (existingEntry as any).keyResults || "",
-        challenges: (existingEntry as any).challenges || "",
+        objectives: (existingEntry as Record<string, unknown>).objectives || "",
+        keyResults: (existingEntry as Record<string, unknown>).keyResults || "",
+        challenges: (existingEntry as Record<string, unknown>).challenges || "",
         developmentTasks: existingEntry.developmentTasks || "",
         featuresCompleted: existingEntry.featuresCompleted || "",
         challengesAndBlockers: existingEntry.challengesAndBlockers || "",
@@ -276,17 +302,20 @@ export function EntryFormMultistep({
         projectUpdates: existingEntry.projectUpdates || "",
       }
       // Fix the type issue by ensuring all required fields are present
-      const fixedResponses = (existingEntry.customResponses || []).map((response) => ({
-        questionId: response.questionId || "",
-        questionKey: response.questionKey || "",
-        questionLabel: response.questionLabel || "",
-        questionType: response.questionType || "text",
-        questionCategory: response.questionCategory || undefined,
-        value: response.value,
-        timestamp: response.timestamp || new Date().toISOString(),
-      }))
+      const fixedResponses = (existingEntry.customResponses || []).map((response) => {
+        const resp = response as Record<string, unknown>
+        return {
+          questionId: String(resp.questionId || ""),
+          questionKey: String(resp.questionKey || ""),
+          questionLabel: String(resp.questionLabel || ""),
+          questionType: String(resp.questionType || "text"),
+          questionCategory: resp.questionCategory,
+          value: resp.value,
+          timestamp: String(resp.timestamp || new Date().toISOString()),
+        }
+      })
 
-      const baseResponses = buildInitialCustomResponses(fixedResponses)
+      const baseResponses = buildInitialCustomResponses(fixedResponses as QuestionResponse[])
       const mergedFormData =
         hasDraft && draftObj?.formData && typeof draftObj.formData === "object"
           ? { ...baseFormData, ...(draftObj.formData as Record<string, unknown>) }
@@ -297,7 +326,7 @@ export function EntryFormMultistep({
           : baseResponses
 
       setFormData(mergedFormData as typeof formData)
-      setCustomResponses(mergedResponses as Record<string, any>)
+      setCustomResponses(mergedResponses as Record<string, unknown>)
       if (hasDraft && typeof draftObj?.currentStep === "number") {
         setCurrentStep(draftObj.currentStep)
       }
@@ -325,7 +354,7 @@ export function EntryFormMultistep({
           : baseResponses
 
       setFormData(mergedFormData as typeof formData)
-      setCustomResponses(mergedResponses as Record<string, any>)
+      setCustomResponses(mergedResponses as Record<string, unknown>)
       if (hasDraft && typeof draftObj?.currentStep === "number") {
         setCurrentStep(draftObj.currentStep)
       }
@@ -380,8 +409,8 @@ export function EntryFormMultistep({
 
     // One step per role question, with a dedicated title (falls back to label)
     roleQuestions.forEach((question, index) => {
-      const q: any = question
-      const title = q.title || q.label || `Question ${index + 1}`
+      const q = question as Record<string, unknown>
+      const title = String(q.title || q.label || `Question ${index + 1}`)
       stepsList.push({
         key: `question-${q.key}`,
         title,
@@ -402,7 +431,7 @@ export function EntryFormMultistep({
     }
   }, [steps, currentStep])
 
-  const handleCustomResponseChange = useCallback((questionKey: string, value: any) => {
+  const handleCustomResponseChange = useCallback((questionKey: string, value: unknown) => {
     setCustomResponses((prev) => ({ ...prev, [questionKey]: value }))
     setCustomErrors((prev) => {
       if (!prev[questionKey]) {
@@ -421,12 +450,12 @@ export function EntryFormMultistep({
     const mergedErrors: Record<string, string> = { ...zodErrors }
 
     roleQuestions.forEach((question) => {
-      const q = question as any
-      if (mergedErrors[q.key]) return
+      const q = question as Record<string, unknown>
+      if (mergedErrors[String(q.key)]) return
       try {
-        const error = validateResponse(q, customResponses[q.key])
+        const error = validateResponse(q as unknown as CustomQuestion, customResponses[String(q.key)])
         if (error) {
-          mergedErrors[q.key] = error
+          mergedErrors[String(q.key)] = error
         }
       } catch {
         // ignore
@@ -449,7 +478,10 @@ export function EntryFormMultistep({
       }
 
       const questionKey = step.key.replace("question-", "")
-      const question = roleQuestions.find((q: any) => q.key === questionKey) as any
+      const question = roleQuestions.find((q: Record<string, unknown>) => q.key === questionKey) as Record<
+        string,
+        unknown
+      >
 
       if (!question) {
         return true
@@ -458,16 +490,16 @@ export function EntryFormMultistep({
       const zodErrors = getZodErrors(customResponses)
       const mergedErrors: Record<string, string> = { ...zodErrors }
       try {
-        const error = validateResponse(question, customResponses[question.key])
+        const error = validateResponse(question as unknown as CustomQuestion, customResponses[String(question.key)])
         if (error) {
-          mergedErrors[question.key] = error
+          mergedErrors[String(question.key)] = error
         }
       } catch {
         // ignore
       }
 
-      if (mergedErrors[question.key]) {
-        setCustomErrors((prev) => ({ ...prev, [question.key]: mergedErrors[question.key] }))
+      if (mergedErrors[String(question.key)]) {
+        setCustomErrors((prev) => ({ ...prev, [String(question.key)]: mergedErrors[String(question.key)] }))
         setLiveMessage("Please fix the highlighted fields")
         return false
       }
@@ -527,19 +559,6 @@ export function EntryFormMultistep({
     setCurrentStep(targetStepNumber)
   }
 
-  // Check if a step can be navigated to
-  const canNavigateToStep = useCallback(
-    (targetStepNumber: number) => {
-      // Current step is always accessible
-      if (targetStepNumber === currentStep) return true
-      // Can always go backwards
-      if (targetStepNumber < currentStep) return true
-      // Can't jump forward from current step
-      return false
-    },
-    [currentStep]
-  )
-
   // Check if Next button should be disabled
   const isNextDisabled = useMemo(() => {
     const currentIndex = currentStep - 1
@@ -583,7 +602,7 @@ export function EntryFormMultistep({
 
       // Process custom responses for storage
       const processedCustom = processResponses(
-        roleQuestions.map((q) => q as any),
+        roleQuestions.map((q) => q as unknown as CustomQuestion),
         customResponses
       )
 
@@ -598,6 +617,12 @@ export function EntryFormMultistep({
 
       if (existingEntry) {
         // Update existing entry
+        console.log("[handleSubmit] Updating existing entry:", existingEntry.id)
+        console.log("[handleSubmit] Updates payload:", {
+          date: selectedDate,
+          ...formData,
+          customResponses: processedCustom.processedResponses,
+        })
         await updateEntry(existingEntry.id, {
           date: selectedDate,
           ...formData,
@@ -631,7 +656,7 @@ export function EntryFormMultistep({
     } catch (error) {
       console.error("Failed to save entry:", error)
       setLiveMessage("Failed to save entry")
-      const maybeError = error as any
+      const maybeError = error as Record<string, unknown>
       if (maybeError && maybeError.name === "CaptainLogError") {
         if (maybeError.code === "AUTH_ERROR") {
           toast.error("Please sign in to submit logs.")
@@ -657,12 +682,6 @@ export function EntryFormMultistep({
 
   const currentStepConfig = steps[currentStep - 1]
 
-  // First role-question step number (1-based), or -1 if none
-  const firstQuestionStepNumber = useMemo(() => {
-    const index = steps.findIndex((step) => step.key.startsWith("question-"))
-    return index >= 0 ? index + 1 : -1
-  }, [steps])
-
   const hasCustomErrors = useMemo(() => Object.values(customErrors).some(Boolean), [customErrors])
 
   const progressPercent = useMemo(() => {
@@ -680,12 +699,17 @@ export function EntryFormMultistep({
       return d.toLocaleDateString("default", { month: "short", day: "numeric" })
     }
 
-    return [
+    const allOptions = [
       { key: "twoDaysAgo", label: formatShort(twoDaysAgo), date: twoDaysAgo },
       { key: "yesterday", label: "Yesterday", date: yesterday },
       { key: "today", label: "Today", date: today },
     ]
-  }, [])
+
+    // Filter out dates that already have entries
+    return allOptions.filter((option) => {
+      return !entriesForDepartment.find((entry) => entry.date === option.date)
+    })
+  }, [entriesForDepartment])
 
   return (
     <div className="mx-auto flex h-full w-full max-w-3xl flex-col space-y-4">
@@ -824,7 +848,7 @@ export function EntryFormMultistep({
               </div>
 
               {/* Check if entry exists for selected date */}
-              {entries.find((entry) => entry.date === selectedDate) && (
+              {entriesForDepartment.find((entry) => entry.date === selectedDate) && (
                 <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-4">
                   <div className="flex items-start gap-4">
                     <AlertCircle className="mt-0 h-5 w-5 text-amber-500" />
@@ -852,7 +876,7 @@ export function EntryFormMultistep({
                 })
                 if (!question) return null
 
-                const valueForCount = customResponses[question.key]
+                const valueForCount = customResponses[String(question.key)]
                 const showCharacterCount =
                   (question.type === "text" || question.type === "textarea") && typeof valueForCount === "string"
 
@@ -911,7 +935,7 @@ export function EntryFormMultistep({
                   </h3>
                   <div className="space-y-4">
                     {roleQuestions.map((question) => {
-                      const value = customResponses[question.key]
+                      const value = customResponses[String(question.key)]
                       const displayValue = Array.isArray(value)
                         ? value.length
                           ? value.join(", ")

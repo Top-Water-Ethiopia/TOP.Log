@@ -1,54 +1,32 @@
 import { Suspense } from "react"
 import { redirect } from "next/navigation"
 import HomeUpdated from "./home-updated"
-import { createClient } from "@/lib/supabase/server"
+import { getUserRouteRedirect } from "@/lib/route-guards"
+import { getInitialRoleQuestions } from "@/lib/initial-data"
+import { PageSkeleton } from "@/components/page-skeleton"
+import { ErrorBoundary } from "@/components/error-boundary"
 
+/**
+ * Home page with optimized authentication and routing logic
+ * Features: Parallel queries, caching, enhanced UX, error boundaries
+ */
 export default async function Home() {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
+  // Check if user needs to be redirected based on role/permissions
+  // This now uses parallel queries and caching for optimal performance
+  const redirectPath = await getUserRouteRedirect()
 
-  if (!user) {
-    redirect("/login")
+  if (redirectPath) {
+    redirect(redirectPath)
   }
 
-  if (user) {
-    const { data: profile } = await supabase
-      .from("user_profiles")
-      .select("role_id")
-      .eq("user_id", user.id)
-      .maybeSingle()
-
-    const roleId = profile?.role_id ? String(profile.role_id) : null
-
-    if (roleId) {
-      const { data: adminPerm } = await supabase
-        .from("permissions")
-        .select("id")
-        .eq("role_id", roleId)
-        .eq("resource", "admin")
-        .eq("action", "system")
-        .limit(1)
-
-      if (adminPerm && adminPerm.length > 0) {
-        const { data: deptRole } = await supabase
-          .from("user_department_roles")
-          .select("department_id")
-          .eq("user_id", user.id)
-          .eq("is_active", true)
-          .limit(1)
-
-        if (!deptRole || deptRole.length === 0) {
-          redirect("/admin")
-        }
-      }
-    }
-  }
+  // Get initial role questions (currently empty, loaded dynamically)
+  const initialRoleQuestions = await getInitialRoleQuestions()
 
   return (
-    <Suspense fallback={null}>
-      <HomeUpdated initialRoleQuestions={[]} />
-    </Suspense>
+    <ErrorBoundary>
+      <Suspense fallback={<PageSkeleton />}>
+        <HomeUpdated initialRoleQuestions={initialRoleQuestions} />
+      </Suspense>
+    </ErrorBoundary>
   )
 }

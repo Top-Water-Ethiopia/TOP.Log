@@ -37,7 +37,7 @@ import { toast } from "sonner"
 export function MainLayout() {
   const { entries } = useCaptainLog()
   const { isAuthenticated, user, logout } = useAuth()
-  const { user: supabaseUser, profile: supabaseProfile } = useSupabaseAuth()
+  const { user: supabaseUser, profile: supabaseProfile, isLoading: isSupabaseAuthLoading } = useSupabaseAuth()
   const { canViewAnalytics, canAccessAdmin, canExportData, canImportData } = useRBAC()
   const isSupabaseLoggedIn = Boolean(supabaseUser)
 
@@ -245,7 +245,14 @@ export function MainLayout() {
       {/* Main Content */}
       <main className="w-full flex-1 overflow-hidden">
         <div className="mx-auto h-full max-w-[1300px] px-6 py-6">
-          {viewMode === "landing" ? (
+          {isSupabaseAuthLoading ? (
+            <div className="flex h-full items-center justify-center">
+              <div className="text-muted-foreground flex items-center gap-2 text-sm">
+                <div className="border-primary h-4 w-4 animate-spin rounded-full border-2 border-t-transparent" />
+                <span>Loading…</span>
+              </div>
+            </div>
+          ) : viewMode === "landing" ? (
             <LandingPage
               isAuthenticated={isSupabaseLoggedIn || (isAuthenticated && !!user)}
               onNewReport={() => {

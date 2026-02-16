@@ -6,7 +6,7 @@ import { Badge } from "@/components/ui/badge"
 import { Card } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useCaptainLog, type CaptainLogEntry } from "@/contexts/supabase-log-context"
-import { ArrowLeft, Edit, Trash2, AlertTriangle, Lock } from "lucide-react"
+import { ArrowLeft, Edit, AlertTriangle, Lock } from "lucide-react"
 import type { CustomQuestion, QuestionResponse } from "@/lib/rbac/types"
 import { canUpdateEntryForDate } from "@/lib/date-restrictions"
 import { useRoleQuestions } from "@/hooks/use-role-questions"
@@ -19,6 +19,7 @@ interface EntryDetailsProps {
   departmentId: string
   entry?: CaptainLogEntry | null
   isLoading?: boolean
+  hideHeader?: boolean
   onBack: () => void
   onViewEntry?: (date: string) => void
 }
@@ -30,7 +31,7 @@ type EditableRoleQuestion = {
   defaultValue?: unknown
 }
 
-export function EntryDetails({ date, departmentId, entry, isLoading, onBack }: EntryDetailsProps) {
+export function EntryDetails({ date, departmentId, entry, isLoading, hideHeader, onBack }: EntryDetailsProps) {
   const { entries, updateEntry } = useCaptainLog()
   const { questions: roleQuestions, isLoading: isRoleQuestionsLoading } = useRoleQuestions(undefined, departmentId)
   const { processResponses } = useRBAC()
@@ -107,6 +108,8 @@ export function EntryDetails({ date, departmentId, entry, isLoading, onBack }: E
     return roleQuestions.map((q) => String((q as { key?: unknown })?.key ?? "")).join("|")
   }, [roleQuestions])
 
+  const showHeader = !hideHeader
+
   useEffect(() => {
     if (!didSaveRecently) return
     const t = window.setTimeout(() => setDidSaveRecently(false), 2000)
@@ -168,7 +171,8 @@ export function EntryDetails({ date, departmentId, entry, isLoading, onBack }: E
   // Industrial standard: Show ONLY role-specific responses in Daily Log view
   // No legacy fields, no generic questions - only custom role-based Q&A
 
-  if (isLoading) {
+  // Show skeleton while loading entry or role questions
+  if (isLoading || isRoleQuestionsLoading) {
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
@@ -190,6 +194,28 @@ export function EntryDetails({ date, departmentId, entry, isLoading, onBack }: E
   }
 
   if (!currentEntry) {
+    // Show skeleton while role questions are loading even if no entry exists
+    if (isRoleQuestionsLoading) {
+      return (
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
+            <div>
+              <Skeleton className="h-8 w-40" />
+              <Skeleton className="mt-2 h-4 w-56" />
+            </div>
+            <Skeleton className="h-9 w-24" />
+          </div>
+          <Card className="p-6">
+            <div className="space-y-4">
+              <Skeleton className="h-6 w-48" />
+              <Skeleton className="h-24 w-full" />
+              <Skeleton className="h-24 w-full" />
+            </div>
+          </Card>
+        </div>
+      )
+    }
+
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
@@ -267,20 +293,23 @@ export function EntryDetails({ date, departmentId, entry, isLoading, onBack }: E
   return (
     <div className="flex h-full flex-col space-y-6">
       {/* Header */}
-      <div className="flex shrink-0 items-center justify-between">
-        <div className="flex-1">
-          <h2 className="text-foreground text-2xl font-semibold">Daily Log</h2>
-          <p className="text-muted-foreground mt-2 text-sm">{formatDate(date)}</p>
-          {!canEdit ? (
-            <div className="mt-2">
-              <Badge variant="secondary" className="gap-2" title="Entries older than 2 days are locked for editing">
-                <Lock className="h-3.5 w-3.5" />
-                Locked
-              </Badge>
-            </div>
-          ) : null}
-        </div>
-        <div className="flex items-center gap-2">
+      <div className="flex w-full shrink-0 items-start justify-between gap-4">
+        {showHeader ? (
+          <div className="min-w-0 flex-1">
+            <h2 className="text-foreground text-2xl font-semibold">Daily Log</h2>
+            <p className="text-muted-foreground mt-2 text-sm">{formatDate(date)}</p>
+            {!canEdit ? (
+              <div className="mt-2">
+                <Badge variant="secondary" className="gap-2" title="Entries older than 2 days are locked for editing">
+                  <Lock className="h-3.5 w-3.5" />
+                  Locked
+                </Badge>
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+
+        <div className="flex shrink-0 items-center gap-2">
           {isSaving ? (
             <span className="text-muted-foreground text-xs">Saving...</span>
           ) : didSaveRecently ? (
@@ -409,22 +438,26 @@ export function EntryDetails({ date, departmentId, entry, isLoading, onBack }: E
                 )
               })}
             </div>
-          ) : currentEntry.customResponses && currentEntry.customResponses.length > 0 ? (
+          ) : currentEntry.customResponses &&
+            currentEntry.customResponses.length > 0 &&
+            Array.isArray(roleQuestions) &&
+            roleQuestions.length > 0 ? (
             <div>
               <div className="space-y-4">
                 {currentEntry.customResponses.map((response, index) => {
+                  const resp = response as QuestionResponse
                   return (
                     <div
-                      key={`${response.questionId}-${response.timestamp}`}
+                      key={`${resp.questionId}-${resp.timestamp}`}
                       className="bg-muted/30 border-border/50 space-y-2 rounded-lg border p-4"
                     >
                       <div className="flex items-center justify-between gap-2">
                         <p className="text-foreground text-sm font-medium">
-                          {index + 1}) {response.questionLabel ?? response.questionKey}
+                          {index + 1}) {resp.questionLabel ?? resp.questionKey}
                         </p>
                       </div>
                       <p className="text-muted-foreground text-sm leading-relaxed whitespace-pre-wrap">
-                        {formatCustomResponseValue(response as QuestionResponse)}
+                        {formatCustomResponseValue(resp)}
                       </p>
                     </div>
                   )
@@ -447,25 +480,15 @@ export function EntryDetails({ date, departmentId, entry, isLoading, onBack }: E
         </div>
 
         {/* Footer Metadata */}
-        <div className="border-border mt-8 flex items-center justify-between border-t pt-6">
-          <div className="text-muted-foreground flex items-center gap-6 text-xs">
+        <div className="mt-auto flex items-center justify-between pt-2">
+          <div className="text-muted-foreground flex items-center gap-2 text-xs">
             <span>Created {formatTime(currentEntry.createdAt)}</span>
-            <span>•</span>
-            <span>Updated {formatTime(currentEntry.updatedAt)}</span>
-          </div>
-
-          {/* Delete Button - Disabled with Explanation */}
-          <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="sm"
-              disabled={true}
-              className="text-muted-foreground cursor-not-allowed gap-2 opacity-50"
-              title="Deleting entries is not allowed due to data retention policy"
-            >
-              <Trash2 className="h-4 w-4" />
-              Delete (Disabled)
-            </Button>
+            {currentEntry.createdAt !== currentEntry.updatedAt && (
+              <>
+                <span>•</span>
+                <span>Updated {formatTime(currentEntry.updatedAt)}</span>
+              </>
+            )}
           </div>
         </div>
       </Card>
