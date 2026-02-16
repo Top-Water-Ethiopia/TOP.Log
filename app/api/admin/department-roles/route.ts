@@ -1,7 +1,6 @@
 import { NextResponse } from "next/server"
 import { adminSupabase } from "@/lib/supabase/admin"
 import { verifyPermissionFromRequest } from "@/lib/rbac/server"
-import type { Database } from "@/lib/supabase/database.types"
 
 export const dynamic = "force-dynamic"
 
@@ -13,7 +12,14 @@ type DepartmentRoleRow = {
   is_default: boolean
 }
 
-type DepartmentRoleUpdate = Database["public"]["Tables"]["department_roles"]["Update"]
+type DepartmentRoleUpdate = {
+  key?: string
+  label?: string
+  sort_order?: number
+  is_active?: boolean
+  is_default?: boolean
+  updated_at?: string
+}
 
 function asObject(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) return {}
@@ -218,6 +224,32 @@ export async function DELETE(request: Request) {
 
   if (existingRow.is_default) {
     return NextResponse.json({ error: "Cannot delete the default role" }, { status: 409 })
+  }
+
+  // Check if any users are assigned to this role
+  const { data: userAssignments, error: assignmentError } = await adminSupabase
+    .from("user_department_roles")
+    .select("user_id, department_id")
+    .eq("role", key)
+    .limit(1)
+
+  if (assignmentError) {
+    return NextResponse.json(
+      { error: "Failed to check user assignments", message: assignmentError.message },
+      { status: 500 }
+    )
+  }
+
+  if (userAssignments && userAssignments.length > 0) {
+    return NextResponse.json(
+      {
+        error: "Cannot delete department role",
+        message: "This role is still assigned to users. Please reassign all users to another role before deleting.",
+        hasAssignments: true,
+        assignmentCount: userAssignments.length,
+      },
+      { status: 409 }
+    )
   }
 
   const { error } = await adminSupabase.from("department_roles").delete().eq("key", key)

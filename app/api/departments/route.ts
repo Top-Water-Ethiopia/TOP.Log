@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
+import { adminSupabase } from "@/lib/supabase/admin"
 
 export const dynamic = "force-dynamic"
 
@@ -15,14 +16,34 @@ export async function GET() {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const { data, error } = await supabase
-      .from("user_department_roles")
+    // Check system-wide permissions
+    const { data: profile } = await adminSupabase
+      .from("user_profiles")
+      .select("role_id")
+      .eq("user_id", user.id)
+      .single()
+
+    let hasSystemWideAccess = false
+    if (profile) {
+      const { data: permissions } = await adminSupabase
+        .from("permissions")
+        .select("resource, action")
+        .eq("role_id", profile.role_id)
+
+      const permissionNames = permissions?.map((p) => `${p.resource}.${p.action}`) || []
+      hasSystemWideAccess =
+        permissionNames.includes("departments.read") ||
+        permissionNames.includes("departments.own.read") ||
+        permissionNames.includes("admin.system")
+    }
+
+    // Check department access levels (new architecture)
+    const { data: accessLevels } = await supabase
+      .from("user_department_access_levels")
       .select(
         `
         department_id,
-        role,
-        is_active,
-        departments (
+        department:departments (
           id,
           name,
           description,
@@ -31,23 +52,18 @@ export async function GET() {
       `
       )
       .eq("user_id", user.id)
-      .eq("is_active", true)
 
-    if (error) {
-      return NextResponse.json({ error: "Failed to load departments", message: error.message }, { status: 500 })
-    }
-
-    const normalized = (data || [])
+    // Filter to only include departments with active access
+    const normalized = (accessLevels || [])
       .map((row: unknown) => {
         if (!row || typeof row !== "object") return null
         const r = row as Record<string, unknown>
-        const dept = r.departments as Record<string, unknown> | null | undefined
+        const dept = r.department as Record<string, unknown> | null | undefined
         if (!dept || typeof dept !== "object") return null
         const deptId = dept.id
         if (typeof deptId !== "string" || !deptId) return null
         return {
           department_id: String(r.department_id ?? ""),
-          role: String(r.role ?? ""),
           department: {
             id: deptId,
             name: String(dept.name ?? ""),
@@ -58,7 +74,11 @@ export async function GET() {
       })
       .filter(Boolean)
 
-    return NextResponse.json({ data: normalized })
+    // Return both system-wide access flag and department list
+    return NextResponse.json({
+      data: normalized,
+      hasSystemWideAccess,
+    })
   } catch (error) {
     return NextResponse.json(
       {

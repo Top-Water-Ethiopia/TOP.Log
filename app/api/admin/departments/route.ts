@@ -193,12 +193,64 @@ export async function DELETE(request: Request) {
       )
     }
 
+    // Check if department has any users assigned (even if UI filters them out)
+    const { count: userCount, error: usersError } = await adminSupabase
+      .from("user_profiles")
+      .select("id", { count: "exact", head: true })
+      .eq("department_id", id)
+
+    if (usersError) {
+      console.error("Error checking department users:", usersError)
+      // Continue with deletion attempt
+    }
+
+    if (typeof userCount === "number" && userCount > 0) {
+      return NextResponse.json(
+        {
+          error: "Cannot delete department",
+          message: `This department still has ${userCount} team member${userCount === 1 ? "" : "s"} assigned to it. Move them to another department (or remove their department assignment) and try again.`,
+        },
+        { status: 409 }
+      )
+    }
+
     // Delete department using admin client
     const { error } = await adminSupabase.from("departments").delete().eq("id", id)
 
     if (error) {
       console.error("Error deleting department:", error)
-      return NextResponse.json({ error: "Failed to delete department", message: error.message }, { status: 500 })
+
+      const errorMessage = typeof error.message === "string" ? error.message : ""
+      const errorCode =
+        typeof (error as unknown as { code?: unknown }).code === "string"
+          ? (error as unknown as { code: string }).code
+          : null
+
+      if (errorCode === "23503" || errorMessage.includes("violates foreign key constraint")) {
+        if (errorMessage.includes("user_profiles_department_id_fkey")) {
+          return NextResponse.json(
+            {
+              error: "Cannot delete department",
+              message:
+                "This department still has team members assigned to it. Move those users to another department (or remove their department assignment) and try again.",
+            },
+            { status: 409 }
+          )
+        }
+
+        return NextResponse.json(
+          {
+            error: "Cannot delete department",
+            message: "This department is still in use. Remove anything linked to it and try again.",
+          },
+          { status: 409 }
+        )
+      }
+
+      return NextResponse.json(
+        { error: "Failed to delete department", message: errorMessage || "Unknown error" },
+        { status: 500 }
+      )
     }
 
     return NextResponse.json({ success: true })

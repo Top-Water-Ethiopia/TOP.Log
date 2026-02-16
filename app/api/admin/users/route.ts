@@ -11,8 +11,6 @@ async function clearUserOwnershipReferences(userId: string) {
   const updates: Array<{ table: string; column: string }> = [
     { table: "departments", column: "created_by" },
     { table: "departments", column: "updated_by" },
-    { table: "report_questions", column: "created_by" },
-    { table: "report_questions", column: "updated_by" },
     { table: "user_department_roles", column: "created_by" },
     { table: "user_department_roles", column: "updated_by" },
     { table: "user_department_professions", column: "created_by" },
