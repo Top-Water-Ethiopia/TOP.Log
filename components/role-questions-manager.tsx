@@ -77,6 +77,7 @@ interface RoleQuestion {
   id: string
   role_id: string | null
   department_id?: string | null
+  department_role?: string | null
   question_key: string
   question_label: string
   question_type: string
@@ -110,6 +111,7 @@ type RoleQuestionsManagerProps = {
   fixedRole?: Role | null
   departmentId?: string
   departmentOnly?: boolean
+  departmentRole?: string
   hideHeader?: boolean
   hideStatistics?: boolean
   hideFilters?: boolean
@@ -144,6 +146,7 @@ export function RoleQuestionsManager({
   fixedRole,
   departmentId,
   departmentOnly,
+  departmentRole,
   hideHeader,
   hideStatistics,
   hideFilters,
@@ -630,7 +633,14 @@ export function RoleQuestionsManager({
     let filtered = questions
 
     if (departmentOnly && departmentId) {
-      filtered = filtered.filter((q) => q.department_id === departmentId)
+      filtered = filtered.filter(
+        (q) => q.department_id === departmentId && (q.department_role === null || q.department_role === undefined)
+      )
+    }
+
+    // Department role filter (profession-specific)
+    if (departmentRole && departmentId) {
+      filtered = filtered.filter((q) => q.department_id === departmentId && q.department_role === departmentRole)
     }
 
     // Role filter
@@ -694,6 +704,7 @@ export function RoleQuestionsManager({
     sortDirection,
     departmentOnly,
     departmentId,
+    departmentRole,
   ])
 
   // Group questions by role for grouped view

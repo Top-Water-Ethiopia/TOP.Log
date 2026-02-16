@@ -35,16 +35,26 @@ type Department = {
 type RoleRow = {
   id: string
   name: string
-  description: string | null
   department_id: string | null
-  department?: Department | null
 }
 
 type RoleQuestionRow = {
   id: string
-  role_id: string
-  department_id?: string | null
+  department_id: string | null
+  department_role: string | null
+  question_label: string
+  question_type: string
+  question_description: string | null
+  placeholder: string | null
+  options: unknown
+  is_required: boolean
+  display_order: number
+  validation_rules: unknown
   is_active: boolean
+  created_at: string
+  updated_at: string
+  metadata: unknown
+  question_key?: string | null
 }
 
 export default function AdminRoleQuestionsPage() {
@@ -55,35 +65,22 @@ export default function AdminRoleQuestionsPage() {
 
   const defaultTab = searchParams?.get("tab") === "department_lead" ? "department_lead" : "professions"
 
-  const systemRoleIds = useMemo(
-    () =>
-      new Set([
-        "00000000-0000-0000-0000-000000000000",
-        "00000000-0000-0000-0000-000000000001",
-        "00000000-0000-0000-0000-000000000002",
-        "00000000-0000-0000-0000-000000000010",
-      ]),
-    []
-  )
-
   const { hasPermission, rbacChecked, rbacLoading } = useRBAC()
   const canAccessAdmin = hasPermission("admin.system")
 
   const lastLoadErrorRef = useRef<string | null>(null)
 
-  const rolesKey = canAccessAdmin ? "/api/admin/roles" : null
   const questionsKey = canAccessAdmin ? "/api/role-questions" : null
   const departmentsKey = canAccessAdmin ? "/api/admin/departments" : null
-  const {
-    data: rolesResponse,
-    error: rolesError,
-    isLoading: isRolesLoading,
-  } = useSWR<{ data: RoleRow[] }>(rolesKey, (url: string) => apiFetch<{ data: RoleRow[] }>(url))
+  const rolesKey = canAccessAdmin ? "/api/admin/roles" : null
   const {
     data: departmentsResponse,
     error: departmentsError,
     isLoading: isDepartmentsLoading,
   } = useSWR<{ data: Department[] }>(departmentsKey, (url: string) => apiFetch<{ data: Department[] }>(url))
+  const { data: rolesResponse } = useSWR<{ data: RoleRow[] }>(rolesKey, (url: string) =>
+    apiFetch<{ data: RoleRow[] }>(url)
+  )
   const {
     data: questionsResponse,
     error: questionsError,
@@ -91,12 +88,12 @@ export default function AdminRoleQuestionsPage() {
   } = useSWR<RoleQuestionRow[]>(questionsKey, (url: string) => apiFetch<RoleQuestionRow[]>(url))
 
   useEffect(() => {
-    if (!rolesError && !questionsError && !departmentsError) {
+    if (!questionsError && !departmentsError) {
       lastLoadErrorRef.current = null
       return
     }
 
-    const message = getErrorMessage(rolesError || questionsError || departmentsError, "Failed to load roles/questions")
+    const message = getErrorMessage(questionsError || departmentsError, "Failed to load roles/questions")
     if (lastLoadErrorRef.current !== message) {
       toast({
         title: "Error",
@@ -105,19 +102,35 @@ export default function AdminRoleQuestionsPage() {
       })
       lastLoadErrorRef.current = message
     }
-  }, [rolesError, questionsError, departmentsError, toast])
+  }, [questionsError, departmentsError, toast])
 
-  const roles = useMemo(() => rolesResponse?.data || [], [rolesResponse])
   const departments = useMemo(() => departmentsResponse?.data || [], [departmentsResponse])
+  const roles = useMemo(() => rolesResponse?.data || [], [rolesResponse])
   const questions = useMemo(() => (Array.isArray(questionsResponse) ? questionsResponse : []), [questionsResponse])
+
+  const departmentsById = useMemo(() => new Map(departments.map((d) => [d.id, d])), [departments])
+
+  const roleIdByDepartmentAndName = useMemo(() => {
+    const map = new Map<string, string>()
+    for (const r of roles) {
+      if (!r.department_id) continue
+      const key = `${r.department_id}:${r.name}`
+      map.set(key, r.id)
+    }
+    return map
+  }, [roles])
 
   const roleQuestionCounts = useMemo(() => {
     const map = new Map<string, { total: number; active: number }>()
     for (const q of questions) {
-      const current = map.get(q.role_id) || { total: 0, active: 0 }
-      current.total += 1
-      if (q.is_active) current.active += 1
-      map.set(q.role_id, current)
+      // Profession questions: department_id + department_role
+      if (q.department_id && q.department_role) {
+        const key = `${q.department_id}:${q.department_role}`
+        const current = map.get(key) || { total: 0, active: 0 }
+        current.total += 1
+        if (q.is_active) current.active += 1
+        map.set(key, current)
+      }
     }
     return map
   }, [questions])
@@ -125,33 +138,60 @@ export default function AdminRoleQuestionsPage() {
   const departmentQuestionCounts = useMemo(() => {
     const map = new Map<string, { total: number; active: number }>()
     for (const q of questions) {
-      const departmentId = typeof q.department_id === "string" ? q.department_id : null
-      if (!departmentId) continue
-      const current = map.get(departmentId) || { total: 0, active: 0 }
-      current.total += 1
-      if (q.is_active) current.active += 1
-      map.set(departmentId, current)
+      // Department lead questions: department_id + department_role IS NULL
+      if (q.department_id && !q.department_role) {
+        const current = map.get(q.department_id) || { total: 0, active: 0 }
+        current.total += 1
+        if (q.is_active) current.active += 1
+        map.set(q.department_id, current)
+      }
     }
     return map
   }, [questions])
 
   // Table data: professions grouped by department
   const rolesByDepartment = useMemo(() => {
-    const grouped = new Map<string, RoleRow[]>()
-    for (const role of roles) {
-      const counts = roleQuestionCounts.get(role.id) || { total: 0, active: 0 }
-      if (counts.total === 0) continue
-      if (systemRoleIds.has(role.id)) continue
-      const departmentName = role.department?.name || "Unassigned"
+    const grouped = new Map<
+      string,
+      {
+        key: string
+        label: string
+        departmentId: string
+        roleId: string | null
+      }[]
+    >()
+
+    // Group profession questions by department_id
+    for (const q of questions) {
+      if (!q.department_id || !q.department_role) continue
+
+      const countsKey = `${q.department_id}:${q.department_role}`
+      const current = roleQuestionCounts.get(countsKey) || { total: 0, active: 0 }
+      if (current.total === 0) continue
+
+      const department = departmentsById.get(q.department_id)
+      const departmentName = department?.name || "Unknown"
       const existing = grouped.get(departmentName) || []
-      existing.push(role)
+
+      const roleId = roleIdByDepartmentAndName.get(`${q.department_id}:${q.department_role}`) || null
+      existing.push({
+        key: q.department_role,
+        label: q.department_role.charAt(0).toUpperCase() + q.department_role.slice(1).replace(/-/g, " "),
+        departmentId: q.department_id,
+        roleId,
+      })
       grouped.set(departmentName, existing)
     }
-    for (const [, deptRoles] of grouped) {
-      deptRoles.sort((a, b) => (a.name || "").localeCompare(b.name || ""))
+
+    // Remove duplicates per department and sort
+    for (const [departmentName, deptRoles] of grouped) {
+      const unique = Array.from(new Map(deptRoles.map((r) => [r.key, r])).values())
+      unique.sort((a, b) => a.label.localeCompare(b.label))
+      grouped.set(departmentName, unique)
     }
+
     return Array.from(grouped.entries()).sort(([a], [b]) => a.localeCompare(b))
-  }, [roles, roleQuestionCounts, systemRoleIds])
+  }, [questions, roleQuestionCounts, departmentsById, roleIdByDepartmentAndName])
 
   // Table data: departments with lead questions
   const departmentsWithLeadQuestions = useMemo(() => {
@@ -282,7 +322,7 @@ export default function AdminRoleQuestionsPage() {
             </TabsList>
 
             <TabsContent value="professions" className="mt-4 space-y-2">
-              {isRolesLoading || isQuestionsLoading ? (
+              {isQuestionsLoading ? (
                 <div className="space-y-2">
                   {[...Array(8)].map((_, i) => (
                     <div key={i} className="flex items-center justify-between rounded-lg border p-4">
@@ -313,13 +353,16 @@ export default function AdminRoleQuestionsPage() {
                       <AccordionContent className="p-0">
                         <PaginatedTable
                           data={deptRoles.map((role) => {
-                            const counts = roleQuestionCounts.get(role.id) || { total: 0, active: 0 }
-                            const displayName =
-                              role.name.charAt(0).toUpperCase() + role.name.slice(1).replace(/-/g, " ")
+                            const counts = roleQuestionCounts.get(`${role.departmentId}:${role.key}`) || {
+                              total: 0,
+                              active: 0,
+                            }
                             return {
-                              roleId: role.id,
-                              professionName: displayName,
-                              departmentName: role.department?.name || "Unassigned",
+                              roleId: role.roleId,
+                              roleKey: role.key,
+                              departmentId: role.departmentId,
+                              professionName: role.label,
+                              departmentName: departmentName,
                               totalQuestions: counts.total,
                               activeQuestions: counts.active,
                             }
@@ -340,7 +383,11 @@ export default function AdminRoleQuestionsPage() {
                           ]}
                           searchKeys={["professionName", "departmentName"]}
                           searchPlaceholder="Search professions..."
-                          rowHref={(row) => `/admin/questions/${row.roleId}`}
+                          rowHref={(row) =>
+                            row.roleId
+                              ? `/admin/questions/${encodeURIComponent(row.roleId)}`
+                              : `/admin/questions/by-department/${encodeURIComponent(row.departmentId)}?role=${encodeURIComponent(row.roleKey)}`
+                          }
                           pageSize={10}
                           className="border-0 shadow-none"
                           headerClassName="border-b px-4"
@@ -397,7 +444,7 @@ export default function AdminRoleQuestionsPage() {
                   ]}
                   searchKeys={["departmentName"]}
                   searchPlaceholder="Search departments..."
-                  rowHref={(row) => `/admin/questions/by-department/${row.departmentId}`}
+                  rowHref={(row) => `/admin/questions/by-department/${encodeURIComponent(row.departmentId)}`}
                   pageSize={10}
                 />
               )}

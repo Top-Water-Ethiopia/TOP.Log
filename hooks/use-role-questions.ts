@@ -101,6 +101,9 @@ export function useRoleQuestions(initialQuestions?: RoleQuestion[], departmentId
         return
       }
 
+      // Key changed; clear stale questions immediately so the UI doesn't flash previous results.
+      setQuestions([])
+
       // Create new abort controller for this request
       const abortController = new AbortController()
       abortControllerRef.current = abortController

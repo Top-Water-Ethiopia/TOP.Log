@@ -13,7 +13,6 @@ import { Switch } from "@/components/ui/switch"
 import { Badge } from "@/components/ui/badge"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Checkbox } from "@/components/ui/checkbox"
-import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Separator } from "@/components/ui/separator"
 import { Plus, Trash2, CheckCircle2, AlertCircle, Loader2, Shield, Eye, EyeOff, Save, X, Users } from "lucide-react"
 import { toast } from "sonner"
@@ -22,6 +21,7 @@ type ApiRoleQuestion = {
   id?: unknown
   role_id?: unknown
   department_id?: unknown
+  department_role?: unknown
   question_key?: unknown
   question_label?: unknown
   question_type?: unknown
@@ -86,17 +86,20 @@ function createEmptyQuestion(displayOrder = 0): QuestionFormData {
   }
 }
 
-interface Role {
-  id: string
-  name: string
-  description: string | null
-  department_id: string | null
-}
-
 interface Department {
   id: string
   name: string
   description: string | null
+}
+
+interface DepartmentRole {
+  id?: string
+  key: string
+  label: string
+  sort_order: number
+  is_active: boolean
+  is_default: boolean
+  department_id?: string
 }
 
 interface QuestionFormData {
@@ -129,14 +132,14 @@ export function RoleQuestionsCreator() {
   const didApplyUrlDefaultsRef = useRef(false)
   const [currentStep, setCurrentStep] = useState<Step>("questions")
   const [questionScope, setQuestionScope] = useState<QuestionScope>("role")
-  const [selectedRole, setSelectedRole] = useState<Role | null>(null)
-  const selectedRoleId = selectedRole?.id
   const [departments, setDepartments] = useState<Department[]>([])
   const [isLoadingDepartments, setIsLoadingDepartments] = useState(true)
   const [selectedDepartment, setSelectedDepartment] = useState<Department | null>(null)
   const selectedDepartmentId = selectedDepartment?.id
-  const [roles, setRoles] = useState<Role[]>([])
-  const [isLoadingRoles, setIsLoadingRoles] = useState(true)
+  const [departmentRoles, setDepartmentRoles] = useState<DepartmentRole[]>([])
+  const [isLoadingDepartmentRoles, setIsLoadingDepartmentRoles] = useState(false)
+  const [selectedDepartmentRole, setSelectedDepartmentRole] = useState<DepartmentRole | null>(null)
+  const [selectedDepartmentForRole, setSelectedDepartmentForRole] = useState<Department | null>(null)
   const [isLoadingExistingQuestions, setIsLoadingExistingQuestions] = useState(false)
   const [questions, setQuestions] = useState<QuestionFormData[]>([])
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0)
@@ -163,7 +166,6 @@ export function RoleQuestionsCreator() {
     if (scopeParam === "department") {
       if (isLoadingDepartments) return
       setQuestionScope("department")
-      setSelectedRole(null)
       if (departmentIdParam) {
         const dept = departments.find((d) => d.id === departmentIdParam) || null
         setSelectedDepartment(dept)
@@ -173,16 +175,35 @@ export function RoleQuestionsCreator() {
     }
 
     if (scopeParam === "role") {
-      if (isLoadingRoles) return
+      if (isLoadingDepartments) return
       setQuestionScope("role")
-      setSelectedDepartment(null)
-      if (roleIdParam) {
-        const role = roles.find((r) => r.id === roleIdParam) || null
-        setSelectedRole(role)
+
+      if (!departmentIdParam) {
+        didApplyUrlDefaultsRef.current = true
+        return
       }
-      didApplyUrlDefaultsRef.current = true
+
+      const dept = departments.find((d) => d.id === departmentIdParam) || null
+      if (!dept) {
+        didApplyUrlDefaultsRef.current = true
+        return
+      }
+
+      setSelectedDepartmentForRole(dept)
+      setSelectedDepartmentRole(null)
+      setDepartmentRoles([])
+
+      void (async () => {
+        const roles = await loadDepartmentRoles(dept.id)
+        if (roleIdParam) {
+          const found = roles.find((r) => r.key === roleIdParam) || null
+          setSelectedDepartmentRole(found)
+        }
+        didApplyUrlDefaultsRef.current = true
+      })()
+      return
     }
-  }, [searchParams, departments, roles, isLoadingDepartments, isLoadingRoles])
+  }, [searchParams, departments, isLoadingDepartments])
 
   useEffect(() => {
     const loadDepartments = async () => {
@@ -209,41 +230,11 @@ export function RoleQuestionsCreator() {
     loadDepartments()
   }, [])
 
-  // Load roles
-  useEffect(() => {
-    const loadRoles = async () => {
-      try {
-        setIsLoadingRoles(true)
-        const response = await fetch("/api/admin/roles", {
-          credentials: "include",
-          headers: { "Content-Type": "application/json" },
-        })
-
-        if (!response.ok) throw new Error("Failed to load roles")
-
-        const result = await response.json()
-        const professionRoles = (result.data || []).filter((role: Role) => !!role.department_id)
-
-        if (professionRoles.length === 0) {
-          toast.info("No profession-specific roles found. Create one from the department admin page.")
-        }
-
-        setRoles(professionRoles)
-      } catch (error: unknown) {
-        console.error("Error loading roles:", error)
-        toast.error("Failed to load roles")
-      } finally {
-        setIsLoadingRoles(false)
-      }
-    }
-
-    loadRoles()
-  }, [])
-
   // Load existing question count for selected scope
   useEffect(() => {
-    const activeScopeId = questionScope === "role" ? selectedRoleId : selectedDepartmentId
-    if (!activeScopeId) {
+    const hasScope =
+      questionScope === "role" ? !!selectedDepartmentForRole && !!selectedDepartmentRole : !!selectedDepartment
+    if (!hasScope) {
       setRoleQuestionCount(0)
       setExistingRoleQuestionKeys([])
       setIsLoadingExistingQuestions(false)
@@ -268,10 +259,19 @@ export function RoleQuestionsCreator() {
         const allQuestions = (await response.json()) as unknown
         const rows: ApiRoleQuestion[] = Array.isArray(allQuestions) ? (allQuestions as ApiRoleQuestion[]) : []
 
+        const isRoleScope = questionScope === "role"
+        const targetDeptId = isRoleScope ? selectedDepartmentForRole!.id : selectedDepartmentId
+        const targetRoleKey = isRoleScope ? selectedDepartmentRole!.key : null
+
         const scopeQuestions = rows
           .filter((q) => {
-            if (questionScope === "role") return asString(q?.role_id) === selectedRoleId
-            return asString(q?.department_id) === selectedDepartmentId
+            const matchesDept = asString(q?.department_id) === targetDeptId
+            if (!matchesDept) return false
+            if (isRoleScope) {
+              return asString(q?.department_role) === targetRoleKey
+            }
+            // For department scope, department_role should be null/undefined
+            return q?.department_role === null || q?.department_role === undefined
           })
           .sort((a, b) => (asNumber(a?.display_order) ?? 0) - (asNumber(b?.display_order) ?? 0))
 
@@ -323,17 +323,18 @@ export function RoleQuestionsCreator() {
     }
 
     loadScopeQuestions()
-  }, [questionScope, selectedRoleId, selectedDepartmentId])
+  }, [questionScope, selectedDepartmentId, selectedDepartmentForRole, selectedDepartmentRole, selectedDepartment])
 
   // Initialize with one empty question only after a scope is selected
   useEffect(() => {
-    const hasScope = questionScope === "role" ? !!selectedRole : !!selectedDepartment
+    const hasScope =
+      questionScope === "role" ? !!selectedDepartmentForRole && !!selectedDepartmentRole : !!selectedDepartment
     if (!hasScope) return
     if (questions.length !== 0) return
 
     setQuestions([createEmptyQuestion(0)])
     setCurrentQuestionIndex(0)
-  }, [questionScope, selectedRole, selectedDepartment, questions.length])
+  }, [questionScope, selectedDepartmentForRole, selectedDepartmentRole, selectedDepartment, questions.length])
 
   const addQuestion = () => {
     const nextIndex = questions.length
@@ -357,21 +358,65 @@ export function RoleQuestionsCreator() {
     setQuestions(questions.map((q) => (q.id === id ? { ...q, ...updates } : q)))
   }
 
-  const handleRoleSelect = (roleId: string) => {
-    const role = roles.find((r) => r.id === roleId)
-    if (role) {
-      setQuestions([])
-      setCurrentQuestionIndex(0)
-      setSelectedRole(role)
-    }
-  }
-
   const handleDepartmentSelect = (departmentId: string) => {
     const department = departments.find((d) => d.id === departmentId)
     if (department) {
       setQuestions([])
       setCurrentQuestionIndex(0)
       setSelectedDepartment(department)
+    }
+  }
+
+  const handleDepartmentForRoleSelect = (departmentId: string) => {
+    const department = departments.find((d) => d.id === departmentId)
+    if (department) {
+      setQuestions([])
+      setCurrentQuestionIndex(0)
+      setSelectedDepartmentForRole(department)
+      setSelectedDepartmentRole(null)
+      // Load department roles when department is selected
+      void loadDepartmentRoles(department.id)
+      // Update URL with departmentId
+      const params = new URLSearchParams(searchParams?.toString() || "")
+      params.set("departmentId", department.id)
+      router.replace(`?${params.toString()}`, { scroll: false })
+    }
+  }
+
+  const handleDepartmentRoleSelect = (roleKey: string) => {
+    const role = departmentRoles.find((r) => r.key === roleKey)
+    if (role) {
+      setQuestions([])
+      setCurrentQuestionIndex(0)
+      setSelectedDepartmentRole(role)
+      // Update URL with roleId
+      const params = new URLSearchParams(searchParams?.toString() || "")
+      params.set("roleId", role.key)
+      router.replace(`?${params.toString()}`, { scroll: false })
+    }
+  }
+
+  async function loadDepartmentRoles(departmentId: string) {
+    try {
+      setIsLoadingDepartmentRoles(true)
+      const response = await fetch(`/api/admin/departments/${encodeURIComponent(departmentId)}/profession-roles`, {
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+      })
+
+      if (!response.ok) throw new Error("Failed to load department roles")
+
+      const result = await response.json()
+      const data = Array.isArray(result?.data) ? (result.data as DepartmentRole[]) : []
+      const activeRoles = data.filter((role) => role.is_active)
+      setDepartmentRoles(activeRoles)
+      return activeRoles
+    } catch (error: unknown) {
+      console.error("Error loading department roles:", error)
+      toast.error("Failed to load department roles")
+      return [] as DepartmentRole[]
+    } finally {
+      setIsLoadingDepartmentRoles(false)
     }
   }
 
@@ -410,7 +455,8 @@ export function RoleQuestionsCreator() {
   }, [questions])
 
   const handleSubmit = useCallback(async () => {
-    const scopeOk = questionScope === "role" ? !!selectedRole : !!selectedDepartment
+    const scopeOk =
+      questionScope === "role" ? !!selectedDepartmentForRole && !!selectedDepartmentRole : !!selectedDepartment
     if (!validateQuestions() || !scopeOk || !user) return
 
     try {
@@ -432,7 +478,12 @@ export function RoleQuestionsCreator() {
         const includeId = typeof q.id === "string" && !q.id.startsWith("temp-")
 
         const scopeFields =
-          questionScope === "role" ? { role_id: selectedRole!.id } : { department_id: selectedDepartment!.id }
+          questionScope === "role"
+            ? {
+                department_id: selectedDepartmentForRole!.id,
+                department_role: selectedDepartmentRole!.key,
+              }
+            : { department_id: selectedDepartment!.id }
 
         return {
           ...(includeId ? { id: q.id } : {}),
@@ -488,7 +539,16 @@ export function RoleQuestionsCreator() {
     } finally {
       setIsSubmitting(false)
     }
-  }, [existingRoleQuestionKeys, questionScope, questions, selectedDepartment, selectedRole, user, validateQuestions])
+  }, [
+    existingRoleQuestionKeys,
+    questionScope,
+    questions,
+    selectedDepartment,
+    selectedDepartmentForRole,
+    selectedDepartmentRole,
+    user,
+    validateQuestions,
+  ])
 
   useEffect(() => {
     const onSubmit = () => {
@@ -504,137 +564,234 @@ export function RoleQuestionsCreator() {
   // Render Role Selection Step
   const roleSelection = (
     <Card className="border-gray-200 p-6 shadow-sm">
-      <CardHeader className="pb-4">
-        <CardTitle className="flex items-center gap-2 text-lg font-semibold text-gray-900">
-          <Users className="h-5 w-5" />
+      <CardHeader className="pb-6">
+        <CardTitle className="flex items-center gap-2 text-xl font-semibold text-gray-900">
+          <Users className="h-5 w-5 text-blue-600" />
           Target Audience
         </CardTitle>
-        <CardDescription className="text-gray-600">Choose who will answer these questions</CardDescription>
+        <CardDescription className="text-base text-gray-600">Choose who will answer these questions</CardDescription>
       </CardHeader>
-      <CardContent className="space-y-4">
-        <div className="space-y-2">
-          <Label htmlFor="scope">Scope</Label>
-          <Select
-            value={questionScope}
-            onValueChange={(val) => {
-              const next = val === "department" ? "department" : "role"
-              setQuestionScope(next)
-              setSelectedRole(null)
-              setSelectedDepartment(null)
-              setQuestions([])
-              setCurrentQuestionIndex(0)
-              setRoleQuestionCount(0)
-              setExistingRoleQuestionKeys([])
-            }}
-          >
-            <SelectTrigger id="scope" className="mt-1.5" aria-describedby="scope-description">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="role" aria-describedby="role-help">
-                Role-based
-              </SelectItem>
-              <SelectItem value="department" aria-describedby="department-help">
-                Department-based
-              </SelectItem>
-            </SelectContent>
-          </Select>
-          <p id="scope-description" className="mt-1.5 text-xs text-gray-500">
-            {questionScope === "role"
-              ? "Questions will be assigned to specific job roles"
-              : "Questions will be assigned to entire departments"}
-          </p>
+      <CardContent className="space-y-6">
+        {/* Scope Selection - Department focused */}
+        <div className="space-y-3">
+          <Label htmlFor="scope" className="text-sm font-medium text-gray-900">
+            Question Scope
+          </Label>
+          <div className="flex flex-col gap-3 md:flex-row md:items-start md:gap-6">
+            <div className="flex-1 space-y-2">
+              <Select
+                value={questionScope}
+                onValueChange={(val) => {
+                  const next = val === "department" ? "department" : "role"
+                  setQuestionScope(next)
+                  setSelectedDepartment(null)
+                  setSelectedDepartmentRole(null)
+                  setSelectedDepartmentForRole(null)
+                  setDepartmentRoles([])
+                  setQuestions([])
+                  setCurrentQuestionIndex(0)
+                  setRoleQuestionCount(0)
+                  setExistingRoleQuestionKeys([])
+                }}
+              >
+                <SelectTrigger
+                  id="scope"
+                  className="h-11 border-gray-300 bg-white shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="department">
+                    <div className="flex items-center gap-2">
+                      <div className="h-2 w-2 rounded-full bg-blue-500" />
+                      Department-wide
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="role">
+                    <div className="flex items-center gap-2">
+                      <div className="h-2 w-2 rounded-full bg-gray-400" />
+                      Specific Role
+                    </div>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-xs leading-relaxed text-gray-500">
+                {questionScope === "department"
+                  ? "Questions will be assigned to all members in the department"
+                  : "Questions will be assigned to specific job roles within a department"}
+              </p>
+            </div>
+          </div>
         </div>
 
-        {isLoadingRoles || isLoadingDepartments ? (
-          <div className="flex items-center justify-center py-8">
-            <Loader2 className="h-6 w-6 animate-spin" />
+        {/* Department and Role Selection - Horizontal Layout */}
+        {isLoadingDepartments || isLoadingDepartmentRoles ? (
+          <div className="flex items-center justify-center py-12">
+            <div className="flex items-center gap-3">
+              <Loader2 className="h-5 w-5 animate-spin text-blue-600" />
+              <span className="text-sm text-gray-600">Loading options...</span>
+            </div>
           </div>
         ) : (
-          <>
+          <div className="space-y-4">
             {questionScope === "role" ? (
-              <div className="space-y-2">
-                <Label htmlFor="target-role">Select Role</Label>
-                <Select value={selectedRole?.id || ""} onValueChange={handleRoleSelect}>
-                  <SelectTrigger id="target-role" className="mt-1.5">
-                    <SelectValue placeholder="Choose a role..." />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {roles.map((role) => (
-                      <SelectItem key={role.id} value={role.id}>
-                        <div className="flex flex-col">
-                          <span className="font-medium">{role.name}</span>
+              /* Role-based selection - Horizontal layout */
+              <div className="space-y-4">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  {/* Department Selection */}
+                  <div className="space-y-2">
+                    <Label htmlFor="target-department" className="text-sm font-medium text-gray-900">
+                      Department
+                    </Label>
+                    <Select value={selectedDepartmentForRole?.id || ""} onValueChange={handleDepartmentForRoleSelect}>
+                      <SelectTrigger
+                        id="target-department"
+                        className="h-11 border-gray-300 bg-white shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                      >
+                        <SelectValue placeholder="Choose department" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {departments.map((dept) => (
+                          <SelectItem key={dept.id} value={dept.id}>
+                            <div className="flex flex-col">
+                              <span className="font-medium text-gray-900">{dept.name}</span>
+                              {dept.description && <span className="text-xs text-gray-500">{dept.description}</span>}
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Role Selection */}
+                  <div className="space-y-2">
+                    <Label htmlFor="target-role" className="text-sm font-medium text-gray-900">
+                      Role
+                    </Label>
+                    {isLoadingDepartmentRoles ? (
+                      <div className="flex h-11 items-center justify-center rounded-md border border-gray-300 bg-white">
+                        <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
+                      </div>
+                    ) : (
+                      <Select
+                        value={selectedDepartmentRole?.key || ""}
+                        onValueChange={handleDepartmentRoleSelect}
+                        disabled={!selectedDepartmentForRole}
+                      >
+                        <SelectTrigger
+                          id="target-role"
+                          className="h-11 border-gray-300 bg-white shadow-sm focus:border-blue-500 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-500"
+                        >
+                          <SelectValue placeholder="Choose role" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {departmentRoles.map((role) => (
+                            <SelectItem key={role.key} value={role.key}>
+                              <div className="flex items-center gap-2">
+                                <span className="font-medium text-gray-900">{role.label}</span>
+                                {role.is_default && (
+                                  <Badge variant="secondary" className="text-xs">
+                                    Default
+                                  </Badge>
+                                )}
+                              </div>
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    )}
+                  </div>
+                </div>
+
+                {selectedDepartmentForRole && selectedDepartmentRole && (
+                  <div className="rounded-lg border border-blue-200 bg-blue-50 p-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-blue-100">
+                          <Users className="h-4 w-4 text-blue-600" />
                         </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p id="role-help" className="mt-1.5 text-xs text-gray-500">
-                  Questions will be assigned to specific job roles
-                </p>
+                        <div>
+                          <p className="text-sm font-medium text-blue-900">
+                            {selectedDepartmentRole.label} at {selectedDepartmentForRole.name}
+                          </p>
+                          <p className="text-xs text-blue-700">Questions will be assigned to this specific role</p>
+                        </div>
+                      </div>
+                      <Badge variant="secondary" className="bg-blue-100 text-blue-800">
+                        {roleQuestionCount} existing
+                      </Badge>
+                    </div>
+                  </div>
+                )}
               </div>
             ) : (
-              <div className="space-y-2">
-                <Label htmlFor="target-department">Select Department</Label>
-                <Select value={selectedDepartment?.id || ""} onValueChange={handleDepartmentSelect}>
-                  <SelectTrigger id="target-department" className="mt-1.5">
-                    <SelectValue placeholder={isLoadingDepartments ? "Loading..." : "Choose a department..."} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {departments.map((dept) => (
-                      <SelectItem key={dept.id} value={dept.id}>
-                        <div className="flex flex-col">
-                          <span className="font-medium">{dept.name}</span>
+              /* Department-based selection */
+              <div className="space-y-3">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="target-department" className="text-sm font-medium text-gray-900">
+                      Department
+                    </Label>
+                    <Select value={selectedDepartment?.id || ""} onValueChange={handleDepartmentSelect}>
+                      <SelectTrigger
+                        id="target-department"
+                        className="h-11 border-gray-300 bg-white shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                      >
+                        <SelectValue placeholder={isLoadingDepartments ? "Loading..." : "Choose department"} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {departments.map((dept) => (
+                          <SelectItem key={dept.id} value={dept.id}>
+                            <div className="flex flex-col">
+                              <span className="font-medium text-gray-900">{dept.name}</span>
+                              {dept.description && <span className="text-xs text-gray-500">{dept.description}</span>}
+                            </div>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+
+                  {/* Additional department info slot */}
+                  <div className="space-y-2">
+                    <Label className="text-sm font-medium text-gray-900">Scope Type</Label>
+                    <div className="flex h-11 items-center rounded-md border border-gray-300 bg-gray-50 px-3">
+                      <div className="flex items-center gap-2">
+                        <div className="h-2 w-2 rounded-full bg-blue-500" />
+                        <span className="text-sm text-gray-700">Department-wide</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {selectedDepartment && (
+                  <div className="rounded-lg border border-green-200 bg-green-50 p-4">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-green-100">
+                          <Users className="h-4 w-4 text-green-600" />
                         </div>
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <p id="department-help" className="mt-1.5 text-xs text-gray-500">
-                  Questions will be assigned to entire departments
-                </p>
+                        <div>
+                          <p className="text-sm font-medium text-green-900">{selectedDepartment.name}</p>
+                          <p className="text-xs text-green-700">Questions will be assigned to all department members</p>
+                        </div>
+                      </div>
+                      <Badge variant="secondary" className="bg-green-100 text-green-800">
+                        {roleQuestionCount} existing
+                      </Badge>
+                    </div>
+                  </div>
+                )}
               </div>
             )}
 
             {isLoadingExistingQuestions && (
-              <div className="text-muted-foreground flex items-center gap-2 text-sm">
-                <Loader2 className="h-4 w-4 animate-spin" />
-                Loading existing questions...
+              <div className="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 p-3">
+                <Loader2 className="h-4 w-4 animate-spin text-gray-600" />
+                <span className="text-sm text-gray-600">Loading existing questions...</span>
               </div>
             )}
-
-            {questionScope === "role" && selectedRole && (
-              <Alert>
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>
-                  <div className="flex items-center justify-between">
-                    <span>
-                      Selected: <strong>{selectedRole.name}</strong>
-                    </span>
-                    <Badge variant="secondary">
-                      {roleQuestionCount} existing question{roleQuestionCount !== 1 ? "s" : ""}
-                    </Badge>
-                  </div>
-                </AlertDescription>
-              </Alert>
-            )}
-
-            {questionScope === "department" && selectedDepartment && (
-              <Alert>
-                <AlertCircle className="h-4 w-4" />
-                <AlertDescription>
-                  <div className="flex items-center justify-between">
-                    <span>
-                      Selected: <strong>{selectedDepartment.name}</strong>
-                    </span>
-                    <Badge variant="secondary">
-                      {roleQuestionCount} existing question{roleQuestionCount !== 1 ? "s" : ""}
-                    </Badge>
-                  </div>
-                </AlertDescription>
-              </Alert>
-            )}
-          </>
+          </div>
         )}
       </CardContent>
     </Card>
@@ -643,7 +800,11 @@ export function RoleQuestionsCreator() {
   // Render Success Step
   if (currentStep === "success") {
     const targetName =
-      questionScope === "role" ? selectedRole?.name : questionScope === "department" ? selectedDepartment?.name : null
+      questionScope === "role"
+        ? selectedDepartmentRole?.label
+        : questionScope === "department"
+          ? selectedDepartment?.name
+          : null
 
     return (
       <Card className="mx-auto max-w-2xl">
@@ -697,7 +858,8 @@ export function RoleQuestionsCreator() {
             <Button
               variant="outline"
               onClick={() => {
-                setSelectedRole(null)
+                setSelectedDepartmentRole(null)
+                setSelectedDepartmentForRole(null)
                 setSelectedDepartment(null)
                 setQuestions([])
                 setCurrentQuestionIndex(0)
@@ -718,9 +880,14 @@ export function RoleQuestionsCreator() {
   }
 
   // Render Questions Step (wizard mode)
-  const hasScope = questionScope === "role" ? !!selectedRole : !!selectedDepartment
+  const hasScope =
+    questionScope === "role" ? !!selectedDepartmentForRole && !!selectedDepartmentRole : !!selectedDepartment
   const selectedScopeName =
-    questionScope === "role" ? selectedRole?.name : questionScope === "department" ? selectedDepartment?.name : null
+    questionScope === "role"
+      ? selectedDepartmentRole?.label
+      : questionScope === "department"
+        ? selectedDepartment?.name
+        : null
 
   return (
     <div className="space-y-6">
@@ -735,11 +902,11 @@ export function RoleQuestionsCreator() {
               </div>
               <div className="space-y-1">
                 <p className="text-base font-medium">
-                  {questionScope === "role" ? "Select a role to start" : "Select a department to start"}
+                  {questionScope === "role" ? "Select a department and role to start" : "Select a department to start"}
                 </p>
                 <p className="text-muted-foreground text-sm">
                   {questionScope === "role"
-                    ? "Choose the role above. Then you’ll create the questions users for that role will answer when submitting reports."
+                    ? "Choose the department and role above. Then you’ll create the questions users for that role will answer when submitting reports."
                     : "Choose the department above. Then you’ll create the questions users for that department will answer when submitting reports."}
                 </p>
               </div>

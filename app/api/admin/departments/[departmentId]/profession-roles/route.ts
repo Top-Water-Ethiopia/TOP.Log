@@ -49,10 +49,11 @@ export async function GET(_request: Request, { params }: { params: Promise<{ dep
     const { departmentId } = await params
 
     const { data: roles, error } = await adminSupabase
-      .from("roles")
+      .from("department_roles")
       .select("*")
       .eq("department_id", departmentId)
-      .order("name", { ascending: true })
+      .order("sort_order", { ascending: true })
+      .order("key", { ascending: true })
 
     if (error) {
       return NextResponse.json({ error: "Failed to fetch roles", message: error.message }, { status: 500 })
@@ -77,24 +78,24 @@ export async function POST(request: Request, { params }: { params: Promise<{ dep
     const { departmentId } = await params
     const body = await request.json().catch(() => ({}))
 
-    const name = (body.name as string | undefined)?.trim() || ""
+    const key = (body.key as string | undefined)?.trim() || ""
     const description = (body.description as string | undefined)?.trim() || null
-    const level = typeof body.level === "number" ? (body.level as number) : undefined
 
-    if (!name) {
-      return NextResponse.json({ error: "Role name is required" }, { status: 400 })
+    if (!key) {
+      return NextResponse.json({ error: "Role key is required" }, { status: 400 })
     }
 
-    if (!nameRegex.test(name)) {
-      return NextResponse.json({ error: "Role name must be lowercase alphanumeric with hyphens only" }, { status: 400 })
+    if (!nameRegex.test(key)) {
+      return NextResponse.json({ error: "Role key must be lowercase alphanumeric with hyphens only" }, { status: 400 })
     }
 
-    const normalizedName = name.toLowerCase()
+    const normalizedKey = key.toLowerCase()
 
     const { data: existing, error: existingError } = await adminSupabase
-      .from("roles")
-      .select("id")
-      .eq("name", normalizedName)
+      .from("department_roles")
+      .select("key")
+      .eq("key", normalizedKey)
+      .eq("department_id", departmentId)
       .limit(1)
 
     if (existingError) {
@@ -109,18 +110,23 @@ export async function POST(request: Request, { params }: { params: Promise<{ dep
     }
 
     const insertPayload: {
-      name: string
+      key: string
+      label: string
       description: string | null
       department_id: string
-      level?: number
+      sort_order?: number
     } = {
-      name: normalizedName,
+      key: normalizedKey,
+      label: body.label?.trim() || normalizedKey,
       description,
       department_id: departmentId,
     }
-    if (level !== undefined) insertPayload.level = level
 
-    const { data: role, error } = await adminSupabase.from("roles").insert(insertPayload).select("*").single()
+    const { data: role, error } = await adminSupabase
+      .from("department_roles")
+      .insert(insertPayload)
+      .select("*")
+      .single()
 
     if (error) {
       return NextResponse.json({ error: "Failed to create role", message: error.message }, { status: 500 })
@@ -143,31 +149,31 @@ export async function PUT(request: Request, { params }: { params: Promise<{ depa
     }
 
     const { departmentId } = await params
+    const { searchParams } = new URL(request.url)
+    const id = searchParams.get("id")
     const body = await request.json().catch(() => ({}))
-
-    const id = body.id as string | undefined
-    const name = (body.name as string | undefined)?.trim() || ""
+    const key = (body.key as string | undefined)?.trim() || ""
     const description = (body.description as string | undefined)?.trim() || null
-    const level = typeof body.level === "number" ? (body.level as number) : undefined
 
     if (!id) {
       return NextResponse.json({ error: "Role ID is required" }, { status: 400 })
     }
 
-    if (!name) {
-      return NextResponse.json({ error: "Role name is required" }, { status: 400 })
+    if (!key) {
+      return NextResponse.json({ error: "Role key is required" }, { status: 400 })
     }
 
-    if (!nameRegex.test(name)) {
-      return NextResponse.json({ error: "Role name must be lowercase alphanumeric with hyphens only" }, { status: 400 })
+    if (!nameRegex.test(key)) {
+      return NextResponse.json({ error: "Role key must be lowercase alphanumeric with hyphens only" }, { status: 400 })
     }
 
-    const normalizedName = name.toLowerCase()
+    const normalizedKey = key.toLowerCase()
 
     const { data: existingRole, error: existingRoleError } = await adminSupabase
-      .from("roles")
-      .select("id, department_id")
-      .eq("id", id)
+      .from("department_roles")
+      .select("department_id, key")
+      .eq("key", id)
+      .eq("department_id", departmentId)
       .maybeSingle()
 
     if (existingRoleError) {
@@ -179,10 +185,11 @@ export async function PUT(request: Request, { params }: { params: Promise<{ depa
     }
 
     const { data: existing, error: existingError } = await adminSupabase
-      .from("roles")
-      .select("id")
-      .eq("name", normalizedName)
-      .neq("id", id)
+      .from("department_roles")
+      .select("key")
+      .eq("key", normalizedKey)
+      .eq("department_id", departmentId)
+      .neq("key", id)
       .limit(1)
 
     if (existingError) {
@@ -197,21 +204,22 @@ export async function PUT(request: Request, { params }: { params: Promise<{ depa
     }
 
     const updatePayload: {
-      name: string
+      key: string
+      label: string
       description: string | null
       updated_at: string
-      level?: number
     } = {
-      name: normalizedName,
+      key: normalizedKey,
+      label: body.label?.trim() || normalizedKey,
       description,
       updated_at: new Date().toISOString(),
     }
-    if (level !== undefined) updatePayload.level = level
 
     const { data: role, error } = await adminSupabase
-      .from("roles")
+      .from("department_roles")
       .update(updatePayload)
-      .eq("id", id)
+      .eq("key", id)
+      .eq("department_id", departmentId)
       .select("*")
       .single()
 
@@ -244,9 +252,10 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ d
     }
 
     const { data: role, error: roleError } = await adminSupabase
-      .from("roles")
-      .select("id, department_id")
-      .eq("id", id)
+      .from("department_roles")
+      .select("department_id, key")
+      .eq("key", id)
+      .eq("department_id", departmentId)
       .maybeSingle()
 
     if (roleError) {
@@ -258,10 +267,10 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ d
     }
 
     const { data: assignments } = await adminSupabase
-      .from("user_department_professions")
+      .from("user_department_roles")
       .select("id")
       .eq("department_id", departmentId)
-      .eq("role_id", id)
+      .eq("role", id)
       .limit(1)
 
     if (assignments && assignments.length > 0) {
@@ -271,7 +280,12 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ d
       )
     }
 
-    const { data: questions } = await adminSupabase.from("role_questions").select("id").eq("role_id", id).limit(1)
+    const { data: questions } = await adminSupabase
+      .from("role_questions")
+      .select("id")
+      .eq("department_id", departmentId)
+      .eq("department_role", id)
+      .limit(1)
 
     if (questions && questions.length > 0) {
       return NextResponse.json(
@@ -280,7 +294,11 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ d
       )
     }
 
-    const { error } = await adminSupabase.from("roles").delete().eq("id", id)
+    const { error } = await adminSupabase
+      .from("department_roles")
+      .delete()
+      .eq("key", id)
+      .eq("department_id", departmentId)
 
     if (error) {
       return NextResponse.json({ error: "Failed to delete role", message: error.message }, { status: 500 })

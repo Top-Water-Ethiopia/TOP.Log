@@ -32,7 +32,7 @@ export async function GET() {
 
     const { data: defsRaw, error: defsError } = await adminSupabase
       .from("permission_definitions")
-      .select("resource, action")
+      .select("id, resource, action, description, scope")
 
     // Fallback for environments where the migration isn't applied yet.
     if (defsError) {
@@ -47,10 +47,12 @@ export async function GET() {
       }
     }
 
-    const defs = fromRows(defsRaw)
-
-    if (defs.length > 0) {
-      return NextResponse.json({ data: defs })
+    if (defsRaw && defsRaw.length > 0) {
+      const mapped = defsRaw.map((d) => ({
+        ...d,
+        name: `${d.resource}.${d.action}`,
+      }))
+      return NextResponse.json({ data: mapped })
     }
 
     const { data: assignedRaw, error: assignedError } = await adminSupabase

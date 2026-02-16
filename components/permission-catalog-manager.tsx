@@ -11,6 +11,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
+import { RightSidePanel } from "@/components/ui/right-side-panel"
 import {
   AlertDialog,
   AlertDialogAction,
@@ -29,6 +30,7 @@ type PermissionDefinition = {
   action: string
   name: string
   description: string | null
+  scope: "system" | "department" | "both"
 }
 
 function groupKey(name: string) {
@@ -64,7 +66,10 @@ export function PermissionCatalogManager() {
   const [searchQuery, setSearchQuery] = useState("")
   const [newName, setNewName] = useState("")
   const [newDescription, setNewDescription] = useState("")
+  const [newScope, setNewScope] = useState<"system" | "department" | "both">("both")
   const [isCreating, setIsCreating] = useState(false)
+
+  const [showAddPermissionPanel, setShowAddPermissionPanel] = useState(false)
 
   const [deleteTarget, setDeleteTarget] = useState<PermissionDefinition | null>(null)
   const [isDeleting, setIsDeleting] = useState(false)
@@ -131,6 +136,7 @@ export function PermissionCatalogManager() {
         body: JSON.stringify({
           name: normalized,
           description: newDescription.trim() || null,
+          scope: newScope,
         }),
       })
 
@@ -170,158 +176,221 @@ export function PermissionCatalogManager() {
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Permission catalog</CardTitle>
-        <CardDescription>
-          Manage the list of available permissions. Deleting removes the permission from all roles.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-6">
-        <div className="flex items-center justify-between gap-2">
-          <div className="flex-1">
-            <Label>Search</Label>
-            <Input
-              value={searchQuery}
-              onChange={(e: ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
-              placeholder="Search permissions..."
-            />
+    <>
+      <Card>
+        <CardHeader>
+          <CardTitle>Permission catalog</CardTitle>
+          <CardDescription>
+            Manage the list of available permissions. Deleting removes the permission from all roles.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-6">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex-1">
+              <Label>Search</Label>
+              <Input
+                value={searchQuery}
+                onChange={(e: ChangeEvent<HTMLInputElement>) => setSearchQuery(e.target.value)}
+                placeholder="Search permissions..."
+              />
+            </div>
+            <div className="flex items-end gap-2 pt-6">
+              <Button variant="outline" size="sm" onClick={() => setShowAddPermissionPanel(true)}>
+                <Plus className="mr-2 h-4 w-4" />
+                Add permission
+              </Button>
+              <Button variant="outline" size="sm" onClick={() => mutate()} disabled={isLoading}>
+                <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
+                Refresh
+              </Button>
+            </div>
           </div>
-          <div className="pt-6">
-            <Button variant="outline" size="sm" onClick={() => mutate()} disabled={isLoading}>
-              <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
-              Refresh
-            </Button>
-          </div>
-        </div>
 
-        <div className="space-y-2">
-          <Label>Add permission</Label>
-          <div className="grid gap-2 md:grid-cols-3">
-            <Input
-              value={newName}
-              onChange={(e: ChangeEvent<HTMLInputElement>) => setNewName(e.target.value)}
-              placeholder="e.g. reports.export"
-              onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
-                if (e.key === "Enter") {
-                  e.preventDefault()
-                  createPermission()
-                }
+          <div className="space-y-2">
+            <div className="mb-2 flex items-center justify-between">
+              <Label>Permissions ({permissions.length})</Label>
+              <div className="space-x-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => toggleAllGroups(true)}
+                  disabled={expandedGroups.length === allGroupKeys.length}
+                >
+                  Expand All
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => toggleAllGroups(false)}
+                  disabled={expandedGroups.length === 0}
+                >
+                  Collapse All
+                </Button>
+              </div>
+            </div>
+            <div className="space-y-4">
+              <Accordion
+                type="multiple"
+                value={expandedGroups}
+                onValueChange={setExpandedGroups}
+                className="rounded-lg border"
+              >
+                {groupedPermissions.map(([group, perms]) => (
+                  <AccordionItem key={group} value={group} className="px-4">
+                    <AccordionTrigger className="py-3 hover:no-underline">
+                      <div className="flex w-full items-center justify-between gap-4">
+                        <div className="font-medium">{group}</div>
+                        <div className="text-muted-foreground text-sm">{perms.length}</div>
+                      </div>
+                    </AccordionTrigger>
+                    <AccordionContent className="pb-0">
+                      <div className="divide-y rounded-lg border">
+                        {perms.map((p) => (
+                          <div key={p.id} className="flex items-center justify-between gap-4 p-3">
+                            <div className="min-w-0 pl-4">
+                              <div className="flex min-w-0 items-center gap-2">
+                                <div className="bg-muted-foreground h-1.5 w-1.5 shrink-0 rounded-full" />
+                                <div className="truncate font-medium">{p.action}</div>
+                                <span
+                                  className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                                    p.scope === "system"
+                                      ? "bg-blue-100 text-blue-700"
+                                      : p.scope === "department"
+                                        ? "bg-green-100 text-green-700"
+                                        : "bg-gray-100 text-gray-700"
+                                  }`}
+                                >
+                                  {p.scope}
+                                </span>
+                              </div>
+                              {p.description ? (
+                                <div className="text-muted-foreground truncate text-sm">{p.description}</div>
+                              ) : null}
+                            </div>
+                            <Button variant="outline" size="sm" onClick={() => setDeleteTarget(p)}>
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              Delete
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    </AccordionContent>
+                  </AccordionItem>
+                ))}
+              </Accordion>
+
+              {permissions.length === 0 ? (
+                <div className="text-muted-foreground rounded-lg border p-4 text-sm">No permissions found.</div>
+              ) : null}
+            </div>
+          </div>
+
+          <AlertDialog
+            open={!!deleteTarget}
+            onOpenChange={(open: boolean) => {
+              if (!open) setDeleteTarget(null)
+            }}
+          >
+            <AlertDialogContent>
+              <AlertDialogHeader>
+                <AlertDialogTitle>Delete permission?</AlertDialogTitle>
+                <AlertDialogDescription>
+                  This will permanently delete "{deleteTarget?.name}" from the permission catalog and remove it from all
+                  roles. This action cannot be undone.
+                </AlertDialogDescription>
+              </AlertDialogHeader>
+              <AlertDialogFooter>
+                <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
+                <AlertDialogAction onClick={deletePermission} className="bg-destructive" disabled={isDeleting}>
+                  {isDeleting ? "Deleting..." : "Delete"}
+                </AlertDialogAction>
+              </AlertDialogFooter>
+            </AlertDialogContent>
+          </AlertDialog>
+        </CardContent>
+      </Card>
+
+      <RightSidePanel
+        open={showAddPermissionPanel}
+        onOpenChange={(open) => {
+          setShowAddPermissionPanel(open)
+          if (!open) {
+            setNewName("")
+            setNewDescription("")
+            setNewScope("both")
+          }
+        }}
+        title="Add permission"
+        description="Add a new permission to the catalog."
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" type="button" onClick={() => setShowAddPermissionPanel(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={async () => {
+                await createPermission()
+                setShowAddPermissionPanel(false)
               }}
-            />
-            <Textarea
-              value={newDescription}
-              onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setNewDescription(e.target.value)}
-              placeholder="Description (optional)"
-              rows={1}
-            />
-            <Button type="button" onClick={createPermission} disabled={isCreating || !newName.trim()}>
+              disabled={isCreating || !newName.trim()}
+            >
               {isCreating ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   Adding...
                 </>
               ) : (
-                <>
-                  <Plus className="mr-2 h-4 w-4" />
-                  Add
-                </>
+                "Add"
               )}
             </Button>
           </div>
-        </div>
-
-        <div className="space-y-2">
-          <div className="mb-2 flex items-center justify-between">
-            <Label>Permissions ({permissions.length})</Label>
-            <div className="space-x-2">
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => toggleAllGroups(true)}
-                disabled={expandedGroups.length === allGroupKeys.length}
-              >
-                Expand All
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => toggleAllGroups(false)}
-                disabled={expandedGroups.length === 0}
-              >
-                Collapse All
-              </Button>
-            </div>
+        }
+      >
+        <div className="space-y-4 pt-2">
+          <div className="space-y-2">
+            <Label htmlFor="permission_name">Permission</Label>
+            <Input
+              id="permission_name"
+              value={newName}
+              onChange={(e: ChangeEvent<HTMLInputElement>) => setNewName(e.target.value)}
+              placeholder="e.g. reports.export"
+              onKeyDown={(e: KeyboardEvent<HTMLInputElement>) => {
+                if (e.key === "Enter") {
+                  e.preventDefault()
+                  void createPermission()
+                  setShowAddPermissionPanel(false)
+                }
+              }}
+            />
+            <p className="text-muted-foreground -mt-1 text-xs">resource.action</p>
           </div>
-          <div className="space-y-4">
-            <Accordion
-              type="multiple"
-              value={expandedGroups}
-              onValueChange={setExpandedGroups}
-              className="rounded-lg border"
+          <div className="space-y-2">
+            <Label htmlFor="permission_description">Description</Label>
+            <Textarea
+              id="permission_description"
+              value={newDescription}
+              onChange={(e: ChangeEvent<HTMLTextAreaElement>) => setNewDescription(e.target.value)}
+              placeholder="Description (optional)"
+              rows={3}
+            />
+          </div>
+          <div className="space-y-2">
+            <Label htmlFor="permission_scope">Scope</Label>
+            <select
+              id="permission_scope"
+              value={newScope}
+              onChange={(e) => setNewScope(e.target.value as "system" | "department" | "both")}
+              className="border-input bg-background w-full rounded-md border px-3 py-2 text-sm"
             >
-              {groupedPermissions.map(([group, perms]) => (
-                <AccordionItem key={group} value={group} className="px-4">
-                  <AccordionTrigger className="py-3 hover:no-underline">
-                    <div className="flex w-full items-center justify-between gap-4">
-                      <div className="font-medium">{group}</div>
-                      <div className="text-muted-foreground text-sm">{perms.length}</div>
-                    </div>
-                  </AccordionTrigger>
-                  <AccordionContent className="pb-0">
-                    <div className="divide-y rounded-lg border">
-                      {perms.map((p) => (
-                        <div key={p.id} className="flex items-center justify-between gap-4 p-3">
-                          <div className="min-w-0 pl-4">
-                            <div className="flex min-w-0 items-center gap-2">
-                              <div className="bg-muted-foreground h-1.5 w-1.5 shrink-0 rounded-full" />
-                              <div className="truncate font-medium">{p.action}</div>
-                            </div>
-                            {p.description ? (
-                              <div className="text-muted-foreground truncate text-sm">{p.description}</div>
-                            ) : null}
-                          </div>
-                          <Button variant="outline" size="sm" onClick={() => setDeleteTarget(p)}>
-                            <Trash2 className="mr-2 h-4 w-4" />
-                            Delete
-                          </Button>
-                        </div>
-                      ))}
-                    </div>
-                  </AccordionContent>
-                </AccordionItem>
-              ))}
-            </Accordion>
-
-            {permissions.length === 0 ? (
-              <div className="text-muted-foreground rounded-lg border p-4 text-sm">No permissions found.</div>
-            ) : null}
+              <option value="both">Both (System & Department)</option>
+              <option value="system">System only</option>
+              <option value="department">Department only</option>
+            </select>
+            <p className="text-muted-foreground text-xs">Where this permission can be assigned</p>
           </div>
         </div>
-
-        <AlertDialog
-          open={!!deleteTarget}
-          onOpenChange={(open: boolean) => {
-            if (!open) setDeleteTarget(null)
-          }}
-        >
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Delete permission?</AlertDialogTitle>
-              <AlertDialogDescription>
-                This will permanently delete "{deleteTarget?.name}" from the permission catalog and remove it from all
-                roles. This action cannot be undone.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel disabled={isDeleting}>Cancel</AlertDialogCancel>
-              <AlertDialogAction onClick={deletePermission} className="bg-destructive" disabled={isDeleting}>
-                {isDeleting ? "Deleting..." : "Delete"}
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-      </CardContent>
-    </Card>
+      </RightSidePanel>
+    </>
   )
 }

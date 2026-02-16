@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
+import { SupabaseClient } from "@supabase/supabase-js"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -7,8 +8,8 @@ export const dynamic = "force-dynamic"
 // Define the role question type
 interface RoleQuestion {
   id: string
-  role_id: string | null
-  department_id?: string | null
+  department_id: string | null
+  department_role: string | null
   question_key: string
   question_label: string
   question_type: string
@@ -22,13 +23,12 @@ interface RoleQuestion {
   created_at: string
   updated_at: string
   metadata: unknown
-  role?: unknown
 }
 
 type DbRoleQuestionRow = {
   id: string
-  role_id: string | null
   department_id: string | null
+  department_role: string | null
   question_label: string
   question_type: string
   question_description: string | null
@@ -42,7 +42,6 @@ type DbRoleQuestionRow = {
   updated_at: string
   metadata: unknown
   question_key?: string | null
-  role?: unknown
 }
 
 function getLegacyQuestionKeyFromMetadata(metadata: unknown): string | null {
@@ -51,6 +50,65 @@ function getLegacyQuestionKeyFromMetadata(metadata: unknown): string | null {
   if (typeof value !== "string") return null
   const trimmed = value.trim()
   return trimmed ? trimmed : null
+}
+
+async function getUserDepartmentRole(
+  supabase: SupabaseClient,
+  userId: string,
+  departmentId: string
+): Promise<string | null> {
+  // First try to get the role from user_department_roles (for role-based questions)
+  const { data: membership, error: membershipError } = await supabase
+    .from("user_department_roles")
+    .select("role")
+    .eq("user_id", userId)
+    .eq("department_id", departmentId)
+    .eq("is_active", true)
+    .maybeSingle()
+
+  if (!membershipError && membership && typeof membership.role === "string") {
+    return membership.role
+  }
+
+  return null
+}
+
+async function userCanAnswerDepartmentQuestions(
+  supabase: SupabaseClient,
+  userId: string,
+  departmentId: string
+): Promise<boolean> {
+  const { data: assignment, error: assignmentError } = await supabase
+    .from("user_department_access_levels")
+    .select("access_level_id")
+    .eq("user_id", userId)
+    .eq("department_id", departmentId)
+    .maybeSingle()
+
+  if (assignmentError) throw assignmentError
+  const accessLevelId = assignment?.access_level_id
+  if (typeof accessLevelId !== "string" || !accessLevelId) return false
+
+  // First, get the permission_definition_id for department_questions.answer
+  const { data: permDef } = await supabase
+    .from("permission_definitions")
+    .select("id")
+    .eq("resource", "department_questions")
+    .eq("action", "answer")
+    .single()
+
+  if (!permDef) return false
+
+  const { data: perm, error: permError } = await supabase
+    .from("department_access_level_permissions")
+    .select("effect")
+    .eq("access_level_id", accessLevelId)
+    .eq("permission_definition_id", permDef.id)
+    .limit(1)
+    .maybeSingle()
+
+  if (permError) throw permError
+  return (perm?.effect || "allow") === "allow"
 }
 
 export async function GET(request: Request) {
@@ -93,7 +151,7 @@ export async function GET(request: Request) {
     const isAdmin = userProfile.role_id === ADMIN_ROLE_ID || userProfile.role_id === SYSTEM_ADMIN_ROLE_ID
 
     // Department-scoped questions should only be answerable in reports by department leads.
-    // We gate that via department-scoped RBAC based on user_department_roles.role + department_role_permissions.
+    // We gate that via department-scoped RBAC based on user_department_access_levels + department_access_level_permissions.
     let canAnswerDepartmentQuestions = isAdmin
     const departmentId =
       forReport || !isAdmin ? requestedDepartmentId || userProfile.department_id || null : requestedDepartmentId || null
@@ -113,127 +171,16 @@ export async function GET(request: Request) {
     }
 
     if (!isAdmin && forReport && departmentId) {
-      const { data: membership, error: membershipError } = await supabase
-        .from("user_department_roles")
-        .select("role")
-        .eq("user_id", user.id)
-        .eq("department_id", departmentId)
-        .eq("is_active", true)
-        .maybeSingle()
-
-      if (membershipError) {
-        console.error("Error resolving department membership:", membershipError)
+      try {
+        canAnswerDepartmentQuestions = await userCanAnswerDepartmentQuestions(supabase, user.id, departmentId)
+      } catch (deptPermError) {
+        console.error("Error checking department access level permissions:", deptPermError)
         canAnswerDepartmentQuestions = false
-      } else {
-        const membershipRole = typeof membership?.role === "string" ? membership.role : null
-
-        if (!membershipRole) {
-          canAnswerDepartmentQuestions = false
-        } else {
-          const checkPermission = async () => {
-            const resource = "department_questions"
-            const action = "answer"
-
-            const { data: denyOverride, error: denyOverrideError } = await supabase
-              .from("department_role_permissions")
-              .select("id")
-              .eq("department_id", departmentId)
-              .eq("department_role", membershipRole)
-              .eq("resource", resource)
-              .eq("action", action)
-              .eq("effect", "deny")
-              .limit(1)
-              .maybeSingle()
-
-            if (denyOverrideError) throw denyOverrideError
-            if (denyOverride?.id) return false
-
-            const { data: allowOverride, error: allowOverrideError } = await supabase
-              .from("department_role_permissions")
-              .select("id")
-              .eq("department_id", departmentId)
-              .eq("department_role", membershipRole)
-              .eq("resource", resource)
-              .eq("action", action)
-              .eq("effect", "allow")
-              .limit(1)
-              .maybeSingle()
-
-            if (allowOverrideError) throw allowOverrideError
-            if (allowOverride?.id) return true
-
-            const { data: denyDefault, error: denyDefaultError } = await supabase
-              .from("department_role_permissions")
-              .select("id")
-              .is("department_id", null)
-              .eq("department_role", membershipRole)
-              .eq("resource", resource)
-              .eq("action", action)
-              .eq("effect", "deny")
-              .limit(1)
-              .maybeSingle()
-
-            if (denyDefaultError) throw denyDefaultError
-            if (denyDefault?.id) return false
-
-            const { data: allowDefault, error: allowDefaultError } = await supabase
-              .from("department_role_permissions")
-              .select("id")
-              .is("department_id", null)
-              .eq("department_role", membershipRole)
-              .eq("resource", resource)
-              .eq("action", action)
-              .eq("effect", "allow")
-              .limit(1)
-              .maybeSingle()
-
-            if (allowDefaultError) throw allowDefaultError
-
-            return !!allowDefault?.id
-          }
-
-          try {
-            canAnswerDepartmentQuestions = await checkPermission()
-          } catch (deptPermError) {
-            console.error("Error checking department role permissions:", deptPermError)
-            canAnswerDepartmentQuestions = false
-          }
-        }
       }
-    }
-
-    let resolvedRoleId: string | null = null
-
-    if (departmentId && requiresDepartmentContext) {
-      const { data: professionRow, error: professionError } = await supabase
-        .from("user_department_professions")
-        .select("role_id")
-        .eq("user_id", user.id)
-        .eq("department_id", departmentId)
-        .eq("is_active", true)
-        .maybeSingle()
-
-      if (professionError) {
-        return NextResponse.json(
-          { error: "Failed to resolve profession role", message: professionError.message },
-          { status: 500 }
-        )
-      }
-
-      resolvedRoleId = (professionRow?.role_id as string | undefined) ?? null
     }
 
     const makeQuestionsQuery = () =>
-      supabase
-        .from("role_questions")
-        .select(
-          `
-          *,
-          role:roles(*)
-        `
-        )
-        .order("display_order", { ascending: true })
-        .limit(10000) // Ensure we fetch all questions (Supabase default limit is 1000)
+      supabase.from("role_questions").select("*").order("display_order", { ascending: true }).limit(10000) // Ensure we fetch all questions (Supabase default limit is 1000)
 
     let questions: DbRoleQuestionRow[] = []
 
@@ -281,7 +228,14 @@ export async function GET(request: Request) {
           !forReport || isAdmin || canAnswerDepartmentQuestions
             ? makeQuestionsQuery().eq("department_id", departmentId)
             : null
-        const roleQuery = resolvedRoleId ? makeQuestionsQuery().eq("role_id", resolvedRoleId) : null
+
+        // For role-specific questions, query by department_role instead of role_id
+        const userDepartmentRole = requiresDepartmentContext
+          ? await getUserDepartmentRole(supabase, user.id, departmentId)
+          : null
+        const roleQuery = userDepartmentRole
+          ? makeQuestionsQuery().eq("department_id", departmentId).eq("department_role", userDepartmentRole)
+          : null
 
         if (!isAdmin) {
           if (deptQuery) deptQuery.eq("is_active", true)
@@ -314,9 +268,10 @@ export async function GET(request: Request) {
         // Admin department-scoped view should include all role questions for roles in the department.
         if (isAdmin && !forReport) {
           const { data: deptRoles, error: deptRolesError } = await supabase
-            .from("roles")
-            .select("id")
+            .from("user_department_roles")
+            .select("role")
             .eq("department_id", departmentId)
+            .eq("is_active", true)
             .limit(10000)
 
           if (deptRolesError) {
@@ -326,14 +281,14 @@ export async function GET(request: Request) {
             )
           }
 
-          const roleIds = (deptRoles || [])
-            .map((r) => (typeof (r as { id?: unknown })?.id === "string" ? (r as { id: string }).id : null))
-            .filter((id): id is string => Boolean(id))
-          if (roleIds.length > 0) {
-            const { data: deptRoleQuestions, error: deptRoleQuestionsError } = await makeQuestionsQuery().in(
-              "role_id",
-              roleIds
-            )
+          const departmentRoles = (deptRoles || [])
+            .map((r) => (typeof r.role === "string" ? r.role : null))
+            .filter((role): role is string => Boolean(role))
+
+          if (departmentRoles.length > 0) {
+            const { data: deptRoleQuestions, error: deptRoleQuestionsError } = await makeQuestionsQuery()
+              .eq("department_id", departmentId)
+              .in("department_role", departmentRoles)
 
             if (deptRoleQuestionsError) {
               console.error("Error fetching department role questions:", deptRoleQuestionsError)

@@ -32,7 +32,7 @@ export async function GET() {
 
     const { data, error } = await adminSupabase
       .from("permission_definitions")
-      .select("id, resource, action, description, created_at, updated_at")
+      .select("id, resource, action, description, scope, created_at, updated_at")
       .order("resource", { ascending: true })
       .order("action", { ascending: true })
 
@@ -44,7 +44,13 @@ export async function GET() {
       )
     }
 
-    const rows = (data || []) as Array<{ id: string; resource: string; action: string; description: string | null }>
+    const rows = (data || []) as Array<{
+      id: string
+      resource: string
+      action: string
+      description: string | null
+      scope: string
+    }>
     const mapped = rows.map((r) => ({ ...r, name: `${r.resource}.${r.action}` }))
 
     return NextResponse.json({ data: mapped })
@@ -70,6 +76,7 @@ export async function POST(request: Request) {
     const body = await request.json()
     const name: unknown = body?.name
     const description: unknown = body?.description
+    const scope: unknown = body?.scope
 
     if (typeof name !== "string" || !name.trim()) {
       return NextResponse.json({ error: "name is required" }, { status: 400 })
@@ -83,14 +90,18 @@ export async function POST(request: Request) {
       )
     }
 
+    const validScopes = ["system", "department", "both"]
+    const finalScope = typeof scope === "string" && validScopes.includes(scope) ? scope : "both"
+
     const { data, error } = await adminSupabase
       .from("permission_definitions")
       .insert({
         resource: parsed.resource,
         action: parsed.action,
         description: typeof description === "string" ? description.trim() || null : null,
+        scope: finalScope,
       })
-      .select("id, resource, action, description, created_at, updated_at")
+      .select("id, resource, action, description, scope, created_at, updated_at")
       .single()
 
     if (error) {
@@ -122,12 +133,13 @@ export async function PATCH(request: Request) {
     const body = await request.json()
     const id: unknown = body?.id
     const description: unknown = body?.description
+    const scope: unknown = body?.scope
 
     if (typeof id !== "string" || !id) {
       return NextResponse.json({ error: "id is required" }, { status: 400 })
     }
 
-    const update: { description?: string | null; updated_at: string } = {
+    const update: { description?: string | null; scope?: string; updated_at: string } = {
       updated_at: new Date().toISOString(),
     }
 
@@ -135,11 +147,16 @@ export async function PATCH(request: Request) {
       update.description = description.trim() || null
     }
 
+    const validScopes = ["system", "department", "both"]
+    if (typeof scope === "string" && validScopes.includes(scope)) {
+      update.scope = scope
+    }
+
     const { data, error } = await adminSupabase
       .from("permission_definitions")
       .update(update)
       .eq("id", id)
-      .select("id, resource, action, description, created_at, updated_at")
+      .select("id, resource, action, description, scope, created_at, updated_at")
       .single()
 
     if (error) {
@@ -183,6 +200,7 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: "Permission not found" }, { status: 404 })
     }
 
+    // Delete from role permissions (legacy table)
     const { error: deleteAssignmentsError } = await adminSupabase
       .from("permissions")
       .delete()
@@ -193,6 +211,20 @@ export async function DELETE(request: Request) {
       console.error("Error deleting permission assignments:", deleteAssignmentsError)
       return NextResponse.json(
         { error: "Failed to delete permission assignments", message: deleteAssignmentsError.message },
+        { status: 500 }
+      )
+    }
+
+    // Delete from department access level permissions (new table with FK)
+    const { error: deleteDeptAssignmentsError } = await adminSupabase
+      .from("department_access_level_permissions")
+      .delete()
+      .eq("permission_definition_id", def.id)
+
+    if (deleteDeptAssignmentsError) {
+      console.error("Error deleting department permission assignments:", deleteDeptAssignmentsError)
+      return NextResponse.json(
+        { error: "Failed to delete department permission assignments", message: deleteDeptAssignmentsError.message },
         { status: 500 }
       )
     }

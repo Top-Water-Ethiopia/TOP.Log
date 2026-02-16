@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo } from "react"
 import Link from "next/link"
-import { useParams, useRouter } from "next/navigation"
+import { useParams, useRouter, useSearchParams } from "next/navigation"
 import useSWR from "swr"
 import { ArrowLeft } from "lucide-react"
 
@@ -35,6 +35,9 @@ export default function AdminRoleQuestionsDepartmentPage() {
     const raw = (params as { departmentId?: string | string[] } | null)?.departmentId
     return Array.isArray(raw) ? raw[0] : raw
   }, [params])
+
+  const searchParams = useSearchParams()
+  const departmentRole = useMemo(() => searchParams?.get("role") || null, [searchParams])
 
   const { user, profile, isLoading } = useSupabaseAuth()
   const router = useRouter()
@@ -135,8 +138,22 @@ export default function AdminRoleQuestionsDepartmentPage() {
     )
   }
 
-  const title = department?.name || "Department"
-  const subtitle = department?.description || "Manage department-scoped questions."
+  // Build contextual title based on department and role
+  const departmentName = department?.name || "Department"
+  const roleDisplayName = departmentRole
+    ? departmentRole
+        .split("-")
+        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(" ")
+    : null
+
+  const title = roleDisplayName
+    ? `${departmentName} · ${roleDisplayName} Questions`
+    : `${departmentName} · Department-wide Questions`
+
+  const subtitle = departmentRole
+    ? `Manage profession-specific questions for ${roleDisplayName} role in ${departmentName}.`
+    : department?.description || `Manage department-wide questions for ${departmentName}.`
 
   return (
     <div className="space-y-6">
@@ -205,7 +222,14 @@ export default function AdminRoleQuestionsDepartmentPage() {
           </CardContent>
         </Card>
       ) : (
-        <RoleQuestionsManager departmentId={departmentId} departmentOnly hideHeader hideStatistics hideFilters />
+        <RoleQuestionsManager
+          departmentId={departmentId}
+          departmentRole={departmentRole ?? undefined}
+          departmentOnly={!departmentRole}
+          hideHeader
+          hideStatistics
+          hideFilters
+        />
       )}
     </div>
   )

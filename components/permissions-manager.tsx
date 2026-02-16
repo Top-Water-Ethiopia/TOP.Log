@@ -42,8 +42,17 @@ type PermissionRow = {
   action: string
 }
 
+type PermissionDefinition = {
+  id: string
+  resource: string
+  action: string
+  name: string
+  description: string | null
+  scope: "system" | "department" | "both"
+}
+
 type PermissionCatalogResponse = {
-  data: string[]
+  data: PermissionDefinition[]
 }
 
 function toPermissionName(resource: string, action: string) {
@@ -81,6 +90,8 @@ export function PermissionsManager() {
   const [newPermission, setNewPermission] = useState("")
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [isSaving, setIsSaving] = useState(false)
+
+  const [showAddPermissionPanel, setShowAddPermissionPanel] = useState(false)
 
   const [showCreateRolePanel, setShowCreateRolePanel] = useState(false)
   const [isCreatingRole, setIsCreatingRole] = useState(false)
@@ -194,15 +205,22 @@ export function PermissionsManager() {
 
   const selectedNames = useMemo(() => Array.from(selected), [selected])
 
-  const allKnownNames = useMemo(() => {
-    const names = catalogResponse?.data
-    return Array.isArray(names) ? names : []
+  const allKnownDefs = useMemo(() => {
+    const defs = catalogResponse?.data
+    return Array.isArray(defs) ? defs : []
   }, [catalogResponse?.data])
 
+  // Filter to only system-appropriate permissions (system or both scope)
+  const systemPermissionNames = useMemo(() => {
+    return allKnownDefs.filter((d) => d.scope === "system" || d.scope === "both").map((d) => d.name)
+  }, [allKnownDefs])
+
   const allPermissionNames = useMemo(() => {
-    const extra = [...assignedNames, ...selectedNames].filter((n) => !allKnownNames.includes(n))
-    return Array.from(new Set([...allKnownNames, ...extra])).sort((a, b) => a.localeCompare(b))
-  }, [allKnownNames, assignedNames, selectedNames])
+    // Include system-appropriate permissions from catalog + any assigned/selected permissions
+    // (to handle legacy department-only permissions that might already be assigned)
+    const extra = [...assignedNames, ...selectedNames].filter((n) => !systemPermissionNames.includes(n))
+    return Array.from(new Set([...systemPermissionNames, ...extra])).sort((a, b) => a.localeCompare(b))
+  }, [systemPermissionNames, assignedNames, selectedNames])
 
   useEffect(() => {
     setSelected(new Set(assignedNames))
@@ -278,7 +296,7 @@ export function PermissionsManager() {
 
       mutateRoles(
         (current) => {
-          const rows = Array.isArray(current?.data) ? current.data : []
+          const rows = Array.isArray(current?.data) ? current?.data || [] : []
           const next = [...rows, optimistic]
           next.sort((a, b) => a.name.localeCompare(b.name))
           return { data: next }
@@ -301,7 +319,7 @@ export function PermissionsManager() {
       if (created?.data?.id) {
         mutateRoles(
           (current) => {
-            const rows = Array.isArray(current?.data) ? current.data : []
+            const rows = Array.isArray(current?.data) ? current?.data || [] : []
             const next = rows.map((r) => (r.id === tempId ? created.data : r))
             next.sort((a, b) => a.name.localeCompare(b.name))
             return { data: next }
@@ -476,6 +494,15 @@ export function PermissionsManager() {
                   <Button
                     variant="outline"
                     size="sm"
+                    onClick={() => setShowAddPermissionPanel(true)}
+                    disabled={!selectedRoleId}
+                  >
+                    <Plus className="mr-2 h-4 w-4" />
+                    Add permission
+                  </Button>
+                  <Button
+                    variant="outline"
+                    size="sm"
                     onClick={() => Promise.all([mutateRoles(), mutatePermissions(), mutateCatalog()])}
                     disabled={isLoading}
                   >
@@ -488,31 +515,6 @@ export function PermissionsManager() {
                   </Button>
                 </div>
               </div>
-            </div>
-          </div>
-
-          <div className="mt-4 space-y-2">
-            <Label>Add permission</Label>
-            <div className="flex gap-2">
-              <Input
-                value={newPermission}
-                onChange={(e) => setNewPermission(e.target.value)}
-                placeholder="e.g. reports.export"
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault()
-                    addPermission()
-                  }
-                }}
-              />
-              <Button
-                type="button"
-                variant="outline"
-                onClick={addPermission}
-                disabled={!selectedRoleId || !newPermission.trim()}
-              >
-                Add
-              </Button>
             </div>
           </div>
 
@@ -601,6 +603,56 @@ export function PermissionsManager() {
       </Card>
 
       <RightSidePanel
+        open={showAddPermissionPanel}
+        onOpenChange={(open) => {
+          setShowAddPermissionPanel(open)
+          if (!open) {
+            setNewPermission("")
+          }
+        }}
+        title="Add permission"
+        description={
+          selectedRole ? `Add a permission to role: ${selectedRole.name}` : "Select a role first to add a permission."
+        }
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button variant="outline" type="button" onClick={() => setShowAddPermissionPanel(false)}>
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              onClick={() => {
+                addPermission()
+                setShowAddPermissionPanel(false)
+              }}
+              disabled={!selectedRoleId || !newPermission.trim()}
+            >
+              Add
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-2 pt-2">
+          <Label htmlFor="new_permission">Permission</Label>
+          <Input
+            id="new_permission"
+            value={newPermission}
+            onChange={(e) => setNewPermission(e.target.value)}
+            placeholder="e.g. reports.export"
+            disabled={!selectedRoleId}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.preventDefault()
+                addPermission()
+                setShowAddPermissionPanel(false)
+              }
+            }}
+          />
+          <p className="text-muted-foreground -mt-1 text-xs">resource.action</p>
+        </div>
+      </RightSidePanel>
+
+      <RightSidePanel
         open={showCreateRolePanel}
         onOpenChange={(open) => {
           setShowCreateRolePanel(open)
@@ -674,7 +726,7 @@ export function PermissionsManager() {
                       </SelectItem>
                     ))
                   ) : (
-                    <SelectItem value="" disabled>
+                    <SelectItem value="__no_departments__" disabled>
                       No departments available
                     </SelectItem>
                   )}
