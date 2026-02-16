@@ -7,6 +7,7 @@ export interface RoleQuestion {
   id: string
   role_id: string | null
   department_id?: string | null
+  question_key: string // Added this line
   question_label: string
   question_type:
     | "text"
@@ -163,7 +164,7 @@ export function useRoleQuestions(initialQuestions?: RoleQuestion[], departmentId
   // and include a separate title field (backed by question_title, falling back to label)
   const formattedQuestions = questions.map((q) => ({
     id: q.id, // Include the database ID for proper response creation
-    key: q.id,
+    key: q.question_key || q.id,
     label: q.question_label,
     title: q.question_label,
     type: q.question_type,

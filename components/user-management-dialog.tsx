@@ -42,9 +42,6 @@ export function UserManagementDialog({ onClose }: { onClose: () => void }) {
   const [searchTerm, setSearchTerm] = useState("")
   const [roleFilter, setRoleFilter] = useState<string>("all")
   const [showCreateUser, setShowCreateUser] = useState(false)
-  const [editingUser, setEditingUser] = useState<User | null>(null)
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  const _editingUser = editingUser
   const [showPassword, setShowPassword] = useState(false)
 
   // Create user form state
@@ -53,7 +50,15 @@ export function UserManagementDialog({ onClose }: { onClose: () => void }) {
     email: "",
     password: "",
     confirmPassword: "",
-    role: "viewer" as const,
+    role: "viewer" as
+      | "admin"
+      | "system-admin"
+      | "manager"
+      | "programmer"
+      | "qa"
+      | "tech-support"
+      | "graphic-designer"
+      | "viewer",
     department: "",
     isActive: true,
   })
@@ -485,7 +490,17 @@ export function UserManagementDialog({ onClose }: { onClose: () => void }) {
                   <Label htmlFor="role">Role</Label>
                   <Select
                     value={createUserForm.role}
-                    onValueChange={(value) => setCreateUserForm((prev) => ({ ...prev, role: value }))}
+                    onValueChange={(
+                      value:
+                        | "admin"
+                        | "system-admin"
+                        | "manager"
+                        | "programmer"
+                        | "qa"
+                        | "tech-support"
+                        | "graphic-designer"
+                        | "viewer"
+                    ) => setCreateUserForm((prev) => ({ ...prev, role: value }))}
                   >
                     <SelectTrigger>
                       <SelectValue />

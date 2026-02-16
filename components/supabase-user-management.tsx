@@ -218,6 +218,7 @@ export function SupabaseUserManagement() {
     department_role: DEPARTMENT_ROLE_NONE,
     is_active: true,
     email_verified: false,
+    pendingAccessLevelId: null as string | null,
   })
 
   const lastUsersErrorRef = useRef<string | null>(null)
@@ -233,6 +234,10 @@ export function SupabaseUserManagement() {
   const departmentsKey = isAdmin ? "/api/admin/departments" : null
   const membershipsKey = isAdmin ? "/api/admin/users/memberships" : null
   const departmentRolesKey = isAdmin ? "/api/admin/department-roles" : null
+  const departmentProfessionRolesKey =
+    isAdmin && (createUserForm.department_id || editUserForm.department_id)
+      ? `/api/admin/departments/${createUserForm.department_id || editUserForm.department_id}/profession-roles`
+      : null
   const userAssignmentsKey =
     isAdmin && showEditUser && editingUser?.id ? `/api/admin/users/${editingUser.id}/assignments` : null
 
@@ -273,13 +278,24 @@ export function SupabaseUserManagement() {
   } = useSWR<{ data: DepartmentRoleRow[] }>(departmentRolesKey)
 
   const {
+    data: departmentProfessionRolesResponse,
+    error: departmentProfessionRolesError,
+    isLoading: isDepartmentProfessionRolesLoading,
+  } = useSWR<{ data: DepartmentRoleRow[] }>(departmentProfessionRolesKey)
+
+  const {
     data: userAssignmentsResponse,
     error: userAssignmentsError,
     isLoading: isUserAssignmentsLoading,
   } = useSWR<UserAssignmentsResponse>(userAssignmentsKey)
 
   const isLoading =
-    isUsersLoading || isRolesLoading || isDepartmentsLoading || isMembershipsLoading || isDepartmentRolesLoading
+    isUsersLoading ||
+    isRolesLoading ||
+    isDepartmentsLoading ||
+    isMembershipsLoading ||
+    isDepartmentRolesLoading ||
+    isDepartmentProfessionRolesLoading
 
   useEffect(() => {
     if (!usersError) {
@@ -340,6 +356,14 @@ export function SupabaseUserManagement() {
       lastDepartmentRolesErrorRef.current = message
     }
   }, [departmentRolesError])
+
+  useEffect(() => {
+    if (!departmentProfessionRolesError) {
+      return
+    }
+    const message = getErrorMessage(departmentProfessionRolesError, "Failed to load department-specific roles")
+    toast.error(message)
+  }, [departmentProfessionRolesError])
 
   useEffect(() => {
     if (!userAssignmentsError) {
@@ -496,8 +520,13 @@ export function SupabaseUserManagement() {
   }, [users, searchTerm, roleFilter, statusFilter, getUserDepartmentNames])
 
   const departmentRoleOptions = useMemo(() => {
+    // Use department-specific roles when a department is selected, otherwise fall back to global roles
+    const selectedDepartmentId = createUserForm.department_id || editUserForm.department_id
+    if (selectedDepartmentId && departmentProfessionRolesResponse?.data) {
+      return departmentProfessionRolesResponse.data.filter((r) => r.is_active)
+    }
     return (departmentRoles || []).filter((r) => r.is_active)
-  }, [departmentRoles])
+  }, [departmentRoles, departmentProfessionRolesResponse, createUserForm.department_id, editUserForm.department_id])
 
   const validateCreateUserForm = () => {
     const errors: Record<string, string> = {}
@@ -881,9 +910,47 @@ export function SupabaseUserManagement() {
         }
       }
 
+      // Apply staged access level change if any
+      if (editUserForm.pendingAccessLevelId !== undefined && editUserForm.department_id) {
+        try {
+          if (editUserForm.pendingAccessLevelId === null) {
+            // Remove existing access level
+            type Assignment = { id: string; department_id: string }
+            const currentAssignmentsResponse = await apiFetch<{ data: Assignment[] }>(
+              `/api/admin/users/${editingUser.id}/department-access-levels`
+            )
+            const existing = currentAssignmentsResponse.data?.find(
+              (a: Assignment) => a.department_id === editUserForm.department_id
+            )
+            if (existing?.id) {
+              await apiFetch(
+                `/api/admin/users/${editingUser.id}/department-access-levels?assignmentId=${existing.id}`,
+                {
+                  method: "DELETE",
+                }
+              )
+            }
+          } else {
+            // Assign or update access level
+            await apiFetch(`/api/admin/users/${editingUser.id}/department-access-levels`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                department_id: editUserForm.department_id,
+                access_level_id: editUserForm.pendingAccessLevelId,
+              }),
+            })
+          }
+        } catch (accessError: unknown) {
+          console.error("Failed to apply access level change:", accessError)
+          toast.error(getErrorMessage(accessError, "Failed to update access level"))
+        }
+      }
+
       setShowEditUser(false)
       setEditingUser(null)
       setEditFormErrors({})
+      setEditUserForm((prev) => ({ ...prev, pendingAccessLevelId: null }))
       mutateUsers()
       mutateMemberships()
       if (userAssignmentsKey) {
@@ -1242,6 +1309,7 @@ export function SupabaseUserManagement() {
                       department_role: DEPARTMENT_ROLE_NONE,
                       is_active: user.profile?.is_active ?? true,
                       email_verified: !!user.email_confirmed_at,
+                      pendingAccessLevelId: null,
                     })
                     setShowEditUser(true)
                   }}
@@ -1420,10 +1488,12 @@ export function SupabaseUserManagement() {
               <Select
                 value={createUserForm.department_role || DEPARTMENT_ROLE_NONE}
                 onValueChange={(value) => setCreateUserForm((prev) => ({ ...prev, department_role: value }))}
-                disabled={!createUserForm.department_id}
+                disabled={!createUserForm.department_id || isDepartmentProfessionRolesLoading}
               >
                 <SelectTrigger id="create-department-role">
-                  <SelectValue placeholder="Select a department role" />
+                  <SelectValue
+                    placeholder={isDepartmentProfessionRolesLoading ? "Loading roles..." : "Select a department role"}
+                  />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value={DEPARTMENT_ROLE_NONE}>None</SelectItem>
@@ -1453,6 +1523,7 @@ export function SupabaseUserManagement() {
             setNewPassword("")
             setConfirmNewPassword("")
             setDeleteConfirmation("")
+            setEditUserForm((prev) => ({ ...prev, pendingAccessLevelId: null }))
             prefilledAssignmentsUserIdRef.current = null
           }
         }}
@@ -1690,10 +1761,18 @@ export function SupabaseUserManagement() {
                 <Select
                   value={editUserForm.department_role || DEPARTMENT_ROLE_NONE}
                   onValueChange={(value) => setEditUserForm((prev) => ({ ...prev, department_role: value }))}
-                  disabled={!editUserForm.department_id || isUserAssignmentsLoading}
+                  disabled={
+                    !editUserForm.department_id || isUserAssignmentsLoading || isDepartmentProfessionRolesLoading
+                  }
                 >
                   <SelectTrigger id="edit-department-role">
-                    <SelectValue placeholder={isUserAssignmentsLoading ? "Loading..." : "Select a department role"} />
+                    <SelectValue
+                      placeholder={
+                        isUserAssignmentsLoading || isDepartmentProfessionRolesLoading
+                          ? "Loading..."
+                          : "Select a department role"
+                      }
+                    />
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value={DEPARTMENT_ROLE_NONE}>None</SelectItem>
@@ -1713,7 +1792,12 @@ export function SupabaseUserManagement() {
               {editUserForm.department_id && editingUser && (
                 <div className="space-y-4">
                   <Separator />
-                  <DepartmentAccessLevelManager userId={editingUser.id} departmentId={editUserForm.department_id} />
+                  <DepartmentAccessLevelManager
+                    userId={editingUser.id}
+                    departmentId={editUserForm.department_id}
+                    onPendingChange={(value) => setEditUserForm((prev) => ({ ...prev, pendingAccessLevelId: value }))}
+                    pendingValue={editUserForm.pendingAccessLevelId}
+                  />
                 </div>
               )}
 
@@ -1722,6 +1806,7 @@ export function SupabaseUserManagement() {
                   <div className="space-y-0.5">
                     <Label htmlFor="edit-is-active">Account status</Label>
                     <p className="text-muted-foreground text-sm">Inactive users cannot sign in.</p>
+                    <p className="text-muted-foreground text-xs">Changes are saved when you click “Save changes.”</p>
                   </div>
                   <Switch
                     id="edit-is-active"
@@ -1740,6 +1825,7 @@ export function SupabaseUserManagement() {
                   <div className="space-y-0.5">
                     <Label htmlFor="email-verified">Email verification</Label>
                     <p className="text-muted-foreground text-sm">Controls whether the user is marked verified.</p>
+                    <p className="text-muted-foreground text-xs">Changes are saved when you click “Save changes.”</p>
                   </div>
                   <Switch
                     id="email-verified"

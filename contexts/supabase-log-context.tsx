@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from "react"
 import { toast } from "sonner"
 import { useSupabaseAuth } from "./supabase-auth-context"
+import { useSWRConfig } from "swr"
 import { v4 as uuidv4 } from "uuid"
 import * as supabaseData from "@/lib/supabase-data"
 import type { CaptainLogEntry as DbCaptainLogEntry, AuditLog } from "@/lib/supabase-data"
@@ -177,6 +178,7 @@ const SupabaseLogContext = createContext<CaptainLogContextType | undefined>(unde
 // Provider component
 export function SupabaseLogProvider({ children }: { children: React.ReactNode }) {
   const { user, profile } = useSupabaseAuth()
+  const { mutate: globalMutate } = useSWRConfig()
 
   // State
   const [entries, setEntries] = useState<CaptainLogEntry[]>([])
@@ -317,8 +319,10 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
           { key: "projectUpdates", value: entry.projectUpdates || "" },
         ]
 
-        // Create custom responses for standard fields (create even if empty)
         for (const response of standardResponses) {
+          if (typeof response.value !== "string" || response.value.trim() === "") {
+            continue
+          }
           await supabaseData.createCustomResponse({
             entry_id: newEntry.id,
             question_id: `std_${response.key}`,
@@ -335,6 +339,16 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
         if (entry.customResponses && Array.isArray(entry.customResponses)) {
           for (const response of entry.customResponses) {
             const resp = response as Record<string, unknown>
+            const value = resp.value as Json
+            if (value === null || value === undefined) {
+              continue
+            }
+            if (typeof value === "string" && value.trim() === "") {
+              continue
+            }
+            if (Array.isArray(value) && value.length === 0) {
+              continue
+            }
             await supabaseData.createCustomResponse({
               entry_id: newEntry.id,
               question_id: resp.questionId as string,
@@ -342,7 +356,7 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
               question_label: resp.questionLabel as string,
               question_type: resp.questionType as string,
               question_category: (resp.questionCategory as string) || "custom",
-              value: resp.value as Json,
+              value,
               timestamp: now, // Always use current timestamp for new entries
             })
           }
@@ -360,6 +374,9 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
         const transformedEntry = await transformEntryForComponents(newEntry)
         setEntries((prev) => [...prev, transformedEntry])
 
+        // Refresh SWR caches for admin views
+        globalMutate("/api/admin/captain-log-entries")
+
         toast.success("Entry saved successfully")
       } catch (error) {
         console.error("Failed to add entry:", error)
@@ -372,7 +389,7 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
         setIsLoading(false)
       }
     },
-    [profile?.department_id, profile?.role_id, user]
+    [profile?.department_id, profile?.role_id, user, globalMutate]
   )
 
   // Update entry
@@ -429,8 +446,10 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
 
         const now = new Date().toISOString()
 
-        // Create standard responses (create even if empty to overwrite existing values)
         for (const response of standardResponses) {
+          if (typeof response.value !== "string" || response.value.trim() === "") {
+            continue
+          }
           await supabaseData.createCustomResponse({
             entry_id: id,
             question_id: `std_${response.key}`,
@@ -448,6 +467,16 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
           console.log("[updateEntry] Additional custom responses to create:", updates.customResponses)
           for (const response of updates.customResponses) {
             const resp = response as Record<string, unknown>
+            const value = resp.value as Json
+            if (value === null || value === undefined) {
+              continue
+            }
+            if (typeof value === "string" && value.trim() === "") {
+              continue
+            }
+            if (Array.isArray(value) && value.length === 0) {
+              continue
+            }
             await supabaseData.createCustomResponse({
               entry_id: id,
               question_id: resp.questionId as string,
@@ -455,7 +484,7 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
               question_label: resp.questionLabel as string,
               question_type: resp.questionType as string,
               question_category: (resp.questionCategory as string) || "custom",
-              value: resp.value as Json,
+              value,
               timestamp: now, // Always use current timestamp for updates
             })
           }
@@ -487,6 +516,9 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
         const transformedEntry = await transformEntryForComponents(updatedEntry)
         setEntries((prev) => prev.map((e) => (e.id === id ? transformedEntry : e)))
 
+        // Refresh SWR caches for admin views
+        globalMutate("/api/admin/captain-log-entries")
+
         toast.success("Entry updated successfully")
       } catch (error) {
         console.error("Failed to update entry:", error)
@@ -499,7 +531,7 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
         setIsLoading(false)
       }
     },
-    [entries, user]
+    [entries, user, globalMutate]
   )
 
   // Delete entry
@@ -533,6 +565,9 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
         // Update local state
         setEntries((prev) => prev.filter((e) => e.id !== id))
 
+        // Refresh SWR caches for admin views
+        globalMutate("/api/admin/captain-log-entries")
+
         toast.success("Entry deleted successfully")
       } catch (error) {
         console.error("Failed to delete entry:", error)
@@ -545,7 +580,7 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
         setIsLoading(false)
       }
     },
-    [entries, user]
+    [entries, user, globalMutate]
   )
 
   // Get entry by date
