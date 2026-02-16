@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -58,6 +58,11 @@ export default function ReportViewPage() {
   useEffect(() => {
     if (!user || !reportId) return
 
+    // Avoid refetching if we already have the data for this reportId
+    if (report?.id === reportId) {
+      return
+    }
+
     const loadReport = async () => {
       try {
         setLoading(true)
@@ -88,7 +93,7 @@ export default function ReportViewPage() {
     }
 
     loadReport()
-  }, [user, reportId])
+  }, [user, reportId, report?.id])
 
   const formatResponseValue = (value: unknown) => {
     if (value === null || value === undefined || value === "") return "Not provided"
@@ -96,6 +101,15 @@ export default function ReportViewPage() {
     if (typeof value === "object") return JSON.stringify(value, null, 2)
     return String(value)
   }
+
+  const responses = useMemo(() => {
+    return (report?.custom_responses || []).filter((r) => {
+      const val = r.value
+      if (val === null || val === undefined || val === "") return false
+      if (Array.isArray(val) && val.length === 0) return false
+      return true
+    })
+  }, [report])
 
   if (isLoading || !user) {
     return (
@@ -166,7 +180,7 @@ export default function ReportViewPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Badge variant="secondary">{(report.custom_responses || []).length} responses</Badge>
+          <Badge variant="secondary">{responses.length} responses</Badge>
         </div>
       </div>
 
@@ -189,13 +203,13 @@ export default function ReportViewPage() {
           </div>
         </CardHeader>
         <CardContent className="space-y-6">
-          {(report.custom_responses || []).length === 0 ? (
+          {responses.length === 0 ? (
             <div className="text-muted-foreground bg-muted/30 rounded-lg border p-6 text-center">
               No responses for this report.
             </div>
           ) : (
             <div className="space-y-6">
-              {(report.custom_responses || []).map((response, idx) => (
+              {responses.map((response, idx) => (
                 <div key={`${response.question_id}-${idx}`} className="space-y-3">
                   <div className="flex items-center gap-2">
                     <div className="text-lg font-semibold">{response.question_label || response.question_key}</div>

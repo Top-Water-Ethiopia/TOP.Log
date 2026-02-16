@@ -90,6 +90,11 @@ export default function AdminReportDetailsPage() {
     if (!rbacChecked || rbacLoading) return
     if (!canAccessAdmin) return
 
+    // Avoid refetching if we already have the data for this entryId
+    if (entry?.id === entryId) {
+      return
+    }
+
     const load = async () => {
       try {
         setIsEntryLoading(true)
@@ -112,7 +117,7 @@ export default function AdminReportDetailsPage() {
     }
 
     load()
-  }, [entryId, isLoading, user, canAccessAdmin, rbacChecked, rbacLoading])
+  }, [entryId, isLoading, user, canAccessAdmin, rbacChecked, rbacLoading, entry?.id])
 
   if (isLoading || rbacLoading || !user) {
     return <ReportDetailsSkeleton />
@@ -290,23 +295,29 @@ export default function AdminReportDetailsPage() {
               <CardTitle>Responses</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {entry.custom_responses && entry.custom_responses.length > 0 ? (
-                entry.custom_responses.map((r, idx) => (
+              {(() => {
+                const responses = (entry.custom_responses || []).filter((r) => {
+                  const v = r.value
+                  if (v === null || v === undefined) return false
+                  if (typeof v === "string" && v.trim() === "") return false
+                  if (Array.isArray(v) && v.length === 0) return false
+                  return true
+                })
+
+                if (responses.length === 0) {
+                  return <div className="text-muted-foreground text-sm">No responses found.</div>
+                }
+
+                return responses.map((r, idx) => (
                   <div key={`${r.question_id}-${idx}`} className="space-y-1">
                     <div className="font-semibold">{`Q${idx + 1}: ${r.question_label || r.question_key}`}</div>
                     <div className="text-muted-foreground text-sm whitespace-pre-wrap">
-                      {r.value === null || r.value === undefined || r.value === ""
-                        ? "Not provided"
-                        : Array.isArray(r.value)
-                          ? r.value.join(", ")
-                          : String(r.value)}
+                      {Array.isArray(r.value) ? r.value.join(", ") : String(r.value)}
                     </div>
-                    {idx < entry.custom_responses.length - 1 ? <div className="bg-border mt-3 h-px" /> : null}
+                    {idx < responses.length - 1 ? <div className="bg-border mt-3 h-px" /> : null}
                   </div>
                 ))
-              ) : (
-                <div className="text-muted-foreground text-sm">No responses found.</div>
-              )}
+              })()}
             </CardContent>
           </Card>
         </div>

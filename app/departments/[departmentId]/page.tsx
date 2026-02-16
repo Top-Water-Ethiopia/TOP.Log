@@ -13,8 +13,9 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { toast } from "sonner"
-import { CalendarDays, ChevronLeft, ChevronRight, ArrowLeft, ExternalLink } from "lucide-react"
+import { CalendarDays, ChevronLeft, ChevronRight, ArrowLeft, ExternalLink, Edit2, Check, X } from "lucide-react"
 import { isFeatureEnabledClient } from "@/lib/feature-flags/client"
+import { Textarea } from "@/components/ui/textarea"
 import {
   addDays,
   endOfMonth,
@@ -61,7 +62,7 @@ type EntryRow = {
 export default function DepartmentDetailsPage() {
   const departmentsEnabled = isFeatureEnabledClient("DEPARTMENTS")
   const { user, isLoading } = useSupabaseAuth()
-  const { rbacLoading, hasPermission } = useRBAC()
+  const { rbacLoading, hasPermission, checkPermissionInDepartment } = useRBAC()
   const router = useRouter()
   const params = useParams<{ departmentId: string }>()
   const departmentId = typeof params?.departmentId === "string" ? params.departmentId : ""
@@ -78,6 +79,38 @@ export default function DepartmentDetailsPage() {
     hasPermission("departments.members.read") ||
     hasPermission("departments.members.manage") ||
     canAccessAdmin
+
+  // Check for department-scoped access
+  const [hasDeptScopedAccess, setHasDeptScopedAccess] = useState(false)
+  const [canUpdateDeptScoped, setCanUpdateDeptScoped] = useState(false)
+  const [isCheckingDeptAccess, setIsCheckingDeptAccess] = useState(true)
+
+  useEffect(() => {
+    // If user already has system-wide department access, no need to re-check
+    // department-scoped permissions (avoids skeleton flashes on tab focus).
+    if (hasSystemWideDeptAccess) {
+      setHasDeptScopedAccess(false)
+      setIsCheckingDeptAccess(false)
+      return
+    }
+    if (!departmentId) {
+      setIsCheckingDeptAccess(false)
+      return
+    }
+    setIsCheckingDeptAccess(true)
+    Promise.all([
+      checkPermissionInDepartment("departments.read", departmentId),
+      checkPermissionInDepartment("departments.members.read", departmentId),
+      checkPermissionInDepartment("departments.update", departmentId),
+    ]).then(([readAllowed, membersReadAllowed, updateAllowed]) => {
+      setHasDeptScopedAccess(readAllowed || membersReadAllowed || updateAllowed)
+      setCanUpdateDeptScoped(updateAllowed)
+      setIsCheckingDeptAccess(false)
+    })
+  }, [departmentId, checkPermissionInDepartment, hasSystemWideDeptAccess])
+
+  const canAccessDept = hasSystemWideDeptAccess || hasDeptScopedAccess
+  const canUpdateDept = hasPermission("departments.update") || canUpdateDeptScoped || canAccessAdmin
 
   const [members, setMembers] = useState<MemberRow[]>([])
   const [entries, setEntries] = useState<EntryRow[]>([])
@@ -100,18 +133,60 @@ export default function DepartmentDetailsPage() {
   const [calendarSheetMode, setCalendarSheetMode] = useState<"list" | "details">("list")
   const [selectedEntry, setSelectedEntry] = useState<EntryRow | null>(null)
 
+  const [isEditingName, setIsEditingName] = useState(false)
+  const [isEditingDescription, setIsEditingDescription] = useState(false)
+  const [editName, setEditName] = useState("")
+  const [editDescription, setEditDescription] = useState("")
+  const [isUpdating, setIsUpdating] = useState(false)
+
+  // Initialize edit fields when department is loaded
+  useEffect(() => {
+    if (department) {
+      setEditName(department.name)
+      setEditDescription(department.description || "")
+    }
+  }, [department])
+
+  const handleUpdateDepartment = async (field: "name" | "description") => {
+    if (!departmentId) return
+
+    try {
+      setIsUpdating(true)
+      const res = await fetch(`/api/departments/${departmentId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          [field]: field === "name" ? editName : editDescription,
+        }),
+      })
+
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || "Failed to update")
+
+      setDepartment(json.data)
+      toast.success(`Department ${field} updated`)
+      if (field === "name") setIsEditingName(false)
+      if (field === "description") setIsEditingDescription(false)
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Failed to update")
+    } finally {
+      setIsUpdating(false)
+    }
+  }
+
   useEffect(() => {
     if (!departmentsEnabled) return
     if (!isLoading && !user) {
       router.push("/login")
       return
     }
-    // Redirect if user doesn't have system-wide department access
-    if (!isLoading && !rbacLoading && user && !hasSystemWideDeptAccess) {
+    // Redirect if user doesn't have system-wide or department-scoped department access
+    // Wait for permission checks to complete
+    if (!isLoading && !rbacLoading && !isCheckingDeptAccess && user && !canAccessDept) {
       router.replace("/")
       toast.error("Access denied")
     }
-  }, [departmentsEnabled, user, isLoading, rbacLoading, hasSystemWideDeptAccess, router])
+  }, [departmentsEnabled, user, isLoading, rbacLoading, isCheckingDeptAccess, canAccessDept, router])
 
   useEffect(() => {
     if (!userId) return
@@ -132,6 +207,12 @@ export default function DepartmentDetailsPage() {
       setLoadingDepartment(false)
       setLoadingMembers(false)
       setLoadingEntries(false)
+      return
+    }
+
+    // Avoid refetching (and showing skeleton/loading again) when returning to the tab
+    // if we already have loaded data for this same department.
+    if (department?.id === id && membersLoaded && entriesLoaded) {
       return
     }
 
@@ -211,7 +292,17 @@ export default function DepartmentDetailsPage() {
     loadDepartment()
     loadMembers()
     loadEntries()
-  }, [userId, departmentsEnabled, departmentId, isLoading, rbacLoading, router])
+  }, [
+    userId,
+    departmentsEnabled,
+    departmentId,
+    isLoading,
+    rbacLoading,
+    router,
+    department?.id,
+    membersLoaded,
+    entriesLoaded,
+  ])
 
   const sortedMembers = useMemo(() => {
     return [...members].sort((a, b) => {
@@ -277,7 +368,7 @@ export default function DepartmentDetailsPage() {
     )
   }
 
-  if (isLoading || rbacLoading || !user || (loadingDepartment && !department) || !hasSystemWideDeptAccess) {
+  if (isLoading || rbacLoading || !user || (loadingDepartment && !department) || !canAccessDept) {
     return (
       <div className="space-y-6">
         <div className="space-y-2">
@@ -290,9 +381,113 @@ export default function DepartmentDetailsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-3xl font-bold tracking-tight">{department?.name || "Department"}</h2>
-        <p className="text-muted-foreground mt-2">Reports and members</p>
+      <div className="group relative">
+        {isEditingName ? (
+          <div className="flex items-center gap-2">
+            <Input
+              value={editName}
+              onChange={(e) => setEditName(e.target.value)}
+              className="h-auto max-w-xl py-1 text-3xl font-bold"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === "Enter") handleUpdateDepartment("name")
+                if (e.key === "Escape") {
+                  setIsEditingName(false)
+                  setEditName(department?.name || "")
+                }
+              }}
+            />
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-10 w-10 text-green-600"
+              onClick={() => handleUpdateDepartment("name")}
+              disabled={isUpdating}
+            >
+              <Check className="h-6 w-6" />
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-10 w-10 text-red-600"
+              onClick={() => {
+                setIsEditingName(false)
+                setEditName(department?.name || "")
+              }}
+              disabled={isUpdating}
+            >
+              <X className="h-6 w-6" />
+            </Button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-3">
+            <h2 className="text-3xl font-bold tracking-tight">{department?.name || "Department"}</h2>
+            {canUpdateDept && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-8 w-8 opacity-0 transition-opacity group-hover:opacity-100"
+                onClick={() => setIsEditingName(true)}
+              >
+                <Edit2 className="h-4 w-4" />
+              </Button>
+            )}
+          </div>
+        )}
+
+        {isEditingDescription ? (
+          <div className="mt-2 flex max-w-2xl items-start gap-2">
+            <Textarea
+              value={editDescription}
+              onChange={(e) => setEditDescription(e.target.value)}
+              className="mt-1 min-h-[80px]"
+              autoFocus
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  setIsEditingDescription(false)
+                  setEditDescription(department?.description || "")
+                }
+              }}
+            />
+            <div className="flex flex-col gap-1">
+              <Button
+                size="icon"
+                variant="ghost"
+                className="text-green-600"
+                onClick={() => handleUpdateDepartment("description")}
+                disabled={isUpdating}
+              >
+                <Check className="h-5 w-5" />
+              </Button>
+              <Button
+                size="icon"
+                variant="ghost"
+                className="text-red-600"
+                onClick={() => {
+                  setIsEditingDescription(false)
+                  setEditDescription(department?.description || "")
+                }}
+                disabled={isUpdating}
+              >
+                <X className="h-5 w-5" />
+              </Button>
+            </div>
+          </div>
+        ) : (
+          <div className="group/desc relative mt-2 max-w-2xl">
+            <p className="text-muted-foreground mr-10">{department?.description || "Reports and members"}</p>
+            {canUpdateDept && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="group/desc-hover:opacity-100 absolute top-0 right-0 h-7 w-7 opacity-0 transition-opacity"
+                onClick={() => setIsEditingDescription(true)}
+              >
+                <Edit2 className="h-3.5 w-3.5" />
+              </Button>
+            )}
+          </div>
+        )}
       </div>
 
       <Tabs defaultValue="reports">
@@ -344,19 +539,34 @@ export default function DepartmentDetailsPage() {
               const selectedDateKey = selectedCalendarDate ? format(selectedCalendarDate, "yyyy-MM-dd") : null
               const selectedEntries = selectedDateKey ? entriesByDate.get(selectedDateKey) || [] : []
 
-              const selectedEntriesSorted = [...selectedEntries].sort((a, b) => {
-                const an = memberNameByUserId.get(a.user_id) || ""
-                const bn = memberNameByUserId.get(b.user_id) || ""
-                return an.localeCompare(bn)
+              const membersWithStatus = sortedMembers.map((member) => {
+                const entry = selectedEntries.find((e) => e.user_id === member.user_id)
+                return {
+                  member,
+                  entry,
+                  hasSubmitted: !!entry,
+                }
               })
 
-              const filteredSelectedEntries = (() => {
+              const filteredMembersWithStatus = (() => {
                 const q = calendarUserSearch.trim().toLowerCase()
-                if (!q) return selectedEntriesSorted
-                return selectedEntriesSorted.filter((e) => {
-                  const name = (memberNameByUserId.get(e.user_id) || "Unknown").toLowerCase()
-                  const id = String(e.user_id || "").toLowerCase()
-                  return name.includes(q) || id.includes(q)
+                let result = membersWithStatus
+
+                if (q) {
+                  result = result.filter((item) => {
+                    const name = (item.member.profile?.name || "Unknown").toLowerCase()
+                    const id = String(item.member.user_id || "").toLowerCase()
+                    return name.includes(q) || id.includes(q)
+                  })
+                }
+
+                return result.sort((a, b) => {
+                  // Sort by submission status first, then by name
+                  if (a.hasSubmitted && !b.hasSubmitted) return -1
+                  if (!a.hasSubmitted && b.hasSubmitted) return 1
+                  const an = a.member.profile?.name || ""
+                  const bn = b.member.profile?.name || ""
+                  return an.localeCompare(bn)
                 })
               })()
 
@@ -548,34 +758,43 @@ export default function DepartmentDetailsPage() {
                               </div>
                             </div>
 
-                            <div className="flex flex-wrap gap-2">
-                              <Badge variant="secondary">
-                                {(selectedEntry.custom_responses || []).length} responses
-                              </Badge>
-                            </div>
+                            {(() => {
+                              const filteredResponses = (selectedEntry.custom_responses || []).filter((r) => {
+                                const val = r.value
+                                if (val === null || val === undefined || val === "") return false
+                                if (Array.isArray(val) && val.length === 0) return false
+                                return true
+                              })
 
-                            <div className="space-y-3">
-                              {(selectedEntry.custom_responses || []).length === 0 ? (
-                                <div className="text-muted-foreground bg-muted/30 rounded-lg border p-4 text-sm">
-                                  No responses for this report.
-                                </div>
-                              ) : (
-                                <div className="max-h-[60vh] space-y-4 overflow-y-auto pr-2">
-                                  {(selectedEntry.custom_responses || []).map((r, idx) => (
-                                    <div key={`${r.question_id}-${idx}`} className="space-y-1">
-                                      <div className="font-semibold">{r.question_label || r.question_key}</div>
-                                      <div className="text-muted-foreground bg-muted/40 rounded-md p-3 text-sm whitespace-pre-wrap">
-                                        {formatResponseValue(r.value)}
-                                      </div>
+                              return (
+                                <div className="space-y-3">
+                                  <div className="flex flex-wrap gap-2">
+                                    <Badge variant="secondary">{filteredResponses.length} responses</Badge>
+                                  </div>
+
+                                  {filteredResponses.length === 0 ? (
+                                    <div className="text-muted-foreground bg-muted/30 rounded-lg border p-4 text-sm">
+                                      No responses for this report.
                                     </div>
-                                  ))}
+                                  ) : (
+                                    <div className="max-h-[60vh] space-y-4 overflow-y-auto pr-2">
+                                      {filteredResponses.map((r, idx) => (
+                                        <div key={`${r.question_id}-${idx}`} className="space-y-1">
+                                          <div className="font-semibold">{r.question_label || r.question_key}</div>
+                                          <div className="text-muted-foreground bg-muted/40 rounded-md p-3 text-sm whitespace-pre-wrap">
+                                            {formatResponseValue(r.value)}
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
                                 </div>
-                              )}
-                            </div>
+                              )
+                            })()}
                           </div>
-                        ) : selectedCalendarDate && selectedEntriesSorted.length === 0 ? (
+                        ) : selectedCalendarDate && sortedMembers.length === 0 ? (
                           <div className="text-muted-foreground bg-muted/30 rounded-lg border p-4 text-sm">
-                            No reports for this date.
+                            No members found in this department.
                           </div>
                         ) : (
                           <div className="space-y-4">
@@ -585,14 +804,14 @@ export default function DepartmentDetailsPage() {
                               placeholder="Search users..."
                             />
 
-                            {filteredSelectedEntries.length === 0 ? (
+                            {filteredMembersWithStatus.length === 0 ? (
                               <div className="text-muted-foreground bg-muted/30 rounded-lg border p-4 text-sm">
-                                No users match your search.
+                                No members found for this department.
                               </div>
                             ) : (
                               <div className="space-y-3">
-                                {filteredSelectedEntries.map((entry) => {
-                                  const name = memberNameByUserId.get(entry.user_id) || "Unknown"
+                                {filteredMembersWithStatus.map(({ member, entry, hasSubmitted }) => {
+                                  const name = member.profile?.name || "Unknown"
                                   const initials = name
                                     .split(" ")
                                     .filter(Boolean)
@@ -603,22 +822,45 @@ export default function DepartmentDetailsPage() {
 
                                   return (
                                     <button
-                                      key={entry.id}
+                                      key={member.user_id}
                                       type="button"
-                                      className="hover:bg-muted/30 flex w-full cursor-pointer items-center justify-between gap-4 rounded-xl border bg-white px-4 py-4 text-left shadow-sm focus:ring-2 focus:ring-blue-500 focus:outline-hidden"
+                                      disabled={!hasSubmitted}
+                                      className={`flex w-full items-center justify-between gap-4 rounded-xl border px-4 py-4 text-left shadow-sm transition-colors focus:ring-2 focus:ring-blue-500 focus:outline-hidden ${
+                                        hasSubmitted
+                                          ? "hover:bg-muted/30 cursor-pointer bg-white"
+                                          : "cursor-not-allowed bg-gray-50/50 opacity-70"
+                                      }`}
                                       onClick={() => {
-                                        setSelectedEntry(entry)
-                                        setCalendarSheetMode("details")
+                                        if (hasSubmitted && entry) {
+                                          setSelectedEntry(entry)
+                                          setCalendarSheetMode("details")
+                                        }
                                       }}
                                     >
                                       <div className="flex min-w-0 items-center gap-4">
-                                        <div className="bg-muted text-primary/80 flex h-10 w-10 items-center justify-center rounded-full text-sm font-semibold">
+                                        <div className="bg-muted text-primary/80 flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-sm font-semibold">
                                           {initials || "??"}
                                         </div>
                                         <div className="min-w-0">
                                           <div className="truncate font-semibold">{name}</div>
+                                          <div className="text-muted-foreground flex items-center gap-2 text-xs">
+                                            <span>{member.role}</span>
+                                            {hasSubmitted && (
+                                              <Badge
+                                                variant="outline"
+                                                className="bg-green-50 text-[10px] text-green-700 hover:bg-green-50"
+                                              >
+                                                Submitted
+                                              </Badge>
+                                            )}
+                                          </div>
                                         </div>
                                       </div>
+                                      {!hasSubmitted && (
+                                        <Badge variant="outline" className="text-[10px] text-gray-400">
+                                          No Report
+                                        </Badge>
+                                      )}
                                     </button>
                                   )
                                 })}
