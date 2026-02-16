@@ -15,6 +15,14 @@ CREATE TABLE IF NOT EXISTS public.department_role_permissions (
   UNIQUE (department_id, department_role, resource, action)
 );
 
+ CREATE UNIQUE INDEX IF NOT EXISTS uq_department_role_permissions_dept_role_res_action
+   ON public.department_role_permissions (
+     COALESCE(department_id, '00000000-0000-0000-0000-000000000000'::uuid),
+     department_role,
+     resource,
+     action
+   );
+
 CREATE INDEX IF NOT EXISTS idx_department_role_permissions_dept ON public.department_role_permissions(department_id);
 CREATE INDEX IF NOT EXISTS idx_department_role_permissions_role ON public.department_role_permissions(department_role);
 
@@ -43,6 +51,11 @@ SELECT
   'department_questions',
   'answer'
 FROM public.departments d
-ON CONFLICT (department_id, department_role, resource, action) DO NOTHING;
+ ON CONFLICT (
+   COALESCE(department_id, '00000000-0000-0000-0000-000000000000'::uuid),
+   department_role,
+   resource,
+   action
+ ) DO NOTHING;
 
 COMMIT;
