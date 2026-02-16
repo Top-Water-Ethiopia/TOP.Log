@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
+import { adminSupabase } from "@/lib/supabase/admin"
 
 export const dynamic = "force-dynamic"
 
@@ -21,27 +22,53 @@ export async function GET(_request: Request, { params }: { params: Promise<{ dep
       return NextResponse.json({ error: "Department ID is required" }, { status: 400 })
     }
 
-    const { data: selfMembership, error: selfMembershipError } = await supabase
-      .from("user_department_roles")
-      .select("department_id")
-      .eq("department_id", departmentId)
+    // --- ACCESS CONTROL START ---
+    // Check system-wide permissions first
+    const { data: profile } = await adminSupabase
+      .from("user_profiles")
+      .select("role_id")
       .eq("user_id", user.id)
-      .eq("is_active", true)
-      .limit(1)
+      .single()
+
+    let systemWideAllowed = false
+    if (profile) {
+      const { data: permissions } = await adminSupabase
+        .from("permissions")
+        .select("resource, action")
+        .eq("role_id", profile.role_id)
+
+      const permissionNames = permissions?.map((p) => `${p.resource}.${p.action}`) || []
+      systemWideAllowed =
+        permissionNames.includes("departments.members.read") ||
+        permissionNames.includes("departments.read") ||
+        permissionNames.includes("admin.system")
+    }
+
+    // Check department-scoped access levels
+    const { data: accessLevel } = await adminSupabase
+      .from("user_department_access_levels")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("department_id", departmentId)
       .maybeSingle()
 
-    if (selfMembershipError) {
-      return NextResponse.json(
-        { error: "Failed to verify department membership", message: selfMembershipError.message },
-        { status: 500 }
-      )
-    }
+    // Also check if they are in user_department_roles as a fallback for legacy compatibility
+    const { data: roleMembership } = await adminSupabase
+      .from("user_department_roles")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("department_id", departmentId)
+      .eq("is_active", true)
+      .maybeSingle()
 
-    if (!selfMembership) {
+    const hasAccess = systemWideAllowed || accessLevel !== null || roleMembership !== null
+
+    if (!hasAccess) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 })
     }
+    // --- ACCESS CONTROL END ---
 
-    const { data: memberships, error: membershipError } = await supabase
+    const { data: memberships, error: membershipError } = await adminSupabase
       .from("user_department_roles")
       .select("user_id, role, is_active")
       .eq("department_id", departmentId)
@@ -54,7 +81,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ dep
 
     const userIds = Array.from(new Set((memberships || []).map((m) => m.user_id)))
 
-    const { data: profiles, error: profilesError } = await supabase
+    const { data: profiles, error: profilesError } = await adminSupabase
       .from("user_profiles")
       .select("user_id, name, role_id, department_id, is_active")
       .in("user_id", userIds)

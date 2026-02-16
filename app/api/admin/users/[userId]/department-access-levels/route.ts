@@ -62,12 +62,18 @@ export async function POST(request: Request, { params }: { params: Promise<{ use
 
     const { data, error } = await adminSupabase
       .from("user_department_access_levels")
-      .insert({
-        user_id: userId,
-        department_id,
-        access_level_id,
-        assigned_by: auth.userId,
-      })
+      .upsert(
+        {
+          user_id: userId,
+          department_id,
+          access_level_id,
+          assigned_by: auth.userId,
+        },
+        {
+          onConflict: "user_id,department_id",
+          ignoreDuplicates: false,
+        }
+      )
       .select(
         `
         *,
@@ -85,7 +91,20 @@ export async function POST(request: Request, { params }: { params: Promise<{ use
       )
     }
 
-    return NextResponse.json({ data }, { status: 201 })
+    // If the join didn't populate access_level, fetch it explicitly
+    let result = data
+    if (result && !result.access_level) {
+      const { data: fetchedAccessLevel } = await adminSupabase
+        .from("department_access_levels")
+        .select("id, name, display_name, level")
+        .eq("id", result.access_level_id)
+        .single()
+      if (fetchedAccessLevel) {
+        result.access_level = fetchedAccessLevel
+      }
+    }
+
+    return NextResponse.json({ data: result }, { status: 201 })
   } catch (error) {
     return NextResponse.json(
       {

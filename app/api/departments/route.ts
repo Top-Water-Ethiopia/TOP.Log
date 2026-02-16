@@ -23,6 +23,25 @@ export async function GET() {
       .eq("user_id", user.id)
       .single()
 
+    // Get user's active department only (single active department principle)
+    const { data: activeDepartmentRole } = await supabase
+      .from("user_department_roles")
+      .select(
+        `
+        department_id,
+        role,
+        department:departments (
+          id,
+          name,
+          description,
+          is_active
+        )
+      `
+      )
+      .eq("user_id", user.id)
+      .eq("is_active", true)
+      .single()
+
     let hasSystemWideAccess = false
     if (profile) {
       const { data: permissions } = await adminSupabase
@@ -35,44 +54,64 @@ export async function GET() {
         permissionNames.includes("departments.read") ||
         permissionNames.includes("departments.own.read") ||
         permissionNames.includes("admin.system")
+
+      // If no system-wide access, check department-scoped access
+      if (!hasSystemWideAccess && activeDepartmentRole) {
+        // Check department access level permissions
+        const { data: userAccessLevel } = await supabase
+          .from("user_department_access_levels")
+          .select("access_level_id")
+          .eq("user_id", user.id)
+          .eq("department_id", activeDepartmentRole.department_id)
+          .single()
+
+        if (userAccessLevel?.access_level_id) {
+          const { data: accessLevelPermissions } = await adminSupabase
+            .from("department_access_level_permissions")
+            .select(
+              `
+              permission_definitions!inner(resource, action)
+            `
+            )
+            .eq("access_level_id", userAccessLevel.access_level_id)
+            .eq("effect", "allow")
+
+          const accessLevelPermissionNames =
+            accessLevelPermissions?.map((p) => {
+              const pd = p.permission_definitions as { resource: string; action: string }
+              return `${pd.resource}.${pd.action}`
+            }) || []
+
+          if (accessLevelPermissionNames.includes("departments.read")) {
+            hasSystemWideAccess = true
+          }
+        }
+      }
     }
 
-    // Check department access levels (new architecture)
-    const { data: accessLevels } = await supabase
-      .from("user_department_access_levels")
-      .select(
-        `
-        department_id,
-        department:departments (
-          id,
-          name,
-          description,
-          is_active
-        )
-      `
-      )
-      .eq("user_id", user.id)
-
-    // Filter to only include departments with active access
-    const normalized = (accessLevels || [])
-      .map((row: unknown) => {
-        if (!row || typeof row !== "object") return null
-        const r = row as Record<string, unknown>
-        const dept = r.department as Record<string, unknown> | null | undefined
-        if (!dept || typeof dept !== "object") return null
-        const deptId = dept.id
-        if (typeof deptId !== "string" || !deptId) return null
-        return {
-          department_id: String(r.department_id ?? ""),
-          department: {
-            id: deptId,
-            name: String(dept.name ?? ""),
-            description: (typeof dept.description === "string" ? dept.description : null) ?? null,
-            is_active: Boolean(dept.is_active),
-          },
-        }
+    // Normalize the response
+    const normalized: Array<{
+      department_id: string
+      department: {
+        id: string
+        name: string
+        description: string | null
+        is_active: boolean
+      }
+      role: string
+    }> = []
+    if (activeDepartmentRole && activeDepartmentRole.department) {
+      normalized.push({
+        department_id: activeDepartmentRole.department_id,
+        department: {
+          id: activeDepartmentRole.department.id,
+          name: activeDepartmentRole.department.name,
+          description: activeDepartmentRole.department.description,
+          is_active: activeDepartmentRole.department.is_active,
+        },
+        role: activeDepartmentRole.role,
       })
-      .filter(Boolean)
+    }
 
     // Return both system-wide access flag and department list
     return NextResponse.json({

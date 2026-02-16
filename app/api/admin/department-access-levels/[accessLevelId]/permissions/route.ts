@@ -21,8 +21,9 @@ type AccessLevelPermissionRow = {
   permission_definitions: PermissionDefinitionJoin | PermissionDefinitionJoin[] | null
 }
 
-export async function GET(request: Request, { params }: { params: { accessLevelId: string } }) {
+export async function GET(request: Request, { params }: { params: Promise<{ accessLevelId: string }> }) {
   try {
+    const { accessLevelId } = await params
     const auth = await verifyPermissionFromRequest(request, "admin.system")
     if (!auth.ok) {
       return NextResponse.json({ error: auth.error }, { status: auth.status })
@@ -47,7 +48,7 @@ export async function GET(request: Request, { params }: { params: { accessLevelI
         )
       `
       )
-      .eq("access_level_id", params.accessLevelId)
+      .eq("access_level_id", accessLevelId)
       .order("created_at", { ascending: true })
 
     if (error) {
@@ -84,8 +85,9 @@ export async function GET(request: Request, { params }: { params: { accessLevelI
   }
 }
 
-export async function POST(request: Request, { params }: { params: { accessLevelId: string } }) {
+export async function POST(request: Request, { params }: { params: Promise<{ accessLevelId: string }> }) {
   try {
+    const { accessLevelId } = await params
     const auth = await verifyPermissionFromRequest(request, "admin.system")
     if (!auth.ok) {
       return NextResponse.json({ error: auth.error }, { status: auth.status })
@@ -119,7 +121,7 @@ export async function POST(request: Request, { params }: { params: { accessLevel
     const { data, error } = await adminSupabase
       .from("department_access_level_permissions")
       .insert({
-        access_level_id: params.accessLevelId,
+        access_level_id: accessLevelId,
         permission_definition_id,
         effect,
       })
@@ -174,8 +176,9 @@ export async function POST(request: Request, { params }: { params: { accessLevel
   }
 }
 
-export async function DELETE(request: Request, { params }: { params: { accessLevelId: string } }) {
+export async function DELETE(request: Request, { params }: { params: Promise<{ accessLevelId: string }> }) {
   try {
+    const { accessLevelId } = await params
     const auth = await verifyPermissionFromRequest(request, "admin.system")
     if (!auth.ok) {
       return NextResponse.json({ error: auth.error }, { status: auth.status })
@@ -192,7 +195,7 @@ export async function DELETE(request: Request, { params }: { params: { accessLev
       .from("department_access_level_permissions")
       .delete()
       .eq("id", permissionId)
-      .eq("access_level_id", params.accessLevelId)
+      .eq("access_level_id", accessLevelId)
 
     if (error) {
       return NextResponse.json(
