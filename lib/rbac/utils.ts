@@ -3,8 +3,6 @@
 import type {
   User,
   Role,
-  Permission,
-  Session,
   CustomQuestion,
   RoleQuestionSet,
   QuestionResponse,
@@ -495,24 +493,30 @@ export function getQuestionsForUser(user: User | null): CustomQuestion[] {
  * Validate question response based on question configuration
  * Supports both the legacy CustomQuestion format and the database format with validationRules
  */
-export function validateQuestionResponse(question: CustomQuestion | any, value: any): string | null {
+export function validateQuestionResponse(question: CustomQuestion | unknown, value: unknown): string | null {
+  // Type guard to check if it's a valid question object
+  const q = question as Partial<CustomQuestion>
+  if (!q || typeof q !== "object") {
+    return "Invalid question format"
+  }
   // Required field validation
-  if (question.required && (value === null || value === undefined || value === "")) {
+  if (q.required && (value === null || value === undefined || value === "")) {
     return "This field is required"
   }
 
   // Skip validation for optional empty fields
-  if (!question.required && (value === null || value === undefined || value === "")) {
+  if (!q.required && (value === null || value === undefined || value === "")) {
     return null
   }
 
   // Get validation rules - support both formats:
   // 1. Legacy format: question.validation = { min, max, pattern }
   // 2. Database format: question.validationRules = { min_length, max_length, min_value, max_value, pattern }
-  const validationRules = question.validationRules || question.validation || {}
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const validationRules = (q as any).validationRules || q.validation || {}
 
   // Type-specific validation
-  switch (question.type) {
+  switch (q.type) {
     case "text":
     case "textarea":
     case "email":
@@ -522,23 +526,28 @@ export function validateQuestionResponse(question: CustomQuestion | any, value: 
         return "Please enter valid text"
       }
       // Check min_length (database format) or min (legacy format)
-      const minLength = validationRules.min_length ?? validationRules.min
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const minLength = (validationRules as any).min_length ?? (validationRules as any).min
       if (minLength !== undefined && minLength !== null && value.length < minLength) {
-        return `Minimum ${minLength} character${minLength !== 1 ? 's' : ''} required`
+        return `Minimum ${minLength} character${minLength !== 1 ? "s" : ""} required`
       }
       // Check max_length (database format) or max (legacy format)
-      const maxLength = validationRules.max_length ?? validationRules.max
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const maxLength = (validationRules as any).max_length ?? (validationRules as any).max
       if (maxLength !== undefined && maxLength !== null && value.length > maxLength) {
-        return `Maximum ${maxLength} character${maxLength !== 1 ? 's' : ''} allowed`
+        return `Maximum ${maxLength} character${maxLength !== 1 ? "s" : ""} allowed`
       }
       // Check pattern validation
-      if (validationRules.pattern) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      if ((validationRules as any).pattern) {
         try {
-          if (!new RegExp(validationRules.pattern).test(value)) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          if (!new RegExp((validationRules as any).pattern).test(value)) {
             return "Invalid format"
           }
         } catch (e) {
-          console.error('Invalid regex pattern:', validationRules.pattern, e)
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          console.error("Invalid regex pattern:", (validationRules as any).pattern, e)
         }
       }
       break
@@ -550,21 +559,26 @@ export function validateQuestionResponse(question: CustomQuestion | any, value: 
         return "Please enter a valid number"
       }
       // Check min_value (database format) or min (legacy format)
-      const minValue = validationRules.min_value ?? validationRules.min
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const minValue = (validationRules as any).min_value ?? (validationRules as any).min
       if (minValue !== undefined && minValue !== null && numValue < minValue) {
         return `Minimum value is ${minValue}`
       }
       // Check max_value (database format) or max (legacy format)
-      const maxValue = validationRules.max_value ?? validationRules.max
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const maxValue = (validationRules as any).max_value ?? (validationRules as any).max
       if (maxValue !== undefined && maxValue !== null && numValue > maxValue) {
         return `Maximum value is ${maxValue}`
       }
       // Check step validation
-      if (validationRules.step !== undefined && validationRules.step !== null) {
-        const step = Number(validationRules.step)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      if ((validationRules as any).step !== undefined && (validationRules as any).step !== null) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const step = Number((validationRules as any).step)
         if (!isNaN(step) && step > 0) {
           const remainder = (numValue - (minValue ?? 0)) % step
-          if (Math.abs(remainder) > 0.000001) { // Use small epsilon for floating point comparison
+          if (Math.abs(remainder) > 0.000001) {
+            // Use small epsilon for floating point comparison
             return `Value must be in increments of ${step}`
           }
         }
@@ -573,7 +587,7 @@ export function validateQuestionResponse(question: CustomQuestion | any, value: 
 
     case "select":
     case "radio":
-      if (question.options && !question.options.includes(value)) {
+      if (q.options && !(q.options as string[]).includes(value as string)) {
         return "Please select a valid option"
       }
       break
@@ -582,7 +596,8 @@ export function validateQuestionResponse(question: CustomQuestion | any, value: 
       if (!Array.isArray(value)) {
         return "Please select at least one option"
       }
-      if (question.options && !value.every((v) => question.options!.includes(v))) {
+
+      if (q.options && !value.every((v) => (q.options as string[]).includes(v as string))) {
         return "One or more selected options are invalid"
       }
       break
@@ -603,15 +618,19 @@ export function validateQuestionResponse(question: CustomQuestion | any, value: 
         return "Please enter a valid date"
       }
       // Check min_date validation
-      if (validationRules.min_date) {
-        const minDate = new Date(validationRules.min_date)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      if ((validationRules as any).min_date) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const minDate = new Date((validationRules as any).min_date)
         if (!isNaN(minDate.getTime()) && date < minDate) {
           return `Date must be on or after ${minDate.toLocaleDateString()}`
         }
       }
       // Check max_date validation
-      if (validationRules.max_date) {
-        const maxDate = new Date(validationRules.max_date)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      if ((validationRules as any).max_date) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const maxDate = new Date((validationRules as any).max_date)
         if (!isNaN(maxDate.getTime()) && date > maxDate) {
           return `Date must be on or before ${maxDate.toLocaleDateString()}`
         }
@@ -620,8 +639,10 @@ export function validateQuestionResponse(question: CustomQuestion | any, value: 
   }
 
   // Custom validation (legacy format only)
-  if (question.validation?.custom) {
-    return question.validation.custom(value)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  if ((q.validation as any)?.custom) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (q.validation as any).custom(value)
   }
 
   return null
@@ -630,7 +651,7 @@ export function validateQuestionResponse(question: CustomQuestion | any, value: 
 /**
  * Create a question response object
  */
-export function createQuestionResponse(question: CustomQuestion, value: any): QuestionResponse {
+export function createQuestionResponse(question: CustomQuestion, value: unknown): QuestionResponse {
   return {
     questionId: question.id,
     questionKey: question.key,
@@ -647,7 +668,7 @@ export function createQuestionResponse(question: CustomQuestion, value: any): Qu
  */
 export function processQuestionResponses(
   questions: CustomQuestion[],
-  responses: Record<string, any>
+  responses: Record<string, unknown>
 ): { valid: boolean; errors: Record<string, string>; processedResponses: QuestionResponse[] } {
   const errors: Record<string, string> = {}
   const processedResponses: QuestionResponse[] = []

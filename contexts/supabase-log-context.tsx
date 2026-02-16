@@ -6,6 +6,7 @@ import { useSupabaseAuth } from "./supabase-auth-context"
 import { v4 as uuidv4 } from "uuid"
 import * as supabaseData from "@/lib/supabase-data"
 import type { CaptainLogEntry as DbCaptainLogEntry, AuditLog } from "@/lib/supabase-data"
+import type { Json } from "@/lib/supabase.types"
 import { canCreateEntryForDate, canUpdateEntryForDate } from "@/lib/date-restrictions"
 
 // Re-export types for components
@@ -21,7 +22,7 @@ export type CaptainLogEntry = {
   created_at: string
   updated_at: string
   version: number
-  metadata: any | null
+  metadata: unknown | null
 
   // Standard question fields (now loaded from custom_responses)
   objectives: string
@@ -39,7 +40,7 @@ export type CaptainLogEntry = {
   updatedAt: string
 
   // Custom responses
-  customResponses: any[]
+  customResponses: unknown[]
 }
 
 // Helper function to get standard question labels
@@ -61,7 +62,7 @@ function getStandardQuestionLabel(key: string): string {
 // Compatibility layer: Transform database entry + custom responses to component format
 async function transformEntryForComponents(entry: DbCaptainLogEntry): Promise<CaptainLogEntry> {
   // Fetch custom responses for this entry
-  let customResponsesData: any[] = []
+  let customResponsesData: unknown[] = []
   try {
     customResponsesData = await supabaseData.getCustomResponses(entry.id)
   } catch (error) {
@@ -69,21 +70,31 @@ async function transformEntryForComponents(entry: DbCaptainLogEntry): Promise<Ca
   }
 
   // Transform custom responses to expected format
-  const customResponses = customResponsesData.map((response) => ({
-    questionId: response.question_id,
-    questionKey: response.question_key,
-    questionLabel: response.question_label,
-    questionType: response.question_type,
-    questionCategory: response.question_category,
-    value: response.value,
-    timestamp: response.timestamp,
-  }))
+  const customResponses = customResponsesData.map((response) => {
+    const resp = response as Record<string, unknown>
+    return {
+      questionId: resp.question_id as string,
+      questionKey: resp.question_key as string,
+      questionLabel: resp.question_label as string,
+      questionType: resp.question_type as string,
+      questionCategory: resp.question_category as string | undefined,
+      value: resp.value as Json,
+      timestamp: resp.timestamp as string,
+    }
+  })
 
   // Extract standard fields from custom responses
-  const standardResponses = customResponsesData.filter((r) => r.question_category === "standard")
+  const standardResponses = customResponsesData.filter((r) => {
+    const resp = r as Record<string, unknown>
+    return resp.question_category === "standard"
+  })
   const getField = (key: string) => {
-    const response = standardResponses.find((r) => r.question_key === key)
-    return response ? (response.value as string) || "" : ""
+    const response = standardResponses.find((r) => {
+      const resp = r as Record<string, unknown>
+      return resp.question_key === key
+    })
+    const resp = response as Record<string, unknown>
+    return resp ? (resp.value as string) || "" : ""
   }
 
   return {
@@ -109,8 +120,8 @@ async function transformEntryForComponents(entry: DbCaptainLogEntry): Promise<Ca
 }
 
 // Transform entry from components to database format (entry + custom responses)
-function transformEntryForDatabase(entry: any) {
-  const dbEntry: any = { ...entry }
+function transformEntryForDatabase(entry: Partial<CaptainLogEntry>): Record<string, unknown> {
+  const dbEntry: Record<string, unknown> = { ...entry }
 
   // Remove component-only fields
   delete dbEntry.objectives
@@ -172,7 +183,6 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
   const [isLoading, setIsLoading] = useState<boolean>(true)
   const [error, setError] = useState<Error | null>(null)
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>([])
-  const [isInitialized, setIsInitialized] = useState<boolean>(false)
 
   // Load entries from Supabase
   const loadEntries = useCallback(async () => {
@@ -217,14 +227,12 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
     if (user) {
       loadEntries()
       loadAuditLogs()
-      setIsInitialized(true)
     } else {
       setEntries([])
       setAuditLogs([])
-      setIsInitialized(false)
       setIsLoading(false)
     }
-  }, [user?.id, loadEntries, loadAuditLogs]) // Include callbacks to ensure stable dependency array
+  }, [user, loadEntries, loadAuditLogs]) // Include callbacks to ensure stable dependency array
 
   // CRUD Operations
 
@@ -309,34 +317,33 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
           { key: "projectUpdates", value: entry.projectUpdates || "" },
         ]
 
-        // Create custom responses for standard fields
+        // Create custom responses for standard fields (create even if empty)
         for (const response of standardResponses) {
-          if (response.value) {
-            await supabaseData.createCustomResponse({
-              entry_id: newEntry.id,
-              question_id: `std_${response.key}`,
-              question_key: response.key,
-              question_label: getStandardQuestionLabel(response.key),
-              question_type: "textarea",
-              question_category: "standard",
-              value: response.value,
-              timestamp: now,
-            })
-          }
+          await supabaseData.createCustomResponse({
+            entry_id: newEntry.id,
+            question_id: `std_${response.key}`,
+            question_key: response.key,
+            question_label: getStandardQuestionLabel(response.key),
+            question_type: "textarea",
+            question_category: "standard",
+            value: response.value,
+            timestamp: now,
+          })
         }
 
         // Save any additional custom responses
         if (entry.customResponses && Array.isArray(entry.customResponses)) {
           for (const response of entry.customResponses) {
+            const resp = response as Record<string, unknown>
             await supabaseData.createCustomResponse({
               entry_id: newEntry.id,
-              question_id: response.questionId,
-              question_key: response.questionKey,
-              question_label: response.questionLabel,
-              question_type: response.questionType,
-              question_category: response.questionCategory || "custom",
-              value: response.value,
-              timestamp: response.timestamp || now,
+              question_id: resp.questionId as string,
+              question_key: resp.questionKey as string,
+              question_label: resp.questionLabel as string,
+              question_type: resp.questionType as string,
+              question_category: (resp.questionCategory as string) || "custom",
+              value: resp.value as Json,
+              timestamp: now, // Always use current timestamp for new entries
             })
           }
         }
@@ -346,7 +353,7 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
           operation: "CREATE",
           entity_id: newEntry.id,
           user_id: user.id,
-          metadata: { date: newEntry.date },
+          metadata: { date: newEntry.date } as Json,
         })
 
         // Transform back to camelCase for state
@@ -401,7 +408,9 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
 
         // For updates, we'll recreate all custom responses to keep it simple
         // First delete existing custom responses for this entry
+        console.log("[updateEntry] Deleting existing custom responses for entry:", id)
         await supabaseData.deleteCustomResponses(id)
+        console.log("[updateEntry] Deleted existing custom responses")
 
         // Then recreate standard fields as custom responses
         const standardResponses = [
@@ -416,38 +425,42 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
           { key: "projectUpdates", value: updates.projectUpdates || "" },
         ]
 
+        console.log("[updateEntry] Standard responses to create:", standardResponses)
+
         const now = new Date().toISOString()
 
-        // Create standard responses
+        // Create standard responses (create even if empty to overwrite existing values)
         for (const response of standardResponses) {
-          if (response.value) {
-            await supabaseData.createCustomResponse({
-              entry_id: id,
-              question_id: `std_${response.key}`,
-              question_key: response.key,
-              question_label: getStandardQuestionLabel(response.key),
-              question_type: "textarea",
-              question_category: "standard",
-              value: response.value,
-              timestamp: now,
-            })
-          }
+          await supabaseData.createCustomResponse({
+            entry_id: id,
+            question_id: `std_${response.key}`,
+            question_key: response.key,
+            question_label: getStandardQuestionLabel(response.key),
+            question_type: "textarea",
+            question_category: "standard",
+            value: response.value,
+            timestamp: now,
+          })
         }
 
         // Handle additional custom responses if provided
         if (updates.customResponses && Array.isArray(updates.customResponses)) {
+          console.log("[updateEntry] Additional custom responses to create:", updates.customResponses)
           for (const response of updates.customResponses) {
+            const resp = response as Record<string, unknown>
             await supabaseData.createCustomResponse({
               entry_id: id,
-              question_id: response.questionId,
-              question_key: response.questionKey,
-              question_label: response.questionLabel,
-              question_type: response.questionType,
-              question_category: response.questionCategory || "custom",
-              value: response.value,
-              timestamp: response.timestamp || now,
+              question_id: resp.questionId as string,
+              question_key: resp.questionKey as string,
+              question_label: resp.questionLabel as string,
+              question_type: resp.questionType as string,
+              question_category: (resp.questionCategory as string) || "custom",
+              value: resp.value as Json,
+              timestamp: now, // Always use current timestamp for updates
             })
           }
+        } else {
+          console.log("[updateEntry] No additional custom responses to create")
         }
 
         // Create audit log
@@ -458,14 +471,17 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
           changes: {
             from: Object.keys(updates).reduce(
               (acc, key) => {
-                acc[key] = (existingEntry as any)[key]
+                acc[key] = (existingEntry as Record<string, unknown>)[key]
                 return acc
               },
-              {} as Record<string, any>
+              {} as Record<string, unknown>
             ),
             to: updates,
-          },
+          } as Json,
         })
+
+        // Wait a moment for database consistency before transforming
+        await new Promise((resolve) => setTimeout(resolve, 100))
 
         // Transform back to camelCase for state
         const transformedEntry = await transformEntryForComponents(updatedEntry)
@@ -677,7 +693,7 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
         for (const entry of importedEntries) {
           const importedDepartmentId =
             entry && typeof entry === "object" && "department_id" in entry
-              ? ((entry as any).department_id as string | null)
+              ? ((entry as Record<string, unknown>).department_id as string | null)
               : undefined
           // Check if entry already exists by date
           const existingEntry = await supabaseData.getEntryByDate(user.id, entry.date, importedDepartmentId)

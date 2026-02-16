@@ -49,6 +49,25 @@ export function useRBAC() {
     }
   )
 
+  // Fetch department permissions for a specific department (returns map with effects)
+  const getDepartmentPermissions = useCallback(
+    async (departmentId: string): Promise<Record<string, "allow" | "deny" | "none">> => {
+      if (!supabaseUser) return {}
+
+      try {
+        const response = await fetch(`/api/rbac/department-permissions?departmentId=${departmentId}`)
+        if (!response.ok) return {}
+
+        const data = await response.json()
+        return data.permissions || {}
+      } catch (error) {
+        console.error("Failed to fetch department permissions:", error)
+        return {}
+      }
+    },
+    [supabaseUser]
+  )
+
   const dbRbac = useMemo(() => {
     if (!supabaseUser) {
       return { loading: false, checked: false, loaded: false, permissions: [], roleName: null }
@@ -182,6 +201,36 @@ export function useRBAC() {
     [user]
   )
 
+  /**
+   * Check permission in a specific department with dual-layer resolution.
+   * Resolution rules (department scope overrides system-wide):
+   * - dept: allow → ALLOW (regardless of system)
+   * - dept: deny → DENY (regardless of system)
+   * - dept: none + system: allow → ALLOW
+   * - dept: none + system: deny → DENY
+   */
+  const checkPermissionInDepartment = useCallback(
+    async (permission: string, departmentId: string): Promise<boolean> => {
+      if (!user || !user.isActive) return false
+
+      // Get system-wide permission
+      const systemAllowed = dbRbac.loaded
+        ? dbRbac.permissions.includes(permission)
+        : hasPermission(user, permission, roles)
+
+      // Get department-scoped permission
+      const deptPermissions = await getDepartmentPermissions(departmentId)
+      const deptEffect = deptPermissions[permission]
+
+      // Resolution: department scope overrides system-wide
+      if (deptEffect === "allow") return true
+      if (deptEffect === "deny") return false
+      // deptEffect is "none" or undefined → fall back to system-wide
+      return systemAllowed
+    },
+    [user, roles, dbRbac.loaded, dbRbac.permissions, getDepartmentPermissions]
+  )
+
   // Question management functions (renamed to avoid conflicts)
   const getRoleQuestions = useCallback((roleName: string) => {
     return getQuestionSetForRole(roleName)
@@ -311,6 +360,10 @@ export function useRBAC() {
     hasRole: hasRole,
     canManageUser: checkCanManageUser,
 
+    // Department permissions
+    getDepartmentPermissions,
+    checkPermissionInDepartment,
+
     // Legacy/compat
     getAssignableRoles: getAssignableRolesForUser,
     userInfo,
@@ -376,6 +429,28 @@ export function useUserPermissions() {
       targetUser ? canManageUser(targetUser) || canPerformAction({ resource: "users", action: "delete" }) : false,
     canManage: hasPermission("users.manage"),
     canManageRoles: hasPermission("users.manage"),
+  }
+}
+
+/**
+ * Hook for department permissions
+ */
+export function useDepartmentPermissions(departmentId: string) {
+  const { getDepartmentPermissions } = useRBAC()
+
+  const { data: departmentPermissions, isLoading } = useSWR(
+    departmentId ? `department-permissions-${departmentId}` : null,
+    () => getDepartmentPermissions(departmentId),
+    {
+      revalidateOnFocus: false,
+      shouldRetryOnError: false,
+    }
+  )
+
+  return {
+    permissions: departmentPermissions || {},
+    isLoading,
+    hasPermission: (permission: string) => departmentPermissions?.[permission] === "allow",
   }
 }
 

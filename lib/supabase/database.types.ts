@@ -1,4 +1,10 @@
-export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[]
+export type Json =
+  | string
+  | number
+  | boolean
+  | null
+  | { [key: string]: Json | undefined }
+  | Json[]
 
 export type Database = {
   // Allows to automatically instantiate createClient with right options
@@ -8,36 +14,6 @@ export type Database = {
   }
   public: {
     Tables: {
-      audit_logs: {
-        Row: {
-          changes: Json | null
-          entity_id: string
-          id: string
-          metadata: Json | null
-          operation: string
-          timestamp: string
-          user_id: string | null
-        }
-        Insert: {
-          changes?: Json | null
-          entity_id: string
-          id?: string
-          metadata?: Json | null
-          operation: string
-          timestamp?: string
-          user_id?: string | null
-        }
-        Update: {
-          changes?: Json | null
-          entity_id?: string
-          id?: string
-          metadata?: Json | null
-          operation?: string
-          timestamp?: string
-          user_id?: string | null
-        }
-        Relationships: []
-      }
       access_requests: {
         Row: {
           created_at: string
@@ -77,6 +53,44 @@ export type Database = {
           status?: string
           updated_at?: string
           user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "access_requests_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      audit_logs: {
+        Row: {
+          changes: Json | null
+          entity_id: string
+          id: string
+          metadata: Json | null
+          operation: string
+          timestamp: string
+          user_id: string | null
+        }
+        Insert: {
+          changes?: Json | null
+          entity_id: string
+          id?: string
+          metadata?: Json | null
+          operation: string
+          timestamp?: string
+          user_id?: string | null
+        }
+        Update: {
+          changes?: Json | null
+          entity_id?: string
+          id?: string
+          metadata?: Json | null
+          operation?: string
+          timestamp?: string
+          user_id?: string | null
         }
         Relationships: []
       }
@@ -165,9 +179,127 @@ export type Database = {
           },
         ]
       }
+      department_access_level_permissions: {
+        Row: {
+          access_level_id: string
+          created_at: string
+          effect: string
+          id: string
+          permission_definition_id: string
+          updated_at: string
+        }
+        Insert: {
+          access_level_id: string
+          created_at?: string
+          effect?: string
+          id?: string
+          permission_definition_id: string
+          updated_at?: string
+        }
+        Update: {
+          access_level_id?: string
+          created_at?: string
+          effect?: string
+          id?: string
+          permission_definition_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "department_access_level_permissions_access_level_id_fkey"
+            columns: ["access_level_id"]
+            isOneToOne: false
+            referencedRelation: "department_access_levels"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "dept_access_level_perm_def_fk"
+            columns: ["permission_definition_id"]
+            isOneToOne: false
+            referencedRelation: "permission_definitions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      department_access_levels: {
+        Row: {
+          created_at: string
+          description: string | null
+          display_name: string
+          id: string
+          is_active: boolean
+          level: number
+          name: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          display_name: string
+          id?: string
+          is_active?: boolean
+          level: number
+          name: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          display_name?: string
+          id?: string
+          is_active?: boolean
+          level?: number
+          name?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      department_roles: {
+        Row: {
+          created_at: string
+          department_id: string | null
+          description: string | null
+          is_active: boolean
+          is_default: boolean
+          key: string
+          label: string
+          sort_order: number
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          department_id?: string | null
+          description?: string | null
+          is_active?: boolean
+          is_default?: boolean
+          key: string
+          label: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          department_id?: string | null
+          description?: string | null
+          is_active?: boolean
+          is_default?: boolean
+          key?: string
+          label?: string
+          sort_order?: number
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "department_roles_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       departments: {
         Row: {
-          code: string | null
           created_at: string
           created_by: string | null
           description: string | null
@@ -179,7 +311,6 @@ export type Database = {
           updated_by: string | null
         }
         Insert: {
-          code?: string | null
           created_at?: string
           created_by?: string | null
           description?: string | null
@@ -191,7 +322,6 @@ export type Database = {
           updated_by?: string | null
         }
         Update: {
-          code?: string | null
           created_at?: string
           created_by?: string | null
           description?: string | null
@@ -204,86 +334,6 @@ export type Database = {
         }
         Relationships: []
       }
-      department_roles: {
-        Row: {
-          created_at: string
-          default_can_answer_department_questions: boolean
-          is_active: boolean
-          is_default: boolean
-          key: string
-          label: string
-          sort_order: number
-          updated_at: string
-        }
-        Insert: {
-          created_at?: string
-          default_can_answer_department_questions?: boolean
-          is_active?: boolean
-          is_default?: boolean
-          key: string
-          label: string
-          sort_order?: number
-          updated_at?: string
-        }
-        Update: {
-          created_at?: string
-          default_can_answer_department_questions?: boolean
-          is_active?: boolean
-          is_default?: boolean
-          key?: string
-          label?: string
-          sort_order?: number
-          updated_at?: string
-        }
-        Relationships: []
-      }
-      department_role_permissions: {
-        Row: {
-          action: string
-          created_at: string
-          created_by: string | null
-          department_id: string | null
-          department_role: string
-          effect: string
-          id: string
-          resource: string
-          updated_at: string
-          updated_by: string | null
-        }
-        Insert: {
-          action: string
-          created_at?: string
-          created_by?: string | null
-          department_id?: string | null
-          department_role: string
-          effect?: string
-          id?: string
-          resource: string
-          updated_at?: string
-          updated_by?: string | null
-        }
-        Update: {
-          action?: string
-          created_at?: string
-          created_by?: string | null
-          department_id?: string | null
-          department_role?: string
-          effect?: string
-          id?: string
-          resource?: string
-          updated_at?: string
-          updated_by?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "department_role_permissions_department_id_fkey"
-            columns: ["department_id"]
-            isOneToOne: false
-            referencedRelation: "departments"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       permission_definitions: {
         Row: {
           action: string
@@ -291,6 +341,7 @@ export type Database = {
           description: string | null
           id: string
           resource: string
+          scope: string
           updated_at: string
         }
         Insert: {
@@ -299,6 +350,7 @@ export type Database = {
           description?: string | null
           id?: string
           resource: string
+          scope?: string
           updated_at?: string
         }
         Update: {
@@ -307,6 +359,7 @@ export type Database = {
           description?: string | null
           id?: string
           resource?: string
+          scope?: string
           updated_at?: string
         }
         Relationships: []
@@ -354,6 +407,7 @@ export type Database = {
           created_at: string
           created_by: string | null
           department_id: string | null
+          department_role: string | null
           display_order: number
           id: string
           is_active: boolean
@@ -371,7 +425,6 @@ export type Database = {
           question_description: string | null
           question_label: string
           question_type: string
-          role_id: string | null
           step: number | null
           updated_at: string
           updated_by: string | null
@@ -381,6 +434,7 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           department_id?: string | null
+          department_role?: string | null
           display_order?: number
           id?: string
           is_active?: boolean
@@ -398,7 +452,6 @@ export type Database = {
           question_description?: string | null
           question_label: string
           question_type: string
-          role_id?: string | null
           step?: number | null
           updated_at?: string
           updated_by?: string | null
@@ -408,6 +461,7 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           department_id?: string | null
+          department_role?: string | null
           display_order?: number
           id?: string
           is_active?: boolean
@@ -425,7 +479,6 @@ export type Database = {
           question_description?: string | null
           question_label?: string
           question_type?: string
-          role_id?: string | null
           step?: number | null
           updated_at?: string
           updated_by?: string | null
@@ -437,13 +490,6 @@ export type Database = {
             columns: ["department_id"]
             isOneToOne: false
             referencedRelation: "departments"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "role_questions_role_id_fkey"
-            columns: ["role_id"]
-            isOneToOne: false
-            referencedRelation: "roles"
             referencedColumns: ["id"]
           },
         ]
@@ -486,43 +532,44 @@ export type Database = {
           },
         ]
       }
-      user_department_roles: {
+      user_department_access_levels: {
         Row: {
+          access_level_id: string
+          assigned_by: string | null
           created_at: string
-          created_by: string | null
           department_id: string
           id: string
-          is_active: boolean
-          role: string
           updated_at: string
-          updated_by: string | null
           user_id: string
         }
         Insert: {
+          access_level_id: string
+          assigned_by?: string | null
           created_at?: string
-          created_by?: string | null
           department_id: string
           id?: string
-          is_active?: boolean
-          role: string
           updated_at?: string
-          updated_by?: string | null
           user_id: string
         }
         Update: {
+          access_level_id?: string
+          assigned_by?: string | null
           created_at?: string
-          created_by?: string | null
           department_id?: string
           id?: string
-          is_active?: boolean
-          role?: string
           updated_at?: string
-          updated_by?: string | null
           user_id?: string
         }
         Relationships: [
           {
-            foreignKeyName: "user_department_roles_department_id_fkey"
+            foreignKeyName: "user_department_access_levels_access_level_id_fkey"
+            columns: ["access_level_id"]
+            isOneToOne: false
+            referencedRelation: "department_access_levels"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_department_access_levels_department_id_fkey"
             columns: ["department_id"]
             isOneToOne: false
             referencedRelation: "departments"
@@ -530,7 +577,6 @@ export type Database = {
           },
         ]
       }
-
       user_department_professions: {
         Row: {
           created_at: string
@@ -579,6 +625,57 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "roles"
             referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_department_roles: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          department_id: string
+          id: string
+          is_active: boolean
+          role: string
+          updated_at: string
+          updated_by: string | null
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          department_id: string
+          id?: string
+          is_active?: boolean
+          role: string
+          updated_at?: string
+          updated_by?: string | null
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          department_id?: string
+          id?: string
+          is_active?: boolean
+          role?: string
+          updated_at?: string
+          updated_by?: string | null
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_department_roles_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_department_roles_role_fkey"
+            columns: ["role"]
+            isOneToOne: false
+            referencedRelation: "department_roles"
+            referencedColumns: ["key"]
           },
         ]
       }
@@ -638,9 +735,54 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      current_user_role: {
+        Row: {
+          is_active: boolean | null
+          role_id: string | null
+          user_id: string | null
+        }
+        Insert: {
+          is_active?: boolean | null
+          role_id?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          is_active?: boolean | null
+          role_id?: string | null
+          user_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_profiles_role_id_fkey"
+            columns: ["role_id"]
+            isOneToOne: false
+            referencedRelation: "roles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Functions: {
+      can_view_department: {
+        Args: { p_department_id: string }
+        Returns: boolean
+      }
+      can_view_department_questions: {
+        Args: { p_department_id: string }
+        Returns: boolean
+      }
+      can_view_entry: {
+        Args: { p_department_id: string; p_target_user_id: string }
+        Returns: boolean
+      }
+      can_view_user_entries: {
+        Args: { p_target_user_id: string }
+        Returns: boolean
+      }
+      can_view_user_profile: {
+        Args: { p_target_user_id: string }
+        Returns: boolean
+      }
       create_report_questions_table_if_not_exists: {
         Args: never
         Returns: undefined
@@ -680,8 +822,21 @@ export type Database = {
           user_id: string
         }[]
       }
+      has_department_role: {
+        Args: { p_department_id: string; p_roles: string[] }
+        Returns: boolean
+      }
       is_admin: { Args: never; Returns: boolean }
       is_admin_or_super_admin: { Args: { user_uuid: string }; Returns: boolean }
+      is_admin_v2: { Args: never; Returns: boolean }
+      test_user_role: {
+        Args: never
+        Returns: {
+          is_active: boolean
+          role_id: string
+          user_id: string
+        }[]
+      }
     }
     Enums: {
       [_ in never]: never
@@ -715,8 +870,10 @@ export type Tables<
     }
     ? R
     : never
-  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] & DefaultSchema["Views"])
-    ? (DefaultSchema["Tables"] & DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
+  : DefaultSchemaTableNameOrOptions extends keyof (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])
+    ? (DefaultSchema["Tables"] &
+        DefaultSchema["Views"])[DefaultSchemaTableNameOrOptions] extends {
         Row: infer R
       }
       ? R
@@ -724,7 +881,9 @@ export type Tables<
     : never
 
 export type TablesInsert<
-  DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"] | { schema: keyof DatabaseWithoutInternals },
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
   TableName extends DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
@@ -747,7 +906,9 @@ export type TablesInsert<
     : never
 
 export type TablesUpdate<
-  DefaultSchemaTableNameOrOptions extends keyof DefaultSchema["Tables"] | { schema: keyof DatabaseWithoutInternals },
+  DefaultSchemaTableNameOrOptions extends
+    | keyof DefaultSchema["Tables"]
+    | { schema: keyof DatabaseWithoutInternals },
   TableName extends DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
@@ -770,7 +931,9 @@ export type TablesUpdate<
     : never
 
 export type Enums<
-  DefaultSchemaEnumNameOrOptions extends keyof DefaultSchema["Enums"] | { schema: keyof DatabaseWithoutInternals },
+  DefaultSchemaEnumNameOrOptions extends
+    | keyof DefaultSchema["Enums"]
+    | { schema: keyof DatabaseWithoutInternals },
   EnumName extends DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }

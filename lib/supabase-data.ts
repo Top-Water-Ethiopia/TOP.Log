@@ -1,7 +1,7 @@
 import { supabase } from "./supabase-client"
 import { v4 as uuidv4 } from "uuid"
 import { PostgrestError } from "@supabase/supabase-js"
-import type { Database } from "./supabase.types"
+import type { Database, Json } from "./supabase.types"
 
 // Type definitions for entry operations
 export type CaptainLogEntry = Database["public"]["Tables"]["captain_log_entries"]["Row"]
@@ -17,9 +17,9 @@ export type AuditLogInsert = Database["public"]["Tables"]["audit_logs"]["Insert"
 // Error handling
 export class SupabaseDataError extends Error {
   code: string
-  details: any
+  details: unknown
 
-  constructor(message: string, code: string = "unknown", details?: any) {
+  constructor(message: string, code: string = "unknown", details?: unknown) {
     super(message)
     this.name = "SupabaseDataError"
     this.code = code
@@ -316,37 +316,35 @@ export async function searchEntries(userId: string, query: string) {
 
 // Data Migration
 export async function migrateLocalStorageToSupabase(
-  entries: any[],
+  entries: unknown[],
   userId: string,
   progressCallback?: (current: number, total: number) => void
 ) {
   let successCount = 0
   let errorCount = 0
-  const errors: Array<{ entry: any; error: any }> = []
+  const errors: Array<{ entry: unknown; error: unknown }> = []
 
   for (let i = 0; i < entries.length; i++) {
     try {
-      const entry = entries[i]
+      const entry = entries[i] as Record<string, unknown>
 
       const migratedDepartmentId =
-        entry && typeof entry === "object" && "department_id" in entry
-          ? ((entry as any).department_id as string | null)
-          : null
+        entry && typeof entry === "object" && "department_id" in entry ? (entry.department_id as string | null) : null
 
       // Transform legacy format to new format (captain_log_entries table only stores core fields)
       const supabaseEntry: CaptainLogEntryInsert = {
-        id: entry.id,
+        id: entry.id as string,
         user_id: userId,
-        date: entry.date,
+        date: entry.date as string,
         department_id: migratedDepartmentId,
-        created_at: entry.createdAt || new Date().toISOString(),
-        updated_at: entry.updatedAt || new Date().toISOString(),
-        version: entry.version || 1,
-        metadata: entry.metadata || null,
+        created_at: (entry.createdAt as string) || new Date().toISOString(),
+        updated_at: (entry.updatedAt as string) || new Date().toISOString(),
+        version: (entry.version as number) || 1,
+        metadata: (entry.metadata as Json) || null,
       }
 
       // Check if entry already exists (by date)
-      const existingEntry = await getEntryByDate(userId, entry.date, migratedDepartmentId)
+      const existingEntry = await getEntryByDate(userId, entry.date as string, migratedDepartmentId)
 
       if (existingEntry) {
         // Skip duplicate entries
@@ -359,15 +357,15 @@ export async function migrateLocalStorageToSupabase(
 
       // Create custom responses for all the legacy fields
       const standardFields = [
-        { key: "objectives", value: entry.objectives },
-        { key: "keyResults", value: entry.keyResults },
-        { key: "challenges", value: entry.challenges },
-        { key: "developmentTasks", value: entry.developmentTasks },
-        { key: "featuresCompleted", value: entry.featuresCompleted },
-        { key: "challengesAndBlockers", value: entry.challengesAndBlockers },
-        { key: "codeAndPriorities", value: entry.codeAndPriorities },
-        { key: "systemImprovements", value: entry.systemImprovements },
-        { key: "projectUpdates", value: entry.projectUpdates },
+        { key: "objectives", value: entry.objectives as string | undefined },
+        { key: "keyResults", value: entry.keyResults as string | undefined },
+        { key: "challenges", value: entry.challenges as string | undefined },
+        { key: "developmentTasks", value: entry.developmentTasks as string | undefined },
+        { key: "featuresCompleted", value: entry.featuresCompleted as string | undefined },
+        { key: "challengesAndBlockers", value: entry.challengesAndBlockers as string | undefined },
+        { key: "codeAndPriorities", value: entry.codeAndPriorities as string | undefined },
+        { key: "systemImprovements", value: entry.systemImprovements as string | undefined },
+        { key: "projectUpdates", value: entry.projectUpdates as string | undefined },
       ]
 
       for (const field of standardFields) {
@@ -386,17 +384,18 @@ export async function migrateLocalStorageToSupabase(
       }
 
       // Handle custom responses if any
-      if (entry.customResponses && Array.isArray(entry.customResponses) && entry.customResponses.length > 0) {
-        for (const response of entry.customResponses) {
+      const customResponses = entry.customResponses as Array<Record<string, unknown>> | undefined
+      if (customResponses && Array.isArray(customResponses) && customResponses.length > 0) {
+        for (const response of customResponses) {
           await createCustomResponse({
             entry_id: createdEntry.id,
-            question_id: response.questionId,
-            question_key: response.questionKey,
-            question_label: response.questionLabel,
-            question_type: response.questionType || null,
-            question_category: response.questionCategory || null,
-            value: response.value,
-            timestamp: response.timestamp || new Date().toISOString(),
+            question_id: response.questionId as string,
+            question_key: response.questionKey as string,
+            question_label: response.questionLabel as string,
+            question_type: (response.questionType as string) || null,
+            question_category: (response.questionCategory as string) || null,
+            value: response.value as Json,
+            timestamp: (response.timestamp as string) || new Date().toISOString(),
           })
         }
       }
