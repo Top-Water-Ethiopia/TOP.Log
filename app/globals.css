@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "react-day-picker/style.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -141,4 +142,18 @@
   body {
     @apply bg-background text-foreground;
   }
+}
+
+/* react-day-picker: constrain day button backgrounds to exact size */
+.rdp-day {
+  @apply h-9! w-9! rounded-md! p-0! font-normal!;
+}
+.rdp-day:hover:not(.rdp-selected):not(.rdp-disabled) {
+  @apply bg-accent! text-accent-foreground!;
+}
+.rdp-day.rdp-selected {
+  @apply bg-primary! text-primary-foreground!;
+}
+.rdp-day.rdp-today:not(.rdp-selected) {
+  @apply bg-accent! text-accent-foreground!;
 }
