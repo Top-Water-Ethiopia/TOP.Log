@@ -1,13 +1,13 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Badge } from "@/components/ui/badge"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Separator } from "@/components/ui/separator"
 import { apiFetch } from "@/lib/api-client"
 import { useDepartmentPermissions } from "@/hooks/use-rbac"
-import { Building2, X } from "lucide-react"
+import { Building2, Shield, X, Key } from "lucide-react"
 
 interface DepartmentAccessLevel {
   id: string
@@ -104,101 +104,119 @@ export function DepartmentAccessLevelManager({
 
   if (loading) {
     return (
-      <Card>
-        <CardHeader className="pb-3">
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Building2 className="h-4 w-4" />
-            Department Access Level
-          </CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="text-muted-foreground text-sm">Loading...</div>
-        </CardContent>
-      </Card>
+      <div className="space-y-4">
+        <div className="flex items-center gap-3">
+          <div className="rounded-lg bg-blue-100 p-2">
+            <Building2 className="h-4 w-4 text-blue-600" />
+          </div>
+          <div>
+            <h3 className="text-sm font-semibold tracking-wide text-slate-700 uppercase">Department Access Level</h3>
+            <p className="text-sm text-slate-500">Loading access levels...</p>
+          </div>
+        </div>
+        <div className="h-11 w-full animate-pulse rounded-lg bg-slate-200"></div>
+      </div>
     )
   }
 
   return (
-    <Card>
-      <CardHeader className="pb-3">
-        <CardTitle className="flex items-center gap-2 text-base">
-          <Building2 className="h-4 w-4" />
-          Department Access Level
-        </CardTitle>
-        <CardDescription className="text-xs">
-          Assign an access level to control permissions in this department
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {/* Access Level Dropdown */}
-        <div className="space-y-2">
-          <Label className="text-sm font-medium">
-            {currentAssignment ? "Current Access Level" : "Select Access Level"}
-          </Label>
-          <Select
-            value={pendingValue ?? selectedAccessLevelId}
-            onValueChange={(value) => {
-              if (value === "__remove__") {
-                onPendingChange?.(null)
-              } else {
-                onPendingChange?.(value)
-              }
-            }}
-          >
-            <SelectTrigger className="w-full">
-              <SelectValue placeholder="Choose an access level..." />
-            </SelectTrigger>
-            <SelectContent>
-              {currentAssignment && (
-                <SelectItem value="__remove__" className="text-destructive focus:text-destructive">
+    <div className="space-y-6">
+      {/* Enhanced Header */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-3">
+          <div className="rounded-lg bg-blue-100 p-2">
+            <Building2 className="h-4 w-4 text-blue-600" />
+          </div>
+          <div className="flex-1">
+            <h3 className="text-sm font-semibold tracking-wide text-slate-700 uppercase">Department Access Level</h3>
+            <p className="text-sm text-slate-500">Assign an access level to control permissions in this department</p>
+          </div>
+        </div>
+      </div>
+
+      <Separator className="bg-slate-200" />
+      {/* Enhanced Access Level Selection */}
+      <div className="space-y-3">
+        <Label className="flex items-center gap-2 text-sm font-semibold tracking-wide text-slate-700 uppercase">
+          <Shield className="h-4 w-4 text-slate-500" />
+          {currentAssignment ? "Current Access Level" : "Select Access Level"}
+        </Label>
+        <Select
+          value={pendingValue ?? selectedAccessLevelId}
+          onValueChange={(value) => {
+            if (value === "__remove__") {
+              onPendingChange?.(null)
+            } else {
+              onPendingChange?.(value)
+            }
+          }}
+        >
+          <SelectTrigger className="h-11 w-full shadow-sm transition-all duration-200 focus:ring-2 focus:ring-blue-500">
+            <SelectValue placeholder="Choose an access level..." />
+          </SelectTrigger>
+          <SelectContent>
+            {currentAssignment && (
+              <SelectItem value="__remove__" className="text-destructive focus:text-destructive">
+                <div className="flex items-center gap-2">
+                  <X className="h-4 w-4" />
+                  <span>Remove access level</span>
+                </div>
+              </SelectItem>
+            )}
+            {accessLevels.length === 0 ? (
+              <SelectItem value="__none__" disabled>
+                No access levels available
+              </SelectItem>
+            ) : (
+              accessLevels.map((level) => (
+                <SelectItem key={level.id} value={level.id} disabled={level.id === selectedAccessLevelId}>
                   <div className="flex items-center gap-2">
-                    <X className="h-4 w-4" />
-                    <span>Remove access level</span>
+                    <div className="h-2 w-2 rounded-full bg-blue-500"></div>
+                    <span className="font-medium">{level.display_name}</span>
+                    <Badge variant="outline" className="border-blue-200 bg-blue-50 text-blue-700">
+                      L{level.level}
+                    </Badge>
                   </div>
                 </SelectItem>
-              )}
-              {accessLevels.length === 0 ? (
-                <SelectItem value="__none__" disabled>
-                  No access levels available
-                </SelectItem>
-              ) : (
-                accessLevels.map((level) => (
-                  <SelectItem key={level.id} value={level.id} disabled={level.id === selectedAccessLevelId}>
-                    <div className="flex items-center gap-2">
-                      <span>{level.display_name}</span>
-                      <Badge variant="outline" className="text-xs">
-                        L{level.level}
-                      </Badge>
-                    </div>
-                  </SelectItem>
-                ))
-              )}
-            </SelectContent>
-          </Select>
-          {selectedAccessLevel?.description && (
-            <p className="text-muted-foreground text-xs">{selectedAccessLevel.description}</p>
-          )}
-        </div>
+              ))
+            )}
+          </SelectContent>
+        </Select>
+        {selectedAccessLevel?.description && (
+          <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-3">
+            <p className="text-sm text-slate-600">{selectedAccessLevel.description}</p>
+          </div>
+        )}
+      </div>
 
-        {/* Permissions Preview */}
-        {deptPermissions.length > 0 && currentAssignment && (
-          <div className="space-y-2">
-            <Label className="text-xs font-medium">Permissions with this access</Label>
-            <div className="flex flex-wrap gap-1">
-              {deptPermissions.slice(0, 5).map((permission: string) => (
-                <Badge key={permission} variant="secondary" className="text-xs">
+      {/* Enhanced Permissions Preview */}
+      {deptPermissions.length > 0 && currentAssignment && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <Label className="flex items-center gap-2 text-sm font-semibold tracking-wide text-slate-700 uppercase">
+              <Key className="h-4 w-4 text-slate-500" />
+              Permissions with this Access
+            </Label>
+            <Badge variant="secondary" className="text-xs">
+              {deptPermissions.length} permissions
+            </Badge>
+          </div>
+          <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-4">
+            <div className="flex flex-wrap gap-2">
+              {deptPermissions.slice(0, 8).map((permission: string) => (
+                <Badge key={permission} variant="outline" className="border-green-200 bg-green-50 text-green-700">
                   {permission.split(".").pop()}
                 </Badge>
               ))}
-              {deptPermissions.length > 5 && (
-                <Badge variant="outline" className="text-xs">
-                  +{deptPermissions.length - 5} more
+              {deptPermissions.length > 8 && (
+                <Badge variant="outline" className="border-slate-200 bg-slate-100 text-slate-600">
+                  +{deptPermissions.length - 8} more
                 </Badge>
               )}
             </div>
           </div>
-        )}
-      </CardContent>
-    </Card>
+        </div>
+      )}
+    </div>
   )
 }

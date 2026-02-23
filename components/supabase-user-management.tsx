@@ -10,7 +10,6 @@ import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Switch } from "@/components/ui/switch"
 import { Avatar, AvatarFallback } from "@/components/ui/avatar"
-import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
 import { Separator } from "@/components/ui/separator"
 import {
   UserPlus,
@@ -23,6 +22,18 @@ import {
   EyeOff,
   ChevronLeft,
   Search,
+  Users,
+  User,
+  Mail,
+  Shield,
+  Building2,
+  Briefcase,
+  Settings,
+  ToggleLeft,
+  MailCheck,
+  KeyRound,
+  AlertTriangle,
+  Trash2,
 } from "lucide-react"
 import { toast } from "sonner"
 import { UsersTableSkeleton } from "@/components/skeletons/users-table-skeleton"
@@ -30,6 +41,7 @@ import { apiFetch, getErrorMessage } from "@/lib/api-client"
 import { RightSidePanel } from "@/components/ui/right-side-panel"
 import { DepartmentAccessLevelManager } from "@/components/department-access-level-manager"
 import useSWR, { useSWRConfig } from "swr"
+import useSWRImmutable from "swr/immutable"
 import { PaginatedTable } from "@/components/ui/paginated-table"
 
 // Role IDs from schema
@@ -51,6 +63,8 @@ interface UserWithProfile {
     department_id: string | null
     role_id: string
     role_name: string
+    profession_role_id: string | null
+    profession_role_name: string | null
     is_active: boolean
     created_at: string
     last_login: string | null
@@ -62,7 +76,18 @@ type AdminUsersApiUser = {
   email: string
   email_confirmed_at: string | null
   created_at: string
-  profile: NonNullable<UserWithProfile["profile"]>
+  profile: {
+    id: string
+    name: string
+    department_id: string | null
+    role_id: string
+    role_name: string
+    profession_role_id: string | null
+    profession_role_name: string | null
+    is_active: boolean
+    created_at: string
+    last_login: string | null
+  }
 }
 
 type AdminUsersResponse = {
@@ -229,7 +254,7 @@ export function SupabaseUserManagement() {
   const lastUserAssignmentsErrorRef = useRef<string | null>(null)
   const prefilledAssignmentsUserIdRef = useRef<string | null>(null)
 
-  const usersKey = isAdmin ? "/api/admin/users?per_page=1000" : null
+  const usersKey = useMemo(() => (isAdmin ? "/api/admin/users?per_page=1000" : null), [isAdmin])
   const rolesKey = isAdmin ? "/api/admin/roles" : null
   const departmentsKey = isAdmin ? "/api/admin/departments" : null
   const membershipsKey = isAdmin ? "/api/admin/users/memberships" : null
@@ -247,7 +272,7 @@ export function SupabaseUserManagement() {
     isLoading: isUsersLoading,
     isValidating: isUsersValidating,
     mutate: mutateUsers,
-  } = useSWR<AdminUsersResponse>(usersKey)
+  } = useSWRImmutable<AdminUsersResponse>(usersKey)
 
   const {
     data: rolesResponse,
@@ -289,13 +314,10 @@ export function SupabaseUserManagement() {
     isLoading: isUserAssignmentsLoading,
   } = useSWR<UserAssignmentsResponse>(userAssignmentsKey)
 
-  const isLoading =
-    isUsersLoading ||
-    isRolesLoading ||
-    isDepartmentsLoading ||
-    isMembershipsLoading ||
-    isDepartmentRolesLoading ||
-    isDepartmentProfessionRolesLoading
+  const isTableLoading =
+    isUsersLoading || isRolesLoading || isDepartmentsLoading || isMembershipsLoading || isDepartmentRolesLoading
+
+  const isLoading = isTableLoading || isDepartmentProfessionRolesLoading
 
   useEffect(() => {
     if (!usersError) {
@@ -390,6 +412,8 @@ export function SupabaseUserManagement() {
         department_id: user.profile.department_id,
         role_id: user.profile.role_id,
         role_name: user.profile.role_name || "user",
+        profession_role_id: user.profile.profession_role_id,
+        profession_role_name: user.profile.profession_role_name,
         is_active: user.profile.is_active,
         created_at: user.profile.created_at,
         last_login: user.profile.last_login,
@@ -472,6 +496,18 @@ export function SupabaseUserManagement() {
       return ids.map(departmentNameById).filter(Boolean)
     },
     [userDepartmentsByUserId, departments]
+  )
+
+  const getUserProfessionalRole = useCallback(
+    (userId: string) => {
+      const user = users.find((u) => u.id === userId)
+      if (!user?.profile) return "-"
+
+      // Only show profession role if it exists, otherwise show "-"
+      // Don't fallback to system role for professional role column
+      return user.profile.profession_role_name || "-"
+    },
+    [users]
   )
 
   const editSystemRoles = (() => {
@@ -590,6 +626,8 @@ export function SupabaseUserManagement() {
         department_id: nextDepartmentId,
         role_id: createUserForm.role_id,
         role_name: roleName,
+        profession_role_id: null,
+        profession_role_name: null,
         is_active: true,
         created_at: nowIso,
         last_login: null,
@@ -635,6 +673,8 @@ export function SupabaseUserManagement() {
           department_id: created.profile.department_id,
           role_id: created.profile.role_id,
           role_name: createdRoleName,
+          profession_role_id: null,
+          profession_role_name: null,
           is_active: created.profile.is_active,
           created_at: created.profile.created_at,
           last_login: created.profile.last_login || null,
@@ -1196,7 +1236,7 @@ export function SupabaseUserManagement() {
       {/* Users Table */}
       <PaginatedTable
         data={filteredUsers}
-        isLoading={isLoading}
+        isLoading={isTableLoading}
         emptyMessage="No users found"
         pageSize={pageSize}
         searchPlaceholder="Search users..."
@@ -1239,6 +1279,15 @@ export function SupabaseUserManagement() {
             ),
           },
           {
+            key: "role",
+            header: "Role",
+            cell: (user) => (
+              <Badge variant={getRoleBadgeVariant(user.profile?.role_name || "user")}>
+                {user.profile?.role_name || "user"}
+              </Badge>
+            ),
+          },
+          {
             key: "department",
             header: "Department",
             cell: (user) => {
@@ -1248,13 +1297,22 @@ export function SupabaseUserManagement() {
             },
           },
           {
-            key: "role",
-            header: "Role",
-            cell: (user) => (
-              <Badge variant={getRoleBadgeVariant(user.profile?.role_name || "user")}>
-                {user.profile?.role_name || "user"}
-              </Badge>
-            ),
+            key: "professional_role",
+            header: "Professional Role",
+            cell: (user) => {
+              const professionalRole = getUserProfessionalRole(user.id)
+              return (
+                <div className="text-sm">
+                  {professionalRole !== "-" ? (
+                    <Badge variant="outline" className="font-medium">
+                      {professionalRole}
+                    </Badge>
+                  ) : (
+                    <span className="text-muted-foreground">-</span>
+                  )}
+                </div>
+              )
+            },
           },
           {
             key: "status",
@@ -1271,15 +1329,6 @@ export function SupabaseUserManagement() {
             ),
           },
           {
-            key: "last_login",
-            header: "Last Login",
-            cell: (user) => (
-              <div className="text-sm">
-                {user.profile?.last_login ? new Date(user.profile.last_login).toLocaleDateString() : "Never"}
-              </div>
-            ),
-          },
-          {
             key: "created_at",
             header: "Created",
             cell: (user) => <div className="text-sm">{new Date(user.created_at).toLocaleDateString()}</div>,
@@ -1290,10 +1339,14 @@ export function SupabaseUserManagement() {
             cell: (user) => (
               <div className="flex items-center justify-end gap-2">
                 <Button
+                  type="button"
+                  data-row-action
                   variant="outline"
                   size="icon"
                   className="h-8 w-8"
-                  onClick={() => {
+                  onClick={(event) => {
+                    event.preventDefault()
+                    event.stopPropagation()
                     setEditingUser(user)
                     setEditUserPanelMode("edit")
                     setResetPasswordMode("email")
@@ -1315,7 +1368,6 @@ export function SupabaseUserManagement() {
                   }}
                 >
                   <Edit className="h-4 w-4" />
-                  <span className="sr-only">Edit user</span>
                 </Button>
               </div>
             ),
@@ -1529,7 +1581,7 @@ export function SupabaseUserManagement() {
         }}
         title={
           editUserPanelMode === "edit" ? (
-            "Edit user"
+            "Edit User"
           ) : (
             <div className="flex items-center gap-2">
               <Button
@@ -1548,7 +1600,9 @@ export function SupabaseUserManagement() {
                 <ChevronLeft className="h-4 w-4" />
                 <span className="sr-only">Back</span>
               </Button>
-              <span>{editUserPanelMode === "reset_password" ? "Reset password" : "Delete user"}</span>
+              <span className="capitalize">
+                {editUserPanelMode === "reset_password" ? "Reset Password" : "Delete User"}
+              </span>
             </div>
           )
         }
@@ -1556,7 +1610,7 @@ export function SupabaseUserManagement() {
           !editingUser
             ? "Update user information and settings."
             : editUserPanelMode === "edit"
-              ? `${editingUser.profile?.name || ""}${editingUser.profile?.name ? " • " : ""}${editingUser.email}`
+              ? `Manage ${editingUser.profile?.name || editingUser.email}'s account settings`
               : `${editingUser.profile?.name || editingUser.email}`
         }
         footer={
@@ -1665,126 +1719,204 @@ export function SupabaseUserManagement() {
       >
         {editUserPanelMode === "edit" ? (
           <div className="space-y-6">
-            <div className="flex items-center gap-3">
-              <Avatar className="h-10 w-10">
-                <AvatarFallback>
+            {/* User Header */}
+            <div className="flex items-center gap-4">
+              <Avatar className="h-12 w-12">
+                <AvatarFallback className="text-sm font-medium">
                   {(editingUser?.profile?.name || editingUser?.email || "U").slice(0, 2).toUpperCase()}
                 </AvatarFallback>
               </Avatar>
               <div className="min-w-0 flex-1">
-                <div className="truncate text-sm font-medium">{editingUser?.profile?.name || "Unnamed user"}</div>
-                <div className="text-muted-foreground truncate text-sm">{editingUser?.email || ""}</div>
+                <h3 className="truncate text-lg font-semibold">{editingUser?.profile?.name || "Unnamed User"}</h3>
+                <p className="text-muted-foreground truncate text-sm">{editingUser?.email}</p>
+                <div className="text-muted-foreground mt-1 flex items-center gap-4 text-xs">
+                  <span className="flex items-center gap-1">
+                    <div className="bg-muted-foreground/40 h-1.5 w-1.5 rounded-full"></div>
+                    Last login:{" "}
+                    {editingUser?.profile?.last_login
+                      ? (() => {
+                          const date = new Date(editingUser.profile.last_login)
+                          const now = new Date()
+                          const diffMs = now.getTime() - date.getTime()
+                          const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
+
+                          if (diffDays === 0) return "Today"
+                          if (diffDays === 1) return "Yesterday"
+                          if (diffDays < 7) return `${diffDays} days ago`
+                          if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`
+                          if (diffDays < 365) return `${Math.floor(diffDays / 30)} months ago`
+                          return `${Math.floor(diffDays / 365)} years ago`
+                        })()
+                      : "Never"}
+                  </span>
+                  <span>
+                    Created{" "}
+                    {editingUser?.created_at ? new Date(editingUser.created_at).toLocaleDateString() : "Unknown"}
+                  </span>
+                </div>
               </div>
-              {editingUser?.profile ? (
-                <Badge variant={editingUser.profile.is_active ? "secondary" : "outline"}>
+              {editingUser?.profile && (
+                <Badge variant={editingUser.profile.is_active ? "default" : "secondary"}>
                   {editingUser.profile.is_active ? "Active" : "Inactive"}
                 </Badge>
-              ) : null}
+              )}
             </div>
 
             <Separator />
 
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <Label htmlFor="edit-name">Full Name</Label>
-                <Input
-                  id="edit-name"
-                  value={editUserForm.name}
-                  onChange={(e) => setEditUserForm((prev) => ({ ...prev, name: e.target.value }))}
-                  placeholder="Enter full name"
-                />
-                {editFormErrors.name && <p className="text-destructive text-sm">{editFormErrors.name}</p>}
+            {/* Enhanced Basic Information */}
+            <div className="space-y-6">
+              <div className="flex items-center gap-3">
+                <div className="rounded-lg bg-blue-100 p-2">
+                  <Users className="h-4 w-4 text-blue-600" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-sm font-semibold tracking-wide text-slate-700 uppercase">Basic Information</h3>
+                  <p className="text-sm text-slate-500">Core user details and organizational assignments</p>
+                </div>
               </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="edit-email">Email</Label>
-                <Input
-                  id="edit-email"
-                  type="email"
-                  value={editUserForm.email}
-                  onChange={(e) => setEditUserForm((prev) => ({ ...prev, email: e.target.value }))}
-                  placeholder="Enter email address"
-                />
-                {editFormErrors.email && <p className="text-destructive text-sm">{editFormErrors.email}</p>}
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="edit-role">Role</Label>
-                <Select
-                  value={editUserForm.role_id}
-                  onValueChange={(value) => setEditUserForm((prev) => ({ ...prev, role_id: value }))}
-                >
-                  <SelectTrigger id="edit-role">
-                    <SelectValue placeholder="Select a role" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {editSystemRoles.map((role) => (
-                      <SelectItem key={role.id} value={role.id}>
-                        {role.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {editFormErrors.role_id && <p className="text-destructive text-sm">{editFormErrors.role_id}</p>}
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="edit-department">Department</Label>
-                <Select
-                  value={editUserForm.department_id || DEPARTMENT_NONE}
-                  onValueChange={(value) => {
-                    const nextDepartmentId = value === DEPARTMENT_NONE ? null : value
-                    setEditUserForm((prev) => ({
-                      ...prev,
-                      department_id: nextDepartmentId,
-                      department_role: DEPARTMENT_ROLE_NONE,
-                    }))
-                  }}
-                  disabled={isUserAssignmentsLoading}
-                >
-                  <SelectTrigger id="edit-department">
-                    <SelectValue placeholder={isUserAssignmentsLoading ? "Loading..." : "Select a department"} />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={DEPARTMENT_NONE}>No department</SelectItem>
-                    {departments.map((department) => (
-                      <SelectItem key={department.id} value={department.id}>
-                        {department.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="edit-department-role">Department role</Label>
-                <Select
-                  value={editUserForm.department_role || DEPARTMENT_ROLE_NONE}
-                  onValueChange={(value) => setEditUserForm((prev) => ({ ...prev, department_role: value }))}
-                  disabled={
-                    !editUserForm.department_id || isUserAssignmentsLoading || isDepartmentProfessionRolesLoading
-                  }
-                >
-                  <SelectTrigger id="edit-department-role">
-                    <SelectValue
-                      placeholder={
-                        isUserAssignmentsLoading || isDepartmentProfessionRolesLoading
-                          ? "Loading..."
-                          : "Select a department role"
-                      }
+              {/* Personal Information */}
+              <div className="space-y-4">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-name" className="flex items-center gap-2 text-sm font-medium">
+                      <User className="h-4 w-4 text-slate-500" />
+                      Full Name
+                    </Label>
+                    <Input
+                      id="edit-name"
+                      value={editUserForm.name}
+                      onChange={(e) => setEditUserForm((prev) => ({ ...prev, name: e.target.value }))}
+                      placeholder="Enter full name"
+                      className="h-11 shadow-sm transition-all duration-200 focus:ring-2 focus:ring-blue-500"
                     />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={DEPARTMENT_ROLE_NONE}>None</SelectItem>
-                    {departmentRoleOptions.map((role) => (
-                      <SelectItem key={role.key} value={role.key}>
-                        {role.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                {editFormErrors.department_role && (
-                  <p className="text-destructive text-sm">{editFormErrors.department_role}</p>
+                    {editFormErrors.name && <p className="text-destructive text-sm">{editFormErrors.name}</p>}
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-email" className="flex items-center gap-2 text-sm font-medium">
+                      <Mail className="h-4 w-4 text-slate-500" />
+                      Email
+                    </Label>
+                    <Input
+                      id="edit-email"
+                      type="email"
+                      value={editUserForm.email}
+                      onChange={(e) => setEditUserForm((prev) => ({ ...prev, email: e.target.value }))}
+                      placeholder="Enter email address"
+                      className="h-11 shadow-sm transition-all duration-200 focus:ring-2 focus:ring-blue-500"
+                    />
+                    {editFormErrors.email && <p className="text-destructive text-sm">{editFormErrors.email}</p>}
+                  </div>
+                </div>
+              </div>
+
+              {/* Organizational Information */}
+              <div className="space-y-4">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-role" className="flex items-center gap-2 text-sm font-medium">
+                      <Shield className="h-4 w-4 text-slate-500" />
+                      System Role
+                    </Label>
+                    <Select
+                      value={editUserForm.role_id}
+                      onValueChange={(value) => setEditUserForm((prev) => ({ ...prev, role_id: value }))}
+                    >
+                      <SelectTrigger
+                        id="edit-role"
+                        className="h-11 shadow-sm transition-all duration-200 focus:ring-2 focus:ring-blue-500"
+                      >
+                        <SelectValue placeholder="Select a role" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {editSystemRoles.map((role) => (
+                          <SelectItem key={role.id} value={role.id}>
+                            <span className="font-medium capitalize">{role.name.replace(/-/g, " ")}</span>
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {editFormErrors.role_id && <p className="text-destructive text-sm">{editFormErrors.role_id}</p>}
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-department" className="flex items-center gap-2 text-sm font-medium">
+                      <Building2 className="h-4 w-4 text-slate-500" />
+                      Department
+                    </Label>
+                    <Select
+                      value={editUserForm.department_id || DEPARTMENT_NONE}
+                      onValueChange={(value) => {
+                        const nextDepartmentId = value === DEPARTMENT_NONE ? null : value
+                        setEditUserForm((prev) => ({
+                          ...prev,
+                          department_id: nextDepartmentId,
+                          department_role: DEPARTMENT_ROLE_NONE,
+                        }))
+                      }}
+                      disabled={isUserAssignmentsLoading}
+                    >
+                      <SelectTrigger
+                        id="edit-department"
+                        className="h-11 shadow-sm transition-all duration-200 focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+                      >
+                        <SelectValue placeholder={isUserAssignmentsLoading ? "Loading..." : "Select department"} />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={DEPARTMENT_NONE}>
+                          <span>No department</span>
+                        </SelectItem>
+                        {departments.map((department) => (
+                          <SelectItem key={department.id} value={department.id}>
+                            {department.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+
+                {editUserForm.department_id && (
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-department-role" className="flex items-center gap-2 text-sm font-medium">
+                      <Briefcase className="h-4 w-4 text-slate-500" />
+                      Department Role
+                      <span className="text-xs font-normal text-amber-600">(department-specific)</span>
+                    </Label>
+                    <Select
+                      value={editUserForm.department_role || DEPARTMENT_ROLE_NONE}
+                      onValueChange={(value) => setEditUserForm((prev) => ({ ...prev, department_role: value }))}
+                      disabled={isUserAssignmentsLoading || isDepartmentProfessionRolesLoading}
+                    >
+                      <SelectTrigger
+                        id="edit-department-role"
+                        className="h-11 shadow-sm transition-all duration-200 focus:ring-2 focus:ring-blue-500 disabled:opacity-50"
+                      >
+                        <SelectValue
+                          placeholder={
+                            isUserAssignmentsLoading || isDepartmentProfessionRolesLoading
+                              ? "Loading..."
+                              : "Select department role"
+                          }
+                        />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={DEPARTMENT_ROLE_NONE}>
+                          <span>None</span>
+                        </SelectItem>
+                        {departmentRoleOptions.map((role) => (
+                          <SelectItem key={role.key} value={role.key}>
+                            {role.label}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    {editFormErrors.department_role && (
+                      <p className="text-destructive text-sm">{editFormErrors.department_role}</p>
+                    )}
+                  </div>
                 )}
               </div>
 
@@ -1801,76 +1933,117 @@ export function SupabaseUserManagement() {
                 </div>
               )}
 
-              <div className="rounded-lg border p-3">
-                <div className="flex items-center justify-between gap-4">
-                  <div className="space-y-0.5">
-                    <Label htmlFor="edit-is-active">Account status</Label>
-                    <p className="text-muted-foreground text-sm">Inactive users cannot sign in.</p>
-                    <p className="text-muted-foreground text-xs">Changes are saved when you click “Save changes.”</p>
+              {/* Enhanced Account Settings */}
+              <div className="space-y-6">
+                <div className="flex items-center gap-3">
+                  <div className="rounded-lg bg-green-100 p-2">
+                    <Settings className="h-4 w-4 text-green-600" />
                   </div>
-                  <Switch
-                    id="edit-is-active"
-                    checked={editUserForm.is_active}
-                    onCheckedChange={(checked) => setEditUserForm((prev) => ({ ...prev, is_active: checked }))}
-                    disabled={!!editingUser && editingUser.id === currentUser?.id}
-                  />
+                  <div className="flex-1">
+                    <h3 className="text-sm font-semibold tracking-wide text-slate-700 uppercase">Account Settings</h3>
+                    <p className="text-sm text-slate-500">Manage user account status and verification</p>
+                  </div>
                 </div>
-                {!!editingUser && editingUser.id === currentUser?.id ? (
-                  <p className="text-muted-foreground mt-2 text-sm">You cannot deactivate your own account.</p>
-                ) : null}
+
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50/50 p-4 transition-all duration-200 hover:bg-slate-100">
+                    <div className="flex-1 space-y-1">
+                      <Label htmlFor="edit-is-active" className="flex items-center gap-2 text-sm font-medium">
+                        <ToggleLeft className="h-4 w-4 text-slate-500" />
+                        Account Status
+                      </Label>
+                      <p className="text-sm text-slate-600">
+                        {editUserForm.is_active
+                          ? "User can sign in and access the system"
+                          : "User cannot sign in to the system"}
+                      </p>
+                      {!!editingUser && editingUser.id === currentUser?.id && (
+                        <p className="text-xs font-medium text-amber-600">You cannot deactivate your own account</p>
+                      )}
+                    </div>
+                    <Switch
+                      id="edit-is-active"
+                      checked={editUserForm.is_active}
+                      onCheckedChange={(checked) => setEditUserForm((prev) => ({ ...prev, is_active: checked }))}
+                      disabled={!!editingUser && editingUser.id === currentUser?.id}
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50/50 p-4 transition-all duration-200 hover:bg-slate-100">
+                    <div className="flex-1 space-y-1">
+                      <Label htmlFor="email-verified" className="flex items-center gap-2 text-sm font-medium">
+                        <MailCheck className="h-4 w-4 text-slate-500" />
+                        Email Verification
+                      </Label>
+                      <p className="text-sm text-slate-600">
+                        {editUserForm.email_verified ? "Email is marked as verified" : "Email requires verification"}
+                      </p>
+                      {editingUser?.email_confirmed_at && (
+                        <p className="text-xs text-slate-500">
+                          Verified on {new Date(editingUser.email_confirmed_at).toLocaleDateString()}
+                        </p>
+                      )}
+                    </div>
+                    <Switch
+                      id="email-verified"
+                      checked={editUserForm.email_verified}
+                      onCheckedChange={(checked) => setEditUserForm((prev) => ({ ...prev, email_verified: checked }))}
+                    />
+                  </div>
+                </div>
               </div>
 
-              <div className="rounded-lg border p-3">
-                <div className="flex items-center justify-between gap-4">
-                  <div className="space-y-0.5">
-                    <Label htmlFor="email-verified">Email verification</Label>
-                    <p className="text-muted-foreground text-sm">Controls whether the user is marked verified.</p>
-                    <p className="text-muted-foreground text-xs">Changes are saved when you click “Save changes.”</p>
+              {/* Enhanced Security Actions */}
+              <div className="space-y-6">
+                <div className="flex items-center gap-3">
+                  <div className="rounded-lg bg-amber-100 p-2">
+                    <Shield className="h-4 w-4 text-amber-600" />
                   </div>
-                  <Switch
-                    id="email-verified"
-                    checked={editUserForm.email_verified}
-                    onCheckedChange={(checked) => setEditUserForm((prev) => ({ ...prev, email_verified: checked }))}
-                    disabled={false}
-                  />
+                  <div className="flex-1">
+                    <h3 className="text-sm font-semibold tracking-wide text-slate-700 uppercase">Security</h3>
+                    <p className="text-sm text-slate-500">Manage user password and authentication</p>
+                  </div>
                 </div>
-                {editingUser?.email_confirmed_at ? (
-                  <p className="text-muted-foreground mt-2 text-sm">
-                    Verified on {new Date(editingUser.email_confirmed_at).toLocaleDateString()}
+
+                <div className="space-y-3">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setEditUserPanelMode("reset_password")
+                      setResetPasswordMode("email")
+                      setNewPassword("")
+                      setConfirmNewPassword("")
+                    }}
+                    disabled={!editingUser}
+                    className="h-11 w-full justify-start gap-2 border-amber-200 bg-amber-50 text-amber-700 shadow-sm transition-all duration-200 hover:bg-amber-100"
+                  >
+                    <KeyRound className="h-4 w-4" />
+                    Reset Password
+                  </Button>
+                  <p className="text-sm text-slate-500">
+                    Send a password reset email or set a new password for the user.
                   </p>
-                ) : null}
+                </div>
               </div>
-            </div>
 
-            <Accordion type="single" collapsible className="rounded-lg border">
-              <AccordionItem value="security">
-                <AccordionTrigger className="px-3">Security</AccordionTrigger>
-                <AccordionContent className="px-3">
-                  <div className="space-y-3">
-                    <p className="text-muted-foreground text-sm">Reset the user password or send a reset link.</p>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      onClick={() => {
-                        setEditUserPanelMode("reset_password")
-                        setResetPasswordMode("email")
-                        setNewPassword("")
-                        setConfirmNewPassword("")
-                      }}
-                      disabled={!editingUser}
-                    >
-                      Reset password
-                    </Button>
+              {/* Enhanced Danger Zone */}
+              <div className="space-y-6">
+                <div className="flex items-center gap-3">
+                  <div className="rounded-lg bg-red-100 p-2">
+                    <AlertTriangle className="h-4 w-4 text-red-600" />
                   </div>
-                </AccordionContent>
-              </AccordionItem>
+                  <div className="flex-1">
+                    <h3 className="text-sm font-semibold tracking-wide text-red-600 uppercase">Danger Zone</h3>
+                    <p className="text-sm text-red-500">Irreversible actions that permanently affect the user</p>
+                  </div>
+                </div>
 
-              <AccordionItem value="danger">
-                <AccordionTrigger className="px-3">Danger zone</AccordionTrigger>
-                <AccordionContent className="px-3">
+                <div className="rounded-lg border border-red-200 bg-red-50 p-4">
                   <div className="space-y-3">
-                    <p className="text-muted-foreground text-sm">
-                      Deleting a user removes their profile and access. This cannot be undone.
+                    <p className="text-sm text-red-800">
+                      <strong>Warning:</strong> Deleting a user permanently removes their profile, data, and access.
+                      This action cannot be undone.
                     </p>
                     <Button
                       type="button"
@@ -1880,115 +2053,144 @@ export function SupabaseUserManagement() {
                         setDeleteConfirmation("")
                       }}
                       disabled={!editingUser}
+                      className="h-11 w-full gap-2 shadow-sm transition-all duration-200"
                     >
-                      Delete user
+                      <Trash2 className="h-4 w-4" />
+                      Delete User
                     </Button>
                   </div>
-                </AccordionContent>
-              </AccordionItem>
-            </Accordion>
+                </div>
+              </div>
+            </div>
           </div>
         ) : editUserPanelMode === "reset_password" ? (
-          <div className="space-y-4">
-            <div className="space-y-1">
-              <p className="text-sm font-medium">Reset password</p>
-              <p className="text-muted-foreground text-sm">
-                {editingUser?.email ? `For ${editingUser.email}` : "Choose a user to reset."}
-              </p>
+          <div className="space-y-6">
+            <div className="space-y-2">
+              <h3 className="text-lg font-semibold">Reset Password</h3>
+              <p className="text-muted-foreground">Choose how to reset the password for {editingUser?.email}</p>
             </div>
 
-            <div className="flex gap-2">
-              <Button
-                type="button"
-                variant={resetPasswordMode === "email" ? "default" : "outline"}
-                size="sm"
-                onClick={() => setResetPasswordMode("email")}
-                className="flex-1"
-              >
-                Send reset email
-              </Button>
-              <Button
-                type="button"
-                variant={resetPasswordMode === "direct" ? "default" : "outline"}
-                size="sm"
-                onClick={() => setResetPasswordMode("direct")}
-                className="flex-1"
-              >
-                Set new password
-              </Button>
-            </div>
+            <div className="space-y-4">
+              <div className="grid gap-2">
+                <Button
+                  type="button"
+                  variant={resetPasswordMode === "email" ? "default" : "outline"}
+                  onClick={() => setResetPasswordMode("email")}
+                  className="h-auto justify-start p-4"
+                >
+                  <div className="text-left">
+                    <div className="font-medium">Send Reset Email</div>
+                    <div className="text-muted-foreground text-sm">
+                      Send a password reset link to the user's email address
+                    </div>
+                  </div>
+                </Button>
+                <Button
+                  type="button"
+                  variant={resetPasswordMode === "direct" ? "default" : "outline"}
+                  onClick={() => setResetPasswordMode("direct")}
+                  className="h-auto justify-start p-4"
+                >
+                  <div className="text-left">
+                    <div className="font-medium">Set New Password</div>
+                    <div className="text-muted-foreground text-sm">Set a temporary password for the user</div>
+                  </div>
+                </Button>
+              </div>
 
-            {resetPasswordMode === "email" ? (
-              <div className="space-y-2">
-                <p className="text-muted-foreground text-sm">
-                  A password reset email will be sent to <strong>{editingUser?.email}</strong>.
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="newPassword">New Password</Label>
-                  <div className="relative">
-                    <Input
-                      id="newPassword"
-                      type={showNewPassword ? "text" : "password"}
-                      value={newPassword}
-                      onChange={(e) => setNewPassword(e.target.value)}
-                      placeholder="Enter new password (min 8 characters)"
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="absolute top-1 right-1 h-8 w-8 p-0"
-                      onClick={() => setShowNewPassword(!showNewPassword)}
-                    >
-                      {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </Button>
+              {resetPasswordMode === "direct" && (
+                <div className="space-y-4 rounded-lg border p-4">
+                  <div className="space-y-2">
+                    <Label htmlFor="newPassword">New Password</Label>
+                    <div className="relative">
+                      <Input
+                        id="newPassword"
+                        type={showNewPassword ? "text" : "password"}
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        placeholder="Enter new password (min 8 characters)"
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="absolute top-1 right-1 h-8 w-8 p-0"
+                        onClick={() => setShowNewPassword(!showNewPassword)}
+                      >
+                        {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </Button>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="confirmNewPassword">Confirm New Password</Label>
+                    <div className="relative">
+                      <Input
+                        id="confirmNewPassword"
+                        type={showConfirmNewPassword ? "text" : "password"}
+                        value={confirmNewPassword}
+                        onChange={(e) => setConfirmNewPassword(e.target.value)}
+                        placeholder="Confirm new password"
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="absolute top-1 right-1 h-8 w-8 p-0"
+                        onClick={() => setShowConfirmNewPassword(!showConfirmPassword)}
+                      >
+                        {showConfirmNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </Button>
+                    </div>
                   </div>
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="confirmNewPassword">Confirm New Password</Label>
-                  <div className="relative">
-                    <Input
-                      id="confirmNewPassword"
-                      type={showConfirmNewPassword ? "text" : "password"}
-                      value={confirmNewPassword}
-                      onChange={(e) => setConfirmNewPassword(e.target.value)}
-                      placeholder="Confirm new password"
-                    />
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="sm"
-                      className="absolute top-1 right-1 h-8 w-8 p-0"
-                      onClick={() => setShowConfirmNewPassword(!showConfirmNewPassword)}
-                    >
-                      {showConfirmNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                    </Button>
-                  </div>
-                </div>
-              </div>
-            )}
+              )}
+            </div>
           </div>
         ) : (
-          <div className="space-y-4">
-            <div className="space-y-1">
-              <p className="text-sm font-medium">Delete user</p>
-              <p className="text-muted-foreground text-sm">
-                This action cannot be undone. Type <strong>DELETE</strong> to confirm.
+          <div className="space-y-6">
+            <div className="space-y-2">
+              <h3 className="text-lg font-semibold text-red-600">Delete User</h3>
+              <p className="text-muted-foreground">
+                This action cannot be undone. All user data will be permanently removed.
               </p>
             </div>
 
-            <div className="space-y-2">
-              <Label htmlFor="delete-confirm">Confirmation</Label>
-              <Input
-                id="delete-confirm"
-                value={deleteConfirmation}
-                onChange={(e) => setDeleteConfirmation(e.target.value)}
-                placeholder="Type DELETE"
-                autoComplete="off"
-              />
+            <div className="rounded-lg border border-red-200 bg-red-50 p-4">
+              <div className="space-y-4">
+                <div className="space-y-2">
+                  <p className="text-sm font-medium text-red-800">
+                    To confirm deletion, type{" "}
+                    <code className="rounded bg-red-100 px-1 py-0.5 text-red-900">DELETE</code> below:
+                  </p>
+                  <Input
+                    id="delete-confirm"
+                    value={deleteConfirmation}
+                    onChange={(e) => setDeleteConfirmation(e.target.value)}
+                    placeholder="Type DELETE"
+                    autoComplete="off"
+                    className="border-red-200 focus:border-red-400 focus:ring-red-100"
+                  />
+                </div>
+
+                {editingUser && (
+                  <div className="space-y-2">
+                    <p className="text-sm text-red-700">
+                      <strong>User to be deleted:</strong>
+                    </p>
+                    <div className="flex items-center gap-2 rounded bg-white p-2">
+                      <Avatar className="h-6 w-6">
+                        <AvatarFallback className="text-xs">
+                          {(editingUser.profile?.name || editingUser.email || "U").slice(0, 2).toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
+                      <div>
+                        <div className="text-sm font-medium">{editingUser.profile?.name || "Unnamed User"}</div>
+                        <div className="text-muted-foreground text-xs">{editingUser.email}</div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         )}
