@@ -7,6 +7,16 @@ import type { UserWithProfile, PaginatedUsersResponse } from "@/lib/supabase/adm
 // This ensures we get fresh data on each request
 export const dynamic = "force-dynamic"
 
+interface DepartmentRoleData {
+  user_id: string
+  role: string
+  is_active: boolean
+  updated_at: string
+  department_role: {
+    label: string
+  } | null
+}
+
 async function clearUserOwnershipReferences(userId: string) {
   const updates: Array<{ table: string; column: string }> = [
     { table: "departments", column: "created_by" },
@@ -459,17 +469,22 @@ export async function GET(request: Request) {
     }> = []
 
     if (profileUserIds.length > 0) {
-      const { data: professionAssignmentsData, error: professionAssignmentsError } = await adminSupabase
-        .from("user_department_professions")
-        .select("user_id, role_id, is_active, updated_at, role:roles(name)")
+      const { data: departmentRolesData, error: departmentRolesError } = await adminSupabase
+        .from("user_department_roles")
+        .select("user_id, role, is_active, updated_at, department_role:department_roles(label)")
         .in("user_id", profileUserIds)
         .order("is_active", { ascending: false })
         .order("updated_at", { ascending: false })
 
-      if (professionAssignmentsError) {
-        console.error("Error fetching profession assignments:", professionAssignmentsError)
+      if (departmentRolesError) {
+        console.error("Error fetching department roles:", departmentRolesError)
       } else {
-        professionAssignments = (professionAssignmentsData || []) as typeof professionAssignments
+        professionAssignments = (departmentRolesData || []).map((item: DepartmentRoleData) => ({
+          user_id: item.user_id,
+          role_id: item.role,
+          is_active: item.is_active,
+          role: { name: item.department_role?.label },
+        }))
       }
     }
 

@@ -135,9 +135,13 @@ export async function GET() {
       }
     }
 
-    // Fetch ALL roles (for dropdown)
-    // Use adminSupabase to bypass RLS
-    const { data: allRoles, error: allRolesError } = await adminSupabase.from("roles").select("id, name").order("name")
+    // Fetch ALL professional roles (for dropdown)
+    // Use adminSupabase to bypass RLS and get department roles
+    const { data: allRoles, error: allRolesError } = await adminSupabase
+      .from("department_roles")
+      .select("key as id, label as name")
+      .eq("is_active", true)
+      .order("department_id, sort_order")
 
     if (allRolesError) {
       console.error("Error fetching all roles:", allRolesError)
@@ -161,14 +165,14 @@ export async function GET() {
     const { data: professionRows, error: professionsError } =
       allUserIds.length > 0
         ? await adminSupabase
-            .from("user_department_professions")
-            .select("user_id, department_id, role_id, role:roles(name)")
+            .from("user_department_roles")
+            .select("user_id, department_id, role, department_roles:role(label)")
             .in("user_id", allUserIds)
             .eq("is_active", true)
         : { data: [], error: null }
 
     if (professionsError) {
-      console.error("Error fetching user department professions:", professionsError)
+      console.error("Error fetching user department roles:", professionsError)
     }
 
     const professionByUserId = new Map<
@@ -180,10 +184,10 @@ export async function GET() {
       if (!userId) return
 
       const departmentId = typeof row?.department_id === "string" ? row.department_id : null
-      const roleId = typeof row?.role_id === "string" ? row.role_id : null
-      const roleName = typeof row?.role?.name === "string" ? row.role.name : null
+      const roleKey = typeof row?.role === "string" ? row.role : null
+      const roleName = typeof row?.department_roles?.label === "string" ? row.department_roles.label : null
 
-      professionByUserId.set(userId, { department_id: departmentId, role_id: roleId, role_name: roleName })
+      professionByUserId.set(userId, { department_id: departmentId, role_id: roleKey, role_name: roleName })
     })
 
     const normalizedUsers =
