@@ -1,13 +1,14 @@
 "use client"
 
 import type React from "react"
-import { useState, useEffect, useMemo, useCallback, useLayoutEffect, useRef } from "react"
+import { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { z } from "zod"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
-import { Calendar } from "@/components/ui/calendar"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Calendar } from "@/components/ui/calendar"
+import type { Matcher } from "react-day-picker"
 import { useCaptainLog } from "@/contexts/supabase-log-context"
 import { useAuth } from "@/contexts/auth-context"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
@@ -80,8 +81,6 @@ export function EntryFormMultistep({
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [selectedDate, setSelectedDate] = useState<string>(initialDate || getToday())
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false)
-  const datePickerTriggerRef = useRef<HTMLButtonElement | null>(null)
-  const [datePickerWidth, setDatePickerWidth] = useState<number | null>(null)
 
   useEffect(() => {
     if (initialDate) return
@@ -211,26 +210,6 @@ export function EntryFormMultistep({
     if (Number.isNaN(d.getTime())) return "Saved"
     return `Saved ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
   }, [draftSavedAt])
-
-  useLayoutEffect(() => {
-    const el = datePickerTriggerRef.current
-    if (!el) return
-
-    const updateWidth = () => {
-      const next = Math.round(el.getBoundingClientRect().width)
-      setDatePickerWidth((prev) => (prev === next ? prev : next))
-    }
-
-    updateWidth()
-    const ro = new ResizeObserver(() => updateWidth())
-    ro.observe(el)
-
-    window.addEventListener("resize", updateWidth)
-    return () => {
-      window.removeEventListener("resize", updateWidth)
-      ro.disconnect()
-    }
-  }, [])
 
   const buildInitialCustomResponses = useCallback((existingResponses?: QuestionResponse[]) => {
     const responseMap: Record<string, unknown> = {}
@@ -762,10 +741,9 @@ export function EntryFormMultistep({
                 <Popover open={isDatePickerOpen} onOpenChange={setIsDatePickerOpen}>
                   <PopoverTrigger asChild>
                     <Button
-                      ref={datePickerTriggerRef}
                       variant="outline"
                       type="button"
-                      className="border-input bg-background text-foreground focus:ring-primary w-full justify-between rounded-md border px-4 py-4 text-lg focus:ring-2 focus:outline-none"
+                      className="border-input bg-background text-foreground focus:ring-primary w-full justify-between rounded-md border px-4 py-3 text-base focus:ring-2 focus:outline-none"
                       aria-label="Select report date"
                     >
                       <span className={selectedDateAsDate ? "" : "text-muted-foreground"}>
@@ -776,26 +754,15 @@ export function EntryFormMultistep({
                   </PopoverTrigger>
                   <PopoverContent
                     side="bottom"
-                    align="start"
+                    align="center"
                     sideOffset={8}
                     collisionPadding={8}
-                    className="max-h-(--radix-popover-content-available-height) overflow-y-auto p-0"
-                    style={datePickerWidth ? { width: `${datePickerWidth}px` } : undefined}
+                    className="data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 min-h-[340px] w-full max-w-none p-3"
+                    style={{ width: "100%" }}
                   >
                     <Calendar
                       mode="single"
                       selected={selectedDateAsDate}
-                      className="w-full"
-                      classNames={{
-                        root: "w-full",
-                        months: "w-full flex flex-col",
-                        month: "w-full",
-                        table: "w-full border-collapse",
-                        weekdays: "grid grid-cols-7 w-full",
-                        week: "grid grid-cols-7 w-full mt-2",
-                        day: "relative w-full p-0 text-center [&:first-child[data-selected=true]_button]:rounded-l-md [&:last-child[data-selected=true]_button]:rounded-r-md group/day select-none",
-                        day_button: "aspect-auto h-8 sm:h-9 w-full min-w-0",
-                      }}
                       onSelect={(date) => {
                         if (!date) return
                         const newDate = formatLocalDate(date)
@@ -808,11 +775,20 @@ export function EntryFormMultistep({
                           : canCreateEntryForDate(newDate)
                         setDateError(validation.isValid ? null : validation.error || "Invalid date")
                       }}
-                      disabled={{
-                        before: new Date(getMinAllowedDate() + "T00:00:00"),
-                        after: new Date(getMaxAllowedDate() + "T00:00:00"),
-                      }}
+                      disabled={
+                        [
+                          { before: new Date(getMinAllowedDate() + "T00:00:00") },
+                          { after: new Date(getMaxAllowedDate() + "T00:00:00") },
+                        ] as Matcher[]
+                      }
                       initialFocus
+                      className="w-full"
+                      classNames={{
+                        weekday:
+                          "text-muted-foreground rounded-md flex-1 text-center text-[0.7rem] font-semibold tracking-wide select-none",
+                        today: "ring-1 ring-primary/40 rounded-md bg-transparent text-foreground",
+                        disabled: "text-muted-foreground opacity-50 pointer-events-none",
+                      }}
                     />
                   </PopoverContent>
                 </Popover>
