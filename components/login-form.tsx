@@ -8,14 +8,14 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
 import { Label } from "@/components/ui/label"
-import { Eye, EyeOff, Moon, Sun } from "lucide-react"
+import { Eye, EyeOff, Loader2, Moon, Sun } from "lucide-react"
 import { useTheme } from "next-themes"
 import { isFeatureEnabledClient } from "@/lib/feature-flags/client"
 
 export default function LoginForm() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { login, isLoading, error, session } = useSupabaseAuth()
+  const { login, isLoading, error, session, resetAuthError } = useSupabaseAuth()
   const { theme, setTheme } = useTheme()
   const darkModeEnabled = isFeatureEnabledClient("DARK_MODE")
   const selfServiceAuthEnabled = isFeatureEnabledClient("SELF_SERVICE_AUTH")
@@ -23,7 +23,9 @@ export default function LoginForm() {
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [mounted, setMounted] = useState(false)
+  const [isRedirecting, setIsRedirecting] = useState(false)
   const redirectTo = searchParams?.get("redirect") || "/"
+  const isBusy = isLoading || isRedirecting || !!session
 
   // Set mounted for theme toggle
   useEffect(() => {
@@ -33,12 +35,15 @@ export default function LoginForm() {
   // Redirect if already logged in
   useEffect(() => {
     if (session) {
+      setIsRedirecting(true)
       router.push(redirectTo)
     }
   }, [session, router, redirectTo])
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (isBusy) return
+
     try {
       await login(email, password, redirectTo)
       // Redirect happens in the auth context after successful login
@@ -82,9 +87,18 @@ export default function LoginForm() {
           <CardDescription>Enter your email and password to sign in to your account</CardDescription>
         </CardHeader>
 
-        <form onSubmit={handleLogin}>
+        <form onSubmit={handleLogin} aria-busy={isBusy}>
           <CardContent className="space-y-6">
-            {error && <div className="rounded-md bg-red-50 p-3 text-sm text-red-500">{error}</div>}
+            {error ? (
+              <div
+                id="login-error"
+                role="alert"
+                aria-live="polite"
+                className="rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+              >
+                {error}
+              </div>
+            ) : null}
 
             <div className="space-y-2">
               <Label htmlFor="email">Email</Label>
@@ -93,28 +107,35 @@ export default function LoginForm() {
                 type="email"
                 placeholder="name@example.com"
                 value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                onChange={(e) => {
+                  if (error) resetAuthError()
+                  setEmail(e.target.value)
+                }}
                 required
+                autoComplete="email"
+                disabled={isBusy}
+                aria-describedby={error ? "login-error" : undefined}
               />
             </div>
 
             <div className="space-y-2">
               <div className="flex items-center justify-between">
                 <Label htmlFor="password">Password</Label>
-                {selfServiceAuthEnabled ? (
-                  <Link href="/reset-password" className="text-primary text-sm underline-offset-4 hover:underline">
-                    Forgot password?
-                  </Link>
-                ) : null}
               </div>
               <div className="relative">
                 <Input
                   id="password"
                   type={showPassword ? "text" : "password"}
                   value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  onChange={(e) => {
+                    if (error) resetAuthError()
+                    setPassword(e.target.value)
+                  }}
                   required
                   className="pr-10"
+                  autoComplete="current-password"
+                  disabled={isBusy}
+                  aria-describedby={error ? "login-error" : undefined}
                 />
                 <Button
                   type="button"
@@ -122,6 +143,8 @@ export default function LoginForm() {
                   size="sm"
                   className="absolute top-1 right-1 h-8 w-8 p-0"
                   onClick={() => setShowPassword(!showPassword)}
+                  disabled={isBusy}
+                  aria-label={showPassword ? "Hide password" : "Show password"}
                 >
                   {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                 </Button>
@@ -130,8 +153,15 @@ export default function LoginForm() {
           </CardContent>
 
           <CardFooter className="flex flex-col space-y-4 pt-4">
-            <Button type="submit" className="h-12 w-full text-base font-medium" disabled={isLoading}>
-              {isLoading ? "Signing in..." : "Sign in"}
+            <Button type="submit" className="h-12 w-full text-base font-medium" disabled={isBusy}>
+              {isBusy ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  {isRedirecting || session ? "Redirecting..." : "Signing in..."}
+                </>
+              ) : (
+                "Sign in"
+              )}
             </Button>
 
             {selfServiceAuthEnabled ? (
