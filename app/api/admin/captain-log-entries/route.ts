@@ -139,7 +139,7 @@ export async function GET() {
     // Use adminSupabase to bypass RLS and get department roles
     const { data: allRoles, error: allRolesError } = await adminSupabase
       .from("department_roles")
-      .select("key as id, label as name")
+      .select("id:key, name:label")
       .eq("is_active", true)
       .order("department_id, sort_order")
 
@@ -166,7 +166,9 @@ export async function GET() {
       allUserIds.length > 0
         ? await adminSupabase
             .from("user_department_roles")
-            .select("user_id, department_id, role, department_roles:role(label)")
+            .select(
+              "user_id, department_id, role, department_role:department_roles!fk_user_department_roles_department_role(label)"
+            )
             .in("user_id", allUserIds)
             .eq("is_active", true)
         : { data: [], error: null }
@@ -185,7 +187,7 @@ export async function GET() {
 
       const departmentId = typeof row?.department_id === "string" ? row.department_id : null
       const roleKey = typeof row?.role === "string" ? row.role : null
-      const roleName = typeof row?.department_roles?.label === "string" ? row.department_roles.label : null
+      const roleName = typeof row?.department_role?.label === "string" ? row.department_role.label : null
 
       professionByUserId.set(userId, { department_id: departmentId, role_id: roleKey, role_name: roleName })
     })

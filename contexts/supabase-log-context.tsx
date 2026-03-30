@@ -60,7 +60,64 @@ function getStandardQuestionLabel(key: string): string {
   return labels[key] || key
 }
 
-// Compatibility layer: Transform database entry + custom responses to component format
+// Transform a batch of entries using pre-fetched custom responses
+function transformEntriesWithCustomResponses(
+  entries: DbCaptainLogEntry[],
+  allCustomResponses: supabaseData.CustomResponse[]
+): CaptainLogEntry[] {
+  // Group custom responses by entry_id for O(1) lookup
+  const responsesByEntryId = new Map<string, supabaseData.CustomResponse[]>()
+  for (const response of allCustomResponses) {
+    const entryResponses = responsesByEntryId.get(response.entry_id) || []
+    entryResponses.push(response)
+    responsesByEntryId.set(response.entry_id, entryResponses)
+  }
+
+  return entries.map((entry) => {
+    const customResponsesData = responsesByEntryId.get(entry.id) || []
+
+    // Transform custom responses to expected format
+    const customResponses = customResponsesData.map((response) => ({
+      questionId: response.question_id,
+      questionKey: response.question_key,
+      questionLabel: response.question_label,
+      questionType: response.question_type,
+      questionCategory: response.question_category,
+      value: response.value as Json,
+      timestamp: response.timestamp,
+    }))
+
+    // Extract standard fields from custom responses
+    const standardResponses = customResponsesData.filter((r) => r.question_category === "standard")
+    const getField = (key: string) => {
+      const response = standardResponses.find((r) => r.question_key === key)
+      return response ? (response.value as string) || "" : ""
+    }
+
+    return {
+      ...entry,
+      // Standard fields from custom responses
+      objectives: getField("objectives"),
+      keyResults: getField("keyResults"),
+      challenges: getField("challenges"),
+      developmentTasks: getField("developmentTasks"),
+      featuresCompleted: getField("featuresCompleted"),
+      challengesAndBlockers: getField("challengesAndBlockers"),
+      codeAndPriorities: getField("codeAndPriorities"),
+      systemImprovements: getField("systemImprovements"),
+      projectUpdates: getField("projectUpdates"),
+
+      // Metadata fields
+      createdAt: entry.created_at,
+      updatedAt: entry.updated_at,
+
+      // All custom responses
+      customResponses,
+    }
+  })
+}
+
+// Compatibility layer: Transform single database entry + custom responses to component format
 async function transformEntryForComponents(entry: DbCaptainLogEntry): Promise<CaptainLogEntry> {
   // Fetch custom responses for this entry
   let customResponsesData: unknown[] = []
@@ -196,8 +253,11 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
     setIsLoading(true)
     try {
       const data = await supabaseData.getEntriesByUserId(user.id)
-      // Transform entries for component compatibility
-      const transformedEntries = await Promise.all(data.map(transformEntryForComponents))
+      // Batch fetch all custom responses in a single query
+      const entryIds = data.map((entry) => entry.id)
+      const allCustomResponses = await supabaseData.getCustomResponsesForEntries(entryIds)
+      // Transform entries with pre-fetched custom responses
+      const transformedEntries = transformEntriesWithCustomResponses(data, allCustomResponses)
       setEntries(transformedEntries)
       setError(null)
     } catch (error) {
@@ -656,8 +716,11 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
 
       try {
         const results = await supabaseData.searchEntries(user.id, query)
-        // Transform results for component compatibility
-        return await Promise.all(results.map(transformEntryForComponents))
+        // Batch fetch all custom responses in a single query
+        const entryIds = results.map((entry) => entry.id)
+        const allCustomResponses = await supabaseData.getCustomResponsesForEntries(entryIds)
+        // Transform results with pre-fetched custom responses
+        return transformEntriesWithCustomResponses(results, allCustomResponses)
       } catch (error) {
         console.error("Search failed:", error)
         toast.error("Search failed")
@@ -676,8 +739,11 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
 
       try {
         const results = await supabaseData.getEntriesByDateRange(user.id, from, to)
-        // Transform results for component compatibility
-        return await Promise.all(results.map(transformEntryForComponents))
+        // Batch fetch all custom responses in a single query
+        const entryIds = results.map((entry) => entry.id)
+        const allCustomResponses = await supabaseData.getCustomResponsesForEntries(entryIds)
+        // Transform results with pre-fetched custom responses
+        return transformEntriesWithCustomResponses(results, allCustomResponses)
       } catch (error) {
         console.error("Failed to get entries by date range:", error)
         toast.error("Failed to fetch entries")

@@ -8,6 +8,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Label } from "@/components/ui/label"
 import { Badge } from "@/components/ui/badge"
 import type { CustomQuestion } from "@/lib/rbac/types"
+import { getQuestionReactKey } from "@/lib/role-question-identity"
 import { cn } from "@/lib/utils"
 
 interface RoleBasedQuestionFieldsProps {
@@ -483,13 +484,14 @@ export function RoleBasedQuestionFields({
 
   return (
     <div className="space-y-4">
-      {questions.map((question) => {
+      {questions.map((question, index) => {
+        const reactKey = getQuestionReactKey(question, index)
         const value = responses[question.key]
         const error = errors[question.key]
 
         if (renderMode === "fieldsOnly") {
           return (
-            <div key={question.key || (question as any).id} className="space-y-2">
+            <div key={reactKey} className="space-y-2">
               {renderField(question, value, error)}
               {error && (
                 <p id={`${question.key}-error`} className="text-destructive mt-2 text-sm">
@@ -501,7 +503,7 @@ export function RoleBasedQuestionFields({
         }
 
         return (
-          <Card key={question.key || (question as any).id} className="border-0 bg-transparent p-0 shadow-none">
+          <Card key={reactKey} className="border-0 bg-transparent p-0 shadow-none">
             <CardHeader className="pb-3">
               <div className="flex items-center justify-between gap-3">
                 <div className="flex flex-col gap-1">

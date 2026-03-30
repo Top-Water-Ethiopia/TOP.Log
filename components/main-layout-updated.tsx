@@ -2,7 +2,7 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react"
 import { CalendarView } from "./calendar-view"
-import { EntryDetails, EntryFormMultistep } from "./features/daily-log/organisms"
+import { EntryDetails } from "./features/daily-log/organisms"
 import { LandingPage } from "./landing-page"
 import { ThankYouPage } from "./thank-you-page"
 import { SearchDialog } from "./search-dialog"
@@ -178,10 +178,7 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
   )
 
   const [selectedDate, setSelectedDate] = useState<string>(getToday())
-  const [viewMode, setViewMode] = useState<"landing" | "calendar" | "form" | "details" | "analytics" | "thankYou">(
-    "landing"
-  )
-  const [editingDate, setEditingDate] = useState<string | undefined>(undefined)
+  const [viewMode, setViewMode] = useState<"landing" | "calendar" | "details" | "analytics" | "thankYou">("landing")
 
   const hasRoleQuestions = roleQuestions.length > 0
   const canStartNewReport =
@@ -231,19 +228,18 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
     const existingEntry = activeDepartmentId
       ? entries.find((entry) => entry.date === date && entry.department_id === activeDepartmentId)
       : undefined
-    // If entry exists, show details (read mode), otherwise show form (edit mode)
+    // If entry exists, show details (read mode), otherwise navigate to new log form
     if (existingEntry) {
       setViewMode("details")
     } else {
       const createValidation = canCreateEntryForDate(date)
       if (!createValidation.isValid) {
         toast.error(createValidation.error || "This date is locked for new reports")
-        setEditingDate(undefined)
         return
       }
 
-      setEditingDate(date)
-      setViewMode("form")
+      // Navigate to new log route instead of setting viewMode
+      router.push(`/logs/new?date=${date}`)
     }
   }
 
@@ -258,14 +254,10 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
       <header className="border-border bg-background shrink-0 border-b">
         <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:px-8">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <button
-              type="button"
-              onClick={() => setViewMode("landing")}
-              className="text-left transition-opacity duration-150 ease-in-out hover:cursor-pointer hover:opacity-80"
-            >
+            <Link href="/logs" className="text-left transition-opacity duration-150 ease-in-out hover:opacity-80">
               <h1 className="text-3xl font-bold tracking-tight">Logs</h1>
               <p className="text-muted-foreground mt-1 text-sm">Daily Tracker</p>
-            </button>
+            </Link>
 
             <div className="flex flex-wrap items-center gap-2">
               {/* Primary Navigation - Left side */}
@@ -274,7 +266,7 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
               ) : null}
 
               {/* New Report */}
-              {user && !showNoMembershipsMessage && viewMode !== "form" && !hasReportsForAllAllowedDates && (
+              {user && !showNoMembershipsMessage && !hasReportsForAllAllowedDates && (
                 <Button
                   size="sm"
                   className="gap-2"
@@ -282,9 +274,7 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
                   title={!canStartNewReport ? newReportDisabledReason : undefined}
                   onClick={() => {
                     if (!canStartNewReport) return
-                    setEditingDate(undefined)
-                    setSelectedDate(getToday())
-                    setViewMode("form")
+                    router.push("/logs/new")
                   }}
                 >
                   <FileText className="h-4 w-4" />
@@ -385,44 +375,19 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
               hasReportsForAllAllowedDates={hasReportsForAllAllowedDates}
               onRequestAccess={canRequestAccess ? handleRequestAccess : undefined}
               isRequestingAccess={isRequestingAccess}
-              onNewReport={() => {
-                setEditingDate(undefined)
-                setViewMode("form")
-              }}
-              onViewReports={() => setViewMode("calendar")}
+              onNewReport={() => router.push("/logs/new")}
+              onViewReports={() => router.push("/logs")}
             />
           ) : viewMode === "thankYou" ? (
             <ThankYouPage
               hasReportsForAllAllowedDates={hasReportsForAllAllowedDates}
-              onNewReport={() => {
-                setEditingDate(undefined)
-                setViewMode("form")
-              }}
-              onViewReports={() => setViewMode("calendar")}
+              onNewReport={() => router.push("/logs/new")}
+              onViewReports={() => router.push("/logs")}
               onBackHome={() => setViewMode("landing")}
             />
           ) : viewMode === "analytics" ? (
             <div className="h-full overflow-y-auto">
               <AnalyticsDashboard />
-            </div>
-          ) : viewMode === "form" ? (
-            <div className="h-full overflow-y-auto">
-              {activeDepartmentId && (
-                <EntryFormMultistep
-                  departmentId={activeDepartmentId}
-                  date={editingDate}
-                  initialRoleQuestions={initialRoleQuestions}
-                  onSave={() => {
-                    setEditingDate(undefined)
-                    setViewMode("thankYou")
-                    refreshEntries()
-                  }}
-                  onCancel={() => {
-                    setEditingDate(undefined)
-                    setViewMode("landing")
-                  }}
-                />
-              )}
             </div>
           ) : viewMode === "details" ? (
             <Suspense

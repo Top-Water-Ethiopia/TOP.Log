@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server"
+import { findDuplicateValues, getLegacyQuestionKeyFromMetadata, normalizeQuestionKey } from "@/lib/role-question-identity"
 import { adminSupabase } from "@/lib/supabase/admin"
 import { createClient } from "@/lib/supabase/server"
 
@@ -9,7 +10,8 @@ function getLegacyQuestionKey(question: any): string | null {
     const trimmed = question.question_key.trim()
     return trimmed ? trimmed : null
   }
-  return null
+
+  return getLegacyQuestionKeyFromMetadata(question?.metadata)
 }
 
 function mergeMetadata(existingMeta: unknown, incomingMeta: unknown, legacyQuestionKey: string | null) {
@@ -39,6 +41,48 @@ function getQuestionScope(
     return { kind: "department", id: departmentId }
   }
   return null
+}
+
+function getScopeCacheKey(scope: NonNullable<ReturnType<typeof getQuestionScope>>): string {
+  if (scope.kind === "department") {
+    return `${scope.kind}:${scope.id}`
+  }
+
+  return `${scope.kind}:${scope.departmentId}:${scope.role}`
+}
+
+function resolveIncomingQuestionKey(question: any, index: number): string {
+  const directKey = getLegacyQuestionKey(question)
+  if (directKey) return directKey
+
+  const normalizedLabel = normalizeQuestionKey(String(question?.question_label ?? ""))
+  if (normalizedLabel) return normalizedLabel
+
+  return `question_${index + 1}`
+}
+
+function collectDuplicateKeyErrors(questions: any[]): string[] {
+  const scopeEntries = new Map<string, string[]>()
+
+  questions.forEach((question, index) => {
+    const scope = getQuestionScope(question)
+    if (!scope) return
+
+    const scopeKey = getScopeCacheKey(scope)
+    const scopedKeys = scopeEntries.get(scopeKey) ?? []
+    scopedKeys.push(resolveIncomingQuestionKey(question, index))
+    scopeEntries.set(scopeKey, scopedKeys)
+  })
+
+  const errors: string[] = []
+  scopeEntries.forEach((keys, scopeKey) => {
+    const duplicateKeys = findDuplicateValues(keys.filter(Boolean))
+    duplicateKeys.forEach((key) => {
+      errors.push(`Duplicate question key "${key}" found in scope ${scopeKey}`)
+    })
+  })
+
+  return errors
 }
 
 export async function POST(request: Request) {
@@ -87,9 +131,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: "Validation failed", details: errors }, { status: 400 })
     }
 
+    errors.push(...collectDuplicateKeyErrors(questions))
+
+    if (errors.length > 0) {
+      return NextResponse.json({ error: "Validation failed", details: errors }, { status: 400 })
+    }
+
     // Prepare questions for insertion
     const questionsToInsert = questions.map((question: any, index: number) => {
-      const legacyQuestionKey = getLegacyQuestionKey(question)
+      const legacyQuestionKey = resolveIncomingQuestionKey(question, index)
       const scope = getQuestionScope(question)
       return {
         department_id: scope?.kind === "department" ? scope.id : (scope?.departmentId ?? null),
@@ -196,6 +246,12 @@ export async function PUT(request: Request) {
         errors.push(`Question ${index + 1}: id must be a string when provided`)
       }
     })
+
+    if (errors.length > 0) {
+      return NextResponse.json({ error: "Validation failed", details: errors }, { status: 400 })
+    }
+
+    errors.push(...collectDuplicateKeyErrors(questions))
 
     if (errors.length > 0) {
       return NextResponse.json({ error: "Validation failed", details: errors }, { status: 400 })
@@ -318,7 +374,7 @@ export async function PUT(request: Request) {
       }
 
       const questionsToUpsert = scopeQuestions.map((question: any, index: number) => {
-        const legacyQuestionKey = getLegacyQuestionKey(question)
+        const legacyQuestionKey = resolveIncomingQuestionKey(question, index)
         const resolvedExisting =
           typeof question.id === "string" && question.id
             ? existingById.get(question.id)

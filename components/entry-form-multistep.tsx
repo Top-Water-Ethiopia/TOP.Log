@@ -17,23 +17,22 @@ import { useRoleQuestions, type RoleQuestion } from "@/hooks/use-role-questions"
 import { RoleBasedQuestionFields } from "@/components/role-based-question-fields"
 import { DateRestrictionBanner, QuickDateChips } from "@/components/features/daily-log/molecules"
 import type { CustomQuestion, QuestionResponse } from "@/lib/rbac/types"
+import { getQuestionReactKey } from "@/lib/role-question-identity"
 import { ArrowLeft, ArrowRight, Save, Eye, AlertCircle, ListChecks, Pencil, CalendarDays, Lock } from "lucide-react"
+import { Skeleton } from "@/components/ui/skeleton"
 import { toast } from "sonner"
 import {
   canCreateEntryForDate,
-  canUpdateEntryForDate,
   formatLocalDate,
   formatDateHuman,
   getDateRestrictionMessage,
   getToday,
-  getDaysAgo,
-  getMaxAllowedDate,
-  getMinAllowedDate,
 } from "@/lib/date-restrictions"
 
 interface EntryFormMultistepProps {
   date?: string
   departmentId: string
+  allowedDates?: string[]
   onSave: () => void
   onCancel: () => void
   initialRoleQuestions?: unknown[]
@@ -42,20 +41,26 @@ interface EntryFormMultistepProps {
 export function EntryFormMultistep({
   date: initialDate,
   departmentId,
+  allowedDates,
   onSave,
   onCancel,
   initialRoleQuestions,
 }: EntryFormMultistepProps) {
-  const { entries, addEntry, updateEntry } = useCaptainLog()
+  const { addEntry } = useCaptainLog()
   const { isAuthenticated, user } = useAuth()
   const { user: supabaseUser } = useSupabaseAuth() // Supabase authentication
   const { validateResponse, processResponses } = useRBAC()
-  const { questions: roleQuestions } = useRoleQuestions(
+  const { questions: roleQuestions, isLoading: isRoleQuestionsLoading } = useRoleQuestions(
     initialRoleQuestions as RoleQuestion[] | undefined,
     departmentId
   )
   const roleQuestionsRef = useRef(roleQuestions)
-  const didAutoPickDefaultDateRef = useRef(false)
+  const creatableDates = useMemo(() => {
+    if (Array.isArray(allowedDates) && allowedDates.length > 0) {
+      return allowedDates
+    }
+    return [getToday()]
+  }, [allowedDates])
   const roleQuestionsSignature = useMemo(() => {
     return roleQuestions
       .map((q) => {
@@ -73,36 +78,17 @@ export function EntryFormMultistep({
     roleQuestionsRef.current = roleQuestions
   }, [roleQuestions])
 
-  const entriesForDepartment = useMemo(
-    () => entries.filter((e) => e.department_id === departmentId),
-    [entries, departmentId]
-  )
   const [currentStep, setCurrentStep] = useState(1)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [selectedDate, setSelectedDate] = useState<string>(initialDate || getToday())
+  const [selectedDate, setSelectedDate] = useState<string>(initialDate || creatableDates[0] || getToday())
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false)
 
   useEffect(() => {
-    if (initialDate) return
-    if (didAutoPickDefaultDateRef.current) return
-
-    const today = getToday()
-    if (selectedDate !== today) return
-
-    const yesterday = getDaysAgo(1)
-    const twoDaysAgo = getMinAllowedDate()
-
-    const hasEntry = (date: string) => entriesForDepartment.some((e) => e.date === date)
-    const candidate = [today, yesterday, twoDaysAgo].find((d) => !hasEntry(d))
-
-    if (candidate && candidate !== selectedDate) {
-      didAutoPickDefaultDateRef.current = true
-      setSelectedDate(candidate)
-      return
+    if (creatableDates.length === 0) return
+    if (!creatableDates.includes(selectedDate)) {
+      setSelectedDate(initialDate && creatableDates.includes(initialDate) ? initialDate : creatableDates[0])
     }
-
-    didAutoPickDefaultDateRef.current = true
-  }, [entriesForDepartment, initialDate, selectedDate])
+  }, [creatableDates, initialDate, selectedDate])
 
   const [formData, setFormData] = useState({
     // Legacy fields (kept for backward compatibility with existing entries)
@@ -128,8 +114,8 @@ export function EntryFormMultistep({
   }, [selectedDate])
 
   const isSelectedDateLockedForEdits = useMemo(() => {
-    return selectedDate < getMinAllowedDate()
-  }, [selectedDate])
+    return !creatableDates.includes(selectedDate)
+  }, [creatableDates, selectedDate])
 
   const userIdForDraft = useMemo(() => {
     const userWithId = user as unknown as { id?: unknown; email?: unknown }
@@ -236,10 +222,8 @@ export function EntryFormMultistep({
     return responseMap
   }, [])
 
-  // Load existing entry if it exists, otherwise reset form
+  // Initialize create-only form state for the selected date, optionally merged with a local draft.
   useEffect(() => {
-    const existingEntry = entriesForDepartment.find((entry) => entry.date === selectedDate)
-
     let draft: unknown = null
     if (typeof window !== "undefined") {
       try {
@@ -268,82 +252,34 @@ export function EntryFormMultistep({
       setDraftSavedAt(null)
     }
 
-    if (existingEntry) {
-      const baseFormData = {
-        objectives: (existingEntry as Record<string, unknown>).objectives || "",
-        keyResults: (existingEntry as Record<string, unknown>).keyResults || "",
-        challenges: (existingEntry as Record<string, unknown>).challenges || "",
-        developmentTasks: existingEntry.developmentTasks || "",
-        featuresCompleted: existingEntry.featuresCompleted || "",
-        challengesAndBlockers: existingEntry.challengesAndBlockers || "",
-        codeAndPriorities: existingEntry.codeAndPriorities || "",
-        systemImprovements: existingEntry.systemImprovements || "",
-        projectUpdates: existingEntry.projectUpdates || "",
-      }
-      // Fix the type issue by ensuring all required fields are present
-      const fixedResponses = (existingEntry.customResponses || []).map((response) => {
-        const resp = response as Record<string, unknown>
-        return {
-          questionId: String(resp.questionId || ""),
-          questionKey: String(resp.questionKey || ""),
-          questionLabel: String(resp.questionLabel || ""),
-          questionType: String(resp.questionType || "text"),
-          questionCategory: resp.questionCategory,
-          value: resp.value,
-          timestamp: String(resp.timestamp || new Date().toISOString()),
-        }
-      })
-
-      const baseResponses = buildInitialCustomResponses(fixedResponses as QuestionResponse[])
-      const mergedFormData =
-        hasDraft && draftObj?.formData && typeof draftObj.formData === "object"
-          ? { ...baseFormData, ...(draftObj.formData as Record<string, unknown>) }
-          : baseFormData
-      const mergedResponses =
-        hasDraft && draftObj?.customResponses && typeof draftObj.customResponses === "object"
-          ? { ...baseResponses, ...(draftObj.customResponses as Record<string, unknown>) }
-          : baseResponses
-
-      setFormData(mergedFormData as typeof formData)
-      setCustomResponses(mergedResponses as Record<string, unknown>)
-      if (hasDraft && typeof draftObj?.currentStep === "number") {
-        setCurrentStep(draftObj.currentStep)
-      }
-    } else {
-      const baseFormData = {
-        objectives: "",
-        keyResults: "",
-        challenges: "",
-        developmentTasks: "",
-        featuresCompleted: "",
-        challengesAndBlockers: "",
-        codeAndPriorities: "",
-        systemImprovements: "",
-        projectUpdates: "",
-      }
-      const baseResponses = buildInitialCustomResponses()
-
-      const mergedFormData =
-        hasDraft && draftObj?.formData && typeof draftObj.formData === "object"
-          ? { ...baseFormData, ...(draftObj.formData as Record<string, unknown>) }
-          : baseFormData
-      const mergedResponses =
-        hasDraft && draftObj?.customResponses && typeof draftObj.customResponses === "object"
-          ? { ...baseResponses, ...(draftObj.customResponses as Record<string, unknown>) }
-          : baseResponses
-
-      setFormData(mergedFormData as typeof formData)
-      setCustomResponses(mergedResponses as Record<string, unknown>)
-      if (hasDraft && typeof draftObj?.currentStep === "number") {
-        setCurrentStep(draftObj.currentStep)
-      }
+    const baseFormData = {
+      objectives: "",
+      keyResults: "",
+      challenges: "",
+      developmentTasks: "",
+      featuresCompleted: "",
+      challengesAndBlockers: "",
+      codeAndPriorities: "",
+      systemImprovements: "",
+      projectUpdates: "",
     }
-    // Always restart the wizard from the first step when the date changes
-    if (!hasDraft) {
-      setCurrentStep(1)
-    }
+    const baseResponses = buildInitialCustomResponses()
+
+    const mergedFormData =
+      hasDraft && draftObj?.formData && typeof draftObj.formData === "object"
+        ? { ...baseFormData, ...(draftObj.formData as Record<string, unknown>) }
+        : baseFormData
+    const mergedResponses =
+      hasDraft && draftObj?.customResponses && typeof draftObj.customResponses === "object"
+        ? { ...baseResponses, ...(draftObj.customResponses as Record<string, unknown>) }
+        : baseResponses
+
+    setFormData(mergedFormData as typeof formData)
+    setCustomResponses(mergedResponses as Record<string, unknown>)
+    // Always start from step 1 - don't restore draft step position
+    setCurrentStep(1)
     setCustomErrors({})
-  }, [selectedDate, entriesForDepartment, buildInitialCustomResponses, draftKeyForDate, roleQuestionsSignature])
+  }, [selectedDate, buildInitialCustomResponses, draftKeyForDate, roleQuestionsSignature])
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
@@ -494,17 +430,14 @@ export function EntryFormMultistep({
       return
     }
 
-    // Step 1 (date selection): prevent creating new entries on locked dates.
-    // Updates to existing entries are already gated by canUpdateEntryForDate in submit.
+    // Step 1 (date selection): allow only still-missing dates in the allowed window.
     if (currentStepConfig?.key === "date") {
-      const existingEntry = entriesForDepartment.find((entry) => entry.date === selectedDate)
-      if (!existingEntry) {
-        const createValidation = canCreateEntryForDate(selectedDate)
-        if (!createValidation.isValid) {
-          setDateError(createValidation.error || "Invalid date")
-          toast.error(createValidation.error || "This date is locked for new reports")
-          return
-        }
+      const createValidation = canCreateEntryForDate(selectedDate)
+      if (!createValidation.isValid || !creatableDates.includes(selectedDate)) {
+        const message = createValidation.error || "This date is not available for a new report"
+        setDateError(message)
+        toast.error(message)
+        return
       }
     }
 
@@ -565,15 +498,10 @@ export function EntryFormMultistep({
         return
       }
 
-      // Check if we're updating an existing entry or creating a new one
-      const existingEntry = entriesForDepartment.find((entry) => entry.date === selectedDate)
-
       // Validate date before submission
-      const dateValidation = existingEntry
-        ? canUpdateEntryForDate(selectedDate, existingEntry.createdAt)
-        : canCreateEntryForDate(selectedDate)
+      const dateValidation = canCreateEntryForDate(selectedDate)
 
-      if (!dateValidation.isValid) {
+      if (!dateValidation.isValid || !creatableDates.includes(selectedDate)) {
         toast.error(dateValidation.error || "Invalid date selected")
         setIsSubmitting(false)
         return
@@ -609,24 +537,15 @@ export function EntryFormMultistep({
         customResponses: processedCustom.processedResponses,
       }
 
-      if (existingEntry) {
-        // Update existing entry
-        console.log("[handleSubmit] Updating existing entry:", existingEntry.id)
-        console.log("[handleSubmit] Updates payload:", submissionData)
-        await updateEntry(existingEntry.id, submissionData)
-        toast.success("Entry updated successfully!")
-      } else {
-        // Create new entry
-        const now = new Date().toISOString()
-        await addEntry({
-          department_id: departmentId,
-          ...submissionData,
-          createdAt: now,
-          updatedAt: now,
-          metadata: null,
-        })
-        toast.success("Entry created successfully!")
-      }
+      const now = new Date().toISOString()
+      await addEntry({
+        department_id: departmentId,
+        ...submissionData,
+        createdAt: now,
+        updatedAt: now,
+        metadata: null,
+      })
+      toast.success("Entry created successfully!")
 
       try {
         window.localStorage.removeItem(draftKeyForDate(selectedDate))
@@ -674,26 +593,17 @@ export function EntryFormMultistep({
   }, [currentStep, steps.length])
 
   const quickDateOptions = useMemo(() => {
-    const today = getToday()
-    const yesterday = getDaysAgo(1)
-    const twoDaysAgo = getMinAllowedDate()
-
     const formatShort = (dateString: string) => {
       const d = new Date(dateString + "T00:00:00")
       return d.toLocaleDateString("default", { month: "short", day: "numeric" })
     }
 
-    const allOptions = [
-      { key: "twoDaysAgo", label: formatShort(twoDaysAgo), date: twoDaysAgo },
-      { key: "yesterday", label: "Yesterday", date: yesterday },
-      { key: "today", label: "Today", date: today },
-    ]
-
-    // Filter out dates that already have entries
-    return allOptions.filter((option) => {
-      return !entriesForDepartment.find((entry) => entry.date === option.date)
-    })
-  }, [entriesForDepartment])
+    return creatableDates.map((date, index) => ({
+      key: `available-${index}`,
+      label: formatShort(date),
+      date,
+    }))
+  }, [creatableDates])
 
   return (
     <div className="mx-auto flex h-full w-full max-w-3xl flex-col space-y-4">
@@ -727,6 +637,18 @@ export function EntryFormMultistep({
           </div>
         </CardHeader>
         <CardContent className="flex-1 space-y-6 overflow-y-auto">
+          {/* Skeleton loading state while questions load */}
+          {isRoleQuestionsLoading && currentStep > 1 && (
+            <div className="space-y-4">
+              <Skeleton className="h-6 w-48" />
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-32 w-full" />
+              <div className="flex items-center gap-2">
+                <Skeleton className="h-4 w-4" />
+                <Skeleton className="h-4 w-24" />
+              </div>
+            </div>
+          )}
           {/* Step 1: Select Date */}
           {currentStepConfig?.key === "date" && (
             <div className="space-y-4">
@@ -769,18 +691,11 @@ export function EntryFormMultistep({
                         setSelectedDate(newDate)
                         setIsDatePickerOpen(false)
 
-                        const existingEntry = entries.find((entry) => entry.date === newDate)
-                        const validation = existingEntry
-                          ? canUpdateEntryForDate(newDate, existingEntry.createdAt)
-                          : canCreateEntryForDate(newDate)
-                        setDateError(validation.isValid ? null : validation.error || "Invalid date")
+                        const validation = canCreateEntryForDate(newDate)
+                        const isAllowed = creatableDates.includes(newDate)
+                        setDateError(validation.isValid && isAllowed ? null : validation.error || "Invalid date")
                       }}
-                      disabled={
-                        [
-                          { before: new Date(getMinAllowedDate() + "T00:00:00") },
-                          { after: new Date(getMaxAllowedDate() + "T00:00:00") },
-                        ] as Matcher[]
-                      }
+                      disabled={((date: Date) => !creatableDates.includes(formatLocalDate(date))) as Matcher}
                       initialFocus
                       className="w-full"
                       classNames={{
@@ -799,11 +714,9 @@ export function EntryFormMultistep({
                   onSelectDate={(newDate) => {
                     setSelectedDate(newDate)
 
-                    const existingEntry = entries.find((entry) => entry.date === newDate)
-                    const validation = existingEntry
-                      ? canUpdateEntryForDate(newDate, existingEntry.createdAt)
-                      : canCreateEntryForDate(newDate)
-                    setDateError(validation.isValid ? null : validation.error || "Invalid date")
+                    const validation = canCreateEntryForDate(newDate)
+                    const isAllowed = creatableDates.includes(newDate)
+                    setDateError(validation.isValid && isAllowed ? null : validation.error || "Invalid date")
                   }}
                 />
                 {dateError && (
@@ -819,29 +732,14 @@ export function EntryFormMultistep({
                   <div className="mt-2 rounded-md border border-amber-500/50 bg-amber-500/10 p-4">
                     <p className="text-foreground flex items-center gap-2 text-sm font-medium">
                       <Lock className="h-4 w-4" />
-                      Locked
+                      Unavailable
                     </p>
                     <p className="text-muted-foreground mt-2 text-xs">
-                      This date is older than 2 days. You cannot create a new report for it.
+                      Only missing dates from today and the previous 2 days can be used for a new report.
                     </p>
                   </div>
                 ) : null}
               </div>
-
-              {/* Check if entry exists for selected date */}
-              {entriesForDepartment.find((entry) => entry.date === selectedDate) && (
-                <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-4">
-                  <div className="flex items-start gap-4">
-                    <AlertCircle className="mt-0 h-5 w-5 text-amber-500" />
-                    <div>
-                      <p className="text-foreground text-sm font-medium">Entry Already Exists</p>
-                      <p className="text-muted-foreground mt-2 text-xs">
-                        An entry for this date already exists. Continuing will update the existing entry.
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              )}
             </div>
           )}
 
@@ -915,7 +813,7 @@ export function EntryFormMultistep({
                     <ListChecks className="h-5 w-5" /> Role-Specific Responses
                   </h3>
                   <div className="space-y-4">
-                    {roleQuestions.map((question) => {
+                    {roleQuestions.map((question, index) => {
                       const value = customResponses[String(question.key)]
                       const displayValue = Array.isArray(value)
                         ? value.length
@@ -927,10 +825,11 @@ export function EntryFormMultistep({
 
                       const questionStepIndex = steps.findIndex((step) => step.key === `question-${question.key}`)
                       const questionStepNumber = questionStepIndex >= 0 ? steps[questionStepIndex].number : null
+                      const reactKey = getQuestionReactKey(question, index)
 
                       return (
                         <div
-                          key={question.key}
+                          key={reactKey}
                           className="bg-muted/30 border-border/40 flex items-start justify-between gap-4 rounded-lg border p-4"
                         >
                           <div className="min-w-0 flex-1">

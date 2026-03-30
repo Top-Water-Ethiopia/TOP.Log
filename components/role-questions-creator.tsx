@@ -15,6 +15,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Separator } from "@/components/ui/separator"
 import { Plus, Trash2, CheckCircle2, AlertCircle, Loader2, Shield, Eye, EyeOff, Save, X, Users } from "lucide-react"
+import { findDuplicateValues, normalizeQuestionKey } from "@/lib/role-question-identity"
 import { toast } from "sonner"
 
 type ApiRoleQuestion = {
@@ -55,18 +56,10 @@ function asNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null
 }
 
-function toQuestionKey(value: string): string {
-  return value
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "")
-    .replace(/_+/g, "_")
-}
-
 function createEmptyQuestion(displayOrder = 0): QuestionFormData {
   return {
     id: `temp-${Date.now()}-${Math.random()}`,
+    question_key: "",
     question_label: "",
     question_type: "textarea",
     question_description: "",
@@ -104,6 +97,7 @@ interface DepartmentRole {
 
 interface QuestionFormData {
   id: string // Temporary ID for tracking
+  question_key: string
   question_label: string
   question_type: string
   question_description: string
@@ -146,7 +140,6 @@ export function RoleQuestionsCreator() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [createdQuestions, setCreatedQuestions] = useState<SavedQuestion[]>([])
   const [roleQuestionCount, setRoleQuestionCount] = useState(0)
-  const [existingRoleQuestionKeys, setExistingRoleQuestionKeys] = useState<string[]>([])
   const [showPreview, setShowPreview] = useState(true)
 
   useEffect(() => {
@@ -236,7 +229,6 @@ export function RoleQuestionsCreator() {
       questionScope === "role" ? !!selectedDepartmentForRole && !!selectedDepartmentRole : !!selectedDepartment
     if (!hasScope) {
       setRoleQuestionCount(0)
-      setExistingRoleQuestionKeys([])
       setIsLoadingExistingQuestions(false)
       return
     }
@@ -250,7 +242,6 @@ export function RoleQuestionsCreator() {
 
         if (!response.ok) {
           setRoleQuestionCount(0)
-          setExistingRoleQuestionKeys([])
           setQuestions([createEmptyQuestion(0)])
           setCurrentQuestionIndex(0)
           return
@@ -276,8 +267,6 @@ export function RoleQuestionsCreator() {
           .sort((a, b) => (asNumber(a?.display_order) ?? 0) - (asNumber(b?.display_order) ?? 0))
 
         setRoleQuestionCount(scopeQuestions.length)
-        const keys = scopeQuestions.map((q) => asString(q.question_key) ?? "").filter(Boolean)
-        setExistingRoleQuestionKeys(keys)
 
         if (scopeQuestions.length === 0) {
           setQuestions([createEmptyQuestion(0)])
@@ -294,6 +283,7 @@ export function RoleQuestionsCreator() {
 
           return {
             id: id ?? `existing-${Date.now()}-${Math.random()}`,
+            question_key: asString(q.question_key) ?? "",
             question_label: label,
             question_type: type,
             question_description: description,
@@ -451,6 +441,18 @@ export function RoleQuestionsCreator() {
       }
     }
 
+    const effectiveKeys = questions.map(
+      (q, index) => q.question_key.trim() || normalizeQuestionKey(q.question_label) || `question_${index + 1}`
+    )
+    const duplicateKeys = findDuplicateValues(effectiveKeys)
+
+    if (duplicateKeys.length > 0) {
+      toast.error(
+        `Question keys must be unique in this scope. Duplicate key: ${duplicateKeys[0]}. Update the labels so they generate different keys.`
+      )
+      return false
+    }
+
     return true
   }, [questions])
 
@@ -462,18 +464,8 @@ export function RoleQuestionsCreator() {
     try {
       setIsSubmitting(true)
 
-      const usedKeys = new Set<string>()
-      const existingKeys = new Set(existingRoleQuestionKeys)
-
       const questionsToSubmit = questions.map((q, index) => {
-        const baseKey = toQuestionKey(q.question_label) || `question_${index + 1}`
-        let uniqueKey = baseKey
-        let suffix = 2
-        while (usedKeys.has(uniqueKey) || existingKeys.has(uniqueKey)) {
-          uniqueKey = `${baseKey}_${suffix}`
-          suffix += 1
-        }
-        usedKeys.add(uniqueKey)
+        const resolvedKey = q.question_key.trim() || normalizeQuestionKey(q.question_label) || `question_${index + 1}`
 
         const includeId = typeof q.id === "string" && !q.id.startsWith("temp-")
 
@@ -498,7 +490,7 @@ export function RoleQuestionsCreator() {
           validation_rules: null,
           is_active: q.is_active,
           metadata: {
-            legacy_question_key: uniqueKey,
+            legacy_question_key: resolvedKey,
           },
           min_value: q.min_value,
           max_value: q.max_value,
@@ -529,7 +521,6 @@ export function RoleQuestionsCreator() {
       setCreatedQuestions(saved)
       setCurrentStep("success")
       setRoleQuestionCount(saved.length)
-      setExistingRoleQuestionKeys(Array.from(existingKeys))
       toast.success(`Successfully saved ${saved.length || 0} question(s)`)
     } catch (error: unknown) {
       console.error("Error saving questions:", error)
@@ -540,7 +531,6 @@ export function RoleQuestionsCreator() {
       setIsSubmitting(false)
     }
   }, [
-    existingRoleQuestionKeys,
     questionScope,
     questions,
     selectedDepartment,

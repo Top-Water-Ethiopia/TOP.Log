@@ -4,6 +4,7 @@ import { ReactNode } from "react"
 import { SWRConfig } from "swr"
 import { ThemeProvider } from "@/components/theme-provider"
 import { SupabaseProviders } from "@/components/supabase-providers"
+import { AuthProvider } from "@/contexts/auth-context"
 import { Toaster as SonnerToaster } from "@/components/ui/sonner"
 import { Toaster } from "@/components/ui/toaster"
 import { apiFetch } from "@/lib/api-client"
@@ -35,7 +36,7 @@ export function Providers({ children }: ProvidersProps) {
         }}
       >
         <SupabaseProviders>
-          {children}
+          <AuthProvider>{children}</AuthProvider>
           <SonnerToaster />
           <Toaster />
         </SupabaseProviders>

@@ -231,6 +231,15 @@ export async function getCustomResponses(entryId: string) {
   return data as CustomResponse[]
 }
 
+export async function getCustomResponsesForEntries(entryIds: string[]) {
+  if (entryIds.length === 0) return []
+
+  const { data, error } = await supabase.from("custom_responses").select("*").in("entry_id", entryIds)
+
+  if (error) handleSupabaseError(error)
+  return data as CustomResponse[]
+}
+
 export async function createCustomResponse(response: CustomResponseInsert) {
   const responseWithDefaults: CustomResponseInsert = {
     ...response,

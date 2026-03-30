@@ -12,6 +12,7 @@ import { canUpdateEntryForDate } from "@/lib/date-restrictions"
 import { useRoleQuestions } from "@/hooks/use-role-questions"
 import { useRBAC } from "@/hooks/use-rbac"
 import { RoleBasedQuestionFields } from "@/components/role-based-question-fields"
+import { getQuestionReactKey } from "@/lib/role-question-identity"
 import { toast } from "sonner"
 
 interface EntryDetailsProps {
@@ -346,6 +347,7 @@ export function EntryDetails({ date, departmentId, entry, isLoading, hideHeader,
             Array.isArray(roleQuestions) && roleQuestions.length > 0 ? (
               <div className="space-y-4">
                 {(roleQuestions as unknown as CustomQuestion[]).map((question, index) => {
+                  const reactKey = getQuestionReactKey(question, index)
                   const key = String((question as { key?: unknown })?.key ?? "")
                   const required = !!(question as { required?: unknown })?.required
                   const questionType = (question as { type?: unknown })?.type
@@ -354,7 +356,7 @@ export function EntryDetails({ date, departmentId, entry, isLoading, hideHeader,
                     (questionType === "text" || questionType === "textarea") && typeof valueForCount === "string"
 
                   return (
-                    <div key={key} className="bg-background rounded-xl border p-6">
+                    <div key={reactKey} className="bg-background rounded-xl border p-6">
                       <div className="flex items-start gap-4">
                         <div className="bg-muted mt-0 flex h-6 w-6 shrink-0 items-center justify-center rounded-full">
                           <span className="text-muted-foreground text-xs font-medium">{index + 1}</span>
@@ -411,12 +413,13 @@ export function EntryDetails({ date, departmentId, entry, isLoading, hideHeader,
           ) : Array.isArray(roleQuestions) && roleQuestions.length > 0 ? (
             <div className="space-y-4">
               {(roleQuestions as unknown as CustomQuestion[]).map((question, index) => {
+                const reactKey = getQuestionReactKey(question, index)
                 const key = String((question as { key?: unknown })?.key ?? "")
                 const required = !!(question as { required?: unknown })?.required
                 const response = findResponseForQuestion(currentEntry, question, key)
 
                 return (
-                  <div key={key} className="bg-background rounded-xl border p-6">
+                  <div key={reactKey} className="bg-background rounded-xl border p-6">
                     <div className="flex items-start gap-4">
                       <div className="bg-muted mt-0 flex h-6 w-6 shrink-0 items-center justify-center rounded-full">
                         <span className="text-muted-foreground text-xs font-medium">{index + 1}</span>
