@@ -11,7 +11,7 @@ function isSingleActiveMembershipViolation(error: unknown): boolean {
   if (!error || typeof error !== "object") return false
   const e = error as { code?: string; message?: string }
   if (e.code === "23505") return true
-  if (typeof e.message === "string" && e.message.includes("user_department_roles_one_active_membership_per_user")) {
+  if (typeof e.message === "string" && e.message.includes("user_department_professions_one_active_membership_per_user")) {
     return true
   }
   return false
@@ -27,7 +27,7 @@ async function buildActiveMembershipConflictResponse(userId: string) {
   }
 
   const { data: active, error } = await adminSupabase
-    .from("user_department_roles")
+    .from("user_department_professions")
     .select("department_id, department:departments(id, name)")
     .eq("user_id", userId)
     .eq("is_active", true)
@@ -98,7 +98,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ dep
     const { departmentId } = await params
 
     const { data: memberships, error: membershipError } = await adminSupabase
-      .from("user_department_roles")
+      .from("user_department_professions")
       .select("id, user_id, department_id, role, is_active, created_at, updated_at")
       .eq("department_id", departmentId)
       .order("updated_at", { ascending: false })
@@ -177,7 +177,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ dep
     }
 
     const { data: existing, error: existingError } = await adminSupabase
-      .from("user_department_roles")
+      .from("user_department_professions")
       .select("id, role")
       .eq("department_id", departmentId)
       .eq("user_id", user_id)
@@ -193,7 +193,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ dep
     }
 
     const { data: roleRow, error: roleError } = await adminSupabase
-      .from("department_roles")
+      .from("department_professions")
       .select("key")
       .eq("key", nextRole)
       .eq("is_active", true)
@@ -209,7 +209,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ dep
 
     if (is_active) {
       const { error: deactivateOtherMembershipsError } = await adminSupabase
-        .from("user_department_roles")
+        .from("user_department_professions")
         .update({
           is_active: false,
           updated_by: adminUserId,
@@ -232,7 +232,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ dep
 
     if (!existing) {
       const { data: inserted, error: insertError } = await adminSupabase
-        .from("user_department_roles")
+        .from("user_department_professions")
         .insert({
           user_id,
           department_id: departmentId,
@@ -256,7 +256,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ dep
     }
 
     const { data: updated, error: updateError } = await adminSupabase
-      .from("user_department_roles")
+      .from("user_department_professions")
       .update({
         role: nextRole,
         is_active,

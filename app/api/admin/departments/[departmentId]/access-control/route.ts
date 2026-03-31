@@ -63,7 +63,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ depa
     // Get the department roles for these users (for backward compatibility)
     const userIds = (rows || []).map((r) => r.user_id).filter(Boolean)
     const { data: userRoles } = await adminSupabase
-      .from("user_department_roles")
+      .from("user_department_professions")
       .select("user_id, role")
       .eq("department_id", departmentId)
       .eq("is_active", true)
@@ -101,7 +101,7 @@ export async function PUT(request: Request) {
 
     if (allowedRoles.length > 0) {
       const { data: validRows, error: rolesError } = await adminSupabase
-        .from("department_roles")
+        .from("department_professions")
         .select("key")
         .in("key", allowedRoles)
         .eq("is_active", true)

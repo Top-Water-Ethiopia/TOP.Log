@@ -138,7 +138,7 @@ export async function GET() {
     // Fetch ALL professional roles (for dropdown)
     // Use adminSupabase to bypass RLS and get department roles
     const { data: allRoles, error: allRolesError } = await adminSupabase
-      .from("department_roles")
+      .from("department_professions")
       .select("id:key, name:label")
       .eq("is_active", true)
       .order("department_id, sort_order")
@@ -165,9 +165,9 @@ export async function GET() {
     const { data: professionRows, error: professionsError } =
       allUserIds.length > 0
         ? await adminSupabase
-            .from("user_department_roles")
+            .from("user_department_professions")
             .select(
-              "user_id, department_id, role, department_role:department_roles!fk_user_department_roles_department_role(label)"
+              "user_id, department_id, role, department_profession:department_professions!fk_user_department_professions_department_profession(label)"
             )
             .in("user_id", allUserIds)
             .eq("is_active", true)
@@ -187,7 +187,7 @@ export async function GET() {
 
       const departmentId = typeof row?.department_id === "string" ? row.department_id : null
       const roleKey = typeof row?.role === "string" ? row.role : null
-      const roleName = typeof row?.department_role?.label === "string" ? row.department_role.label : null
+      const roleName = typeof row?.department_profession?.label === "string" ? row.department_profession.label : null
 
       professionByUserId.set(userId, { department_id: departmentId, role_id: roleKey, role_name: roleName })
     })
@@ -270,8 +270,8 @@ export async function GET() {
         entryProfessionRoleIds.length > 0
           ? adminSupabase
               .from("role_questions")
-              .select("role_id")
-              .in("role_id", entryProfessionRoleIds)
+              .select("department_role")
+              .in("department_role", entryProfessionRoleIds)
               .eq("is_active", true)
           : Promise.resolve({ data: [], error: null }),
       ])
@@ -292,7 +292,7 @@ export async function GET() {
 
     const roleQuestionCountByRoleId = new Map<string, number>()
     ;(roleQuestions as any[])?.forEach((row) => {
-      const roleId = typeof row?.role_id === "string" ? row.role_id : null
+      const roleId = typeof row?.department_role === "string" ? row.department_role : null
       if (!roleId) return
       roleQuestionCountByRoleId.set(roleId, (roleQuestionCountByRoleId.get(roleId) || 0) + 1)
     })

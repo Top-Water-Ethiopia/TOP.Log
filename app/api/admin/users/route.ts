@@ -8,21 +8,17 @@ import type { UserWithProfile, PaginatedUsersResponse } from "@/lib/supabase/adm
 export const dynamic = "force-dynamic"
 
 interface DepartmentRoleData {
+  department_role_id: string | null
   user_id: string
   role: string
   is_active: boolean
   updated_at: string
-  department_role: {
-    label: string
-  } | null
 }
 
 async function clearUserOwnershipReferences(userId: string) {
   const updates: Array<{ table: string; column: string }> = [
     { table: "departments", column: "created_by" },
     { table: "departments", column: "updated_by" },
-    { table: "user_department_roles", column: "created_by" },
-    { table: "user_department_roles", column: "updated_by" },
     { table: "user_department_professions", column: "created_by" },
     { table: "user_department_professions", column: "updated_by" },
   ]
@@ -68,16 +64,6 @@ async function deleteUserDependentRecords(userId: string) {
     }
   } catch (e) {
     console.warn("Failed to delete captain log related records for user:", e)
-  }
-
-  try {
-    const { error } = await adminSupabase.from("user_department_roles").delete().eq("user_id", userId)
-
-    if (error) {
-      console.warn("Failed to delete user department roles for user:", error)
-    }
-  } catch (e) {
-    console.warn("Failed to delete user department roles for user:", e)
   }
 
   try {
@@ -470,8 +456,8 @@ export async function GET(request: Request) {
 
     if (profileUserIds.length > 0) {
       const { data: departmentRolesData, error: departmentRolesError } = await adminSupabase
-        .from("user_department_roles")
-        .select("user_id, role, is_active, updated_at, department_role:department_roles(label)")
+        .from("user_department_professions")
+        .select("user_id, role, department_role_id, is_active, updated_at")
         .in("user_id", profileUserIds)
         .order("is_active", { ascending: false })
         .order("updated_at", { ascending: false })
@@ -479,11 +465,36 @@ export async function GET(request: Request) {
       if (departmentRolesError) {
         console.error("Error fetching department roles:", departmentRolesError)
       } else {
+        const rows = (departmentRolesData || []) as unknown as DepartmentRoleData[]
+        const professionIds = Array.from(
+          new Set(rows.map((item) => item.department_role_id).filter((id): id is string => typeof id === "string"))
+        )
+        const professionKeys = Array.from(
+          new Set(rows.map((item) => item.role).filter((key): key is string => typeof key === "string" && !!key))
+        )
+
+        const professionFilters = [
+          professionIds.length > 0 ? `id.in.(${professionIds.join(",")})` : null,
+          professionKeys.length > 0 ? `key.in.(${professionKeys.join(",")})` : null,
+        ].filter(Boolean)
+
+        const { data: professionRows, error: professionError } =
+          professionFilters.length > 0
+            ? await adminSupabase.from("department_professions").select("id, key, label").or(professionFilters.join(","))
+            : { data: [], error: null }
+
+        if (professionError) {
+          console.error("Error fetching department profession labels:", professionError)
+        }
+
+        const labelById = new Map((professionRows || []).map((item) => [item.id, item.label]))
+        const labelByKey = new Map((professionRows || []).map((item) => [item.key, item.label]))
+
         professionAssignments = (departmentRolesData || []).map((item: DepartmentRoleData) => ({
           user_id: item.user_id,
           role_id: item.role,
           is_active: item.is_active,
-          role: { name: item.department_role?.label },
+          role: { name: labelById.get(item.department_role_id || "") || labelByKey.get(item.role) || null },
         }))
       }
     }

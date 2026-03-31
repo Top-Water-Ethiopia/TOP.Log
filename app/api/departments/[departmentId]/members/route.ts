@@ -52,9 +52,9 @@ export async function GET(_request: Request, { params }: { params: Promise<{ dep
       .eq("department_id", departmentId)
       .maybeSingle()
 
-    // Also check if they are in user_department_roles as a fallback for legacy compatibility
+    // Also check if they are in user_department_professions as a fallback for legacy compatibility
     const { data: roleMembership } = await adminSupabase
-      .from("user_department_roles")
+      .from("user_department_professions")
       .select("id")
       .eq("user_id", user.id)
       .eq("department_id", departmentId)
@@ -69,7 +69,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ dep
     // --- ACCESS CONTROL END ---
 
     const { data: memberships, error: membershipError } = await adminSupabase
-      .from("user_department_roles")
+      .from("user_department_professions")
       .select("user_id, role, is_active")
       .eq("department_id", departmentId)
       .eq("is_active", true)

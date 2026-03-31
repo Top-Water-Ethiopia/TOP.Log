@@ -88,7 +88,7 @@ export async function GET(request: Request) {
     const userIdFilter = searchParams.get("user_id")
 
     const membershipsQuery = adminSupabase
-      .from("user_department_roles")
+      .from("user_department_professions")
       .select("user_id, department_id, role, is_active")
       .eq("is_active", true)
 

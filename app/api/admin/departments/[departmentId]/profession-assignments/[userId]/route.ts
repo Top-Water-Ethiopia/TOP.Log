@@ -89,7 +89,7 @@ export async function DELETE(
         updated_at: new Date().toISOString(),
       } as any)
       .eq("id", existing.id)
-      .select("id, user_id, department_id, role_id, is_active, created_at, updated_at")
+      .select("id, user_id, department_id, role_id:department_role_id, is_active, created_at, updated_at")
       .single()
 
     if (error) {

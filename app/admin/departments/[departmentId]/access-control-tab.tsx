@@ -37,7 +37,7 @@ export function AccessControlTab({ departmentId }: { departmentId: string }) {
     apiFetch<AccessControlResponse>(url)
   )
 
-  const rolesKey = "/api/admin/department-roles"
+  const rolesKey = "/api/admin/department-professions"
   const { data: rolesResponse } = useSWR<DepartmentRolesResponse>(rolesKey, (url: string) =>
     apiFetch<DepartmentRolesResponse>(url)
   )

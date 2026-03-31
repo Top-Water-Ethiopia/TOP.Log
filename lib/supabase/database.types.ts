@@ -254,11 +254,12 @@ export type Database = {
         }
         Relationships: []
       }
-      department_roles: {
+      department_professions: {
         Row: {
           created_at: string
           department_id: string | null
           description: string | null
+          id: string
           is_active: boolean
           is_default: boolean
           key: string
@@ -270,6 +271,7 @@ export type Database = {
           created_at?: string
           department_id?: string | null
           description?: string | null
+          id?: string
           is_active?: boolean
           is_default?: boolean
           key: string
@@ -281,6 +283,7 @@ export type Database = {
           created_at?: string
           department_id?: string | null
           description?: string | null
+          id?: string
           is_active?: boolean
           is_default?: boolean
           key?: string
@@ -290,7 +293,7 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "department_roles_department_id_fkey"
+            foreignKeyName: "department_professions_department_id_fkey"
             columns: ["department_id"]
             isOneToOne: false
             referencedRelation: "departments"
@@ -581,10 +584,13 @@ export type Database = {
         Row: {
           created_at: string
           created_by: string | null
+          department_role_id: string | null
           department_id: string
           id: string
           is_active: boolean
-          role_id: string
+          is_paused: boolean | null
+          reporting_started_at: string | null
+          role: string
           updated_at: string
           updated_by: string | null
           user_id: string
@@ -592,10 +598,13 @@ export type Database = {
         Insert: {
           created_at?: string
           created_by?: string | null
+          department_role_id?: string | null
           department_id: string
           id?: string
           is_active?: boolean
-          role_id: string
+          is_paused?: boolean | null
+          reporting_started_at?: string | null
+          role: string
           updated_at?: string
           updated_by?: string | null
           user_id: string
@@ -603,10 +612,13 @@ export type Database = {
         Update: {
           created_at?: string
           created_by?: string | null
+          department_role_id?: string | null
           department_id?: string
           id?: string
           is_active?: boolean
-          role_id?: string
+          is_paused?: boolean | null
+          reporting_started_at?: string | null
+          role?: string
           updated_at?: string
           updated_by?: string | null
           user_id?: string
@@ -620,62 +632,11 @@ export type Database = {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "user_department_professions_role_id_fkey"
-            columns: ["role_id"]
+            foreignKeyName: "user_department_professions_department_profession_id_fkey"
+            columns: ["department_role_id"]
             isOneToOne: false
-            referencedRelation: "roles"
+            referencedRelation: "department_professions"
             referencedColumns: ["id"]
-          },
-        ]
-      }
-      user_department_roles: {
-        Row: {
-          created_at: string
-          created_by: string | null
-          department_id: string
-          id: string
-          is_active: boolean
-          role: string
-          updated_at: string
-          updated_by: string | null
-          user_id: string
-        }
-        Insert: {
-          created_at?: string
-          created_by?: string | null
-          department_id: string
-          id?: string
-          is_active?: boolean
-          role: string
-          updated_at?: string
-          updated_by?: string | null
-          user_id: string
-        }
-        Update: {
-          created_at?: string
-          created_by?: string | null
-          department_id?: string
-          id?: string
-          is_active?: boolean
-          role?: string
-          updated_at?: string
-          updated_by?: string | null
-          user_id?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "user_department_roles_department_id_fkey"
-            columns: ["department_id"]
-            isOneToOne: false
-            referencedRelation: "departments"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "user_department_roles_role_fkey"
-            columns: ["role"]
-            isOneToOne: false
-            referencedRelation: "department_roles"
-            referencedColumns: ["key"]
           },
         ]
       }

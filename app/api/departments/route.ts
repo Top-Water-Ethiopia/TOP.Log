@@ -25,7 +25,7 @@ export async function GET() {
 
     // Get user's active department only (single active department principle)
     const { data: activeDepartmentRole } = await supabase
-      .from("user_department_roles")
+      .from("user_department_professions")
       .select(
         `
         department_id,

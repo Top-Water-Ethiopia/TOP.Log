@@ -86,7 +86,7 @@ async function fetchUserLogs(
     query = query.eq("department_id", filters.departmentId)
   } else {
     const { data: userDepartments } = await supabase
-      .from("user_department_roles")
+      .from("user_department_professions")
       .select("department_id")
       .eq("user_id", userId)
       .eq("is_active", true)
@@ -150,7 +150,7 @@ async function fetchLogsForMonth(
     query = query.eq("department_id", filters.departmentId)
   } else {
     const { data: userDepartments } = await supabase
-      .from("user_department_roles")
+      .from("user_department_professions")
       .select("department_id")
       .eq("user_id", userId)
       .eq("is_active", true)
@@ -194,7 +194,7 @@ async function fetchUserDepartments(
   }
 
   const { data, error } = await supabase
-    .from("user_department_roles")
+    .from("user_department_professions")
     .select(
       `
       department_id,

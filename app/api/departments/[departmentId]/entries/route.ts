@@ -51,9 +51,9 @@ export async function GET(_request: Request, { params }: { params: Promise<{ dep
       .eq("department_id", departmentId)
       .maybeSingle()
 
-    // Also check if they are in user_department_roles as a fallback for legacy compatibility
+    // Also check if they are in user_department_professions as a fallback for legacy compatibility
     const { data: roleMembership } = await adminSupabase
-      .from("user_department_roles")
+      .from("user_department_professions")
       .select("id")
       .eq("user_id", user.id)
       .eq("department_id", departmentId)
@@ -68,11 +68,11 @@ export async function GET(_request: Request, { params }: { params: Promise<{ dep
     // --- ACCESS CONTROL END ---
 
     // Get all user_ids in this department
-    // RLS on user_department_roles limits visibility:
+    // RLS on user_department_professions limits visibility:
     // - Contributor will only see their own membership row
     // - Others (lead/manager/supervisor/viewer) can see all members
     const { data: memberRows, error: membersError } = await adminSupabase
-      .from("user_department_roles")
+      .from("user_department_professions")
       .select("user_id")
       .eq("department_id", departmentId)
       .eq("is_active", true)

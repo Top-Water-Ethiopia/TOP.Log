@@ -258,7 +258,7 @@ export function SupabaseUserManagement() {
   const rolesKey = isAdmin ? "/api/admin/roles" : null
   const departmentsKey = isAdmin ? "/api/admin/departments" : null
   const membershipsKey = isAdmin ? "/api/admin/users/memberships" : null
-  const departmentRolesKey = isAdmin ? "/api/admin/department-roles" : null
+  const departmentRolesKey = isAdmin ? "/api/admin/department-professions" : null
   const departmentProfessionRolesKey =
     isAdmin && (createUserForm.department_id || editUserForm.department_id)
       ? `/api/admin/departments/${createUserForm.department_id || editUserForm.department_id}/profession-roles`

@@ -78,15 +78,7 @@ export async function getEntriesByUserId(userId: string) {
 export async function getProfessionRoleForUserInDepartment(userId: string, departmentId: string) {
   const { data, error } = await supabase
     .from("user_department_professions")
-    .select(
-      `
-      role_id,
-      role:roles(
-        id,
-        name
-      )
-    `
-    )
+    .select("department_role_id")
     .eq("user_id", userId)
     .eq("department_id", departmentId)
     .eq("is_active", true)
@@ -95,15 +87,22 @@ export async function getProfessionRoleForUserInDepartment(userId: string, depar
   if (error) handleSupabaseError(error)
 
   const row = data as {
-    role_id?: unknown
-    role?: {
-      name?: unknown
-    }
+    department_role_id?: unknown
   } | null
-  const roleId = typeof row?.role_id === "string" ? row.role_id : null
-  const roleName = typeof row?.role?.name === "string" ? row.role.name : null
+  const roleId = typeof row?.department_role_id === "string" ? row.department_role_id : null
 
   if (!roleId) return null
+
+  const { data: profession, error: professionError } = await (supabase as any)
+    .from("department_professions")
+    .select("id, label")
+    .eq("id", roleId)
+    .maybeSingle()
+
+  if (professionError) handleSupabaseError(professionError)
+
+  const typedProfession = profession as { label?: unknown } | null
+  const roleName = typeof typedProfession?.label === "string" ? typedProfession.label : null
   return { roleId, roleName }
 }
 

@@ -49,9 +49,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ dep
 
     const { data: assignments, error: assignmentError } = await adminSupabase
       .from("user_department_professions")
-      .select(
-        "id, user_id, department_id, role_id, is_active, created_at, updated_at, role:roles(id, name, description, department_id, level)"
-      )
+      .select("id, user_id, department_id, department_role_id, role, is_active, created_at, updated_at")
       .eq("department_id", departmentId)
       .order("updated_at", { ascending: false })
 
@@ -62,7 +60,18 @@ export async function GET(_request: Request, { params }: { params: Promise<{ dep
       )
     }
 
-    const userIds = Array.from(new Set((assignments || []).map((a) => a.user_id)))
+    const assignmentRows = (assignments || []) as Array<{
+      id: string
+      user_id: string
+      department_id: string
+      department_role_id: string | null
+      role: string | null
+      is_active: boolean
+      created_at: string
+      updated_at: string
+    }>
+
+    const userIds = Array.from(new Set(assignmentRows.map((a) => a.user_id)))
 
     const { data: profiles, error: profilesError } = await adminSupabase
       .from("user_profiles")
@@ -85,11 +94,55 @@ export async function GET(_request: Request, { params }: { params: Promise<{ dep
 
     const authMap = new Map((listData.users || []).map((u) => [u.id, u]))
 
-    const enriched = (assignments || []).map((a) => {
+    const professionIds = Array.from(
+      new Set(assignmentRows.map((row) => row.department_role_id).filter((id): id is string => typeof id === "string"))
+    )
+    const professionKeys = Array.from(
+      new Set(assignmentRows.map((row) => row.role).filter((key): key is string => typeof key === "string" && !!key))
+    )
+
+    const professionFilters = [
+      professionIds.length > 0 ? `id.in.(${professionIds.join(",")})` : null,
+      professionKeys.length > 0 ? `key.in.(${professionKeys.join(",")})` : null,
+    ].filter(Boolean)
+
+    const { data: professionDefs, error: professionDefsError } =
+      professionFilters.length > 0
+        ? await adminSupabase
+            .from("department_professions")
+            .select("id, key, label, description, department_id")
+            .or(professionFilters.join(","))
+        : { data: [], error: null }
+
+    if (professionDefsError) {
+      return NextResponse.json(
+        { error: "Failed to load profession definitions", message: professionDefsError.message },
+        { status: 500 }
+      )
+    }
+
+    const professionById = new Map((professionDefs || []).map((row) => [row.id, row]))
+    const professionByKey = new Map((professionDefs || []).map((row) => [row.key, row]))
+
+    const enriched = assignmentRows.map((a) => {
       const profile = profileMap.get(a.user_id)
       const auth = authMap.get(a.user_id)
+      const profession =
+        (a.department_role_id ? professionById.get(a.department_role_id) : null) ||
+        (a.role ? professionByKey.get(a.role) : null) ||
+        null
       return {
         ...a,
+        role_id: a.department_role_id,
+        role: profession
+          ? {
+              id: profession.id,
+              key: profession.key,
+              label: profession.label,
+              description: profession.description,
+              department_id: profession.department_id,
+            }
+          : null,
         user: {
           user_id: a.user_id,
           name: profile?.name || null,
@@ -130,8 +183,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ dep
     }
 
     const { data: role, error: roleError } = await adminSupabase
-      .from("roles")
-      .select("id, department_id")
+      .from("department_professions")
+      .select("id, key, department_id")
       .eq("id", role_id)
       .maybeSingle()
 
@@ -145,35 +198,10 @@ export async function POST(request: Request, { params }: { params: Promise<{ dep
 
     const nowIso = new Date().toISOString()
 
-    type MembershipUpdate = Database["public"]["Tables"]["user_department_roles"]["Update"]
-    type MembershipInsert = Database["public"]["Tables"]["user_department_roles"]["Insert"]
     type ProfessionUpdate = Database["public"]["Tables"]["user_department_professions"]["Update"]
     type ProfessionInsert = Database["public"]["Tables"]["user_department_professions"]["Insert"]
 
     if (is_active) {
-      const deactivateMembershipsUpdate: MembershipUpdate = {
-        is_active: false,
-        updated_by: adminUserId,
-        updated_at: nowIso,
-      }
-
-      const { error: deactivateOtherMembershipsError } = await adminSupabase
-        .from("user_department_roles")
-        .update(deactivateMembershipsUpdate)
-        .eq("user_id", user_id)
-        .neq("department_id", departmentId)
-        .eq("is_active", true)
-
-      if (deactivateOtherMembershipsError) {
-        return NextResponse.json(
-          {
-            error: "Failed to deactivate other memberships",
-            message: deactivateOtherMembershipsError.message,
-          },
-          { status: 500 }
-        )
-      }
-
       const deactivateProfessionsUpdate: ProfessionUpdate = {
         is_active: false,
         updated_by: adminUserId,
@@ -198,61 +226,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ dep
       }
     }
 
-    const { data: existingMembership, error: membershipError } = await adminSupabase
-      .from("user_department_roles")
-      .select("id, is_active")
-      .eq("department_id", departmentId)
-      .eq("user_id", user_id)
-      .maybeSingle()
-
-    if (membershipError) {
-      return NextResponse.json(
-        { error: "Failed to validate membership", message: membershipError.message },
-        { status: 500 }
-      )
-    }
-
-    if (!existingMembership) {
-      const membershipInsert: MembershipInsert = {
-        user_id,
-        department_id: departmentId,
-        role: "viewer",
-        is_active: true,
-        created_by: adminUserId,
-        updated_by: adminUserId,
-        updated_at: nowIso,
-      }
-
-      const { error: insertMembershipError } = await adminSupabase
-        .from("user_department_roles")
-        .insert(membershipInsert)
-
-      if (insertMembershipError) {
-        return NextResponse.json(
-          { error: "Failed to ensure membership", message: insertMembershipError.message },
-          { status: 500 }
-        )
-      }
-    } else if (is_active && !existingMembership.is_active) {
-      const reactivateMembershipUpdate: MembershipUpdate = {
-        is_active: true,
-        updated_by: adminUserId,
-        updated_at: nowIso,
-      }
-
-      const { error: reactivateError } = await adminSupabase
-        .from("user_department_roles")
-        .update(reactivateMembershipUpdate)
-        .eq("id", existingMembership.id)
-
-      if (reactivateError) {
-        return NextResponse.json(
-          { error: "Failed to reactivate membership", message: reactivateError.message },
-          { status: 500 }
-        )
-      }
-    }
-
     const { data: existing, error: existingError } = await adminSupabase
       .from("user_department_professions")
       .select("id")
@@ -268,7 +241,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ dep
       const professionInsert: ProfessionInsert = {
         user_id,
         department_id: departmentId,
-        role_id,
+        department_role_id: role_id,
+        role: role.key,
         is_active,
         created_by: adminUserId,
         updated_by: adminUserId,
@@ -278,7 +252,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ dep
       const { data: inserted, error: insertError } = await adminSupabase
         .from("user_department_professions")
         .insert(professionInsert)
-        .select("id, user_id, department_id, role_id, is_active, created_at, updated_at")
+        .select("id, user_id, department_id, role_id:department_role_id, is_active, created_at, updated_at")
         .single()
 
       if (insertError) {
@@ -289,7 +263,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ dep
     }
 
     const professionUpdate: ProfessionUpdate = {
-      role_id,
+      department_role_id: role_id,
+      role: role.key,
       is_active,
       updated_by: adminUserId,
       updated_at: new Date().toISOString(),
@@ -299,7 +274,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ dep
       .from("user_department_professions")
       .update(professionUpdate)
       .eq("id", existing.id)
-      .select("id, user_id, department_id, role_id, is_active, created_at, updated_at")
+      .select("id, user_id, department_id, role_id:department_role_id, is_active, created_at, updated_at")
       .single()
 
     if (updateError) {

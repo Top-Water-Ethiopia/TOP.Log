@@ -57,7 +57,7 @@ async function fetchUserDepartment(
   userId: string
 ): Promise<{ id: string; name: string; role: string } | null> {
   const { data, error } = await supabase
-    .from("user_department_roles")
+    .from("user_department_professions")
     .select(
       `
       department_id,

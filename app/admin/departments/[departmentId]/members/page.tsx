@@ -86,7 +86,7 @@ export function DepartmentMembersPanel({ departmentId }: { departmentId: string 
 
   const membershipsKey = canAccessAdmin && departmentId ? `/api/admin/departments/${departmentId}/memberships` : null
 
-  const deptRolesKey = canAccessAdmin ? "/api/admin/department-roles" : null
+  const deptRolesKey = canAccessAdmin ? "/api/admin/department-professions" : null
   const { data: deptRolesResponse, isLoading: deptRolesLoading } = useSWR<{ data: DepartmentRoleRow[] }>(deptRolesKey)
 
   const {

@@ -52,7 +52,7 @@ export async function checkAdminPermissions(roleId: string | null): Promise<bool
 export async function checkDepartmentMembership(userId: string): Promise<boolean> {
   const supabase = await createClient()
   const { data: deptRole } = await supabase
-    .from("user_department_roles")
+    .from("user_department_professions")
     .select("department_id")
     .eq("user_id", userId)
     .eq("is_active", true)

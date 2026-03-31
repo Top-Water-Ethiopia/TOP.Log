@@ -54,7 +54,7 @@ export async function DELETE(
     const { departmentId, userId } = await params
 
     const { data: existing, error: existingError } = await adminSupabase
-      .from("user_department_roles")
+      .from("user_department_professions")
       .select("id")
       .eq("department_id", departmentId)
       .eq("user_id", userId)
@@ -69,7 +69,7 @@ export async function DELETE(
     }
 
     if (hardDelete) {
-      const { error } = await adminSupabase.from("user_department_roles").delete().eq("id", existing.id)
+      const { error } = await adminSupabase.from("user_department_professions").delete().eq("id", existing.id)
 
       if (error) {
         return NextResponse.json(
@@ -95,7 +95,7 @@ export async function DELETE(
     }
 
     const { data, error } = await adminSupabase
-      .from("user_department_roles")
+      .from("user_department_professions")
       .update({
         is_active: false,
         updated_by: adminUserId,

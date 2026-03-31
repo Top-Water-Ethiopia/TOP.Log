@@ -57,9 +57,9 @@ async function getUserDepartmentRole(
   userId: string,
   departmentId: string
 ): Promise<string | null> {
-  // First try to get the role from user_department_roles (for role-based questions)
+  // First try to get the role from user_department_professions (for role-based questions)
   const { data: membership, error: membershipError } = await supabase
-    .from("user_department_roles")
+    .from("user_department_professions")
     .select("role")
     .eq("user_id", userId)
     .eq("department_id", departmentId)
@@ -268,7 +268,7 @@ export async function GET(request: Request) {
         // Admin department-scoped view should include all role questions for roles in the department.
         if (isAdmin && !forReport) {
           const { data: deptRoles, error: deptRolesError } = await supabase
-            .from("user_department_roles")
+            .from("user_department_professions")
             .select("role")
             .eq("department_id", departmentId)
             .eq("is_active", true)

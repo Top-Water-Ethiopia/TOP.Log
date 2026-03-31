@@ -49,7 +49,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ dep
     const { departmentId } = await params
 
     const { data: roles, error } = await adminSupabase
-      .from("department_roles")
+      .from("department_professions")
       .select("*")
       .eq("department_id", departmentId)
       .order("sort_order", { ascending: true })
@@ -92,7 +92,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ dep
     const normalizedKey = key.toLowerCase()
 
     const { data: existing, error: existingError } = await adminSupabase
-      .from("department_roles")
+      .from("department_professions")
       .select("key")
       .eq("key", normalizedKey)
       .eq("department_id", departmentId)
@@ -123,7 +123,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ dep
     }
 
     const { data: role, error } = await adminSupabase
-      .from("department_roles")
+      .from("department_professions")
       .insert(insertPayload)
       .select("*")
       .single()
@@ -170,7 +170,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ depa
     const normalizedKey = key.toLowerCase()
 
     const { data: existingRole, error: existingRoleError } = await adminSupabase
-      .from("department_roles")
+      .from("department_professions")
       .select("department_id, key")
       .eq("key", id)
       .eq("department_id", departmentId)
@@ -185,7 +185,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ depa
     }
 
     const { data: existing, error: existingError } = await adminSupabase
-      .from("department_roles")
+      .from("department_professions")
       .select("key")
       .eq("key", normalizedKey)
       .eq("department_id", departmentId)
@@ -216,7 +216,7 @@ export async function PUT(request: Request, { params }: { params: Promise<{ depa
     }
 
     const { data: role, error } = await adminSupabase
-      .from("department_roles")
+      .from("department_professions")
       .update(updatePayload)
       .eq("key", id)
       .eq("department_id", departmentId)
@@ -252,7 +252,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ d
     }
 
     const { data: role, error: roleError } = await adminSupabase
-      .from("department_roles")
+      .from("department_professions")
       .select("department_id, key")
       .eq("key", id)
       .eq("department_id", departmentId)
@@ -267,7 +267,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ d
     }
 
     const { data: assignments } = await adminSupabase
-      .from("user_department_roles")
+      .from("user_department_professions")
       .select("id")
       .eq("department_id", departmentId)
       .eq("role", id)
@@ -295,7 +295,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ d
     }
 
     const { error } = await adminSupabase
-      .from("department_roles")
+      .from("department_professions")
       .delete()
       .eq("key", id)
       .eq("department_id", departmentId)

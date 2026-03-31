@@ -378,58 +378,16 @@ export interface Database {
           },
         ]
       }
-      user_department_roles: {
-        Row: {
-          id: string
-          user_id: string
-          department_id: string
-          role: string
-          is_active: boolean
-          created_at: string
-          created_by: string | null
-          updated_at: string
-          updated_by: string | null
-        }
-        Insert: {
-          id?: string
-          user_id: string
-          department_id: string
-          role: string
-          is_active?: boolean
-          created_at?: string
-          created_by?: string | null
-          updated_at?: string
-          updated_by?: string | null
-        }
-        Update: {
-          id?: string
-          user_id?: string
-          department_id?: string
-          role?: string
-          is_active?: boolean
-          created_at?: string
-          created_by?: string | null
-          updated_at?: string
-          updated_by?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "user_department_roles_department_id_fkey"
-            columns: ["department_id"]
-            isOneToOne: false
-            referencedRelation: "departments"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
-
       user_department_professions: {
         Row: {
           id: string
           user_id: string
           department_id: string
-          role_id: string
+          department_role_id: string | null
+          role: string
           is_active: boolean
+          is_paused: boolean | null
+          reporting_started_at: string | null
           created_at: string
           created_by: string | null
           updated_at: string
@@ -439,8 +397,11 @@ export interface Database {
           id?: string
           user_id: string
           department_id: string
-          role_id: string
+          department_role_id?: string | null
+          role: string
           is_active?: boolean
+          is_paused?: boolean | null
+          reporting_started_at?: string | null
           created_at?: string
           created_by?: string | null
           updated_at?: string
@@ -450,8 +411,11 @@ export interface Database {
           id?: string
           user_id?: string
           department_id?: string
-          role_id?: string
+          department_role_id?: string | null
+          role?: string
           is_active?: boolean
+          is_paused?: boolean | null
+          reporting_started_at?: string | null
           created_at?: string
           created_by?: string | null
           updated_at?: string
@@ -466,10 +430,10 @@ export interface Database {
             referencedColumns: ["id"]
           },
           {
-            foreignKeyName: "user_department_professions_role_id_fkey"
-            columns: ["role_id"]
+            foreignKeyName: "user_department_professions_department_profession_id_fkey"
+            columns: ["department_role_id"]
             isOneToOne: false
-            referencedRelation: "roles"
+            referencedRelation: "department_professions"
             referencedColumns: ["id"]
           },
         ]
