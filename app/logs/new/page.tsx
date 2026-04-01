@@ -9,6 +9,12 @@ interface SearchParams {
   template?: string
 }
 
+interface UserDepartment {
+  id: string
+  name: string
+  role: string | null
+}
+
 function buildQueryString(params: SearchParams): string {
   const query = new URLSearchParams()
   if (params.date) query.set("date", params.date)
@@ -55,8 +61,8 @@ function validateLogDate(dateStr: string | undefined): { valid: boolean; date: s
 async function fetchUserDepartment(
   supabase: Awaited<ReturnType<typeof createClient>>,
   userId: string
-): Promise<{ id: string; name: string; role: string } | null> {
-  const { data, error } = await supabase
+): Promise<UserDepartment | null> {
+  const { data: membership, error: membershipError } = await supabase
     .from("user_department_professions")
     .select(
       `
@@ -70,17 +76,82 @@ async function fetchUserDepartment(
     )
     .eq("user_id", userId)
     .eq("is_active", true)
-    .single()
+    .maybeSingle()
 
-  if (error || !data) {
-    console.error("Error fetching user department:", error)
+  if (membershipError) {
+    console.error("Error fetching user department profession:", membershipError)
+  }
+
+  if (membership) {
+    return {
+      id: membership.department_id,
+      name: membership.department?.name ?? "Unknown",
+      role: membership.role || null,
+    }
+  }
+
+  const { data: accessAssignments, error: accessError } = await supabase
+    .from("user_department_access_levels")
+    .select(
+      `
+      department_id,
+      department:departments (
+        id,
+        name
+      )
+    `
+    )
+    .eq("user_id", userId)
+    .order("department_id", { ascending: true })
+    .limit(1)
+
+  if (accessError) {
+    console.error("Error fetching user department access level:", accessError)
+  }
+
+  const accessAssignment = accessAssignments?.[0]
+  if (accessAssignment) {
+    return {
+      id: accessAssignment.department_id,
+      name: accessAssignment.department?.name ?? "Unknown",
+      role: null,
+    }
+  }
+
+  const { data: profile, error: profileError } = await supabase
+    .from("user_profiles")
+    .select("department_id")
+    .eq("user_id", userId)
+    .maybeSingle()
+
+  if (profileError) {
+    console.error("Error fetching user profile department:", profileError)
+    return null
+  }
+
+  if (!profile?.department_id) {
+    return null
+  }
+
+  const { data: department, error: departmentError } = await supabase
+    .from("departments")
+    .select("id, name")
+    .eq("id", profile.department_id)
+    .maybeSingle()
+
+  if (departmentError) {
+    console.error("Error fetching department details:", departmentError)
+    return null
+  }
+
+  if (!department) {
     return null
   }
 
   return {
-    id: data.department_id,
-    name: data.department?.name ?? "Unknown",
-    role: data.role || "member",
+    id: department.id,
+    name: department.name,
+    role: null,
   }
 }
 
@@ -92,7 +163,7 @@ async function fetchUserDepartment(
 async function fetchRoleQuestions(
   supabase: Awaited<ReturnType<typeof createClient>>,
   departmentId: string,
-  departmentRole: string
+  departmentRole?: string | null
 ) {
   const getLegacyQuestionKeyFromMetadata = (metadata: unknown): string | null => {
     if (typeof metadata !== "object" || metadata === null) return null
@@ -110,13 +181,15 @@ async function fetchRoleQuestions(
       .is("department_role", null)
       .eq("is_active", true)
       .order("display_order", { ascending: true }),
-    supabase
-      .from("role_questions")
-      .select("*")
-      .eq("department_id", departmentId)
-      .eq("department_role", departmentRole)
-      .eq("is_active", true)
-      .order("display_order", { ascending: true }),
+    departmentRole
+      ? supabase
+          .from("role_questions")
+          .select("*")
+          .eq("department_id", departmentId)
+          .eq("department_role", departmentRole)
+          .eq("is_active", true)
+          .order("display_order", { ascending: true })
+      : Promise.resolve({ data: [], error: null }),
   ])
 
   if (departmentScopedResult.error) {

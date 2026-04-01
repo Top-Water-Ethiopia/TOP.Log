@@ -52,6 +52,17 @@ async function fetchPrimaryDepartmentId(
     return forcedDepartmentId
   }
 
+  const { data: accessAssignments, error: accessError } = await supabase
+    .from("user_department_access_levels")
+    .select("department_id")
+    .eq("user_id", userId)
+    .order("department_id", { ascending: true })
+    .limit(1)
+
+  if (!accessError && accessAssignments?.length) {
+    return accessAssignments[0].department_id || null
+  }
+
   const { data, error } = await supabase
     .from("user_department_professions")
     .select("department_id")

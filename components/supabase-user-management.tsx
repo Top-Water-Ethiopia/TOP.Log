@@ -189,13 +189,36 @@ type UserAssignmentsResponse = {
   }
 }
 
+type DepartmentAccessLevel = {
+  id: string
+  name: string
+  display_name: string
+  description?: string
+  level: number
+  is_active: boolean
+}
+
+type UserDepartmentAccessLevelAssignment = {
+  id: string
+  user_id: string
+  department_id: string
+  access_level_id: string
+  access_level: {
+    id: string
+    name: string
+    display_name: string
+    level: number
+  } | null
+}
+
 export function SupabaseUserManagement() {
-  const { user: currentUser, profile: currentProfile } = useSupabaseAuth()
+  const { user: currentUser, profile: currentProfile, session } = useSupabaseAuth()
   const [users, setUsers] = useState<UserWithProfile[]>([])
   const [departments, setDepartments] = useState<Department[]>([])
   const [userDepartmentsByUserId, setUserDepartmentsByUserId] = useState<Record<string, string[]>>({})
   const [roles, setRoles] = useState<Role[]>([])
   const [departmentRoles, setDepartmentRoles] = useState<DepartmentRoleRow[]>([])
+  const [departmentAccessLevels, setDepartmentAccessLevels] = useState<DepartmentAccessLevel[]>([])
   const [searchTerm, setSearchTerm] = useState("")
   const [roleFilter, setRoleFilter] = useState<string>("all")
   const [statusFilter, setStatusFilter] = useState<string>("all")
@@ -216,7 +239,8 @@ export function SupabaseUserManagement() {
   const { mutate: globalMutate } = useSWRConfig()
 
   // Check if current user is admin
-  const isAdmin = currentProfile?.role_id === ADMIN_ROLE_ID || currentProfile?.role_id === SYSTEM_ADMIN_ROLE_ID
+  const isAdmin =
+    !!session && (currentProfile?.role_id === ADMIN_ROLE_ID || currentProfile?.role_id === SYSTEM_ADMIN_ROLE_ID)
 
   // Create user form state
   const [createUserForm, setCreateUserForm] = useState({
@@ -227,6 +251,7 @@ export function SupabaseUserManagement() {
     role_id: USER_ROLE_ID,
     department_id: null as string | null,
     department_role: DEPARTMENT_ROLE_NONE,
+    pendingAccessLevelId: null as string | null,
   })
 
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
@@ -243,7 +268,7 @@ export function SupabaseUserManagement() {
     department_role: DEPARTMENT_ROLE_NONE,
     is_active: true,
     email_verified: false,
-    pendingAccessLevelId: null as string | null,
+    pendingAccessLevelId: undefined as string | null | undefined,
   })
 
   const lastUsersErrorRef = useRef<string | null>(null)
@@ -259,12 +284,15 @@ export function SupabaseUserManagement() {
   const departmentsKey = isAdmin ? "/api/admin/departments" : null
   const membershipsKey = isAdmin ? "/api/admin/users/memberships" : null
   const departmentRolesKey = isAdmin ? "/api/admin/department-professions" : null
+  const departmentAccessLevelsKey = isAdmin ? "/api/admin/department-access-levels" : null
   const departmentProfessionRolesKey =
     isAdmin && (createUserForm.department_id || editUserForm.department_id)
       ? `/api/admin/departments/${createUserForm.department_id || editUserForm.department_id}/profession-roles`
       : null
   const userAssignmentsKey =
     isAdmin && showEditUser && editingUser?.id ? `/api/admin/users/${editingUser.id}/assignments` : null
+  const editUserDepartmentAccessLevelsKey =
+    isAdmin && showEditUser && editingUser?.id ? `/api/admin/users/${editingUser.id}/department-access-levels` : null
 
   const {
     data: usersResponse,
@@ -302,6 +330,8 @@ export function SupabaseUserManagement() {
     mutate: mutateDepartmentRoles,
   } = useSWR<{ data: DepartmentRoleRow[] }>(departmentRolesKey)
 
+  const { data: departmentAccessLevelsResponse } = useSWR<{ data: DepartmentAccessLevel[] }>(departmentAccessLevelsKey)
+
   const {
     data: departmentProfessionRolesResponse,
     error: departmentProfessionRolesError,
@@ -313,6 +343,10 @@ export function SupabaseUserManagement() {
     error: userAssignmentsError,
     isLoading: isUserAssignmentsLoading,
   } = useSWR<UserAssignmentsResponse>(userAssignmentsKey)
+
+  const { data: editUserDepartmentAccessLevelsResponse } = useSWR<{ data: UserDepartmentAccessLevelAssignment[] }>(
+    editUserDepartmentAccessLevelsKey
+  )
 
   const isTableLoading =
     isUsersLoading || isRolesLoading || isDepartmentsLoading || isMembershipsLoading || isDepartmentRolesLoading
@@ -447,6 +481,10 @@ export function SupabaseUserManagement() {
   }, [departmentRolesResponse])
 
   useEffect(() => {
+    setDepartmentAccessLevels(departmentAccessLevelsResponse?.data || [])
+  }, [departmentAccessLevelsResponse])
+
+  useEffect(() => {
     setUserDepartmentsByUserId(membershipsByUserId)
   }, [membershipsByUserId])
 
@@ -564,6 +602,41 @@ export function SupabaseUserManagement() {
     return (departmentRoles || []).filter((r) => r.is_active)
   }, [departmentRoles, departmentProfessionRolesResponse, createUserForm.department_id, editUserForm.department_id])
 
+  const normalizeAccessLevelName = useCallback((value?: string | null) => {
+    return (value || "").trim().toLowerCase().replace(/_/g, "-").replace(/\s+/g, "-")
+  }, [])
+
+  const isDepartmentLeadAccessLevel = useCallback(
+    (level?: Pick<DepartmentAccessLevel, "name" | "display_name"> | null) => {
+      if (!level) return false
+      return (
+        normalizeAccessLevelName(level.name) === "department-lead" ||
+        normalizeAccessLevelName(level.display_name) === "department-lead"
+      )
+    },
+    [normalizeAccessLevelName]
+  )
+
+  const createSelectedAccessLevel = useMemo(() => {
+    if (!createUserForm.pendingAccessLevelId) return null
+    return departmentAccessLevels.find((level) => level.id === createUserForm.pendingAccessLevelId) || null
+  }, [createUserForm.pendingAccessLevelId, departmentAccessLevels])
+
+  const editCurrentAccessLevelAssignment = useMemo(() => {
+    if (!editUserForm.department_id) return null
+    const rows = editUserDepartmentAccessLevelsResponse?.data || []
+    return rows.find((assignment) => assignment.department_id === editUserForm.department_id) || null
+  }, [editUserDepartmentAccessLevelsResponse, editUserForm.department_id])
+
+  const editEffectiveAccessLevel = useMemo(() => {
+    const selectedId =
+      editUserForm.pendingAccessLevelId !== undefined
+        ? editUserForm.pendingAccessLevelId
+        : editCurrentAccessLevelAssignment?.access_level_id ?? null
+    if (!selectedId) return null
+    return departmentAccessLevels.find((level) => level.id === selectedId) || null
+  }, [departmentAccessLevels, editCurrentAccessLevelAssignment?.access_level_id, editUserForm.pendingAccessLevelId])
+
   const validateCreateUserForm = () => {
     const errors: Record<string, string> = {}
 
@@ -595,8 +668,16 @@ export function SupabaseUserManagement() {
       errors.role_id = "Role is required"
     }
 
-    if (createUserForm.department_id && createUserForm.department_role === DEPARTMENT_ROLE_NONE) {
-      errors.department_role = "Department role is required"
+    if (
+      createUserForm.department_id &&
+      createUserForm.department_role === DEPARTMENT_ROLE_NONE &&
+      !isDepartmentLeadAccessLevel(createSelectedAccessLevel)
+    ) {
+      errors.department_role = "Professional role is required"
+    }
+
+    if (createUserForm.department_id && !createUserForm.pendingAccessLevelId) {
+      errors.pendingAccessLevelId = "Department access level is required"
     }
 
     setFormErrors(errors)
@@ -612,6 +693,7 @@ export function SupabaseUserManagement() {
     const roleName = roles.find((r) => r.id === createUserForm.role_id)?.name || "user"
     const nextDepartmentId = createUserForm.department_id
     const nextDepartmentRole = createUserForm.department_role
+    const nextAccessLevelId = createUserForm.pendingAccessLevelId
 
     let createdUserId: string | null = null
 
@@ -696,19 +778,38 @@ export function SupabaseUserManagement() {
 
       if (nextDepartmentId) {
         try {
-          if (!nextDepartmentRole || nextDepartmentRole === DEPARTMENT_ROLE_NONE) {
-            throw new Error("Department role is required")
+          const canSkipDepartmentRole = isDepartmentLeadAccessLevel(createSelectedAccessLevel)
+
+          if ((!nextDepartmentRole || nextDepartmentRole === DEPARTMENT_ROLE_NONE) && !canSkipDepartmentRole) {
+            throw new Error("Professional role is required")
           }
 
-          await apiFetch(`/api/admin/departments/${nextDepartmentId}/memberships`, {
+          if (!canSkipDepartmentRole && nextDepartmentRole && nextDepartmentRole !== DEPARTMENT_ROLE_NONE) {
+            await apiFetch(`/api/admin/departments/${nextDepartmentId}/memberships`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                user_id: createdUserId,
+                role: nextDepartmentRole,
+                is_active: true,
+              }),
+            })
+          }
+
+          if (!nextAccessLevelId) {
+            throw new Error("Department access level is required")
+          }
+
+          await apiFetch(`/api/admin/users/${createdUserId}/department-access-levels`, {
             method: "POST",
             headers: {
               "Content-Type": "application/json",
             },
             body: JSON.stringify({
-              user_id: createdUserId,
-              role: nextDepartmentRole,
-              is_active: true,
+              department_id: nextDepartmentId,
+              access_level_id: nextAccessLevelId,
             }),
           })
         } catch (assignmentError: unknown) {
@@ -726,6 +827,7 @@ export function SupabaseUserManagement() {
         role_id: USER_ROLE_ID,
         department_id: null,
         department_role: DEPARTMENT_ROLE_NONE,
+        pendingAccessLevelId: null,
       })
       setFormErrors({})
       setShowPassword(false)
@@ -771,8 +873,12 @@ export function SupabaseUserManagement() {
       errors.role_id = "Role is required"
     }
 
-    if (editUserForm.department_id && editUserForm.department_role === DEPARTMENT_ROLE_NONE) {
-      errors.department_role = "Department role is required"
+    if (
+      editUserForm.department_id &&
+      editUserForm.department_role === DEPARTMENT_ROLE_NONE &&
+      !isDepartmentLeadAccessLevel(editEffectiveAccessLevel)
+    ) {
+      errors.department_role = "Professional role is required"
     }
 
     setEditFormErrors(errors)
@@ -853,21 +959,31 @@ export function SupabaseUserManagement() {
           })
         }
       } else {
-        if (!nextDepartmentRole || nextDepartmentRole === DEPARTMENT_ROLE_NONE) {
-          throw new Error("Department role is required")
+        const canSkipDepartmentRole = isDepartmentLeadAccessLevel(editEffectiveAccessLevel)
+
+        if ((!nextDepartmentRole || nextDepartmentRole === DEPARTMENT_ROLE_NONE) && !canSkipDepartmentRole) {
+          throw new Error("Professional role is required")
         }
 
-        await apiFetch(`/api/admin/departments/${nextDepartmentId}/memberships`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            user_id: editingUser.id,
-            role: nextDepartmentRole,
-            is_active: true,
-          }),
-        })
+        if (canSkipDepartmentRole) {
+          if (prevActiveMembershipDeptId) {
+            await apiFetch(`/api/admin/departments/${prevActiveMembershipDeptId}/memberships/${editingUser.id}`, {
+              method: "DELETE",
+            })
+          }
+        } else {
+          await apiFetch(`/api/admin/departments/${nextDepartmentId}/memberships`, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              user_id: editingUser.id,
+              role: nextDepartmentRole,
+              is_active: true,
+            }),
+          })
+        }
       }
 
       toast.success("User updated successfully")
@@ -990,7 +1106,7 @@ export function SupabaseUserManagement() {
       setShowEditUser(false)
       setEditingUser(null)
       setEditFormErrors({})
-      setEditUserForm((prev) => ({ ...prev, pendingAccessLevelId: null }))
+      setEditUserForm((prev) => ({ ...prev, pendingAccessLevelId: undefined }))
       mutateUsers()
       mutateMemberships()
       if (userAssignmentsKey) {
@@ -1362,7 +1478,7 @@ export function SupabaseUserManagement() {
                       department_role: DEPARTMENT_ROLE_NONE,
                       is_active: user.profile?.is_active ?? true,
                       email_verified: !!user.email_confirmed_at,
-                      pendingAccessLevelId: null,
+                      pendingAccessLevelId: undefined,
                     })
                     setShowEditUser(true)
                   }}
@@ -1392,6 +1508,7 @@ export function SupabaseUserManagement() {
               role_id: USER_ROLE_ID,
               department_id: null,
               department_role: DEPARTMENT_ROLE_NONE,
+              pendingAccessLevelId: null,
             })
           }
         }}
@@ -1518,6 +1635,7 @@ export function SupabaseUserManagement() {
                     ...prev,
                     department_id: nextDepartmentId,
                     department_role: DEPARTMENT_ROLE_NONE,
+                    pendingAccessLevelId: null,
                   }))
                 }}
               >
@@ -1536,7 +1654,7 @@ export function SupabaseUserManagement() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="create-department-role">Department role</Label>
+              <Label htmlFor="create-department-role">Professional Role</Label>
               <Select
                 value={createUserForm.department_role || DEPARTMENT_ROLE_NONE}
                 onValueChange={(value) => setCreateUserForm((prev) => ({ ...prev, department_role: value }))}
@@ -1544,7 +1662,7 @@ export function SupabaseUserManagement() {
               >
                 <SelectTrigger id="create-department-role">
                   <SelectValue
-                    placeholder={isDepartmentProfessionRolesLoading ? "Loading roles..." : "Select a department role"}
+                    placeholder={isDepartmentProfessionRolesLoading ? "Loading roles..." : "Select a professional role"}
                   />
                 </SelectTrigger>
                 <SelectContent>
@@ -1558,6 +1676,19 @@ export function SupabaseUserManagement() {
               </Select>
               {formErrors.department_role && <p className="text-destructive text-sm">{formErrors.department_role}</p>}
             </div>
+
+            {createUserForm.department_id && (
+              <div className="space-y-2">
+                <DepartmentAccessLevelManager
+                  departmentId={createUserForm.department_id}
+                  onPendingChange={(value) => setCreateUserForm((prev) => ({ ...prev, pendingAccessLevelId: value }))}
+                  pendingValue={createUserForm.pendingAccessLevelId}
+                />
+                {formErrors.pendingAccessLevelId && (
+                  <p className="text-destructive text-sm">{formErrors.pendingAccessLevelId}</p>
+                )}
+              </div>
+            )}
           </div>
         </form>
       </RightSidePanel>
@@ -1575,7 +1706,7 @@ export function SupabaseUserManagement() {
             setNewPassword("")
             setConfirmNewPassword("")
             setDeleteConfirmation("")
-            setEditUserForm((prev) => ({ ...prev, pendingAccessLevelId: null }))
+            setEditUserForm((prev) => ({ ...prev, pendingAccessLevelId: undefined }))
             prefilledAssignmentsUserIdRef.current = null
           }
         }}
@@ -1854,6 +1985,7 @@ export function SupabaseUserManagement() {
                           ...prev,
                           department_id: nextDepartmentId,
                           department_role: DEPARTMENT_ROLE_NONE,
+                          pendingAccessLevelId: undefined,
                         }))
                       }}
                       disabled={isUserAssignmentsLoading}
@@ -1882,8 +2014,8 @@ export function SupabaseUserManagement() {
                   <div className="space-y-2">
                     <Label htmlFor="edit-department-role" className="flex items-center gap-2 text-sm font-medium">
                       <Briefcase className="h-4 w-4 text-slate-500" />
-                      Department Role
-                      <span className="text-xs font-normal text-amber-600">(department-specific)</span>
+                      Professional Role
+                      <span className="text-xs font-normal text-amber-600">(department-specific profession)</span>
                     </Label>
                     <Select
                       value={editUserForm.department_role || DEPARTMENT_ROLE_NONE}
@@ -1898,7 +2030,7 @@ export function SupabaseUserManagement() {
                           placeholder={
                             isUserAssignmentsLoading || isDepartmentProfessionRolesLoading
                               ? "Loading..."
-                              : "Select department role"
+                              : "Select a professional role"
                           }
                         />
                       </SelectTrigger>

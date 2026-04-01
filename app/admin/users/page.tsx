@@ -19,7 +19,7 @@ import {
 } from "@/components/ui/breadcrumb"
 
 export default function AdminUsersPage() {
-  const { user, profile, isLoading } = useSupabaseAuth()
+  const { user, profile, session, isLoading } = useSupabaseAuth()
   const router = useRouter()
   const [isClient, setIsClient] = useState(false)
 
@@ -32,7 +32,7 @@ export default function AdminUsersPage() {
 
   useEffect(() => {
     if (isLoading) return
-    if (!user) {
+    if (!user || !session) {
       router.push("/")
       return
     }
@@ -42,9 +42,9 @@ export default function AdminUsersPage() {
     if (!canAccessAdmin) {
       router.push("/")
     }
-  }, [user, canAccessAdmin, isLoading, router, rbacChecked, rbacLoading])
+  }, [user, session, canAccessAdmin, isLoading, router, rbacChecked, rbacLoading])
 
-  if (!isClient || isLoading || rbacLoading || !user || !profile) {
+  if (!isClient || isLoading || rbacLoading || !user || !profile || !session) {
     return (
       <div className="space-y-6">
         <div className="space-y-2">

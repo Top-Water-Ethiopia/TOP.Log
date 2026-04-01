@@ -10,9 +10,9 @@ interface LogsLayoutProps {
 export default async function LogsLayout({ children }: LogsLayoutProps) {
   const supabase = await createClient()
   const {
-    data: { session },
-  } = await supabase.auth.getSession()
-  const headerState = await getLogsHeaderState(supabase, session?.user?.id, session?.user?.email)
+    data: { user },
+  } = await supabase.auth.getUser()
+  const headerState = await getLogsHeaderState(supabase, user?.id, user?.email)
 
   return (
     <LogsLayoutShell

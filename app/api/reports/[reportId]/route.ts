@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server"
+import { canViewDepartmentLogs } from "@/lib/logs/visibility"
 import { NextRequest, NextResponse } from "next/server"
 
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
@@ -60,29 +61,35 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       return NextResponse.json({ error: "Failed to load report" }, { status: 500 })
     }
 
-    // Check if user has access to this report
-    // For now, allow access if user is admin or if it's their own report
-    // You may want to add more sophisticated access control based on departments
     const { data: profile } = await supabase.from("user_profiles").select("role_id").eq("user_id", user.id).single()
 
     const isAdmin = profile?.role_id === ADMIN_ROLE_ID || profile?.role_id === SYSTEM_ADMIN_ROLE_ID
     const isOwnReport = report.user_id === user.id
 
     if (!isAdmin && !isOwnReport) {
-      // Check if user is in the same department as the report author
-      const { data: currentUserDept } = await supabase
-        .from("user_profiles")
-        .select("department_id")
+      const reportDepartmentId = typeof report.department_id === "string" ? report.department_id : null
+
+      if (!reportDepartmentId) {
+        return NextResponse.json({ error: "Access denied" }, { status: 403 })
+      }
+
+      const { data: departmentAccess } = await supabase
+        .from("user_department_access_levels")
+        .select(
+          `
+          access_level:department_access_levels (
+            name
+          )
+        `
+        )
         .eq("user_id", user.id)
-        .single()
+        .eq("department_id", reportDepartmentId)
+        .maybeSingle()
 
-      const { data: reportAuthorDept } = await supabase
-        .from("user_profiles")
-        .select("department_id")
-        .eq("user_id", report.user_id)
-        .single()
+      const accessLevelName = (departmentAccess?.access_level as { name?: string } | null)?.name || null
+      const canViewDepartmentReport = canViewDepartmentLogs(accessLevelName)
 
-      if (currentUserDept?.department_id !== reportAuthorDept?.department_id) {
+      if (!canViewDepartmentReport) {
         return NextResponse.json({ error: "Access denied" }, { status: 403 })
       }
     }

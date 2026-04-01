@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Separator } from "@/components/ui/separator"
 import { apiFetch } from "@/lib/api-client"
 import { useDepartmentPermissions } from "@/hooks/use-rbac"
+import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { Building2, Shield, X, Key } from "lucide-react"
 
 interface DepartmentAccessLevel {
@@ -42,14 +43,16 @@ export function DepartmentAccessLevelManager({
   onPendingChange,
   pendingValue,
 }: {
-  userId: string
+  userId?: string | null
   departmentId: string
   onPendingChange?: (value: string | null) => void
   pendingValue?: string | null
 }) {
   const [accessLevels, setAccessLevels] = useState<DepartmentAccessLevel[]>([])
   const [userAssignments, setUserAssignments] = useState<UserDepartmentAccessLevel[]>([])
-  const [loading, setLoading] = useState(true)
+  const [loadingAccessLevels, setLoadingAccessLevels] = useState(true)
+  const [loadingAssignments, setLoadingAssignments] = useState(false)
+  const { user: authUser, session, isLoading: isAuthLoading } = useSupabaseAuth()
 
   const { permissions: deptPermissionsMap } = useDepartmentPermissions(departmentId)
 
@@ -60,6 +63,13 @@ export function DepartmentAccessLevelManager({
 
   // Fetch access levels
   useEffect(() => {
+    if (isAuthLoading) return
+
+    if (!authUser || !session) {
+      setLoadingAccessLevels(false)
+      return
+    }
+
     const fetchAccessLevels = async () => {
       try {
         const response = await apiFetch<{ data: DepartmentAccessLevel[] }>("/api/admin/department-access-levels")
@@ -68,15 +78,26 @@ export function DepartmentAccessLevelManager({
         }
       } catch (error) {
         console.error("Failed to fetch access levels:", error)
+      } finally {
+        setLoadingAccessLevels(false)
       }
     }
 
     fetchAccessLevels()
-  }, [])
+  }, [authUser, isAuthLoading, session])
 
   // Fetch user's current assignments
   useEffect(() => {
+    if (isAuthLoading) return
+
+    if (!authUser || !session) {
+      setUserAssignments([])
+      setLoadingAssignments(false)
+      return
+    }
+
     const fetchUserAssignments = async () => {
+      setLoadingAssignments(true)
       try {
         const response = await apiFetch<{ data: UserDepartmentAccessLevel[] }>(
           `/api/admin/users/${userId}/department-access-levels`
@@ -87,22 +108,28 @@ export function DepartmentAccessLevelManager({
       } catch (error) {
         console.error("Failed to fetch user assignments:", error)
       } finally {
-        setLoading(false)
+        setLoadingAssignments(false)
       }
     }
 
     if (userId && departmentId) {
       fetchUserAssignments()
+      return
     }
-  }, [userId, departmentId])
+
+    setUserAssignments([])
+    setLoadingAssignments(false)
+  }, [authUser, departmentId, isAuthLoading, session, userId])
 
   const currentAssignment = userAssignments[0]
   const selectedAccessLevelId = currentAssignment?.access_level_id || ""
+  const loading = loadingAccessLevels || loadingAssignments
 
   // Find the currently selected access level details
-  const selectedAccessLevel = accessLevels.find((l) => l.id === selectedAccessLevelId)
+  const activeSelectionId = pendingValue ?? selectedAccessLevelId
+  const selectedAccessLevel = accessLevels.find((l) => l.id === activeSelectionId)
 
-  if (loading) {
+  if (isAuthLoading || loading) {
     return (
       <div className="space-y-4">
         <div className="flex items-center gap-3">
@@ -142,7 +169,7 @@ export function DepartmentAccessLevelManager({
           {currentAssignment ? "Current Access Level" : "Select Access Level"}
         </Label>
         <Select
-          value={pendingValue ?? selectedAccessLevelId}
+          value={activeSelectionId}
           onValueChange={(value) => {
             if (value === "__remove__") {
               onPendingChange?.(null)

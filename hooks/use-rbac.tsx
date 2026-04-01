@@ -32,10 +32,10 @@ import { loadFromStorage } from "@/lib/rbac/utils"
 import { mapSupabaseUserToRbacUser } from "@/lib/supabase/user-mapping"
 
 export function useRBAC() {
-  const { user: supabaseUser, profile } = useSupabaseAuth()
+  const { user: supabaseUser, profile, session } = useSupabaseAuth()
   const user = useMemo(() => mapSupabaseUserToRbacUser(supabaseUser, profile ?? undefined), [supabaseUser, profile])
 
-  const rbacKey = supabaseUser ? (["/api/rbac/me", supabaseUser.id] as const) : null
+  const rbacKey = supabaseUser && session ? (["/api/rbac/me", supabaseUser.id] as const) : null
   const {
     data: rbacResponse,
     error: rbacError,
@@ -52,24 +52,23 @@ export function useRBAC() {
   // Fetch department permissions for a specific department (returns map with effects)
   const getDepartmentPermissions = useCallback(
     async (departmentId: string): Promise<Record<string, "allow" | "deny" | "none">> => {
-      if (!supabaseUser) return {}
+      if (!supabaseUser || !session) return {}
 
       try {
-        const response = await fetch(`/api/rbac/department-permissions?departmentId=${departmentId}`)
-        if (!response.ok) return {}
-
-        const data = await response.json()
-        return data.permissions || {}
+        const response = await apiFetch<{ permissions?: Record<string, "allow" | "deny" | "none"> }>(
+          `/api/rbac/department-permissions?departmentId=${departmentId}`
+        )
+        return response.permissions || {}
       } catch (error) {
         console.error("Failed to fetch department permissions:", error)
         return {}
       }
     },
-    [supabaseUser]
+    [session, supabaseUser]
   )
 
   const dbRbac = useMemo(() => {
-    if (!supabaseUser) {
+    if (!supabaseUser || !session) {
       return { loading: false, checked: false, loaded: false, permissions: [], roleName: null }
     }
 
@@ -102,7 +101,7 @@ export function useRBAC() {
     }
 
     return result
-  }, [supabaseUser, rbacError, rbacLoading, rbacResponse, profile, user])
+  }, [session, supabaseUser, rbacError, rbacLoading, rbacResponse, profile, user])
 
   // Load roles from storage (normalize missing access scopes)
   // Always fallback to DEFAULT_ROLES to ensure permissions work even if localStorage is empty
