@@ -6,6 +6,7 @@ import { toast } from "sonner"
 import type { User, Session } from "@supabase/supabase-js"
 import { createSupabaseClient } from "@/lib/supabase-client"
 import { signIn, signOut, signUp, onAuthStateChange, getCurrentUser, createUserProfile } from "@/lib/auth-utils"
+import { getAuthIdentifierError, parseAuthIdentifier } from "@/lib/auth/identifier"
 
 // Define types for our auth context
 interface UserProfile {
@@ -26,6 +27,7 @@ interface UserProfile {
   created_at?: string
   updated_at?: string
   avatar?: string | null
+  phone_e164?: string | null
 }
 
 interface AuthState {
@@ -37,9 +39,9 @@ interface AuthState {
 }
 
 interface AuthContextType extends AuthState {
-  login: (email: string, password: string, redirectTo?: string) => Promise<void>
+  login: (identifier: string, password: string, redirectTo?: string) => Promise<void>
   logout: () => Promise<void>
-  register: (email: string, password: string, name: string, departmentId?: string) => Promise<void>
+  register: (identifier: string, password: string, name: string, departmentId?: string) => Promise<void>
   updateProfile: (data: Partial<UserProfile>) => Promise<void>
   refreshProfile: () => Promise<void>
   resetAuthError: () => void
@@ -117,10 +119,11 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
               .from("user_profiles")
               .insert({
                 user_id: user.id,
-                name: user.email?.split("@")[0] || "User",
+                name: user.email?.split("@")[0] || user.phone || "User",
                 role_id: "00000000-0000-0000-0000-000000000002", // Default user role
                 department_id: null,
                 is_active: true,
+                phone_e164: user.phone ?? null,
               })
               .select(
                 `
@@ -227,10 +230,11 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
                   .from("user_profiles")
                   .insert({
                     user_id: user.id,
-                    name: user.email?.split("@")[0] || "User",
+                    name: user.email?.split("@")[0] || user.phone || "User",
                     role_id: "00000000-0000-0000-0000-000000000002", // Default user role
                     department_id: null,
                     is_active: true,
+                    phone_e164: user.phone ?? null,
                   })
                   .select(
                     `
@@ -315,11 +319,17 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
   }, [])
 
   // Login function
-  const login = async (email: string, password: string, redirectTo: string = "/") => {
+  const login = async (identifierInput: string, password: string, redirectTo: string = "/") => {
     setAuthState((prev) => ({ ...prev, isLoading: true, error: null }))
 
     try {
-      const { data, error } = await signIn(email, password)
+      const identifier = parseAuthIdentifier(identifierInput)
+
+      if (!identifier) {
+        throw new Error(getAuthIdentifierError(identifierInput))
+      }
+
+      const { data, error } = await signIn(identifier, password)
 
       if (error) {
         throw error
@@ -332,9 +342,9 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
         setAuthState((prev) => ({
           ...prev,
           isLoading: false,
-          error: "Invalid email or password",
+          error: "Invalid email/phone or password",
         }))
-        toast.error("Invalid email or password")
+        toast.error("Invalid email/phone or password")
         return
       }
 
@@ -362,10 +372,11 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
           .from("user_profiles")
           .insert({
             user_id: user.id,
-            name: user.email?.split("@")[0] || "User",
+            name: user.email?.split("@")[0] || user.phone || "User",
             role_id: "00000000-0000-0000-0000-000000000002", // Default user role
             department_id: null,
             is_active: true,
+            phone_e164: user.phone ?? null,
           })
           .select(
             `
@@ -399,7 +410,7 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
         error: null,
       })
 
-      toast.success(`Welcome back, ${profile?.name || email}!`)
+      toast.success(`Welcome back, ${profile?.name || identifier.value}!`)
       router.push(redirectTo) // Redirect to the requested URL or dashboard
     } catch (error: any) {
       const message = typeof error?.message === "string" ? error.message : "Login failed"
@@ -411,7 +422,7 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
         console.error("Login error:", error)
       }
 
-      const uiMessage = isInvalidCreds ? "Invalid email or password" : message
+      const uiMessage = isInvalidCreds ? "Invalid email/phone or password" : message
 
       setAuthState((prev) => ({
         ...prev,
@@ -436,12 +447,18 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
   }
 
   // Register function
-  const register = async (email: string, password: string, name: string, departmentId?: string) => {
+  const register = async (identifierInput: string, password: string, name: string, departmentId?: string) => {
     setAuthState((prev) => ({ ...prev, isLoading: true, error: null }))
 
     try {
+      const identifier = parseAuthIdentifier(identifierInput)
+
+      if (!identifier) {
+        throw new Error(getAuthIdentifierError(identifierInput))
+      }
+
       // Create user in Supabase Auth
-      const { data, error } = await signUp(email, password)
+      const { data, error } = await signUp(identifier, password)
 
       if (error) {
         throw error
@@ -458,7 +475,9 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
         user.id,
         name,
         "00000000-0000-0000-0000-000000000002", // Default user role
-        departmentId
+        departmentId,
+        null,
+        identifier.type === "phone" ? identifier.value : undefined
       )
 
       setAuthState((prev) => ({ ...prev, isLoading: false }))

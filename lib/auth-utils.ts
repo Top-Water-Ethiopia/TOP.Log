@@ -1,6 +1,7 @@
 import type { AuthChangeEvent, Session, User } from "@supabase/supabase-js"
 import { createSupabaseClient } from "./supabase-client"
 import type { Json } from "./supabase.types"
+import type { AuthIdentifier } from "./auth/identifier"
 
 // Create a new client instance each time to ensure fresh environment variables
 const getSupabase = () => {
@@ -8,14 +9,14 @@ const getSupabase = () => {
 }
 
 /**
- * Sign in with email and password
+ * Sign in with email or phone and password
  */
-export async function signIn(email: string, password: string) {
+export async function signIn(identifier: AuthIdentifier, password: string) {
   try {
     const supabase = await getSupabase()
     // Add timeout to prevent hanging requests
     const signInPromise = supabase.auth.signInWithPassword({
-      email,
+      ...(identifier.type === "email" ? { email: identifier.value } : { phone: identifier.value }),
       password,
     })
 
@@ -87,14 +88,14 @@ export async function signIn(email: string, password: string) {
 }
 
 /**
- * Sign up with email and password
+ * Sign up with email or phone and password
  */
-export async function signUp(email: string, password: string) {
+export async function signUp(identifier: AuthIdentifier, password: string) {
   try {
     const supabase = await getSupabase()
     // Add timeout to prevent hanging requests
     const signUpPromise = supabase.auth.signUp({
-      email,
+      ...(identifier.type === "email" ? { email: identifier.value } : { phone: identifier.value }),
       password,
     })
 
@@ -338,7 +339,8 @@ export async function createUserProfile(
   name: string,
   roleId: string = "00000000-0000-0000-0000-000000000002", // Default to "user" role
   departmentId?: string,
-  metadata?: Json | null
+  metadata?: Json | null,
+  phoneE164?: string
 ) {
   try {
     const supabase = await getSupabase()
@@ -352,6 +354,7 @@ export async function createUserProfile(
         department_id: departmentId,
         is_active: true,
         metadata,
+        phone_e164: phoneE164,
       })
       .select("*")
       .single()

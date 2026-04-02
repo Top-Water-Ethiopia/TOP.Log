@@ -56,7 +56,7 @@ describe("LoginForm", () => {
 
     render(<LoginForm />)
 
-    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "sam@example.com" } })
+    fireEvent.change(screen.getByLabelText("Email or phone number"), { target: { value: "sam@example.com" } })
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "secret123" } })
     fireEvent.click(screen.getByRole("button", { name: "Sign in" }))
 
@@ -65,12 +65,20 @@ describe("LoginForm", () => {
     })
   })
 
+  it("renders generic email or phone sign-in copy", () => {
+    render(<LoginForm />)
+
+    expect(screen.getByText("Enter your email or phone number and password to sign in")).toBeInTheDocument()
+    expect(screen.getByPlaceholderText("name@example.com or phone number")).toBeInTheDocument()
+    expect(screen.queryByText(/ethiopian/i)).not.toBeInTheDocument()
+  })
+
   it("clears stale auth errors when the user edits a field", () => {
     authState.error = "Invalid email or password"
 
     render(<LoginForm />)
 
-    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "sam@example.com" } })
+    fireEvent.change(screen.getByLabelText("Email or phone number"), { target: { value: "sam@example.com" } })
 
     expect(resetAuthErrorMock).toHaveBeenCalledTimes(1)
   })
@@ -84,7 +92,7 @@ describe("LoginForm", () => {
       expect(pushMock).toHaveBeenCalledWith("/reports")
     })
 
-    expect(screen.getByLabelText("Email")).toBeDisabled()
+    expect(screen.getByLabelText("Email or phone number")).toBeDisabled()
     expect(screen.getByLabelText("Password")).toBeDisabled()
     expect(screen.getByRole("button", { name: /redirecting/i })).toBeDisabled()
     expect(screen.getByRole("button", { name: /hide password|show password/i })).toBeDisabled()
@@ -95,12 +103,12 @@ describe("LoginForm", () => {
 
     render(<LoginForm />)
 
-    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "sam@example.com" } })
+    fireEvent.change(screen.getByLabelText("Email or phone number"), { target: { value: "sam@example.com" } })
     fireEvent.change(screen.getByLabelText("Password"), { target: { value: "secret123" } })
     fireEvent.submit(screen.getByRole("button", { name: /signing in/i }).closest("form") as HTMLFormElement)
 
     expect(loginMock).not.toHaveBeenCalled()
-    expect(screen.getByLabelText("Email")).toBeDisabled()
+    expect(screen.getByLabelText("Email or phone number")).toBeDisabled()
     expect(screen.getByLabelText("Password")).toBeDisabled()
   })
 })

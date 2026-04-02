@@ -43,6 +43,7 @@ import { DepartmentAccessLevelManager } from "@/components/department-access-lev
 import useSWR, { useSWRConfig } from "swr"
 import useSWRImmutable from "swr/immutable"
 import { PaginatedTable } from "@/components/ui/paginated-table"
+import { normalizeEthiopianPhone } from "@/lib/auth/identifier"
 
 // Role IDs from schema
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
@@ -51,10 +52,13 @@ const USER_ROLE_ID = "00000000-0000-0000-0000-000000000002"
 const SYSTEM_ADMIN_ROLE_NAME = "system-admin"
 const DEPARTMENT_NONE = "__none__"
 const DEPARTMENT_ROLE_NONE = "__none__"
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 
 interface UserWithProfile {
   id: string
-  email: string
+  email: string | null
+  phone: string | null
+  identifier: string
   created_at: string
   email_confirmed_at?: string | null
   profile: {
@@ -73,7 +77,9 @@ interface UserWithProfile {
 
 type AdminUsersApiUser = {
   id: string
-  email: string
+  email: string | null
+  phone: string | null
+  identifier: string
   email_confirmed_at: string | null
   created_at: string
   profile: {
@@ -104,6 +110,8 @@ type AdminCreateUserResponse = {
   user: {
     id: string
     email: string | null
+    phone: string | null
+    identifier: string
     created_at: string | null
   }
   profile: {
@@ -246,6 +254,7 @@ export function SupabaseUserManagement() {
   const [createUserForm, setCreateUserForm] = useState({
     name: "",
     email: "",
+    phone: "",
     password: "",
     confirmPassword: "",
     role_id: USER_ROLE_ID,
@@ -263,6 +272,7 @@ export function SupabaseUserManagement() {
   const [editUserForm, setEditUserForm] = useState({
     name: "",
     email: "",
+    phone: "",
     role_id: USER_ROLE_ID,
     department_id: null as string | null,
     department_role: DEPARTMENT_ROLE_NONE,
@@ -437,7 +447,9 @@ export function SupabaseUserManagement() {
     const rows = Array.isArray(usersResponse?.data) ? usersResponse!.data : []
     return rows.map((user) => ({
       id: user.id,
-      email: user.email || "N/A",
+      email: user.email || null,
+      phone: user.phone || null,
+      identifier: user.identifier || user.email || user.phone || "N/A",
       email_confirmed_at: user.email_confirmed_at || null,
       created_at: user.created_at,
       profile: {
@@ -580,7 +592,9 @@ export function SupabaseUserManagement() {
       const departmentNames = getUserDepartmentNames(user.id, user.profile?.department_id)
       const matchesSearch =
         user.profile?.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        user.identifier.toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (user.email || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
+        (user.phone || "").toLowerCase().includes(searchTerm.toLowerCase()) ||
         (departmentNames.length > 0 && departmentNames.join(" ").toLowerCase().includes(searchTerm.toLowerCase()))
 
       const matchesRole = roleFilter === "all" || user.profile?.role_id === roleFilter
@@ -632,24 +646,39 @@ export function SupabaseUserManagement() {
     const selectedId =
       editUserForm.pendingAccessLevelId !== undefined
         ? editUserForm.pendingAccessLevelId
-        : editCurrentAccessLevelAssignment?.access_level_id ?? null
+        : (editCurrentAccessLevelAssignment?.access_level_id ?? null)
     if (!selectedId) return null
     return departmentAccessLevels.find((level) => level.id === selectedId) || null
   }, [departmentAccessLevels, editCurrentAccessLevelAssignment?.access_level_id, editUserForm.pendingAccessLevelId])
 
   const validateCreateUserForm = () => {
     const errors: Record<string, string> = {}
+    const normalizedEmail = createUserForm.email.trim().toLowerCase()
+    const normalizedPhone = createUserForm.phone.trim() ? normalizeEthiopianPhone(createUserForm.phone) : null
 
     if (!createUserForm.name.trim()) {
       errors.name = "Name is required"
     }
 
-    if (!createUserForm.email.trim()) {
-      errors.email = "Email is required"
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(createUserForm.email)) {
-      errors.email = "Invalid email format"
-    } else if (users.some((u) => u.email.toLowerCase() === createUserForm.email.toLowerCase())) {
-      errors.email = "User with this email already exists"
+    if (!normalizedEmail && !createUserForm.phone.trim()) {
+      errors.email = "Enter at least an email or phone number"
+      errors.phone = "Enter at least an email or phone number"
+    }
+
+    if (normalizedEmail) {
+      if (!EMAIL_REGEX.test(normalizedEmail)) {
+        errors.email = "Invalid email format"
+      } else if (users.some((u) => (u.email || "").toLowerCase() === normalizedEmail)) {
+        errors.email = "User with this email already exists"
+      }
+    }
+
+    if (createUserForm.phone.trim()) {
+      if (!normalizedPhone) {
+        errors.phone = "Enter a valid Ethiopian phone number"
+      } else if (users.some((u) => u.phone === normalizedPhone)) {
+        errors.phone = "User with this phone number already exists"
+      }
     }
 
     if (!createUserForm.password) {
@@ -694,12 +723,16 @@ export function SupabaseUserManagement() {
     const nextDepartmentId = createUserForm.department_id
     const nextDepartmentRole = createUserForm.department_role
     const nextAccessLevelId = createUserForm.pendingAccessLevelId
+    const normalizedEmail = createUserForm.email.trim().toLowerCase() || null
+    const normalizedPhone = createUserForm.phone.trim() ? normalizeEthiopianPhone(createUserForm.phone) : null
 
     let createdUserId: string | null = null
 
     const optimisticUser: AdminUsersApiUser = {
       id: tempId,
-      email: createUserForm.email.trim().toLowerCase(),
+      email: normalizedEmail,
+      phone: normalizedPhone,
+      identifier: normalizedEmail || normalizedPhone || tempId,
       email_confirmed_at: nowIso,
       created_at: nowIso,
       profile: {
@@ -733,7 +766,8 @@ export function SupabaseUserManagement() {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          email: createUserForm.email,
+          email: normalizedEmail,
+          phone: normalizedPhone,
           password: createUserForm.password,
           name: createUserForm.name.trim(),
           role_id: createUserForm.role_id,
@@ -746,7 +780,9 @@ export function SupabaseUserManagement() {
       const createdRoleName = roles.find((r) => r.id === created.profile.role_id)?.name || roleName
       const createdUser: AdminUsersApiUser = {
         id: created.user.id,
-        email: created.user.email || optimisticUser.email,
+        email: created.user.email,
+        phone: created.user.phone,
+        identifier: created.user.identifier || optimisticUser.identifier,
         email_confirmed_at: nowIso,
         created_at: created.user.created_at || nowIso,
         profile: {
@@ -822,6 +858,7 @@ export function SupabaseUserManagement() {
       setCreateUserForm({
         name: "",
         email: "",
+        phone: "",
         password: "",
         confirmPassword: "",
         role_id: USER_ROLE_ID,
@@ -854,19 +891,32 @@ export function SupabaseUserManagement() {
 
   const validateEditUserForm = () => {
     const errors: Record<string, string> = {}
+    const normalizedEmail = editUserForm.email.trim().toLowerCase()
+    const normalizedPhone = editUserForm.phone.trim() ? normalizeEthiopianPhone(editUserForm.phone) : null
 
     if (!editUserForm.name.trim()) {
       errors.name = "Name is required"
     }
 
-    if (!editUserForm.email.trim()) {
-      errors.email = "Email is required"
-    } else if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(editUserForm.email)) {
-      errors.email = "Invalid email format"
-    } else if (
-      users.some((u) => u.id !== editingUser?.id && u.email.toLowerCase() === editUserForm.email.toLowerCase())
-    ) {
-      errors.email = "Email is already in use by another user"
+    if (!normalizedEmail && !editUserForm.phone.trim()) {
+      errors.email = "Enter at least an email or phone number"
+      errors.phone = "Enter at least an email or phone number"
+    }
+
+    if (normalizedEmail) {
+      if (!EMAIL_REGEX.test(normalizedEmail)) {
+        errors.email = "Invalid email format"
+      } else if (users.some((u) => u.id !== editingUser?.id && (u.email || "").toLowerCase() === normalizedEmail)) {
+        errors.email = "Email is already in use by another user"
+      }
+    }
+
+    if (editUserForm.phone.trim()) {
+      if (!normalizedPhone) {
+        errors.phone = "Enter a valid Ethiopian phone number"
+      } else if (users.some((u) => u.id !== editingUser?.id && u.phone === normalizedPhone)) {
+        errors.phone = "Phone number is already in use by another user"
+      }
     }
 
     if (!editUserForm.role_id) {
@@ -893,7 +943,8 @@ export function SupabaseUserManagement() {
     setIsUpdatingUser(true)
 
     const nextName = editUserForm.name.trim()
-    const nextEmail = editUserForm.email.trim().toLowerCase()
+    const nextEmail = editUserForm.email.trim().toLowerCase() || null
+    const nextPhone = editUserForm.phone.trim() ? normalizeEthiopianPhone(editUserForm.phone) : null
     const nextRoleId = editUserForm.role_id
     const nextRoleName = roles.find((r) => r.id === nextRoleId)?.name || "user"
     const nextIsActive = editUserForm.is_active
@@ -909,6 +960,8 @@ export function SupabaseUserManagement() {
           return {
             ...u,
             email: nextEmail,
+            phone: nextPhone,
+            identifier: nextEmail || nextPhone || u.identifier,
             profile: {
               ...u.profile,
               name: nextName,
@@ -926,8 +979,8 @@ export function SupabaseUserManagement() {
 
     try {
       // Check if we need to mark email as verified or unverified
-      const shouldMarkEmailVerified = editUserForm.email_verified && !editingUser.email_confirmed_at
-      const shouldUnmarkEmailVerified = !editUserForm.email_verified && !!editingUser.email_confirmed_at
+      const shouldMarkEmailVerified = !!nextEmail && editUserForm.email_verified && !editingUser.email_confirmed_at
+      const shouldUnmarkEmailVerified = !!nextEmail && !editUserForm.email_verified && !!editingUser.email_confirmed_at
 
       // Update user details
       await apiFetch("/api/admin/users", {
@@ -938,7 +991,8 @@ export function SupabaseUserManagement() {
         body: JSON.stringify({
           user_id: editingUser.id,
           name: editUserForm.name.trim(),
-          email: editUserForm.email.trim().toLowerCase(),
+          email: nextEmail,
+          phone: nextPhone,
           role_id: editUserForm.role_id,
           department_id: nextDepartmentId,
           is_active: editUserForm.is_active,
@@ -1021,7 +1075,7 @@ export function SupabaseUserManagement() {
             })
           }
 
-          toast.success(`Email for ${editUserForm.name || editUserForm.email} marked as verified`)
+          toast.success(`Email for ${editUserForm.name || editUserForm.email || editUserForm.phone} marked as verified`)
         } catch (verifyError: unknown) {
           console.error("Failed to mark email as verified:", verifyError)
           toast.error(getErrorMessage(verifyError, "Failed to mark email as verified"))
@@ -1059,7 +1113,9 @@ export function SupabaseUserManagement() {
             })
           }
 
-          toast.success(`Email for ${editUserForm.name || editUserForm.email} unmarked as verified`)
+          toast.success(
+            `Email for ${editUserForm.name || editUserForm.email || editUserForm.phone} unmarked as verified`
+          )
         } catch (unverifyError: unknown) {
           console.error("Failed to unmark email as verified:", unverifyError)
           toast.error(getErrorMessage(unverifyError, "Failed to unmark email as verified"))
@@ -1182,6 +1238,12 @@ export function SupabaseUserManagement() {
 
     try {
       if (resetPasswordMode === "email") {
+        if (!user.email) {
+          toast.error("This user does not have an email login. Use direct password reset instead.")
+          setResettingPassword(false)
+          return
+        }
+
         // Send password reset email
         await apiFetch("/api/admin/users/reset-password", {
           method: "POST",
@@ -1356,7 +1418,7 @@ export function SupabaseUserManagement() {
         emptyMessage="No users found"
         pageSize={pageSize}
         searchPlaceholder="Search users..."
-        searchKeys={["email"]}
+        searchKeys={["identifier", "email", "phone"]}
         columns={[
           {
             key: "user",
@@ -1377,19 +1439,24 @@ export function SupabaseUserManagement() {
                   <button
                     type="button"
                     onClick={async () => {
-                      if (!user.email || user.email === "N/A") return
+                      if (!user.identifier || user.identifier === "N/A") return
                       try {
-                        await navigator.clipboard.writeText(user.email)
-                        toast.success("Email copied to clipboard")
+                        await navigator.clipboard.writeText(user.identifier)
+                        toast.success("Identifier copied to clipboard")
                       } catch (error) {
-                        console.error("Failed to copy email", error)
-                        toast.error("Failed to copy email")
+                        console.error("Failed to copy identifier", error)
+                        toast.error("Failed to copy identifier")
                       }
                     }}
                     className="text-muted-foreground hover:text-foreground text-sm"
                   >
-                    {user.email}
+                    {user.identifier}
                   </button>
+                  {user.email && user.phone ? (
+                    <div className="text-muted-foreground text-xs">
+                      {user.identifier === user.email ? user.phone : user.email}
+                    </div>
+                  ) : null}
                 </div>
               </div>
             ),
@@ -1465,14 +1532,15 @@ export function SupabaseUserManagement() {
                     event.stopPropagation()
                     setEditingUser(user)
                     setEditUserPanelMode("edit")
-                    setResetPasswordMode("email")
+                    setResetPasswordMode(user.email ? "email" : "direct")
                     setNewPassword("")
                     setConfirmNewPassword("")
                     setDeleteConfirmation("")
                     prefilledAssignmentsUserIdRef.current = null
                     setEditUserForm({
                       name: user.profile?.name || "",
-                      email: user.email,
+                      email: user.email || "",
+                      phone: user.phone || "",
                       role_id: user.profile?.role_id || USER_ROLE_ID,
                       department_id: user.profile?.department_id || null,
                       department_role: DEPARTMENT_ROLE_NONE,
@@ -1503,6 +1571,7 @@ export function SupabaseUserManagement() {
             setCreateUserForm({
               name: "",
               email: "",
+              phone: "",
               password: "",
               confirmPassword: "",
               role_id: USER_ROLE_ID,
@@ -1513,7 +1582,7 @@ export function SupabaseUserManagement() {
           }
         }}
         title="Create New User"
-        description="Add a new user to the system. They will receive an email to confirm their account."
+        description="Add a new user with email, Ethiopian phone, or both."
         footer={
           <div className="flex justify-end gap-2">
             <Button variant="outline" onClick={() => setShowCreateUser(false)}>
@@ -1550,9 +1619,23 @@ export function SupabaseUserManagement() {
                 type="email"
                 value={createUserForm.email}
                 onChange={(e) => setCreateUserForm((prev) => ({ ...prev, email: e.target.value }))}
-                placeholder="Enter email"
+                placeholder="name@example.com"
               />
               {formErrors.email && <p className="text-destructive text-sm">{formErrors.email}</p>}
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="phone">Phone number</Label>
+              <Input
+                id="phone"
+                type="text"
+                value={createUserForm.phone}
+                onChange={(e) => setCreateUserForm((prev) => ({ ...prev, phone: e.target.value }))}
+                placeholder="0912345678"
+              />
+              <p className="text-muted-foreground text-xs">
+                Accepted phone formats: +2519..., 2519..., 091..., or 9...
+              </p>
+              {formErrors.phone && <p className="text-destructive text-sm">{formErrors.phone}</p>}
             </div>
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
@@ -1741,8 +1824,8 @@ export function SupabaseUserManagement() {
           !editingUser
             ? "Update user information and settings."
             : editUserPanelMode === "edit"
-              ? `Manage ${editingUser.profile?.name || editingUser.email}'s account settings`
-              : `${editingUser.profile?.name || editingUser.email}`
+              ? `Manage ${editingUser.profile?.name || editingUser.identifier}'s account settings`
+              : `${editingUser.profile?.name || editingUser.identifier}`
         }
         footer={
           editUserPanelMode === "edit" ? (
@@ -1854,12 +1937,15 @@ export function SupabaseUserManagement() {
             <div className="flex items-center gap-4">
               <Avatar className="h-12 w-12">
                 <AvatarFallback className="text-sm font-medium">
-                  {(editingUser?.profile?.name || editingUser?.email || "U").slice(0, 2).toUpperCase()}
+                  {(editingUser?.profile?.name || editingUser?.identifier || "U").slice(0, 2).toUpperCase()}
                 </AvatarFallback>
               </Avatar>
               <div className="min-w-0 flex-1">
                 <h3 className="truncate text-lg font-semibold">{editingUser?.profile?.name || "Unnamed User"}</h3>
-                <p className="text-muted-foreground truncate text-sm">{editingUser?.email}</p>
+                <div className="text-muted-foreground space-y-1 text-sm">
+                  {editingUser?.email ? <p className="truncate">{editingUser.email}</p> : null}
+                  {editingUser?.phone ? <p className="truncate">{editingUser.phone}</p> : null}
+                </div>
                 <div className="text-muted-foreground mt-1 flex items-center gap-4 text-xs">
                   <span className="flex items-center gap-1">
                     <div className="bg-muted-foreground/40 h-1.5 w-1.5 rounded-full"></div>
@@ -1935,10 +2021,27 @@ export function SupabaseUserManagement() {
                       type="email"
                       value={editUserForm.email}
                       onChange={(e) => setEditUserForm((prev) => ({ ...prev, email: e.target.value }))}
-                      placeholder="Enter email address"
+                      placeholder="name@example.com"
                       className="h-11 shadow-sm transition-all duration-200 focus:ring-2 focus:ring-blue-500"
                     />
                     {editFormErrors.email && <p className="text-destructive text-sm">{editFormErrors.email}</p>}
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label htmlFor="edit-phone" className="flex items-center gap-2 text-sm font-medium">
+                      <Mail className="h-4 w-4 text-slate-500" />
+                      Phone number
+                    </Label>
+                    <Input
+                      id="edit-phone"
+                      type="text"
+                      value={editUserForm.phone}
+                      onChange={(e) => setEditUserForm((prev) => ({ ...prev, phone: e.target.value }))}
+                      placeholder="0912345678"
+                      className="h-11 shadow-sm transition-all duration-200 focus:ring-2 focus:ring-blue-500"
+                    />
+                    <p className="text-xs text-slate-500">Accepted phone formats: +2519..., 2519..., 091..., or 9...</p>
+                    {editFormErrors.phone && <p className="text-destructive text-sm">{editFormErrors.phone}</p>}
                   </div>
                 </div>
               </div>
@@ -2101,27 +2204,39 @@ export function SupabaseUserManagement() {
                     />
                   </div>
 
-                  <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50/50 p-4 transition-all duration-200 hover:bg-slate-100">
-                    <div className="flex-1 space-y-1">
-                      <Label htmlFor="email-verified" className="flex items-center gap-2 text-sm font-medium">
+                  {editingUser?.email ? (
+                    <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-slate-50/50 p-4 transition-all duration-200 hover:bg-slate-100">
+                      <div className="flex-1 space-y-1">
+                        <Label htmlFor="email-verified" className="flex items-center gap-2 text-sm font-medium">
+                          <MailCheck className="h-4 w-4 text-slate-500" />
+                          Email Verification
+                        </Label>
+                        <p className="text-sm text-slate-600">
+                          {editUserForm.email_verified ? "Email is marked as verified" : "Email requires verification"}
+                        </p>
+                        {editingUser?.email_confirmed_at && (
+                          <p className="text-xs text-slate-500">
+                            Verified on {new Date(editingUser.email_confirmed_at).toLocaleDateString()}
+                          </p>
+                        )}
+                      </div>
+                      <Switch
+                        id="email-verified"
+                        checked={editUserForm.email_verified}
+                        onCheckedChange={(checked) => setEditUserForm((prev) => ({ ...prev, email_verified: checked }))}
+                      />
+                    </div>
+                  ) : (
+                    <div className="rounded-lg border border-slate-200 bg-slate-50/50 p-4">
+                      <Label className="flex items-center gap-2 text-sm font-medium">
                         <MailCheck className="h-4 w-4 text-slate-500" />
                         Email Verification
                       </Label>
-                      <p className="text-sm text-slate-600">
-                        {editUserForm.email_verified ? "Email is marked as verified" : "Email requires verification"}
+                      <p className="mt-1 text-sm text-slate-600">
+                        This account signs in with a phone number, so email verification does not apply.
                       </p>
-                      {editingUser?.email_confirmed_at && (
-                        <p className="text-xs text-slate-500">
-                          Verified on {new Date(editingUser.email_confirmed_at).toLocaleDateString()}
-                        </p>
-                      )}
                     </div>
-                    <Switch
-                      id="email-verified"
-                      checked={editUserForm.email_verified}
-                      onCheckedChange={(checked) => setEditUserForm((prev) => ({ ...prev, email_verified: checked }))}
-                    />
-                  </div>
+                  )}
                 </div>
               </div>
 
@@ -2143,7 +2258,7 @@ export function SupabaseUserManagement() {
                     variant="outline"
                     onClick={() => {
                       setEditUserPanelMode("reset_password")
-                      setResetPasswordMode("email")
+                      setResetPasswordMode(editingUser?.email ? "email" : "direct")
                       setNewPassword("")
                       setConfirmNewPassword("")
                     }}
@@ -2199,24 +2314,26 @@ export function SupabaseUserManagement() {
           <div className="space-y-6">
             <div className="space-y-2">
               <h3 className="text-lg font-semibold">Reset Password</h3>
-              <p className="text-muted-foreground">Choose how to reset the password for {editingUser?.email}</p>
+              <p className="text-muted-foreground">Choose how to reset the password for {editingUser?.identifier}</p>
             </div>
 
             <div className="space-y-4">
               <div className="grid gap-2">
-                <Button
-                  type="button"
-                  variant={resetPasswordMode === "email" ? "default" : "outline"}
-                  onClick={() => setResetPasswordMode("email")}
-                  className="h-auto justify-start p-4"
-                >
-                  <div className="text-left">
-                    <div className="font-medium">Send Reset Email</div>
-                    <div className="text-muted-foreground text-sm">
-                      Send a password reset link to the user's email address
+                {editingUser?.email ? (
+                  <Button
+                    type="button"
+                    variant={resetPasswordMode === "email" ? "default" : "outline"}
+                    onClick={() => setResetPasswordMode("email")}
+                    className="h-auto justify-start p-4"
+                  >
+                    <div className="text-left">
+                      <div className="font-medium">Send Reset Email</div>
+                      <div className="text-muted-foreground text-sm">
+                        Send a password reset link to the user's email address
+                      </div>
                     </div>
-                  </div>
-                </Button>
+                  </Button>
+                ) : null}
                 <Button
                   type="button"
                   variant={resetPasswordMode === "direct" ? "default" : "outline"}
@@ -2312,12 +2429,12 @@ export function SupabaseUserManagement() {
                     <div className="flex items-center gap-2 rounded bg-white p-2">
                       <Avatar className="h-6 w-6">
                         <AvatarFallback className="text-xs">
-                          {(editingUser.profile?.name || editingUser.email || "U").slice(0, 2).toUpperCase()}
+                          {(editingUser.profile?.name || editingUser.identifier || "U").slice(0, 2).toUpperCase()}
                         </AvatarFallback>
                       </Avatar>
                       <div>
                         <div className="text-sm font-medium">{editingUser.profile?.name || "Unnamed User"}</div>
-                        <div className="text-muted-foreground text-xs">{editingUser.email}</div>
+                        <div className="text-muted-foreground text-xs">{editingUser.identifier}</div>
                       </div>
                     </div>
                   </div>

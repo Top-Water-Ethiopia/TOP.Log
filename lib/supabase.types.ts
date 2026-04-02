@@ -336,6 +336,7 @@ export interface Database {
           updated_at: string
           metadata: Json | null
           last_login: string | null
+          phone_e164: string | null
         }
         Insert: {
           id?: string
@@ -348,6 +349,7 @@ export interface Database {
           updated_at?: string
           metadata?: Json | null
           last_login?: string | null
+          phone_e164?: string | null
         }
         Update: {
           id?: string
@@ -360,6 +362,7 @@ export interface Database {
           updated_at?: string
           metadata?: Json | null
           last_login?: string | null
+          phone_e164?: string | null
         }
         Relationships: [
           {

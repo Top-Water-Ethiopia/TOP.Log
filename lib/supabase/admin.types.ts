@@ -10,7 +10,9 @@ export type UserProfile = Database["public"]["Tables"]["user_profiles"]["Row"] &
 
 export interface UserWithProfile {
   id: string
-  email: string
+  email: string | null
+  phone: string | null
+  identifier: string
   email_confirmed_at: string | null
   user_metadata: {
     email_verified?: boolean

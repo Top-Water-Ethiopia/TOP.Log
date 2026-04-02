@@ -51,11 +51,15 @@ export async function POST(request: Request) {
     const body = await request.json()
     const { user_id, email, mode, password } = body
 
-    if (!user_id || !email) {
-      return NextResponse.json({ error: "User ID and email are required" }, { status: 400 })
+    if (!user_id) {
+      return NextResponse.json({ error: "User ID is required" }, { status: 400 })
     }
 
     if (mode === "email") {
+      if (!email) {
+        return NextResponse.json({ error: "Email is required for email reset mode" }, { status: 400 })
+      }
+
       // Send password reset email using regular Supabase client
       // This uses the anon key which has permission to send reset emails
       if (!process.env.NEXT_PUBLIC_SUPABASE_URL || !process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY) {

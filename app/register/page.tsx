@@ -24,7 +24,7 @@ export default function RegisterPage() {
   const { register, isLoading, error } = useSupabaseAuth()
   const { theme, setTheme } = useTheme()
   const darkModeEnabled = isFeatureEnabledClient("DARK_MODE")
-  const [email, setEmail] = useState("")
+  const [identifier, setIdentifier] = useState("")
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
   const [name, setName] = useState("")
@@ -88,7 +88,7 @@ export default function RegisterPage() {
     try {
       const normalizedDepartmentId = departmentId && departmentId !== NO_DEPARTMENTS_VALUE ? departmentId : undefined
 
-      await register(email, password, name, normalizedDepartmentId)
+      await register(identifier, password, name, normalizedDepartmentId)
       // Redirect happens in the auth context after successful registration
     } catch (error) {
       // Error handling is done in the auth context
@@ -142,14 +142,15 @@ export default function RegisterPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="identifier">Email or phone number</Label>
               <Input
-                id="email"
-                type="email"
-                placeholder="name@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                id="identifier"
+                type="text"
+                placeholder="name@example.com or phone number"
+                value={identifier}
+                onChange={(e) => setIdentifier(e.target.value)}
                 required
+                autoComplete="username"
               />
             </div>
 

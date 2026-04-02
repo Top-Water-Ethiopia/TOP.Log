@@ -2,10 +2,30 @@ import { NextResponse } from "next/server"
 import { adminSupabase } from "@/lib/supabase/admin"
 import { verifyPermission } from "@/lib/rbac/server"
 import type { UserWithProfile, PaginatedUsersResponse } from "@/lib/supabase/admin.types"
+import { normalizeEthiopianPhone } from "@/lib/auth/identifier"
 
 // Enable dynamic route behavior
 // This ensures we get fresh data on each request
 export const dynamic = "force-dynamic"
+
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+
+function normalizeAdminIdentifiers(email?: unknown, phone?: unknown) {
+  const trimmedEmail = typeof email === "string" ? email.trim().toLowerCase() : undefined
+  const trimmedPhone = typeof phone === "string" ? phone.trim() : undefined
+
+  const normalizedEmail = trimmedEmail ? trimmedEmail : null
+  const normalizedPhone = trimmedPhone ? normalizeEthiopianPhone(trimmedPhone) : null
+
+  return {
+    normalizedEmail,
+    normalizedPhone,
+    rawEmailProvided: typeof email === "string",
+    rawPhoneProvided: typeof phone === "string",
+    rawEmail: trimmedEmail ?? "",
+    rawPhone: trimmedPhone ?? "",
+  }
+}
 
 interface DepartmentRoleData {
   department_role_id: string | null
@@ -160,16 +180,23 @@ export async function POST(request: Request) {
     }
 
     const body = await request.json()
-    const { email, password, name, role_id, department_id } = body
+    const { email, phone, password, name, role_id, department_id } = body
+    const { normalizedEmail, normalizedPhone, rawEmail, rawPhone } = normalizeAdminIdentifiers(email, phone)
 
     // Validate required fields
-    if (!email || !password || !name) {
-      return NextResponse.json({ error: "Email, password, and name are required" }, { status: 400 })
+    if ((!normalizedEmail && !normalizedPhone) || !password || !name) {
+      return NextResponse.json(
+        { error: "At least one of email or phone number is required, along with password and name" },
+        { status: 400 }
+      )
     }
 
-    // Validate email format
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    if (rawEmail && !EMAIL_REGEX.test(rawEmail)) {
       return NextResponse.json({ error: "Invalid email format" }, { status: 400 })
+    }
+
+    if (rawPhone && !normalizedPhone) {
+      return NextResponse.json({ error: "Enter a valid Ethiopian phone number" }, { status: 400 })
     }
 
     // Validate password length
@@ -180,9 +207,9 @@ export async function POST(request: Request) {
     // Create user in Supabase Auth using admin client
     // Supabase will automatically check for duplicate emails and return an error if the email exists
     const { data: authData, error: createUserError } = await adminSupabase.auth.admin.createUser({
-      email,
+      ...(normalizedEmail ? { email: normalizedEmail, email_confirm: true } : {}),
+      ...(normalizedPhone ? { phone: normalizedPhone, phone_confirm: true } : {}),
       password,
-      email_confirm: true, // Auto-confirm email for admin-created users
     })
 
     if (createUserError) {
@@ -196,7 +223,15 @@ export async function POST(request: Request) {
         createUserError.status === 422
       ) {
         return NextResponse.json(
-          { error: "User with this email already exists", message: createUserError.message },
+          {
+            error:
+              normalizedEmail && normalizedPhone
+                ? "A user with this email or phone number already exists"
+                : normalizedEmail
+                  ? "User with this email already exists"
+                  : "User with this phone number already exists",
+            message: createUserError.message,
+          },
           { status: 409 }
         )
       }
@@ -222,6 +257,7 @@ export async function POST(request: Request) {
         department_id: departmentId,
         role_id: defaultRoleId,
         is_active: true,
+        phone_e164: normalizedPhone,
       })
       .select()
       .single()
@@ -245,7 +281,10 @@ export async function POST(request: Request) {
       {
         user: {
           id: authData.user.id,
-          email: authData.user.email,
+          email: authData.user.email ?? null,
+          phone: authData.user.phone ?? null,
+          identifier:
+            authData.user.email || authData.user.phone || normalizedEmail || normalizedPhone || authData.user.id,
           created_at: authData.user.created_at,
         },
         profile,
@@ -273,7 +312,7 @@ export async function PUT(request: Request) {
     }
 
     const body = await request.json()
-    const { user_id, name, email, department_id, role_id, is_active } = body
+    const { user_id, name, email, phone, department_id, role_id, is_active } = body
 
     if (!user_id) {
       return NextResponse.json({ error: "User ID is required" }, { status: 400 })
@@ -294,30 +333,79 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: "Name cannot be empty" }, { status: 400 })
     }
 
-    // Validate email if provided
-    if (email !== undefined) {
-      if (!email.trim()) {
-        return NextResponse.json({ error: "Email cannot be empty" }, { status: 400 })
-      }
-      if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
-        return NextResponse.json({ error: "Invalid email format" }, { status: 400 })
-      }
+    let authUser:
+      | {
+          id: string
+          email?: string | null
+          phone?: string | null
+          created_at?: string | null
+        }
+      | null
+      | undefined
+    const authLookup = await adminSupabase.auth.admin.getUserById(user_id)
+    authUser = authLookup.data.user
 
-      // Check if email is already taken by another user
-      const { data: existingUsers } = await adminSupabase.auth.admin.listUsers()
-      const emailTaken = existingUsers?.users?.some((u) => u.id !== user_id && u.email === email)
+    if (!authUser) {
+      return NextResponse.json({ error: "Auth user not found" }, { status: 404 })
+    }
 
-      if (emailTaken) {
-        return NextResponse.json({ error: "Email is already in use by another user" }, { status: 409 })
-      }
+    const { normalizedEmail, normalizedPhone, rawEmailProvided, rawPhoneProvided, rawEmail, rawPhone } =
+      normalizeAdminIdentifiers(email, phone)
 
-      // Update email in auth.users using admin client
-      const { error: emailError } = await adminSupabase.auth.admin.updateUserById(user_id, { email })
+    if (rawEmailProvided && rawEmail && !EMAIL_REGEX.test(rawEmail)) {
+      return NextResponse.json({ error: "Invalid email format" }, { status: 400 })
+    }
 
-      if (emailError) {
-        console.error("Error updating user email:", emailError)
-        return NextResponse.json({ error: "Failed to update email", message: emailError.message }, { status: 500 })
-      }
+    if (rawPhoneProvided && rawPhone && !normalizedPhone) {
+      return NextResponse.json({ error: "Enter a valid Ethiopian phone number" }, { status: 400 })
+    }
+
+    const nextEmail = rawEmailProvided ? normalizedEmail : authUser.email || null
+    const nextPhone = rawPhoneProvided ? normalizedPhone : authUser.phone || null
+
+    if (!nextEmail && !nextPhone) {
+      return NextResponse.json({ error: "At least one of email or phone number is required" }, { status: 400 })
+    }
+
+    const removingExistingEmail = rawEmailProvided && !normalizedEmail && !!authUser.email
+    const removingExistingPhone = rawPhoneProvided && !normalizedPhone && !!authUser.phone
+
+    if (removingExistingEmail || removingExistingPhone) {
+      return NextResponse.json(
+        { error: "Removing an existing email or phone number is not supported from this screen yet." },
+        { status: 400 }
+      )
+    }
+
+    const { data: existingUsers } = await adminSupabase.auth.admin.listUsers()
+    const emailTaken = nextEmail ? existingUsers?.users?.some((u) => u.id !== user_id && u.email === nextEmail) : false
+    const phoneTaken = nextPhone ? existingUsers?.users?.some((u) => u.id !== user_id && u.phone === nextPhone) : false
+
+    if (emailTaken || phoneTaken) {
+      return NextResponse.json(
+        {
+          error:
+            emailTaken && phoneTaken
+              ? "Email and phone number are already in use"
+              : emailTaken
+                ? "Email is already in use by another user"
+                : "Phone number is already in use by another user",
+        },
+        { status: 409 }
+      )
+    }
+
+    const { error: identifierError } = await adminSupabase.auth.admin.updateUserById(user_id, {
+      ...(nextEmail && nextEmail !== authUser.email ? { email: nextEmail } : {}),
+      ...(nextPhone && nextPhone !== authUser.phone ? { phone: nextPhone } : {}),
+    })
+
+    if (identifierError) {
+      console.error("Error updating user identifiers:", identifierError)
+      return NextResponse.json(
+        { error: "Failed to update user identifiers", message: identifierError.message },
+        { status: 500 }
+      )
     }
 
     // Update user profile
@@ -329,6 +417,7 @@ export async function PUT(request: Request) {
     }
     if (role_id !== undefined) updateData.role_id = role_id
     if (is_active !== undefined) updateData.is_active = is_active
+    updateData.phone_e164 = nextPhone
     updateData.updated_at = new Date().toISOString()
 
     const { data: profile, error: profileError } = await adminSupabase
@@ -360,14 +449,15 @@ export async function PUT(request: Request) {
     }
 
     // Get updated auth user data
-    const {
-      data: { user: authUser },
-    } = await adminSupabase.auth.admin.getUserById(user_id)
+    const refreshedAuthLookup = await adminSupabase.auth.admin.getUserById(user_id)
+    authUser = refreshedAuthLookup.data.user
 
     return NextResponse.json({
       user: {
         id: authUser?.id || user_id,
-        email: authUser?.email || email,
+        email: authUser?.email || null,
+        phone: authUser?.phone || null,
+        identifier: authUser?.email || authUser?.phone || user_id,
         created_at: authUser?.created_at,
       },
       profile,
@@ -480,7 +570,10 @@ export async function GET(request: Request) {
 
         const { data: professionRows, error: professionError } =
           professionFilters.length > 0
-            ? await adminSupabase.from("department_professions").select("id, key, label").or(professionFilters.join(","))
+            ? await adminSupabase
+                .from("department_professions")
+                .select("id, key, label")
+                .or(professionFilters.join(","))
             : { data: [], error: null }
 
         if (professionError) {
@@ -527,7 +620,9 @@ export async function GET(request: Request) {
 
       return {
         id: profile.user_id,
-        email: authUser?.email || "N/A",
+        email: authUser?.email || null,
+        phone: authUser?.phone || null,
+        identifier: authUser?.email || authUser?.phone || profile.name,
         email_confirmed_at: authUser?.email_confirmed_at || null,
         user_metadata: authUser?.user_metadata || null,
         created_at: authUser?.created_at || profile.created_at,

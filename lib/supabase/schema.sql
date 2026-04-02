@@ -78,7 +78,8 @@ CREATE TABLE IF NOT EXISTS user_profiles (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   metadata JSONB,
-  last_login TIMESTAMPTZ
+  last_login TIMESTAMPTZ,
+  phone_e164 TEXT UNIQUE
 );
 
 -- Insert default roles

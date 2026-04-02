@@ -19,7 +19,7 @@ export default function LoginForm() {
   const { theme, setTheme } = useTheme()
   const darkModeEnabled = isFeatureEnabledClient("DARK_MODE")
   const selfServiceAuthEnabled = isFeatureEnabledClient("SELF_SERVICE_AUTH")
-  const [email, setEmail] = useState("")
+  const [identifier, setIdentifier] = useState("")
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [mounted, setMounted] = useState(false)
@@ -45,7 +45,7 @@ export default function LoginForm() {
     if (isBusy) return
 
     try {
-      await login(email, password, redirectTo)
+      await login(identifier, password, redirectTo)
       // Redirect happens in the auth context after successful login
     } catch {
       // Error handling is done in the auth context via the error state
@@ -84,7 +84,7 @@ export default function LoginForm() {
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-1">
           <CardTitle className="text-2xl font-bold">Sign in</CardTitle>
-          <CardDescription>Enter your email and password to sign in to your account</CardDescription>
+          <CardDescription>Enter your email or phone number and password to sign in</CardDescription>
         </CardHeader>
 
         <form onSubmit={handleLogin} aria-busy={isBusy}>
@@ -101,18 +101,18 @@ export default function LoginForm() {
             ) : null}
 
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="identifier">Email or phone number</Label>
               <Input
-                id="email"
-                type="email"
-                placeholder="name@example.com"
-                value={email}
+                id="identifier"
+                type="text"
+                placeholder="name@example.com or phone number"
+                value={identifier}
                 onChange={(e) => {
                   if (error) resetAuthError()
-                  setEmail(e.target.value)
+                  setIdentifier(e.target.value)
                 }}
                 required
-                autoComplete="email"
+                autoComplete="username"
                 disabled={isBusy}
                 aria-describedby={error ? "login-error" : undefined}
               />
