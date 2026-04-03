@@ -51,7 +51,21 @@ jest.mock("@/components/role-based-question-fields", () => ({
 
 jest.mock("@/components/features/daily-log/molecules", () => ({
   DateRestrictionBanner: ({ title }: { title: string }) => <div data-testid="date-banner">{title}</div>,
-  QuickDateChips: () => <div data-testid="quick-date-chips" />,
+  QuickDateChips: ({
+    options,
+    onSelectDate,
+  }: {
+    options: Array<{ key: string; label: string; date: string }>
+    onSelectDate: (date: string) => void
+  }) => (
+    <div data-testid="quick-date-chips">
+      {options.map((option) => (
+        <button key={option.key} type="button" onClick={() => onSelectDate(option.date)}>
+          {option.label}
+        </button>
+      ))}
+    </div>
+  ),
 }))
 
 jest.mock("@/components/ui/select", () => ({
@@ -190,6 +204,16 @@ describe("EntryFormMultistep", () => {
     const submitButton = screen.getByRole("button", { name: "No Questions Available" })
     expect(submitButton).toBeDisabled()
     expect(mockAddEntry).not.toHaveBeenCalled()
+  })
+
+  it("updates the selected date when a quick date button is pressed", () => {
+    renderForm([])
+
+    expect(screen.getByText("Thursday, April 2, 2026")).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: "Apr 1" }))
+
+    expect(screen.getAllByText("Wednesday, April 1, 2026").length).toBeGreaterThan(0)
   })
 
   it("loads assigned agents, shows the selected agent context, and saves an agent-call entry", async () => {

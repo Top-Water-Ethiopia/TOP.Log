@@ -153,10 +153,10 @@ export function EntryFormMultistep({
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false)
 
   useEffect(() => {
-    if (initialDate && canCreateEntryForDate(initialDate).isValid && initialDate !== selectedDate) {
+    if (initialDate && canCreateEntryForDate(initialDate).isValid) {
       setSelectedDate(initialDate)
     }
-  }, [initialDate, selectedDate])
+  }, [initialDate])
 
   const [formData, setFormData] = useState({
     // Legacy fields (kept for backward compatibility with existing entries)
