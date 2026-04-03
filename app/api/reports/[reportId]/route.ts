@@ -64,10 +64,17 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const { data: profile } = await supabase.from("user_profiles").select("role_id").eq("user_id", user.id).single()
 
     const isAdmin = profile?.role_id === ADMIN_ROLE_ID || profile?.role_id === SYSTEM_ADMIN_ROLE_ID
-    const isOwnReport = report.user_id === user.id
+    const submittedByUserId =
+      typeof report.submitted_by_user_id === "string" && report.submitted_by_user_id ? report.submitted_by_user_id : report.user_id
+    const isOwnReport = submittedByUserId === user.id
 
     if (!isAdmin && !isOwnReport) {
-      const reportDepartmentId = typeof report.department_id === "string" ? report.department_id : null
+      const reportDepartmentId =
+        typeof report.subject_department_id === "string" && report.subject_department_id
+          ? report.subject_department_id
+          : typeof report.department_id === "string"
+            ? report.department_id
+            : null
 
       if (!reportDepartmentId) {
         return NextResponse.json({ error: "Access denied" }, { status: 403 })
@@ -97,7 +104,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     const { data: authorProfile } = await supabase
       .from("user_profiles")
       .select("name")
-      .eq("user_id", report.user_id)
+      .eq("user_id", submittedByUserId)
       .single()
 
     return NextResponse.json({ data: { ...report, profile: { name: authorProfile?.name ?? null } } })

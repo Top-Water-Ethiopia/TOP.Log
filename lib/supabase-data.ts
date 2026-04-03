@@ -68,7 +68,7 @@ export async function getEntriesByUserId(userId: string) {
   const { data, error } = await supabase
     .from("captain_log_entries")
     .select("*")
-    .eq("user_id", userId)
+    .eq("submitted_by_user_id", userId)
     .order("date", { ascending: false })
 
   if (error) handleSupabaseError(error)
@@ -124,15 +124,15 @@ export async function getEntryByDate(userId: string, date: string, departmentId?
   let query = supabase
     .from("captain_log_entries")
     .select("*")
-    .eq("user_id", userId)
+    .eq("submitted_by_user_id", userId)
     .eq("date", date)
     .order("created_at", { ascending: false })
     .limit(1)
 
   if (departmentId === null) {
-    query = query.is("department_id", null)
+    query = query.is("subject_department_id", null)
   } else if (typeof departmentId === "string") {
-    query = query.eq("department_id", departmentId)
+    query = query.eq("subject_department_id", departmentId)
   }
 
   const { data, error } = await query.maybeSingle()
@@ -152,7 +152,7 @@ export async function getEntriesByDateRange(userId: string, startDate: string, e
   const { data, error } = await supabase
     .from("captain_log_entries")
     .select("*")
-    .eq("user_id", userId)
+    .eq("submitted_by_user_id", userId)
     .gte("date", startDate)
     .lte("date", endDate)
     .order("date", { ascending: false })
@@ -174,8 +174,12 @@ export async function createEntry(entry: CaptainLogEntryInsert) {
   console.log("[createEntry] inserting", {
     id: entryWithDefaults.id ?? null,
     user_id: entryWithDefaults.user_id ?? null,
+    submitted_by_user_id: entryWithDefaults.submitted_by_user_id ?? null,
     date: entryWithDefaults.date ?? null,
     department_id: entryWithDefaults.department_id ?? null,
+    report_kind: entryWithDefaults.report_kind ?? null,
+    subject_department_id: entryWithDefaults.subject_department_id ?? null,
+    subject_profession_id: entryWithDefaults.subject_profession_id ?? null,
   })
 
   const { data, error } = await supabase.from("captain_log_entries").insert(entryWithDefaults).select("*").single()

@@ -1,8 +1,6 @@
 "use client";
 
-import { SupabaseLogProvider } from "@/contexts/supabase-log-context";
-import { AuthProvider, useAuth } from "@/contexts/auth-context";
-import { SupabaseProviders } from "@/components/supabase-providers";
+import { useAuth } from "@/contexts/auth-context";
 import { MainLayoutUpdated } from "@/components/main-layout-updated";
 import { useEffect, useState } from "react";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -65,14 +63,8 @@ function AuthInitialized({ children }: { children: React.ReactNode }) {
  */
 export default function HomeUpdated({ initialRoleQuestions }: HomeUpdatedProps) {
   return (
-    <SupabaseProviders>
-      <AuthProvider>
-        <AuthInitialized>
-          <SupabaseLogProvider>
-            <MainLayoutUpdated initialRoleQuestions={initialRoleQuestions} />
-          </SupabaseLogProvider>
-        </AuthInitialized>
-      </AuthProvider>
-    </SupabaseProviders>
+    <AuthInitialized>
+      <MainLayoutUpdated initialRoleQuestions={initialRoleQuestions} />
+    </AuthInitialized>
   );
 }

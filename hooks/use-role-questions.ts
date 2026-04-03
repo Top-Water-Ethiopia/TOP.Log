@@ -2,12 +2,15 @@ import { useState, useMemo } from "react"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { toast } from "sonner"
 import { apiFetch, getErrorMessage } from "@/lib/api-client"
+import { getQuestionCategory } from "@/lib/reporting-model"
 import useSWR from "swr"
 
 export interface RoleQuestion {
   id: string
   role_id: string | null
   department_id?: string | null
+  department_profession_id?: string | null
+  department_role?: string | null
   question_key: string // Added this line
   question_label: string
   question_type:
@@ -97,6 +100,7 @@ export function useRoleQuestions(initialQuestions?: RoleQuestion[], departmentId
       description: q.question_description || undefined,
       placeholder: q.placeholder || undefined,
       options: q.options || undefined,
+      category: getQuestionCategory(q),
       required: q.is_required,
       order: q.display_order,
       validationRules: q.validation_rules || undefined,

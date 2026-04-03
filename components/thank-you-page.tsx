@@ -18,16 +18,17 @@ export function ThankYouPage({
   onNewReport,
   onViewReports,
   onBackHome,
-  hasReportsForAllAllowedDates = false,
   completedDates = [],
   missingDates = [],
-  hoursUntilNextAvailable = 24,
 }: ThankYouPageProps) {
   const completedCount = completedDates.length
   const missingCount = missingDates.length
-  const progressText = hasReportsForAllAllowedDates
-    ? `🔥 ${completedCount}-day streak complete!`
-    : `${missingCount} more ${missingCount === 1 ? "entry" : "entries"} to go`
+  const progressText =
+    missingCount > 0
+      ? `${missingCount} more ${missingCount === 1 ? "entry" : "entries"} to go`
+      : completedCount > 0
+        ? `${completedCount} recent ${completedCount === 1 ? "entry" : "entries"} completed`
+        : "Report saved successfully"
 
   return (
     <div className="bg-background relative flex h-full items-center justify-center overflow-hidden">
@@ -56,13 +57,9 @@ export function ThankYouPage({
         {/* Content Section */}
         <div className="space-y-6">
           <div className="space-y-3">
-            <h1 className="text-foreground text-4xl font-extrabold tracking-tight sm:text-5xl">
-              {hasReportsForAllAllowedDates ? "All Caught Up!" : "Thank You!"}
-            </h1>
+            <h1 className="text-foreground text-4xl font-extrabold tracking-tight sm:text-5xl">Thank You!</h1>
             <p className="text-muted-foreground mx-auto max-w-md text-lg leading-relaxed font-medium">
-              {hasReportsForAllAllowedDates
-                ? "You've successfully tracked all activities for the last 3 days. Your record is fully up to date."
-                : "Your daily report has been successfully processed and securely stored in the system."}
+              Your daily report has been successfully processed and securely stored in the system.
             </p>
           </div>
 
@@ -71,22 +68,20 @@ export function ThankYouPage({
             <Badge
               variant="outline"
               className={`gap-2 rounded-full px-4 py-1.5 font-semibold ${
-                hasReportsForAllAllowedDates
-                  ? "border-green-500/20 bg-green-500/5 text-green-700 dark:text-green-400"
-                  : "border-amber-500/20 bg-amber-500/5 text-amber-700 dark:text-amber-400"
+                missingCount > 0
+                  ? "border-amber-500/20 bg-amber-500/5 text-amber-700 dark:text-amber-400"
+                  : "border-green-500/20 bg-green-500/5 text-green-700 dark:text-green-400"
               }`}
             >
-              <div
-                className={`h-2 w-2 rounded-full ${hasReportsForAllAllowedDates ? "bg-green-500" : "bg-amber-500"}`}
-              />
+              <div className={`h-2 w-2 rounded-full ${missingCount > 0 ? "bg-amber-500" : "bg-green-500"}`} />
               {progressText}
             </Badge>
           </div>
 
           {/* Missing Dates Info */}
-          {!hasReportsForAllAllowedDates && missingDates.length > 0 && (
+          {missingDates.length > 0 && (
             <div className="mx-auto max-w-md rounded-lg border border-amber-500/20 bg-amber-500/5 px-4 py-3">
-              <p className="text-sm font-medium text-amber-800 dark:text-amber-400">You still need to log:</p>
+              <p className="text-sm font-medium text-amber-800 dark:text-amber-400">Recent dates you may still want to log:</p>
               <ul className="mt-1 text-sm text-amber-700 dark:text-amber-300">
                 {missingDates.map((date) => (
                   <li key={date} className="flex items-center gap-2">
@@ -101,39 +96,28 @@ export function ThankYouPage({
               </ul>
             </div>
           )}
-
-          {/* Next available info when complete */}
-          {hasReportsForAllAllowedDates && (
-            <p className="text-muted-foreground mx-auto max-w-md text-sm">
-              Next entry available in {hoursUntilNextAvailable} hours (tomorrow at midnight)
-            </p>
-          )}
         </div>
 
         {/* Action Section */}
         <div className="space-y-8">
           <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
-            {!hasReportsForAllAllowedDates && (
-              <Button
-                onClick={onNewReport}
-                size="lg"
-                className="h-14 w-full gap-2 rounded-2xl px-10 font-semibold shadow-lg transition-all sm:w-auto"
-              >
-                <FileText className="h-5 w-5" />
-                Create New Entry
-              </Button>
-            )}
+            <Button
+              onClick={onNewReport}
+              size="lg"
+              className="h-14 w-full gap-2 rounded-2xl px-10 font-semibold shadow-lg transition-all sm:w-auto"
+            >
+              <FileText className="h-5 w-5" />
+              Create New Entry
+            </Button>
 
             <Button
               onClick={onViewReports}
-              variant={hasReportsForAllAllowedDates ? "default" : "outline"}
+              variant="outline"
               size="lg"
-              className={`h-14 w-full gap-2 rounded-2xl font-semibold transition-all sm:w-auto ${
-                hasReportsForAllAllowedDates ? "px-10 shadow-lg" : "px-10"
-              }`}
+              className="h-14 w-full gap-2 rounded-2xl px-10 font-semibold transition-all sm:w-auto"
             >
               <Calendar className="h-5 w-5" />
-              {hasReportsForAllAllowedDates ? "Review Your Logs" : "Historical Records"}
+              Historical Records
             </Button>
           </div>
 

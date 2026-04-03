@@ -4,6 +4,7 @@ import type React from "react"
 import { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { z } from "zod"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
@@ -25,6 +26,7 @@ import {
   canCreateEntryForDate,
   formatLocalDate,
   formatDateHuman,
+  getAllowedDates,
   getDateRestrictionMessage,
   getToday,
 } from "@/lib/date-restrictions"
@@ -32,15 +34,33 @@ import {
 interface EntryFormMultistepProps {
   date?: string
   departmentId: string
+  departmentName?: string
   allowedDates?: string[]
   onSave: () => void
   onCancel: () => void
   initialRoleQuestions?: unknown[]
 }
 
+type FormQuestion = {
+  id?: string
+  key: string
+  label: string
+  title?: string
+  type: string
+  description?: string
+  placeholder?: string
+  options?: unknown
+  category?: string
+  required: boolean
+  order: number
+  validationRules?: unknown
+  defaultValue?: unknown
+}
+
 export function EntryFormMultistep({
   date: initialDate,
   departmentId,
+  departmentName,
   allowedDates,
   onSave,
   onCancel,
@@ -55,11 +75,11 @@ export function EntryFormMultistep({
     departmentId
   )
   const roleQuestionsRef = useRef(roleQuestions)
-  const creatableDates = useMemo(() => {
+  const quickPickDates = useMemo(() => {
     if (Array.isArray(allowedDates) && allowedDates.length > 0) {
       return allowedDates
     }
-    return [getToday()]
+    return getAllowedDates()
   }, [allowedDates])
   const roleQuestionsSignature = useMemo(() => {
     return roleQuestions
@@ -73,6 +93,21 @@ export function EntryFormMultistep({
       })
       .join("|")
   }, [roleQuestions])
+  const normalizedDepartmentName = departmentName?.trim() || "Department"
+  const hasVisibleQuestions = roleQuestions.length > 0
+  const hasDepartmentReportQuestions = useMemo(
+    () => roleQuestions.some((question) => (question as FormQuestion).category === "department_report"),
+    [roleQuestions]
+  )
+  const departmentReportQuestions = useMemo(
+    () => roleQuestions.filter((question) => (question as FormQuestion).category === "department_report") as FormQuestion[],
+    [roleQuestions]
+  )
+  const professionQuestions = useMemo(
+    () =>
+      roleQuestions.filter((question) => (question as FormQuestion).category !== "department_report") as FormQuestion[],
+    [roleQuestions]
+  )
 
   useEffect(() => {
     roleQuestionsRef.current = roleQuestions
@@ -80,15 +115,19 @@ export function EntryFormMultistep({
 
   const [currentStep, setCurrentStep] = useState(1)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [selectedDate, setSelectedDate] = useState<string>(initialDate || creatableDates[0] || getToday())
+  const [selectedDate, setSelectedDate] = useState<string>(() => {
+    if (initialDate && canCreateEntryForDate(initialDate).isValid) {
+      return initialDate
+    }
+    return getToday()
+  })
   const [isDatePickerOpen, setIsDatePickerOpen] = useState(false)
 
   useEffect(() => {
-    if (creatableDates.length === 0) return
-    if (!creatableDates.includes(selectedDate)) {
-      setSelectedDate(initialDate && creatableDates.includes(initialDate) ? initialDate : creatableDates[0])
+    if (initialDate && canCreateEntryForDate(initialDate).isValid && initialDate !== selectedDate) {
+      setSelectedDate(initialDate)
     }
-  }, [creatableDates, initialDate, selectedDate])
+  }, [initialDate, selectedDate])
 
   const [formData, setFormData] = useState({
     // Legacy fields (kept for backward compatibility with existing entries)
@@ -114,8 +153,8 @@ export function EntryFormMultistep({
   }, [selectedDate])
 
   const isSelectedDateLockedForEdits = useMemo(() => {
-    return !creatableDates.includes(selectedDate)
-  }, [creatableDates, selectedDate])
+    return !canCreateEntryForDate(selectedDate).isValid
+  }, [selectedDate])
 
   const userIdForDraft = useMemo(() => {
     const userWithId = user as unknown as { id?: unknown; email?: unknown }
@@ -430,10 +469,10 @@ export function EntryFormMultistep({
       return
     }
 
-    // Step 1 (date selection): allow only still-missing dates in the allowed window.
+    // Step 1 (date selection): allow any past date through today.
     if (currentStepConfig?.key === "date") {
       const createValidation = canCreateEntryForDate(selectedDate)
-      if (!createValidation.isValid || !creatableDates.includes(selectedDate)) {
+      if (!createValidation.isValid) {
         const message = createValidation.error || "This date is not available for a new report"
         setDateError(message)
         toast.error(message)
@@ -488,6 +527,11 @@ export function EntryFormMultistep({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!hasVisibleQuestions) {
+      setLiveMessage("No questions available for this report")
+      return
+    }
+
     setIsSubmitting(true)
 
     try {
@@ -501,7 +545,7 @@ export function EntryFormMultistep({
       // Validate date before submission
       const dateValidation = canCreateEntryForDate(selectedDate)
 
-      if (!dateValidation.isValid || !creatableDates.includes(selectedDate)) {
+      if (!dateValidation.isValid) {
         toast.error(dateValidation.error || "Invalid date selected")
         setIsSubmitting(false)
         return
@@ -598,12 +642,28 @@ export function EntryFormMultistep({
       return d.toLocaleDateString("default", { month: "short", day: "numeric" })
     }
 
-    return creatableDates.map((date, index) => ({
+    return quickPickDates.map((date, index) => ({
       key: `available-${index}`,
       label: formatShort(date),
       date,
     }))
-  }, [creatableDates])
+  }, [quickPickDates])
+  const getQuestionCategoryLabel = useCallback((category?: string, plural = false) => {
+    if (category === "department_report") {
+      return plural ? "Department Report Questions" : "Department Report"
+    }
+    return plural ? "Profession Questions" : "Profession Question"
+  }, [])
+  const getQuestionCategoryDescription = useCallback(
+    (category?: string) => {
+      if (category === "department_report") {
+        return `These answers represent the ${normalizedDepartmentName} department.`
+      }
+      return `These answers apply to your assigned profession in ${normalizedDepartmentName}.`
+    },
+    [normalizedDepartmentName]
+  )
+  const submitButtonLabel = !hasVisibleQuestions ? "No Questions Available" : isSubmitting ? "Saving..." : "Submit Log"
 
   return (
     <div className="mx-auto flex h-full w-full max-w-3xl flex-col space-y-4">
@@ -614,7 +674,8 @@ export function EntryFormMultistep({
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-foreground text-3xl font-bold">Daily Log Entry</h2>
-          <p className="text-muted-foreground mt-2 text-base">{formatDate(selectedDate)}</p>
+          <p className="text-muted-foreground mt-2 text-sm">Reporting for {normalizedDepartmentName}</p>
+          <p className="text-muted-foreground mt-1 text-base">{formatDate(selectedDate)}</p>
           {draftSavedLabel ? <p className="text-muted-foreground mt-2 text-xs">{draftSavedLabel}</p> : null}
         </div>
         <Button variant="outline" size="sm" onClick={onCancel} className="gap-2">
@@ -635,6 +696,17 @@ export function EntryFormMultistep({
               <Progress value={progressPercent} className="h-2 w-36" />
             </div>
           </div>
+          {hasDepartmentReportQuestions ? (
+            <div className="rounded-lg border border-sky-500/30 bg-sky-500/10 p-4">
+              <p className="flex items-center gap-2 text-sm font-medium text-sky-700 dark:text-sky-300">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                Department report included
+              </p>
+              <p className="text-muted-foreground mt-2 text-sm">
+                These answers represent the {normalizedDepartmentName} department.
+              </p>
+            </div>
+          ) : null}
         </CardHeader>
         <CardContent className="flex-1 space-y-6 overflow-y-auto">
           {/* Skeleton loading state while questions load */}
@@ -692,10 +764,9 @@ export function EntryFormMultistep({
                         setIsDatePickerOpen(false)
 
                         const validation = canCreateEntryForDate(newDate)
-                        const isAllowed = creatableDates.includes(newDate)
-                        setDateError(validation.isValid && isAllowed ? null : validation.error || "Invalid date")
+                        setDateError(validation.isValid ? null : validation.error || "Invalid date")
                       }}
-                      disabled={((date: Date) => !creatableDates.includes(formatLocalDate(date))) as Matcher}
+                      disabled={((date: Date) => !canCreateEntryForDate(formatLocalDate(date)).isValid) as Matcher}
                       initialFocus
                       className="w-full"
                       classNames={{
@@ -715,8 +786,7 @@ export function EntryFormMultistep({
                     setSelectedDate(newDate)
 
                     const validation = canCreateEntryForDate(newDate)
-                    const isAllowed = creatableDates.includes(newDate)
-                    setDateError(validation.isValid && isAllowed ? null : validation.error || "Invalid date")
+                    setDateError(validation.isValid ? null : validation.error || "Invalid date")
                   }}
                 />
                 {dateError && (
@@ -735,7 +805,7 @@ export function EntryFormMultistep({
                       Unavailable
                     </p>
                     <p className="text-muted-foreground mt-2 text-xs">
-                      Only missing dates from today and the previous 2 days can be used for a new report.
+                      Future dates are unavailable. You can create a report for any past date through today.
                     </p>
                   </div>
                 ) : null}
@@ -752,7 +822,7 @@ export function EntryFormMultistep({
                   if (!q || typeof q !== "object") return false
                   const key = (q as { key?: unknown }).key
                   return typeof key === "string" && key === questionKey
-                })
+                }) as FormQuestion | undefined
                 if (!question) return null
 
                 const valueForCount = customResponses[String(question.key)]
@@ -764,11 +834,15 @@ export function EntryFormMultistep({
                     <div className="p-0">
                       <div className="space-y-2">
                         <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
+                          <Badge variant={question.category === "department_report" ? "default" : "secondary"}>
+                            {getQuestionCategoryLabel(question.category)}
+                          </Badge>
                           <h3 className="text-sm font-medium">{question.label}</h3>
                           {question.required ? (
                             <span className="text-muted-foreground text-xs">Required field</span>
                           ) : null}
                         </div>
+                        <p className="text-muted-foreground text-sm">{getQuestionCategoryDescription(question.category)}</p>
                         {question.description ? (
                           <p className="text-muted-foreground mt-2 text-sm">{question.description}</p>
                         ) : null}
@@ -802,18 +876,41 @@ export function EntryFormMultistep({
               <div className="bg-accent/10 border-accent/20 rounded-lg border p-4">
                 <p className="text-accent flex items-center gap-2 text-sm font-medium">
                   <Eye className="h-4 w-4" />
-                  Review your role-specific responses before submitting
+                  Review your responses before submitting
                 </p>
               </div>
 
-              {/* Only Role-Based Questions in Preview - Industrial Standard Approach */}
-              {roleQuestions.length > 0 ? (
+              {hasVisibleQuestions ? (
                 <div className="space-y-4 border-t pt-4">
                   <h3 className="text-foreground flex items-center gap-2 text-xl font-semibold">
-                    <ListChecks className="h-5 w-5" /> Role-Specific Responses
+                    <ListChecks className="h-5 w-5" /> Report Responses
                   </h3>
-                  <div className="space-y-4">
-                    {roleQuestions.map((question, index) => {
+                  <div className="space-y-6">
+                    {[
+                      {
+                        key: "department",
+                        title: getQuestionCategoryLabel("department_report", true),
+                        description: `These answers represent the ${normalizedDepartmentName} department.`,
+                        questions: departmentReportQuestions,
+                      },
+                      {
+                        key: "profession",
+                        title: getQuestionCategoryLabel("profession_question", true),
+                        description: `These answers apply to your assigned profession in ${normalizedDepartmentName}.`,
+                        questions: professionQuestions,
+                      },
+                    ]
+                      .filter((group) => group.questions.length > 0)
+                      .map((group) => (
+                        <div key={group.key} className="space-y-3">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <Badge variant={group.key === "department" ? "default" : "secondary"}>{group.title}</Badge>
+                            </div>
+                            <p className="text-muted-foreground text-sm">{group.description}</p>
+                          </div>
+                          <div className="space-y-4">
+                            {group.questions.map((question, index) => {
                       const value = customResponses[String(question.key)]
                       const displayValue = Array.isArray(value)
                         ? value.length
@@ -857,7 +954,10 @@ export function EntryFormMultistep({
                           )}
                         </div>
                       )
-                    })}
+                            })}
+                          </div>
+                        </div>
+                      ))}
                   </div>
                 </div>
               ) : (
@@ -865,9 +965,10 @@ export function EntryFormMultistep({
                   <div className="flex items-start gap-4">
                     <AlertCircle className="mt-0 h-5 w-5 text-amber-500" />
                     <div>
-                      <p className="text-foreground text-sm font-medium">No Role-Specific Questions</p>
+                      <p className="text-foreground text-sm font-medium">No Report Questions Available</p>
                       <p className="text-muted-foreground mt-2 text-xs">
-                        Your role does not have any specific questions configured.
+                        No profession or department report questions are configured for {normalizedDepartmentName}.
+                        Contact an administrator before submitting a log for this department.
                       </p>
                     </div>
                   </div>
@@ -898,9 +999,9 @@ export function EntryFormMultistep({
             <ArrowRight className="h-4 w-4" />
           </Button>
         ) : (
-          <Button onClick={handleSubmit} disabled={isSubmitting || hasCustomErrors} className="gap-2">
+          <Button onClick={handleSubmit} disabled={isSubmitting || hasCustomErrors || !hasVisibleQuestions} className="gap-2">
             <Save className="h-4 w-4" />
-            {isSubmitting ? "Saving..." : "Submit Log"}
+            {submitButtonLabel}
           </Button>
         )}
       </div>

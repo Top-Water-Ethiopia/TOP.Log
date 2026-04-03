@@ -28,14 +28,14 @@ export async function getReportStatus(
   let query = supabase
     .from("captain_log_entries")
     .select("date")
-    .eq("user_id", userId)
+    .eq("submitted_by_user_id", userId)
     .in("date", allowedDates)
     .order("date", { ascending: false })
 
   if (departmentId === null) {
-    query = query.is("department_id", null)
+    query = query.is("subject_department_id", null)
   } else if (typeof departmentId === "string") {
-    query = query.eq("department_id", departmentId)
+    query = query.eq("subject_department_id", departmentId)
   }
 
   const { data: entries, error } = await query

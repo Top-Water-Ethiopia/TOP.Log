@@ -148,12 +148,12 @@ export default function AdminRoleQuestionsDepartmentPage() {
     : null
 
   const title = roleDisplayName
-    ? `${departmentName} · ${roleDisplayName} Questions`
-    : `${departmentName} · Department-wide Questions`
+    ? `${departmentName} · ${roleDisplayName} Profession Questions`
+    : `${departmentName} · Department Report Questions`
 
   const subtitle = departmentRole
-    ? `Manage profession-specific questions for ${roleDisplayName} role in ${departmentName}.`
-    : department?.description || `Manage department-wide questions for ${departmentName}.`
+    ? `Manage profession-specific questions for ${roleDisplayName} in ${departmentName}.`
+    : department?.description || `Manage department report questions for ${departmentName}.`
 
   return (
     <div className="space-y-6">

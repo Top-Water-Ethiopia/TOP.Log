@@ -67,39 +67,12 @@ export async function GET(_request: Request, { params }: { params: Promise<{ dep
     }
     // --- ACCESS CONTROL END ---
 
-    // Get all user_ids in this department
-    // RLS on user_department_professions limits visibility:
-    // - Contributor will only see their own membership row
-    // - Others (lead/manager/supervisor/viewer) can see all members
-    const { data: memberRows, error: membersError } = await adminSupabase
-      .from("user_department_professions")
-      .select("user_id")
-      .eq("department_id", departmentId)
-      .eq("is_active", true)
-
-    if (membersError) {
-      return NextResponse.json(
-        { error: "Failed to load department members", message: membersError.message },
-        { status: 500 }
-      )
-    }
-
-    const safeMemberRows = (memberRows ?? []) as Array<{ user_id: string }>
-    const userIds = Array.from(new Set(safeMemberRows.map((r) => r.user_id)))
-
-    if (userIds.length === 0) {
-      return NextResponse.json({ data: [] })
-    }
-
-    // Fetch entries for those users.
-    // RLS on captain_log_entries will enforce:
-    // - self-only for contributors
-    // - department-wide visibility for lead/manager/supervisor/viewer
+    // Fetch entries that represent this department.
+    // New rows use subject_department_id; the migration backfills legacy rows.
     const { data: entries, error: entriesError } = await adminSupabase
       .from("captain_log_entries")
       .select("*")
-      .eq("department_id", departmentId)
-      .in("user_id", userIds)
+      .eq("subject_department_id", departmentId)
       .order("created_at", { ascending: false })
 
     if (entriesError) {

@@ -32,15 +32,10 @@ type Department = {
   description: string | null
 }
 
-type RoleRow = {
-  id: string
-  name: string
-  department_id: string | null
-}
-
 type RoleQuestionRow = {
   id: string
   department_id: string | null
+  department_profession_id: string | null
   department_role: string | null
   question_label: string
   question_type: string
@@ -55,6 +50,11 @@ type RoleQuestionRow = {
   updated_at: string
   metadata: unknown
   question_key?: string | null
+  department_profession?: {
+    id: string
+    key: string
+    label: string
+  } | null
 }
 
 export default function AdminRoleQuestionsPage() {
@@ -63,7 +63,9 @@ export default function AdminRoleQuestionsPage() {
   const searchParams = useSearchParams()
   const { toast } = useToast()
 
-  const defaultTab = searchParams?.get("tab") === "department_lead" ? "department_lead" : "professions"
+  const requestedTab = searchParams?.get("tab")
+  const defaultTab =
+    requestedTab === "department_reports" || requestedTab === "department_lead" ? "department_reports" : "professions"
 
   const { hasPermission, rbacChecked, rbacLoading } = useRBAC()
   const canAccessAdmin = hasPermission("admin.system")
@@ -72,15 +74,11 @@ export default function AdminRoleQuestionsPage() {
 
   const questionsKey = canAccessAdmin ? "/api/role-questions" : null
   const departmentsKey = canAccessAdmin ? "/api/admin/departments" : null
-  const rolesKey = canAccessAdmin ? "/api/admin/roles" : null
   const {
     data: departmentsResponse,
     error: departmentsError,
     isLoading: isDepartmentsLoading,
   } = useSWR<{ data: Department[] }>(departmentsKey, (url: string) => apiFetch<{ data: Department[] }>(url))
-  const { data: rolesResponse } = useSWR<{ data: RoleRow[] }>(rolesKey, (url: string) =>
-    apiFetch<{ data: RoleRow[] }>(url)
-  )
   const {
     data: questionsResponse,
     error: questionsError,
@@ -105,27 +103,16 @@ export default function AdminRoleQuestionsPage() {
   }, [questionsError, departmentsError, toast])
 
   const departments = useMemo(() => departmentsResponse?.data || [], [departmentsResponse])
-  const roles = useMemo(() => rolesResponse?.data || [], [rolesResponse])
   const questions = useMemo(() => (Array.isArray(questionsResponse) ? questionsResponse : []), [questionsResponse])
 
   const departmentsById = useMemo(() => new Map(departments.map((d) => [d.id, d])), [departments])
 
-  const roleIdByDepartmentAndName = useMemo(() => {
-    const map = new Map<string, string>()
-    for (const r of roles) {
-      if (!r.department_id) continue
-      const key = `${r.department_id}:${r.name}`
-      map.set(key, r.id)
-    }
-    return map
-  }, [roles])
-
   const roleQuestionCounts = useMemo(() => {
     const map = new Map<string, { total: number; active: number }>()
     for (const q of questions) {
-      // Profession questions: department_id + department_role
-      if (q.department_id && q.department_role) {
-        const key = `${q.department_id}:${q.department_role}`
+      const professionScopeId = q.department_profession_id || q.department_role
+      if (q.department_id && professionScopeId) {
+        const key = `${q.department_id}:${professionScopeId}`
         const current = map.get(key) || { total: 0, active: 0 }
         current.total += 1
         if (q.is_active) current.active += 1
@@ -138,8 +125,7 @@ export default function AdminRoleQuestionsPage() {
   const departmentQuestionCounts = useMemo(() => {
     const map = new Map<string, { total: number; active: number }>()
     for (const q of questions) {
-      // Department lead questions: department_id + department_role IS NULL
-      if (q.department_id && !q.department_role) {
+      if (q.department_id && !q.department_profession_id && !q.department_role) {
         const current = map.get(q.department_id) || { total: 0, active: 0 }
         current.total += 1
         if (q.is_active) current.active += 1
@@ -163,9 +149,10 @@ export default function AdminRoleQuestionsPage() {
 
     // Group profession questions by department_id
     for (const q of questions) {
-      if (!q.department_id || !q.department_role) continue
+      const professionScopeId = q.department_profession_id || q.department_role
+      if (!q.department_id || !professionScopeId) continue
 
-      const countsKey = `${q.department_id}:${q.department_role}`
+      const countsKey = `${q.department_id}:${professionScopeId}`
       const current = roleQuestionCounts.get(countsKey) || { total: 0, active: 0 }
       if (current.total === 0) continue
 
@@ -173,12 +160,13 @@ export default function AdminRoleQuestionsPage() {
       const departmentName = department?.name || "Unknown"
       const existing = grouped.get(departmentName) || []
 
-      const roleId = roleIdByDepartmentAndName.get(`${q.department_id}:${q.department_role}`) || null
       existing.push({
-        key: q.department_role,
-        label: q.department_role.charAt(0).toUpperCase() + q.department_role.slice(1).replace(/-/g, " "),
+        key: professionScopeId,
+        label:
+          q.department_profession?.label ||
+          (q.department_role ? q.department_role.charAt(0).toUpperCase() + q.department_role.slice(1).replace(/-/g, " ") : "Unknown Profession"),
         departmentId: q.department_id,
-        roleId,
+        roleId: q.department_profession_id || null,
       })
       grouped.set(departmentName, existing)
     }
@@ -191,7 +179,7 @@ export default function AdminRoleQuestionsPage() {
     }
 
     return Array.from(grouped.entries()).sort(([a], [b]) => a.localeCompare(b))
-  }, [questions, roleQuestionCounts, departmentsById, roleIdByDepartmentAndName])
+  }, [questions, roleQuestionCounts, departmentsById])
 
   // Table data: departments with lead questions
   const departmentsWithLeadQuestions = useMemo(() => {
@@ -311,14 +299,14 @@ export default function AdminRoleQuestionsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Professions Questions</CardTitle>
+          <CardTitle>Profession Questions</CardTitle>
           <CardDescription>Select a profession to manage its questions.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
           <Tabs defaultValue={defaultTab} className="w-full">
             <TabsList>
-              <TabsTrigger value="professions">Professions Questions</TabsTrigger>
-              <TabsTrigger value="department_lead">Department Lead Questions</TabsTrigger>
+              <TabsTrigger value="professions">Profession Questions</TabsTrigger>
+              <TabsTrigger value="department_reports">Department Report Questions</TabsTrigger>
             </TabsList>
 
             <TabsContent value="professions" className="mt-4 space-y-2">
@@ -400,7 +388,7 @@ export default function AdminRoleQuestionsPage() {
               )}
             </TabsContent>
 
-            <TabsContent value="department_lead" className="mt-4 space-y-2">
+            <TabsContent value="department_reports" className="mt-4 space-y-2">
               {isDepartmentsLoading || isQuestionsLoading ? (
                 <div className="space-y-2">
                   {[...Array(8)].map((_, i) => (

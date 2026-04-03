@@ -77,6 +77,7 @@ interface RoleQuestion {
   id: string
   role_id: string | null
   department_id?: string | null
+  department_profession_id?: string | null
   department_role?: string | null
   question_key: string
   question_label: string
@@ -634,13 +635,20 @@ export function RoleQuestionsManager({
 
     if (departmentOnly && departmentId) {
       filtered = filtered.filter(
-        (q) => q.department_id === departmentId && (q.department_role === null || q.department_role === undefined)
+        (q) =>
+          q.department_id === departmentId &&
+          (q.department_profession_id === null || q.department_profession_id === undefined) &&
+          (q.department_role === null || q.department_role === undefined)
       )
     }
 
-    // Department role filter (profession-specific)
+    // Department profession filter with legacy key fallback.
     if (departmentRole && departmentId) {
-      filtered = filtered.filter((q) => q.department_id === departmentId && q.department_role === departmentRole)
+      filtered = filtered.filter(
+        (q) =>
+          q.department_id === departmentId &&
+          (q.department_profession_id === departmentRole || q.department_role === departmentRole)
+      )
     }
 
     // Role filter

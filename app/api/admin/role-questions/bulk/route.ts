@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server"
 import { findDuplicateValues, getLegacyQuestionKeyFromMetadata, normalizeQuestionKey } from "@/lib/role-question-identity"
+import { getRoleQuestionScopeCacheKey, resolveRoleQuestionScope } from "@/lib/reporting-model"
 import { adminSupabase } from "@/lib/supabase/admin"
 import { createClient } from "@/lib/supabase/server"
 
@@ -26,29 +27,48 @@ function mergeMetadata(existingMeta: unknown, incomingMeta: unknown, legacyQuest
 
 function getQuestionScope(
   question: any
-): { kind: "department_role"; role: string; departmentId: string | null } | { kind: "department"; id: string } | null {
-  const departmentId =
-    typeof question?.department_id === "string" && question.department_id ? question.department_id : null
-  const departmentRole =
-    typeof question?.department_role === "string" && question.department_role ? question.department_role : null
+):
+  | {
+      kind: "profession"
+      departmentId: string
+      departmentProfessionId: string | null
+      departmentProfessionKey: string | null
+    }
+  | { kind: "department"; id: string }
+  | null {
+  const scope = resolveRoleQuestionScope(question)
+  if (!scope) return null
 
-  // Role-scoped: requires department_role, may also have department_id
-  if (departmentRole) {
-    return { kind: "department_role", role: departmentRole, departmentId }
+  if (scope.kind === "department") {
+    return { kind: "department", id: scope.departmentId }
   }
-  // Department-scoped: only department_id
-  if (departmentId) {
-    return { kind: "department", id: departmentId }
+
+  if (!scope.departmentId) {
+    return null
   }
-  return null
+
+  return {
+    kind: "profession",
+    departmentId: scope.departmentId,
+    departmentProfessionId: scope.departmentProfessionId,
+    departmentProfessionKey: scope.departmentProfessionKey,
+  }
 }
 
 function getScopeCacheKey(scope: NonNullable<ReturnType<typeof getQuestionScope>>): string {
   if (scope.kind === "department") {
-    return `${scope.kind}:${scope.id}`
+    return getRoleQuestionScopeCacheKey({
+      kind: "department",
+      departmentId: scope.id,
+    })
   }
 
-  return `${scope.kind}:${scope.departmentId}:${scope.role}`
+  return getRoleQuestionScopeCacheKey({
+    kind: "profession",
+    departmentId: scope.departmentId,
+    departmentProfessionId: scope.departmentProfessionId,
+    departmentProfessionKey: scope.departmentProfessionKey,
+  })
 }
 
 function resolveIncomingQuestionKey(question: any, index: number): string {
@@ -139,11 +159,12 @@ export async function POST(request: Request) {
 
     // Prepare questions for insertion
     const questionsToInsert = questions.map((question: any, index: number) => {
-      const legacyQuestionKey = resolveIncomingQuestionKey(question, index)
-      const scope = getQuestionScope(question)
-      return {
+        const legacyQuestionKey = resolveIncomingQuestionKey(question, index)
+        const scope = getQuestionScope(question)
+        return {
         department_id: scope?.kind === "department" ? scope.id : (scope?.departmentId ?? null),
-        department_role: scope?.kind === "department_role" ? scope.role : null,
+        department_profession_id: scope?.kind === "profession" ? scope.departmentProfessionId : null,
+        department_role: scope?.kind === "profession" ? scope.departmentProfessionKey : null,
         question_label: question.question_label.trim(),
         question_type: question.question_type,
         question_description: question.question_description?.trim() || null,
@@ -232,7 +253,7 @@ export async function PUT(request: Request) {
       const scope = getQuestionScope(question)
       if (!scope) {
         errors.push(
-          `Question ${index + 1}: Provide department_id for department scope or department_role for role scope`
+          `Question ${index + 1}: Provide department_id for department reports or department_profession_id for profession questions`
         )
       }
       if (!question.question_label?.trim()) {
@@ -277,10 +298,7 @@ export async function PUT(request: Request) {
           .map((q: any) => {
             const scope = getQuestionScope(q)
             if (!scope) return null
-            if (scope.kind === "department") {
-              return `${scope.kind}:${scope.id}`
-            }
-            return `${scope.kind}:${scope.departmentId}:${scope.role}`
+            return getScopeCacheKey(scope)
           })
           .filter(Boolean)
       )
@@ -292,28 +310,40 @@ export async function PUT(request: Request) {
       const kind = parts[0]
       const scope:
         | { kind: "department"; id: string }
-        | { kind: "department_role"; departmentId: string; role: string } =
+        | {
+            kind: "profession"
+            departmentId: string
+            departmentProfessionId: string | null
+            departmentProfessionKey: string | null
+          } =
         kind === "department"
           ? { kind: "department", id: parts[1] }
-          : { kind: "department_role", departmentId: parts[1], role: parts[2] }
+          : {
+              kind: "profession",
+              departmentId: parts[1],
+              departmentProfessionId: parts[2] !== "unknown" ? parts[2] : null,
+              departmentProfessionKey: parts[3] !== "unknown" ? parts[3] : null,
+            }
       const scopeQuestions = questions.filter((q: any) => {
         const qScope = getQuestionScope(q)
         if (kind === "department") {
           return qScope?.kind === "department" && qScope?.id === parts[1]
         } else {
-          return qScope?.kind === "department_role" && qScope?.role === parts[2] && qScope?.departmentId === parts[1]
+          return (
+            qScope?.kind === "profession" &&
+            qScope?.departmentId === parts[1] &&
+            (qScope?.departmentProfessionId ?? "unknown") === parts[2] &&
+            (qScope?.departmentProfessionKey ?? "unknown") === parts[3]
+          )
         }
       })
 
-      let existingQuery = adminSupabase.from("role_questions").select("id, metadata")
-
-      if (scope.kind === "department_role") {
-        existingQuery = existingQuery.eq("department_id", scope.departmentId).eq("department_role", scope.role)
-      } else {
-        existingQuery = existingQuery.eq("department_id", scope.id).is("department_role", null)
-      }
-
-      const { data: existingRows, error: existingError } = await existingQuery.limit(10000)
+      const targetDepartmentId = scope.kind === "department" ? scope.id : scope.departmentId
+      const { data: existingRows, error: existingError } = await adminSupabase
+        .from("role_questions")
+        .select("id, metadata, department_id, department_profession_id, department_role")
+        .eq("department_id", targetDepartmentId)
+        .limit(10000)
 
       if (existingError) {
         return NextResponse.json(
@@ -324,15 +354,29 @@ export async function PUT(request: Request) {
 
       const existingById = new Map<string, any>()
       const existingByLegacyKey = new Map<string, any>()
-      ;(existingRows || []).forEach((row: any) => {
-        if (row?.id) {
-          existingById.set(row.id, row)
-          const legacyKey = row.metadata?.legacy_question_key
-          if (typeof legacyKey === "string" && legacyKey.trim()) {
-            existingByLegacyKey.set(legacyKey.trim(), row)
+      ;((existingRows || []) as any[])
+        .filter((row) => {
+          const rowScope = getQuestionScope(row)
+          if (scope.kind === "department") {
+            return rowScope?.kind === "department" && rowScope.id === scope.id
           }
-        }
-      })
+
+          return (
+            rowScope?.kind === "profession" &&
+            rowScope.departmentId === scope.departmentId &&
+            (rowScope.departmentProfessionId ?? null) === scope.departmentProfessionId &&
+            (rowScope.departmentProfessionKey ?? null) === scope.departmentProfessionKey
+          )
+        })
+        .forEach((row: any) => {
+          if (row?.id) {
+            existingById.set(row.id, row)
+            const legacyKey = row.metadata?.legacy_question_key
+            if (typeof legacyKey === "string" && legacyKey.trim()) {
+              existingByLegacyKey.set(legacyKey.trim(), row)
+            }
+          }
+        })
 
       const existingIds = new Set(Array.from(existingById.keys()))
       const keepIds = new Set<string>()
@@ -355,15 +399,7 @@ export async function PUT(request: Request) {
       const toDeleteIds = Array.from(existingIds).filter((id) => !keepIds.has(id))
 
       if (toDeleteIds.length > 0) {
-        let query = adminSupabase.from("role_questions").delete()
-
-        if (scope.kind === "department_role") {
-          query = query.eq("department_id", scope.departmentId).eq("department_role", scope.role)
-        } else {
-          query = query.eq("department_id", scope.id).is("department_role", null)
-        }
-
-        const { error: deleteError } = await query.in("id", toDeleteIds)
+        const { error: deleteError } = await adminSupabase.from("role_questions").delete().in("id", toDeleteIds)
 
         if (deleteError) {
           return NextResponse.json(
@@ -389,7 +425,8 @@ export async function PUT(request: Request) {
         const base = {
           ...(resolvedId ? { id: resolvedId } : {}),
           department_id: scope.kind === "department" ? scope.id : scope.departmentId,
-          department_role: scope.kind === "department_role" ? scope.role : null,
+          department_profession_id: scope.kind === "profession" ? scope.departmentProfessionId : null,
+          department_role: scope.kind === "profession" ? scope.departmentProfessionKey : null,
           question_label: question.question_label.trim(),
           question_type: question.question_type,
           question_description: question.question_description?.trim() || null,

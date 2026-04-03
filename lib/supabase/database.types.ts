@@ -95,6 +95,10 @@ export type Database = {
           department_id: string | null
           id: string
           metadata: Json | null
+          report_kind: string
+          subject_department_id: string | null
+          subject_profession_id: string | null
+          submitted_by_user_id: string | null
           updated_at: string | null
           user_id: string
           version: number | null
@@ -105,6 +109,10 @@ export type Database = {
           department_id?: string | null
           id?: string
           metadata?: Json | null
+          report_kind?: string
+          subject_department_id?: string | null
+          subject_profession_id?: string | null
+          submitted_by_user_id?: string | null
           updated_at?: string | null
           user_id: string
           version?: number | null
@@ -115,6 +123,10 @@ export type Database = {
           department_id?: string | null
           id?: string
           metadata?: Json | null
+          report_kind?: string
+          subject_department_id?: string | null
+          subject_profession_id?: string | null
+          submitted_by_user_id?: string | null
           updated_at?: string | null
           user_id?: string
           version?: number | null
@@ -125,6 +137,20 @@ export type Database = {
             columns: ["department_id"]
             isOneToOne: false
             referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "captain_log_entries_subject_department_id_fkey"
+            columns: ["subject_department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "captain_log_entries_subject_profession_id_fkey"
+            columns: ["subject_profession_id"]
+            isOneToOne: false
+            referencedRelation: "department_professions"
             referencedColumns: ["id"]
           },
         ]
@@ -404,6 +430,7 @@ export type Database = {
           created_at: string
           created_by: string | null
           department_id: string | null
+          department_profession_id: string | null
           department_role: string | null
           display_order: number
           id: string
@@ -431,6 +458,7 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           department_id?: string | null
+          department_profession_id?: string | null
           department_role?: string | null
           display_order?: number
           id?: string
@@ -458,6 +486,7 @@ export type Database = {
           created_at?: string
           created_by?: string | null
           department_id?: string | null
+          department_profession_id?: string | null
           department_role?: string | null
           display_order?: number
           id?: string
@@ -487,6 +516,13 @@ export type Database = {
             columns: ["department_id"]
             isOneToOne: false
             referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "role_questions_department_profession_id_fkey"
+            columns: ["department_profession_id"]
+            isOneToOne: false
+            referencedRelation: "department_professions"
             referencedColumns: ["id"]
           },
         ]

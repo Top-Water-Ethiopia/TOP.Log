@@ -4,8 +4,8 @@ import { verifyPermissionFromRequest } from "@/lib/rbac/server"
 
 export const dynamic = "force-dynamic"
 
-// Map roles to access levels for backward compatibility
-const roleToAccessLevelMap: Record<string, string> = {
+// Legacy compatibility for older clients that still submit profession keys.
+const legacyRoleToAccessLevelMap: Record<string, string> = {
   member: "contributor",
   lead: "department-lead",
   manager: "department-manager",
@@ -20,61 +20,52 @@ export async function GET(request: Request, { params }: { params: Promise<{ depa
       return NextResponse.json({ error: auth.error }, { status: auth.status })
     }
 
-    const { departmentId } = await params
+    await params
 
-    // Get users with access levels that allow answering department questions
-    // First, find the permission_definition_id for department_questions.answer
-    const { data: permDef } = await adminSupabase
+    const { data: permissionDefinition } = await adminSupabase
       .from("permission_definitions")
       .select("id")
       .eq("resource", "department_questions")
       .eq("action", "answer")
       .single()
 
-    if (!permDef) {
-      return NextResponse.json({ data: { allowedRoles: [] } })
+    const { data: accessLevels, error: accessLevelsError } = await adminSupabase
+      .from("department_access_levels")
+      .select("id, name, display_name, description, level, is_active")
+      .eq("is_active", true)
+      .order("level", { ascending: false })
+
+    if (accessLevelsError) {
+      return NextResponse.json(
+        { error: "Failed to load access levels", message: accessLevelsError.message },
+        { status: 500 }
+      )
     }
 
-    const { data: rows, error } = await adminSupabase
-      .from("user_department_access_levels")
-      .select(
-        `
-        user_id,
-        access_level_id,
-        department_access_levels!inner (
-          name,
-          display_name
-        ),
-        department_access_level_permissions!inner (
-          effect,
-          permission_definition_id
-        )
-      `
-      )
-      .eq("department_id", departmentId)
-      .eq("department_access_level_permissions.permission_definition_id", permDef.id)
-      .eq("department_access_level_permissions.effect", "allow")
+    if (!permissionDefinition?.id) {
+      return NextResponse.json({ data: { accessLevels: accessLevels || [], allowedAccessLevels: [] } })
+    }
+
+    const { data: existingRows, error: existingError } = await adminSupabase
+      .from("department_access_level_permissions")
+      .select("access_level_id")
+      .eq("permission_definition_id", permissionDefinition.id)
+      .eq("effect", "allow")
       .limit(10000)
 
-    if (error) {
-      return NextResponse.json({ error: "Failed to load access control", message: error.message }, { status: 500 })
+    if (existingError) {
+      return NextResponse.json(
+        { error: "Failed to load access control", message: existingError.message },
+        { status: 500 }
+      )
     }
 
-    // Get the department roles for these users (for backward compatibility)
-    const userIds = (rows || []).map((r) => r.user_id).filter(Boolean)
-    const { data: userRoles } = await adminSupabase
-      .from("user_department_professions")
-      .select("user_id, role")
-      .eq("department_id", departmentId)
-      .eq("is_active", true)
-      .in("user_id", userIds)
+    const allowedAccessLevelIds = new Set((existingRows || []).map((row) => row.access_level_id))
+    const allowedAccessLevels = (accessLevels || [])
+      .filter((level) => allowedAccessLevelIds.has(level.id))
+      .map((level) => level.name)
 
-    const allowedRoles = (userRoles || [])
-      .map((r) => r.role)
-      .filter((r): r is string => typeof r === "string" && r.length > 0)
-      .filter((role, index, arr) => arr.indexOf(role) === index) // Remove duplicates
-
-    return NextResponse.json({ data: { allowedRoles } })
+    return NextResponse.json({ data: { accessLevels: accessLevels || [], allowedAccessLevels } })
   } catch (error) {
     return NextResponse.json(
       { error: "Failed to load access control", message: error instanceof Error ? error.message : "Unknown error" },
@@ -83,68 +74,56 @@ export async function GET(request: Request, { params }: { params: Promise<{ depa
   }
 }
 
-export async function PUT(request: Request) {
+export async function PUT(request: Request, { params }: { params: Promise<{ departmentId: string }> }) {
   try {
     const auth = await verifyPermissionFromRequest(request, "admin.system")
     if (!auth.ok) {
       return NextResponse.json({ error: auth.error }, { status: auth.status })
     }
 
+    await params
+
     const body = await request.json().catch(() => ({}))
+    const allowedAccessLevelsRaw = Array.isArray(body.allowedAccessLevels)
+      ? body.allowedAccessLevels
+      : Array.isArray(body.allowedRoles)
+        ? body.allowedRoles.map((role: string) => legacyRoleToAccessLevelMap[role] || role)
+        : null
 
-    const allowedRolesRaw = body.allowedRoles
-    if (!Array.isArray(allowedRolesRaw)) {
-      return NextResponse.json({ error: "allowedRoles must be an array" }, { status: 400 })
+    if (!Array.isArray(allowedAccessLevelsRaw)) {
+      return NextResponse.json({ error: "allowedAccessLevels must be an array" }, { status: 400 })
     }
 
-    const allowedRoles = Array.from(new Set(allowedRolesRaw.filter((r: unknown): r is string => typeof r === "string")))
+    const allowedAccessLevels = Array.from(
+      new Set(allowedAccessLevelsRaw.filter((value: unknown): value is string => typeof value === "string"))
+    )
 
-    if (allowedRoles.length > 0) {
-      const { data: validRows, error: rolesError } = await adminSupabase
-        .from("department_professions")
-        .select("key")
-        .in("key", allowedRoles)
-        .eq("is_active", true)
-        .limit(10000)
-
-      if (rolesError) {
-        return NextResponse.json({ error: "Failed to validate roles", message: rolesError.message }, { status: 500 })
-      }
-
-      const validKeys = new Set((validRows || []).map((r) => r.key))
-      const invalid = allowedRoles.filter((r) => !validKeys.has(r))
-      if (invalid.length > 0) {
-        return NextResponse.json(
-          { error: `Invalid Department Access Control role(s): ${invalid.join(", ")}` },
-          { status: 400 }
-        )
-      }
-    }
-
-    // Map roles to access levels
-    const accessLevelsToAllow = allowedRoles
-      .map((role) => roleToAccessLevelMap[role] || "contributor")
-      .filter((level, index, arr) => arr.indexOf(level) === index) // Remove duplicates
-
-    // Get all access levels
-    const { data: allAccessLevels } = await adminSupabase
+    const { data: allAccessLevels, error: allAccessLevelsError } = await adminSupabase
       .from("department_access_levels")
       .select("id, name")
       .eq("is_active", true)
 
-    if (!allAccessLevels) {
+    if (allAccessLevelsError || !allAccessLevels) {
       return NextResponse.json({ error: "Failed to load access levels" }, { status: 500 })
     }
 
-    // Get existing permissions for department_questions.answer
-    const { data: permDef } = await adminSupabase
+    const validNames = new Set(allAccessLevels.map((level) => level.name))
+    const invalid = allowedAccessLevels.filter((name) => !validNames.has(name))
+    if (invalid.length > 0) {
+      return NextResponse.json(
+        { error: `Invalid department access level(s): ${invalid.join(", ")}` },
+        { status: 400 }
+      )
+    }
+
+    const { data: permissionDefinition } = await adminSupabase
       .from("permission_definitions")
       .select("id")
       .eq("resource", "department_questions")
       .eq("action", "answer")
       .single()
 
-    if (!permDef) {
+    if (!permissionDefinition?.id) {
       return NextResponse.json({ error: "Permission definition not found" }, { status: 500 })
     }
 
@@ -153,9 +132,9 @@ export async function PUT(request: Request) {
       .select("id, access_level_id")
       .in(
         "access_level_id",
-        allAccessLevels.map((al) => al.id)
+        allAccessLevels.map((level) => level.id)
       )
-      .eq("permission_definition_id", permDef.id)
+      .eq("permission_definition_id", permissionDefinition.id)
       .eq("effect", "allow")
       .limit(10000)
 
@@ -166,15 +145,16 @@ export async function PUT(request: Request) {
       )
     }
 
-    const existingAccessLevelIds = new Set((existingRows || []).map((r) => r.access_level_id))
+    const existingAccessLevelIds = new Set((existingRows || []).map((row) => row.access_level_id))
     const allowedAccessLevelIds = new Set(
-      allAccessLevels.filter((al) => accessLevelsToAllow.includes(al.name)).map((al) => al.id)
+      allAccessLevels.filter((level) => allowedAccessLevels.includes(level.name)).map((level) => level.id)
     )
 
     const toAdd = Array.from(allowedAccessLevelIds).filter((id) => !existingAccessLevelIds.has(id))
-    const toRemove = Array.from(existingAccessLevelIds).filter((id) => !allowedAccessLevelIds.has(id))
+    const toRemove = (existingRows || [])
+      .filter((row) => !allowedAccessLevelIds.has(row.access_level_id))
+      .map((row) => row.id)
 
-    // Remove permissions for access levels that should no longer have access
     if (toRemove.length > 0) {
       const { error: deleteError } = await adminSupabase
         .from("department_access_level_permissions")
@@ -186,12 +166,11 @@ export async function PUT(request: Request) {
       }
     }
 
-    // Add permissions for new access levels
     if (toAdd.length > 0) {
       const { error: insertError } = await adminSupabase.from("department_access_level_permissions").insert(
-        toAdd.map((access_level_id) => ({
-          access_level_id,
-          permission_definition_id: permDef.id,
+        toAdd.map((accessLevelId) => ({
+          access_level_id: accessLevelId,
+          permission_definition_id: permissionDefinition.id,
           effect: "allow",
           created_by: auth.userId,
           updated_by: auth.userId,
@@ -204,7 +183,7 @@ export async function PUT(request: Request) {
       }
     }
 
-    return NextResponse.json({ data: { allowedRoles } })
+    return NextResponse.json({ data: { allowedAccessLevels } })
   } catch (error) {
     return NextResponse.json(
       { error: "Failed to update access control", message: error instanceof Error ? error.message : "Unknown error" },

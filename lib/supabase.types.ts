@@ -49,6 +49,10 @@ export interface Database {
           user_id: string
           date: string
           department_id: string | null
+          submitted_by_user_id: string | null
+          report_kind: string
+          subject_department_id: string | null
+          subject_profession_id: string | null
           created_at: string
           updated_at: string
           version: number
@@ -59,6 +63,10 @@ export interface Database {
           user_id: string
           date: string
           department_id?: string | null
+          submitted_by_user_id?: string | null
+          report_kind?: string
+          subject_department_id?: string | null
+          subject_profession_id?: string | null
           created_at?: string
           updated_at?: string
           version?: number
@@ -69,6 +77,10 @@ export interface Database {
           user_id?: string
           date?: string
           department_id?: string | null
+          submitted_by_user_id?: string | null
+          report_kind?: string
+          subject_department_id?: string | null
+          subject_profession_id?: string | null
           created_at?: string
           updated_at?: string
           version?: number
@@ -87,6 +99,20 @@ export interface Database {
             columns: ["department_id"]
             isOneToOne: false
             referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "captain_log_entries_subject_department_id_fkey"
+            columns: ["subject_department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "captain_log_entries_subject_profession_id_fkey"
+            columns: ["subject_profession_id"]
+            isOneToOne: false
+            referencedRelation: "department_professions"
             referencedColumns: ["id"]
           },
         ]
@@ -201,6 +227,9 @@ export interface Database {
         Row: {
           id: string
           role_id: string
+          department_id: string | null
+          department_profession_id: string | null
+          department_role: string | null
           question_label: string
           question_type: string
           question_description: string | null
@@ -227,6 +256,9 @@ export interface Database {
         Insert: {
           id?: string
           role_id: string
+          department_id?: string | null
+          department_profession_id?: string | null
+          department_role?: string | null
           question_label: string
           question_type: string
           question_description?: string | null
@@ -253,6 +285,9 @@ export interface Database {
         Update: {
           id?: string
           role_id?: string
+          department_id?: string | null
+          department_profession_id?: string | null
+          department_role?: string | null
           question_label?: string
           question_type?: string
           question_description?: string | null
@@ -282,6 +317,20 @@ export interface Database {
             columns: ["role_id"]
             isOneToOne: false
             referencedRelation: "roles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "role_questions_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "role_questions_department_profession_id_fkey"
+            columns: ["department_profession_id"]
+            isOneToOne: false
+            referencedRelation: "department_professions"
             referencedColumns: ["id"]
           },
         ]

@@ -139,7 +139,7 @@ export async function GET() {
     // Use adminSupabase to bypass RLS and get department roles
     const { data: allRoles, error: allRolesError } = await adminSupabase
       .from("department_professions")
-      .select("id:key, name:label")
+      .select("id, key, label")
       .eq("is_active", true)
       .order("department_id, sort_order")
 
@@ -158,7 +158,7 @@ export async function GET() {
       console.error("Error fetching all departments:", allDeptsError)
     }
 
-    const roleMap = new Map((allRoles as any[])?.map((r) => [r.id, r.name]) || [])
+    const roleMap = new Map((allRoles as any[])?.map((r) => [r.id, r.label]) || [])
     const deptMap = new Map((allDepartments as any[])?.map((d) => [d.id, d.name]) || [])
 
     const allUserIds = (allUsers as any[])?.map((u) => u.user_id).filter(Boolean) || []
@@ -167,7 +167,7 @@ export async function GET() {
         ? await adminSupabase
             .from("user_department_professions")
             .select(
-              "user_id, department_id, role, department_profession:department_professions!fk_user_department_professions_department_profession(label)"
+              "user_id, department_id, role, department_role_id, department_profession:department_professions!fk_user_department_professions_department_profession(label)"
             )
             .in("user_id", allUserIds)
             .eq("is_active", true)
@@ -179,17 +179,23 @@ export async function GET() {
 
     const professionByUserId = new Map<
       string,
-      { department_id: string | null; role_id: string | null; role_name: string | null }
+      { department_id: string | null; role_id: string | null; role_key: string | null; role_name: string | null }
     >()
     ;(professionRows as any[])?.forEach((row) => {
       const userId = typeof row?.user_id === "string" ? row.user_id : null
       if (!userId) return
 
       const departmentId = typeof row?.department_id === "string" ? row.department_id : null
+      const roleId = typeof row?.department_role_id === "string" ? row.department_role_id : null
       const roleKey = typeof row?.role === "string" ? row.role : null
       const roleName = typeof row?.department_profession?.label === "string" ? row.department_profession.label : null
 
-      professionByUserId.set(userId, { department_id: departmentId, role_id: roleKey, role_name: roleName })
+      professionByUserId.set(userId, {
+        department_id: departmentId,
+        role_id: roleId,
+        role_key: roleKey,
+        role_name: roleName,
+      })
     })
 
     const normalizedUsers =
@@ -209,7 +215,7 @@ export async function GET() {
       return NextResponse.json({
         entries: [],
         users: normalizedUsers,
-        roles: (allRoles as any[])?.map((r) => ({ id: r.id, name: r.name })) || [],
+        roles: (allRoles as any[])?.map((r) => ({ id: r.id, name: r.label })) || [],
         departments: (allDepartments as any[])?.map((d) => ({ id: d.id, name: d.name })) || [],
       })
     }
@@ -246,14 +252,24 @@ export async function GET() {
     const entryDeptIds = Array.from(
       new Set(
         (entries as any[])
-          .map((e) => (typeof (e as any)?.department_id === "string" ? (e as any).department_id : null))
+          .map((e) =>
+            typeof (e as any)?.subject_department_id === "string"
+              ? (e as any).subject_department_id
+              : typeof (e as any)?.department_id === "string"
+                ? (e as any).department_id
+                : null
+          )
           .filter((id): id is string => Boolean(id))
       )
     )
-    const entryProfessionRoleIds = Array.from(
+    const entryProfessionIds = Array.from(
       new Set(
         (entries as any[])
-          .map((e) => professionByUserId.get((e as any).user_id)?.role_id || null)
+          .map((e) =>
+            typeof (e as any)?.subject_profession_id === "string"
+              ? (e as any).subject_profession_id
+              : professionByUserId.get((e as any).user_id)?.role_id || null
+          )
           .filter((id): id is string => Boolean(id))
       )
     )
@@ -265,13 +281,15 @@ export async function GET() {
               .from("role_questions")
               .select("department_id")
               .in("department_id", entryDeptIds)
+              .is("department_profession_id", null)
+              .is("department_role", null)
               .eq("is_active", true)
           : Promise.resolve({ data: [], error: null }),
-        entryProfessionRoleIds.length > 0
+        entryProfessionIds.length > 0
           ? adminSupabase
               .from("role_questions")
-              .select("department_role")
-              .in("department_role", entryProfessionRoleIds)
+              .select("department_profession_id")
+              .in("department_profession_id", entryProfessionIds)
               .eq("is_active", true)
           : Promise.resolve({ data: [], error: null }),
       ])
@@ -292,24 +310,36 @@ export async function GET() {
 
     const roleQuestionCountByRoleId = new Map<string, number>()
     ;(roleQuestions as any[])?.forEach((row) => {
-      const roleId = typeof row?.department_role === "string" ? row.department_role : null
+      const roleId = typeof row?.department_profession_id === "string" ? row.department_profession_id : null
       if (!roleId) return
       roleQuestionCountByRoleId.set(roleId, (roleQuestionCountByRoleId.get(roleId) || 0) + 1)
     })
 
     // Enrich entries with user profiles and custom responses
     const enrichedEntries = (entries as any[]).map((entry) => {
-      const profession = professionByUserId.get(entry.user_id) || null
-      const departmentId = typeof (entry as any)?.department_id === "string" ? (entry as any).department_id : null
+      const submittedByUserId =
+        typeof entry.submitted_by_user_id === "string" && entry.submitted_by_user_id ? entry.submitted_by_user_id : entry.user_id
+      const professionId =
+        typeof entry.subject_profession_id === "string"
+          ? entry.subject_profession_id
+          : professionByUserId.get(entry.user_id)?.role_id || null
+      const professionName =
+        roleMap.get(professionId || "") || professionByUserId.get(entry.user_id)?.role_name || null
+      const departmentId =
+        typeof (entry as any)?.subject_department_id === "string"
+          ? (entry as any).subject_department_id
+          : typeof (entry as any)?.department_id === "string"
+            ? (entry as any).department_id
+            : null
       const deptQuestionCount = departmentId ? deptQuestionCountByDepartmentId.get(departmentId) || 0 : 0
-      const roleQuestionCount = profession?.role_id ? roleQuestionCountByRoleId.get(profession.role_id) || 0 : 0
+      const roleQuestionCount = professionId ? roleQuestionCountByRoleId.get(professionId) || 0 : 0
 
       return {
         ...entry,
-        user_profile: userMap.get(entry.user_id) || null,
+        user_profile: userMap.get(submittedByUserId) || null,
         custom_responses: responsesMap.get(entry.id) || [],
-        profession_role_id: profession?.role_id || null,
-        profession_role_name: profession?.role_name || null,
+        profession_role_id: professionId,
+        profession_role_name: professionName,
         total_questions: deptQuestionCount + roleQuestionCount,
       }
     })
@@ -318,7 +348,7 @@ export async function GET() {
     return NextResponse.json({
       entries: enrichedEntries,
       users: normalizedUsers,
-      roles: (allRoles as any[])?.map((r) => ({ id: r.id, name: r.name })) || [],
+      roles: (allRoles as any[])?.map((r) => ({ id: r.id, name: r.label })) || [],
       departments: (allDepartments as any[])?.map((d) => ({ id: d.id, name: d.name })) || [],
     })
   } catch (error) {

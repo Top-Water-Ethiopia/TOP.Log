@@ -11,7 +11,7 @@ export function DateRestrictionBanner({ title }: DateRestrictionBannerProps) {
       title={title}
     >
       <AlertCircle className="h-4 w-4 shrink-0 text-blue-500" />
-      <p className="text-xs font-medium text-blue-600 dark:text-blue-400">Limited to last 3 days</p>
+      <p className="text-xs font-medium text-blue-600 dark:text-blue-400">Past dates allowed, future dates blocked</p>
     </div>
   )
 }

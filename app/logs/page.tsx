@@ -1,9 +1,9 @@
 import { redirect } from "next/navigation"
 import Link from "next/link"
-import { Plus, CheckCircle2 } from "lucide-react"
+import { Plus } from "lucide-react"
 import { createClient } from "@/lib/supabase/server"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Card, CardContent } from "@/components/ui/card"
 import { formatDateHuman } from "@/lib/date-restrictions"
 import { getReportStatus } from "@/lib/completion-status"
 import { buildLogsPageHref, getMonthDateRange, normalizeLogsPageState } from "@/lib/logs-page-filters"
@@ -366,10 +366,12 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
     ? departments.find((department) => department.id === forcedDepartmentId) || departments[0] || null
     : departments[0] || null
   const reportStatus = primaryDepartment ? await getReportStatus(supabase, userId, primaryDepartment.id) : null
-  const canCreateNewReport = !!primaryDepartment && !!reportStatus && !reportStatus.isFullySubmitted
+  const canCreateNewReport = !!primaryDepartment
   const newReportHref =
-    canCreateNewReport && reportStatus
-      ? `/logs/new?departmentId=${encodeURIComponent(primaryDepartment.id)}&date=${encodeURIComponent(reportStatus.missingDates[0])}`
+    canCreateNewReport && primaryDepartment
+      ? `/logs/new?departmentId=${encodeURIComponent(primaryDepartment.id)}${
+          pageState.date ? `&date=${encodeURIComponent(pageState.date)}` : ""
+        }`
       : null
 
   const hasFilters = !!pageState.date || (!isBasicUser && !!pageState.departmentId)
@@ -393,11 +395,9 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
           <h1 className="text-2xl font-bold tracking-tight">Daily Logs</h1>
           <p className="text-muted-foreground mt-1 text-sm">
             {reportStatus ? (
-              reportStatus.isFullySubmitted ? (
-                "You are all caught up for the last 3 days."
-              ) : (
-                `${reportStatus.missingDates.length} of ${reportStatus.allowedDates.length} report${reportStatus.missingDates.length === 1 ? "" : "s"} remaining`
-              )
+              `${reportStatus.submittedDates.length} of ${reportStatus.allowedDates.length} recent day${
+                reportStatus.allowedDates.length === 1 ? "" : "s"
+              } logged`
             ) : listResult.count > 0 ? (
               <>
                 Showing {listResult.logs.length} of {listResult.count} entries
@@ -424,24 +424,6 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
           ) : null}
         </div>
       </div>
-
-      {reportStatus?.isFullySubmitted ? (
-        <Card className="border-green-500/20 bg-green-500/5">
-          <CardHeader>
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-full bg-green-500/10">
-                <CheckCircle2 className="h-5 w-5 text-green-600" />
-              </div>
-              <div>
-                <CardTitle>All caught up</CardTitle>
-                <CardDescription>
-                  You&apos;ve submitted reports for all available dates. Review your reports below and check back tomorrow.
-                </CardDescription>
-              </div>
-            </div>
-          </CardHeader>
-        </Card>
-      ) : null}
 
       <Card>
         <CardContent className="pt-6">

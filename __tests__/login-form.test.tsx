@@ -3,7 +3,6 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import "@testing-library/jest-dom"
 import LoginForm from "@/components/login-form"
 
-const pushMock = jest.fn()
 const loginMock = jest.fn()
 const resetAuthErrorMock = jest.fn()
 
@@ -17,7 +16,7 @@ let authState = {
 
 jest.mock("next/navigation", () => ({
   useRouter: () => ({
-    push: pushMock,
+    push: jest.fn(),
   }),
   useSearchParams: () => ({
     get: (key: string) => (key === "redirect" ? "/reports" : null),
@@ -83,19 +82,15 @@ describe("LoginForm", () => {
     expect(resetAuthErrorMock).toHaveBeenCalledTimes(1)
   })
 
-  it("keeps the form locked while redirecting after login", async () => {
+  it("does not auto-redirect or lock the form based on a client-only session", async () => {
     authState.session = { access_token: "token" }
 
     render(<LoginForm />)
 
-    await waitFor(() => {
-      expect(pushMock).toHaveBeenCalledWith("/reports")
-    })
-
-    expect(screen.getByLabelText("Email or phone number")).toBeDisabled()
-    expect(screen.getByLabelText("Password")).toBeDisabled()
-    expect(screen.getByRole("button", { name: /redirecting/i })).toBeDisabled()
-    expect(screen.getByRole("button", { name: /hide password|show password/i })).toBeDisabled()
+    expect(screen.getByLabelText("Email or phone number")).not.toBeDisabled()
+    expect(screen.getByLabelText("Password")).not.toBeDisabled()
+    expect(screen.getByRole("button", { name: "Sign in" })).not.toBeDisabled()
+    expect(screen.getByRole("button", { name: /hide password|show password/i })).not.toBeDisabled()
   })
 
   it("does not submit again while already loading", () => {

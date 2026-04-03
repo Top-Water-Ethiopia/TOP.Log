@@ -1,10 +1,15 @@
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
-import { getCompletionStatus, getReportStatus } from "@/lib/completion-status"
-import { LogCompleteState } from "@/components/log-complete-state"
+import { getAllowedDates } from "@/lib/date-restrictions"
+import { isDepartmentReportQuestion, matchesProfessionQuestion } from "@/lib/reporting-model"
+import {
+  getUserDepartmentProfessionAssignment,
+  userCanAnswerDepartmentQuestions,
+} from "@/lib/server/department-reporting"
 import { EntryFormMultistepClient } from "./client"
 
 interface SearchParams {
+  departmentId?: string
   date?: string
   template?: string
 }
@@ -15,8 +20,29 @@ interface UserDepartment {
   role: string | null
 }
 
+type DepartmentQuestionRow = {
+  id: string
+  department_id: string | null
+  department_profession_id?: string | null
+  department_role?: string | null
+  question_key?: string | null
+  question_label: string
+  question_type: string
+  question_description: string | null
+  placeholder: string | null
+  options: unknown
+  is_required: boolean
+  display_order: number
+  validation_rules: unknown
+  is_active: boolean
+  created_at: string
+  updated_at: string
+  metadata: unknown
+}
+
 function buildQueryString(params: SearchParams): string {
   const query = new URLSearchParams()
+  if (params.departmentId) query.set("departmentId", params.departmentId)
   if (params.date) query.set("date", params.date)
   if (params.template) query.set("template", params.template)
   const qs = query.toString()
@@ -155,15 +181,83 @@ async function fetchUserDepartment(
   }
 }
 
+async function fetchAuthorizedDepartment(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  departmentId: string
+): Promise<UserDepartment | null> {
+  const [{ data: membership, error: membershipError }, { data: accessAssignments, error: accessError }] =
+    await Promise.all([
+      supabase
+        .from("user_department_professions")
+        .select(
+          `
+          department_id,
+          role,
+          department:departments (
+            id,
+            name
+          )
+        `
+        )
+        .eq("user_id", userId)
+        .eq("department_id", departmentId)
+        .eq("is_active", true)
+        .maybeSingle(),
+      supabase
+        .from("user_department_access_levels")
+        .select(
+          `
+          department_id,
+          department:departments (
+            id,
+            name
+          )
+        `
+        )
+        .eq("user_id", userId)
+        .eq("department_id", departmentId)
+        .order("department_id", { ascending: true })
+        .limit(1),
+    ])
+
+  if (membershipError) {
+    console.error("Error checking requested department profession access:", membershipError)
+  }
+
+  if (membership) {
+    return {
+      id: membership.department_id,
+      name: membership.department?.name ?? "Unknown",
+      role: membership.role || null,
+    }
+  }
+
+  if (accessError) {
+    console.error("Error checking requested department access level:", accessError)
+  }
+
+  const accessAssignment = accessAssignments?.[0]
+  if (accessAssignment) {
+    return {
+      id: accessAssignment.department_id,
+      name: accessAssignment.department?.name ?? "Unknown",
+      role: null,
+    }
+  }
+
+  return null
+}
+
 /**
- * Fetch role-specific questions for a department.
- * Combines department-wide questions (department_role IS NULL) with
- * role-scoped questions matching the user's department role.
+ * Fetch questions for the reporting form.
+ * Department report questions are shown only to users with department-level
+ * reporting permission, while profession questions follow the user's assigned profession.
  */
 async function fetchRoleQuestions(
   supabase: Awaited<ReturnType<typeof createClient>>,
   departmentId: string,
-  departmentRole?: string | null
+  userId: string
 ) {
   const getLegacyQuestionKeyFromMetadata = (metadata: unknown): string | null => {
     if (typeof metadata !== "object" || metadata === null) return null
@@ -173,36 +267,36 @@ async function fetchRoleQuestions(
     return trimmed ? trimmed : null
   }
 
-  const [departmentScopedResult, roleScopedResult] = await Promise.all([
-    supabase
-      .from("role_questions")
-      .select("*")
-      .eq("department_id", departmentId)
-      .is("department_role", null)
-      .eq("is_active", true)
-      .order("display_order", { ascending: true }),
-    departmentRole
-      ? supabase
-          .from("role_questions")
-          .select("*")
-          .eq("department_id", departmentId)
-          .eq("department_role", departmentRole)
-          .eq("is_active", true)
-          .order("display_order", { ascending: true })
-      : Promise.resolve({ data: [], error: null }),
-  ])
+  const [{ data: questionRows, error: questionsError }, professionAssignmentResult, departmentPermissionResult] =
+    await Promise.all([
+      supabase
+        .from("role_questions")
+        .select("*")
+        .eq("department_id", departmentId)
+        .eq("is_active", true)
+        .order("display_order", { ascending: true }),
+      getUserDepartmentProfessionAssignment(supabase, userId, departmentId).catch((error) => {
+        console.error("Error fetching profession assignment for report questions:", error)
+        return null
+      }),
+      userCanAnswerDepartmentQuestions(supabase, userId, departmentId).catch((error) => {
+        console.error("Error checking department question access:", error)
+        return false
+      }),
+    ])
 
-  if (departmentScopedResult.error) {
-    console.error("Error fetching department-scoped questions:", departmentScopedResult.error)
+  if (questionsError) {
+    console.error("Error fetching report questions:", questionsError)
     return []
   }
 
-  if (roleScopedResult.error) {
-    console.error("Error fetching department-role questions:", roleScopedResult.error)
-    return []
-  }
+  const questions = ((questionRows as DepartmentQuestionRow[] | null) || []).filter((question) => {
+    if (isDepartmentReportQuestion(question)) {
+      return departmentPermissionResult
+    }
 
-  const questions = [...(departmentScopedResult.data || []), ...(roleScopedResult.data || [])]
+    return matchesProfessionQuestion(question, departmentId, professionAssignmentResult || {})
+  })
   questions.sort((a, b) => (a?.display_order ?? 0) - (b?.display_order ?? 0))
 
   return questions.map((question) => {
@@ -233,8 +327,10 @@ export default async function NewLogPage({ searchParams }: { searchParams: Promi
 
   // 2. Await searchParams before accessing properties
   const params = await searchParams
+  const requestedDepartmentId =
+    typeof params.departmentId === "string" && params.departmentId.trim() ? params.departmentId.trim() : undefined
 
-  // 3. Validate date format only; create eligibility is resolved from report status below.
+  // 3. Validate the requested date format and future-date guard.
   const dateValidation = validateLogDate(params.date)
   if (params.date && !dateValidation.valid) {
     redirect(
@@ -245,30 +341,19 @@ export default async function NewLogPage({ searchParams }: { searchParams: Promi
     )
   }
 
-  // 4. Fetch user's single department
-  const department = await fetchUserDepartment(supabase, userId)
+  // 4. Resolve the active department. Explicit departmentId is honored only when the
+  // user has an active profession or access-level assignment in that department.
+  const department = requestedDepartmentId
+    ? (await fetchAuthorizedDepartment(supabase, userId, requestedDepartmentId)) ||
+      (await fetchUserDepartment(supabase, userId))
+    : await fetchUserDepartment(supabase, userId)
 
   if (!department) {
     redirect("/?error=no_department")
   }
 
-  // 5. Compute report status for this department
-  const reportStatus = await getReportStatus(supabase, userId, department.id)
-
-  if (reportStatus.isFullySubmitted) {
-    const completionStatus = await getCompletionStatus(supabase, userId, department.id)
-    return (
-      <LogCompleteState
-        completedDates={completionStatus.completedDates}
-        nextAvailableDate={completionStatus.nextAvailableDate}
-        hoursUntilNextAvailable={completionStatus.hoursUntilNextAvailable}
-        streak={completionStatus.totalCompleted}
-      />
-    )
-  }
-
-  const fallbackDate = reportStatus.missingDates[0]
-  const targetDate = params.date && reportStatus.missingDates.includes(params.date) ? params.date : fallbackDate
+  // 5. Use the requested past date when valid; otherwise fall back to today.
+  const targetDate = dateValidation.date
 
   if (!targetDate) {
     redirect("/logs")
@@ -277,6 +362,7 @@ export default async function NewLogPage({ searchParams }: { searchParams: Promi
   // Canonicalize URL to ensure date param is set
   const canonicalQuery = buildQueryString({
     ...params,
+    departmentId: department.id,
     date: targetDate,
   })
 
@@ -284,18 +370,16 @@ export default async function NewLogPage({ searchParams }: { searchParams: Promi
     redirect(`/logs/new${canonicalQuery}`)
   }
 
-  // 6. Fetch role questions — pass role directly, no redundant query
-  const roleQuestions = await fetchRoleQuestions(supabase, department.id, department.role)
+  // 6. Fetch role questions for the active reporting subject.
+  const roleQuestions = await fetchRoleQuestions(supabase, department.id, userId)
 
   return (
     <EntryFormMultistepClient
-      userId={userId}
       departmentId={department.id}
       departmentName={department.name}
       date={targetDate}
-      allowedDates={reportStatus.missingDates}
+      allowedDates={getAllowedDates()}
       initialRoleQuestions={roleQuestions}
-      template={params.template}
     />
   )
 }

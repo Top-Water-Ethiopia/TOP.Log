@@ -24,7 +24,7 @@ import { useCaptainLog } from "@/contexts/supabase-log-context"
 import { useAuth } from "@/contexts/auth-context"
 import { useRBAC } from "@/hooks/use-rbac"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
-import { canCreateEntryForDate, getAllowedDates, getToday } from "@/lib/date-restrictions"
+import { canCreateEntryForDate, getToday } from "@/lib/date-restrictions"
 import { isFeatureEnabledClient } from "@/lib/feature-flags/client"
 import { VersionInfo } from "./version-info"
 import { ActionMenu, type ActionMenuItem } from "./ui/action-menu"
@@ -55,17 +55,6 @@ export function MainLayout() {
     if (!departmentId) return []
     return entries.filter((e: any) => e.department_id === departmentId)
   }, [entries, departmentId])
-
-  // Check if user has submitted reports for all allowed dates
-  const allowedDates = useMemo(() => getAllowedDates(), [])
-  const hasReportsForAllAllowedDates = useMemo(() => {
-    if (!departmentId) return false
-    return allowedDates.every((date) =>
-      entriesForDepartment.some(
-        (entry: any) => entry.date === date && Array.isArray(entry.customResponses) && entry.customResponses.length > 0
-      )
-    )
-  }, [departmentId, allowedDates, entriesForDepartment])
 
   const canCreateEntry = isAuthenticated && !!user
 
@@ -280,7 +269,6 @@ export function MainLayout() {
               }}
               onViewReports={() => setViewMode("calendar")}
               onBackHome={() => setViewMode("landing")}
-              hasReportsForAllAllowedDates={hasReportsForAllAllowedDates}
             />
           ) : viewMode === "analytics" ? (
             <div className="h-full overflow-y-auto">

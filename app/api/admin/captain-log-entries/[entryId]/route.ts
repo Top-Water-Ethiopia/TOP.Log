@@ -71,15 +71,20 @@ export async function GET(_request: Request, { params }: { params: Promise<{ ent
       return NextResponse.json({ error: "Entry not found" }, { status: 404 })
     }
 
+    const submittedByUserId =
+      typeof (entry as any).submitted_by_user_id === "string" && (entry as any).submitted_by_user_id
+        ? (entry as any).submitted_by_user_id
+        : (entry as any).user_id
+
     const { data: userProfile } = await adminSupabase
       .from("user_profiles")
       .select("user_id, name, role_id, department_id")
-      .eq("user_id", (entry as any).user_id)
+      .eq("user_id", submittedByUserId)
       .single()
 
     let email = ""
     try {
-      const { data: authUserData } = await adminSupabase.auth.admin.getUserById((entry as any).user_id)
+      const { data: authUserData } = await adminSupabase.auth.admin.getUserById(submittedByUserId)
       email = authUserData?.user?.email || ""
     } catch {
       email = ""
@@ -92,10 +97,20 @@ export async function GET(_request: Request, { params }: { params: Promise<{ ent
       roleId
         ? adminSupabase.from("roles").select("name").eq("id", roleId).single()
         : Promise.resolve({ data: null } as any),
-      departmentId
-        ? adminSupabase.from("departments").select("name").eq("id", departmentId).single()
+      ((entry as any).subject_department_id as string | null) || departmentId
+        ? adminSupabase
+            .from("departments")
+            .select("name")
+            .eq("id", ((entry as any).subject_department_id as string | null) || departmentId)
+            .single()
         : Promise.resolve({ data: null } as any),
     ])
+
+    const subjectProfessionId =
+      typeof (entry as any).subject_profession_id === "string" ? (entry as any).subject_profession_id : null
+    const { data: subjectProfessionRow } = subjectProfessionId
+      ? await adminSupabase.from("department_professions").select("label").eq("id", subjectProfessionId).single()
+      : ({ data: null } as any)
 
     const { data: customResponses } = await adminSupabase
       .from("custom_responses")
@@ -115,6 +130,10 @@ export async function GET(_request: Request, { params }: { params: Promise<{ ent
               department_name: deptRow?.name || null,
             }
           : null,
+        subject: {
+          department_name: deptRow?.name || null,
+          profession_name: subjectProfessionRow?.label || null,
+        },
         custom_responses: (customResponses as any[]) || [],
       },
     })

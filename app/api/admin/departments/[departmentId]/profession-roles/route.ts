@@ -253,7 +253,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ d
 
     const { data: role, error: roleError } = await adminSupabase
       .from("department_professions")
-      .select("department_id, key")
+      .select("id, department_id, key")
       .eq("key", id)
       .eq("department_id", departmentId)
       .maybeSingle()
@@ -284,7 +284,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ d
       .from("role_questions")
       .select("id")
       .eq("department_id", departmentId)
-      .eq("department_role", id)
+      .or(`department_profession_id.eq.${role.id},department_role.eq.${id}`)
       .limit(1)
 
     if (questions && questions.length > 0) {

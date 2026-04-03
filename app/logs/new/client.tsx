@@ -4,17 +4,16 @@ import { useRouter } from "next/navigation"
 import { EntryFormMultistep } from "@/components/entry-form-multistep"
 
 interface EntryFormMultistepClientProps {
-  userId: string
   departmentId: string
   departmentName: string
   date: string
   allowedDates: string[]
   initialRoleQuestions: unknown[]
-  template?: string
 }
 
 export function EntryFormMultistepClient({
   departmentId,
+  departmentName,
   date,
   allowedDates,
   initialRoleQuestions,
@@ -36,6 +35,7 @@ export function EntryFormMultistepClient({
       <EntryFormMultistep
         date={date}
         departmentId={departmentId}
+        departmentName={departmentName}
         allowedDates={allowedDates}
         onSave={handleSave}
         onCancel={handleCancel}

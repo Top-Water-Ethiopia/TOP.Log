@@ -18,7 +18,7 @@ import { useRBAC } from "@/hooks/use-rbac"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { ApiError, apiFetch, getErrorMessage } from "@/lib/api-client"
 import { isFeatureEnabledClient } from "@/lib/feature-flags/client"
-import { canCreateEntryForDate, getAllowedDates, getToday } from "@/lib/date-restrictions"
+import { canCreateEntryForDate, getToday } from "@/lib/date-restrictions"
 import { useRouter } from "next/navigation"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { ChevronDown } from "lucide-react"
@@ -39,7 +39,7 @@ type DepartmentMembership = {
 }
 
 export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedProps) {
-  const { entries, refreshEntries } = useCaptainLog()
+  const { entries } = useCaptainLog()
 
   const {
     user: rbacUser,
@@ -164,14 +164,6 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
     return entries.filter((e) => e.department_id === activeDepartmentId)
   }, [entries, activeDepartmentId])
 
-  const allowedDates = useMemo(() => getAllowedDates(), [])
-  const hasReportsForAllAllowedDates = useMemo(() => {
-    if (!activeDepartmentId) return false
-    return allowedDates.every((d) =>
-      entriesForDepartment.some((e) => e.date === d && Array.isArray(e.customResponses) && e.customResponses.length > 0)
-    )
-  }, [activeDepartmentId, allowedDates, entriesForDepartment])
-
   const { questions: roleQuestions, isLoading: isRoleQuestionsLoading } = useRoleQuestions(
     initialRoleQuestions,
     activeDepartmentId || undefined
@@ -266,7 +258,7 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
               ) : null}
 
               {/* New Report */}
-              {user && !showNoMembershipsMessage && !hasReportsForAllAllowedDates && (
+              {user && !showNoMembershipsMessage && (
                 <Button
                   size="sm"
                   className="gap-2"
@@ -372,7 +364,6 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
               canCreateNewReport={canStartNewReport}
               newReportDisabledReason={newReportDisabledReason}
               hasSubmittedReports={hasSubmittedReports}
-              hasReportsForAllAllowedDates={hasReportsForAllAllowedDates}
               onRequestAccess={canRequestAccess ? handleRequestAccess : undefined}
               isRequestingAccess={isRequestingAccess}
               onNewReport={() => router.push("/logs/new")}
@@ -380,7 +371,6 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
             />
           ) : viewMode === "thankYou" ? (
             <ThankYouPage
-              hasReportsForAllAllowedDates={hasReportsForAllAllowedDates}
               onNewReport={() => router.push("/logs/new")}
               onViewReports={() => router.push("/logs")}
               onBackHome={() => setViewMode("landing")}

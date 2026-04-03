@@ -16,12 +16,14 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Separator } from "@/components/ui/separator"
 import { Plus, Trash2, CheckCircle2, AlertCircle, Loader2, Shield, Eye, EyeOff, Save, X, Users } from "lucide-react"
 import { findDuplicateValues, normalizeQuestionKey } from "@/lib/role-question-identity"
+import { isDepartmentReportQuestion, matchesProfessionQuestion } from "@/lib/reporting-model"
 import { toast } from "sonner"
 
 type ApiRoleQuestion = {
   id?: unknown
   role_id?: unknown
   department_id?: unknown
+  department_profession_id?: unknown
   department_role?: unknown
   question_key?: unknown
   question_label?: unknown
@@ -259,10 +261,12 @@ export function RoleQuestionsCreator() {
             const matchesDept = asString(q?.department_id) === targetDeptId
             if (!matchesDept) return false
             if (isRoleScope) {
-              return asString(q?.department_role) === targetRoleKey
+              return matchesProfessionQuestion(q, targetDeptId, {
+                professionId: selectedDepartmentRole?.id || null,
+                professionKey: targetRoleKey,
+              })
             }
-            // For department scope, department_role should be null/undefined
-            return q?.department_role === null || q?.department_role === undefined
+            return isDepartmentReportQuestion(q)
           })
           .sort((a, b) => (asNumber(a?.display_order) ?? 0) - (asNumber(b?.display_order) ?? 0))
 
@@ -473,6 +477,7 @@ export function RoleQuestionsCreator() {
           questionScope === "role"
             ? {
                 department_id: selectedDepartmentForRole!.id,
+                department_profession_id: selectedDepartmentRole!.id ?? null,
                 department_role: selectedDepartmentRole!.key,
               }
             : { department_id: selectedDepartment!.id }
@@ -581,7 +586,6 @@ export function RoleQuestionsCreator() {
                   setQuestions([])
                   setCurrentQuestionIndex(0)
                   setRoleQuestionCount(0)
-                  setExistingRoleQuestionKeys([])
                 }}
               >
                 <SelectTrigger
@@ -594,27 +598,27 @@ export function RoleQuestionsCreator() {
                   <SelectItem value="department">
                     <div className="flex items-center gap-2">
                       <div className="h-2 w-2 rounded-full bg-blue-500" />
-                      Department-wide
+                      Department Report
                     </div>
                   </SelectItem>
                   <SelectItem value="role">
                     <div className="flex items-center gap-2">
                       <div className="h-2 w-2 rounded-full bg-gray-400" />
-                      Specific Role
+                      Specific Profession
                     </div>
                   </SelectItem>
                 </SelectContent>
               </Select>
               <p className="text-xs leading-relaxed text-gray-500">
                 {questionScope === "department"
-                  ? "Questions will be assigned to all members in the department"
-                  : "Questions will be assigned to specific job roles within a department"}
+                  ? "Questions answered on behalf of the department by authorized department leaders"
+                  : "Questions will be assigned to specific professions within a department"}
               </p>
             </div>
           </div>
         </div>
 
-        {/* Department and Role Selection - Horizontal Layout */}
+        {/* Department and Profession Selection - Horizontal Layout */}
         {isLoadingDepartments || isLoadingDepartmentRoles ? (
           <div className="flex items-center justify-center py-12">
             <div className="flex items-center gap-3">
@@ -625,7 +629,7 @@ export function RoleQuestionsCreator() {
         ) : (
           <div className="space-y-4">
             {questionScope === "role" ? (
-              /* Role-based selection - Horizontal layout */
+              /* Profession-based selection - Horizontal layout */
               <div className="space-y-4">
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   {/* Department Selection */}
@@ -653,10 +657,10 @@ export function RoleQuestionsCreator() {
                     </Select>
                   </div>
 
-                  {/* Role Selection */}
+                  {/* Profession Selection */}
                   <div className="space-y-2">
                     <Label htmlFor="target-role" className="text-sm font-medium text-gray-900">
-                      Role
+                      Profession
                     </Label>
                     {isLoadingDepartmentRoles ? (
                       <div className="flex h-11 items-center justify-center rounded-md border border-gray-300 bg-white">
@@ -672,7 +676,7 @@ export function RoleQuestionsCreator() {
                           id="target-role"
                           className="h-11 border-gray-300 bg-white shadow-sm focus:border-blue-500 focus:ring-blue-500 disabled:bg-gray-50 disabled:text-gray-500"
                         >
-                          <SelectValue placeholder="Choose role" />
+                          <SelectValue placeholder="Choose profession" />
                         </SelectTrigger>
                         <SelectContent>
                           {departmentRoles.map((role) => (
@@ -704,7 +708,7 @@ export function RoleQuestionsCreator() {
                           <p className="text-sm font-medium text-blue-900">
                             {selectedDepartmentRole.label} at {selectedDepartmentForRole.name}
                           </p>
-                          <p className="text-xs text-blue-700">Questions will be assigned to this specific role</p>
+                          <p className="text-xs text-blue-700">Questions will be assigned to this specific profession</p>
                         </div>
                       </div>
                       <Badge variant="secondary" className="bg-blue-100 text-blue-800">
@@ -746,9 +750,9 @@ export function RoleQuestionsCreator() {
                   <div className="space-y-2">
                     <Label className="text-sm font-medium text-gray-900">Scope Type</Label>
                     <div className="flex h-11 items-center rounded-md border border-gray-300 bg-gray-50 px-3">
-                      <div className="flex items-center gap-2">
-                        <div className="h-2 w-2 rounded-full bg-blue-500" />
-                        <span className="text-sm text-gray-700">Department-wide</span>
+                        <div className="flex items-center gap-2">
+                          <div className="h-2 w-2 rounded-full bg-blue-500" />
+                        <span className="text-sm text-gray-700">Department Report</span>
                       </div>
                     </div>
                   </div>
@@ -763,7 +767,9 @@ export function RoleQuestionsCreator() {
                         </div>
                         <div>
                           <p className="text-sm font-medium text-green-900">{selectedDepartment.name}</p>
-                          <p className="text-xs text-green-700">Questions will be assigned to all department members</p>
+                          <p className="text-xs text-green-700">
+                            Questions answered on behalf of the department by authorized department leaders
+                          </p>
                         </div>
                       </div>
                       <Badge variant="secondary" className="bg-green-100 text-green-800">
@@ -892,12 +898,14 @@ export function RoleQuestionsCreator() {
               </div>
               <div className="space-y-1">
                 <p className="text-base font-medium">
-                  {questionScope === "role" ? "Select a department and role to start" : "Select a department to start"}
+                  {questionScope === "role"
+                    ? "Select a department and profession to start"
+                    : "Select a department to start"}
                 </p>
                 <p className="text-muted-foreground text-sm">
                   {questionScope === "role"
-                    ? "Choose the department and role above. Then you’ll create the questions users for that role will answer when submitting reports."
-                    : "Choose the department above. Then you’ll create the questions users for that department will answer when submitting reports."}
+                    ? "Choose the department and profession above. Then you’ll create the questions users in that profession will answer when submitting reports."
+                    : "Choose the department above. Then you’ll create the department report questions answered on behalf of that department."}
                 </p>
               </div>
               <div className="pt-2">

@@ -1,7 +1,7 @@
 "use client"
 
 import { useState, useEffect } from "react"
-import { useRouter, useSearchParams } from "next/navigation"
+import { useSearchParams } from "next/navigation"
 import Link from "next/link"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { Button } from "@/components/ui/button"
@@ -13,9 +13,8 @@ import { useTheme } from "next-themes"
 import { isFeatureEnabledClient } from "@/lib/feature-flags/client"
 
 export default function LoginForm() {
-  const router = useRouter()
   const searchParams = useSearchParams()
-  const { login, isLoading, error, session, resetAuthError } = useSupabaseAuth()
+  const { login, isLoading, error, resetAuthError } = useSupabaseAuth()
   const { theme, setTheme } = useTheme()
   const darkModeEnabled = isFeatureEnabledClient("DARK_MODE")
   const selfServiceAuthEnabled = isFeatureEnabledClient("SELF_SERVICE_AUTH")
@@ -23,22 +22,13 @@ export default function LoginForm() {
   const [password, setPassword] = useState("")
   const [showPassword, setShowPassword] = useState(false)
   const [mounted, setMounted] = useState(false)
-  const [isRedirecting, setIsRedirecting] = useState(false)
   const redirectTo = searchParams?.get("redirect") || "/"
-  const isBusy = isLoading || isRedirecting || !!session
+  const isBusy = isLoading
 
   // Set mounted for theme toggle
   useEffect(() => {
     setMounted(true)
   }, [])
-
-  // Redirect if already logged in
-  useEffect(() => {
-    if (session) {
-      setIsRedirecting(true)
-      router.push(redirectTo)
-    }
-  }, [session, router, redirectTo])
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -157,7 +147,7 @@ export default function LoginForm() {
               {isBusy ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  {isRedirecting || session ? "Redirecting..." : "Signing in..."}
+                  {"Signing in..."}
                 </>
               ) : (
                 "Sign in"

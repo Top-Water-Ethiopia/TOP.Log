@@ -9,6 +9,7 @@ import * as supabaseData from "@/lib/supabase-data"
 import type { CaptainLogEntry as DbCaptainLogEntry, AuditLog } from "@/lib/supabase-data"
 import type { Json } from "@/lib/supabase.types"
 import { canCreateEntryForDate, canUpdateEntryForDate } from "@/lib/date-restrictions"
+import { deriveReportKindFromResponses, normalizeReportKind, type ReportKind } from "@/lib/reporting-model"
 
 // Re-export types for components
 export type { AuditLog } from "@/lib/supabase-data"
@@ -18,8 +19,12 @@ export type CaptainLogEntry = {
   // Core properties
   id: string
   user_id: string
+  submitted_by_user_id: string | null
+  report_kind: ReportKind
   date: string
   department_id: string | null
+  subject_department_id: string | null
+  subject_profession_id: string | null
   created_at: string
   updated_at: string
   version: number
@@ -42,6 +47,27 @@ export type CaptainLogEntry = {
 
   // Custom responses
   customResponses: unknown[]
+}
+
+type CaptainLogEntryDraftInput = {
+  date: string
+  department_id: string | null
+  metadata: unknown | null
+  objectives: string
+  keyResults: string
+  challenges: string
+  developmentTasks: string
+  featuresCompleted: string
+  challengesAndBlockers: string
+  codeAndPriorities: string
+  systemImprovements: string
+  projectUpdates: string
+  createdAt?: string
+  updatedAt?: string
+  customResponses: unknown[]
+  report_kind?: ReportKind
+  subject_department_id?: string | null
+  subject_profession_id?: string | null
 }
 
 // Helper function to get standard question labels
@@ -96,6 +122,7 @@ function transformEntriesWithCustomResponses(
 
     return {
       ...entry,
+      report_kind: normalizeReportKind(entry.report_kind),
       // Standard fields from custom responses
       objectives: getField("objectives"),
       keyResults: getField("keyResults"),
@@ -157,6 +184,7 @@ async function transformEntryForComponents(entry: DbCaptainLogEntry): Promise<Ca
 
   return {
     ...entry,
+    report_kind: normalizeReportKind(entry.report_kind),
     // Standard fields from custom responses
     objectives: getField("objectives"),
     keyResults: getField("keyResults"),
@@ -206,7 +234,7 @@ interface CaptainLogContextType {
   auditLogs: AuditLog[]
 
   // Enhanced CRUD operations
-  addEntry: (entry: Omit<CaptainLogEntry, "id" | "user_id" | "created_at" | "updated_at" | "version">) => Promise<void>
+  addEntry: (entry: CaptainLogEntryDraftInput) => Promise<void>
   updateEntry: (id: string, entry: Partial<CaptainLogEntry>) => Promise<void>
   deleteEntry: (id: string) => Promise<void>
   getEntryByDate: (date: string, departmentId?: string | null) => CaptainLogEntry | undefined
@@ -300,7 +328,7 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
 
   // Add entry
   const addEntry = useCallback(
-    async (entry: Omit<CaptainLogEntry, "id" | "user_id" | "created_at" | "updated_at" | "version">) => {
+    async (entry: CaptainLogEntryDraftInput) => {
       if (!user) {
         throw new Error("Authentication required")
       }
@@ -329,17 +357,17 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
         // Transform entry from camelCase to snake_case for database
         const dbEntry = transformEntryForDatabase(entry)
 
-        // Check for duplicate by date
-        const existingEntry = await supabaseData.getEntryByDate(user.id, entry.date, entry.department_id)
-        if (existingEntry) {
-          console.log("[addEntry] duplicate", {
-            userId: user.id,
-            date: entry.date,
-            departmentId: entry.department_id,
-            existingEntryId: existingEntry.id,
-          })
-          throw new Error(`Entry already exists for ${entry.date}`)
-        }
+        const derivedProfession =
+          typeof entry.department_id === "string" && entry.department_id
+            ? await supabaseData.getProfessionRoleForUserInDepartment(user.id, entry.department_id)
+            : null
+        const reportKind = entry.report_kind || deriveReportKindFromResponses(entry.customResponses as any[])
+        const subjectDepartmentId =
+          typeof entry.subject_department_id === "string" ? entry.subject_department_id : entry.department_id
+        const subjectProfessionId =
+          typeof entry.subject_profession_id === "string"
+            ? entry.subject_profession_id
+            : derivedProfession?.roleId || null
 
         // Create the entry
         const now = new Date().toISOString()
@@ -352,8 +380,12 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
           ...dbEntry,
           id: uuidv4(),
           user_id: user.id,
+          submitted_by_user_id: user.id,
+          report_kind: reportKind,
           date: entry.date,
           department_id: entry.department_id,
+          subject_department_id: subjectDepartmentId,
+          subject_profession_id: subjectProfessionId,
           created_at: now,
           updated_at: now,
           version: 1,
@@ -362,8 +394,12 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
         console.log("[addEntry] created", {
           entryId: newEntry.id,
           userId: newEntry.user_id,
+          submittedByUserId: newEntry.submitted_by_user_id,
           date: newEntry.date,
           departmentId: newEntry.department_id,
+          subjectDepartmentId: newEntry.subject_department_id,
+          subjectProfessionId: newEntry.subject_profession_id,
+          reportKind: newEntry.report_kind,
         })
 
         // Save standard fields as custom responses

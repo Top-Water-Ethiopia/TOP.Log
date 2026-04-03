@@ -11,22 +11,18 @@ import { Skeleton } from "@/components/ui/skeleton"
 import { useToast } from "@/components/ui/use-toast"
 
 type DepartmentRoleRow = {
-  key: string
-  label: string
-  sort_order: number
+  name: string
+  display_name: string
+  description: string | null
+  level: number
   is_active: boolean
-  is_default: boolean
-  default_can_answer_department_questions: boolean
 }
 
 type AccessControlResponse = {
   data: {
-    allowedRoles: string[]
+    accessLevels: DepartmentRoleRow[]
+    allowedAccessLevels: string[]
   }
-}
-
-type DepartmentRolesResponse = {
-  data: DepartmentRoleRow[]
 }
 
 export function AccessControlTab({ departmentId }: { departmentId: string }) {
@@ -37,35 +33,30 @@ export function AccessControlTab({ departmentId }: { departmentId: string }) {
     apiFetch<AccessControlResponse>(url)
   )
 
-  const rolesKey = "/api/admin/department-professions"
-  const { data: rolesResponse } = useSWR<DepartmentRolesResponse>(rolesKey, (url: string) =>
-    apiFetch<DepartmentRolesResponse>(url)
-  )
+  const accessLevels = useMemo(() => {
+    const rows: DepartmentRoleRow[] = data?.data?.accessLevels ?? []
+    return rows.filter((row) => row.is_active)
+  }, [data])
 
-  const departmentRoles = useMemo(() => {
-    const rows: DepartmentRoleRow[] = rolesResponse?.data ?? []
-    return rows.filter((r) => r.is_active)
-  }, [rolesResponse])
-
-  const allowedRoles = useMemo(() => {
-    const rows = data?.data?.allowedRoles || []
+  const allowedAccessLevels = useMemo(() => {
+    const rows = data?.data?.allowedAccessLevels || []
     return new Set(rows.filter((r) => typeof r === "string"))
   }, [data])
 
   const [saving, setSaving] = useState(false)
 
-  const toggleRole = async (roleKey: string, next: boolean) => {
+  const toggleAccessLevel = async (accessLevelName: string, next: boolean) => {
     try {
       setSaving(true)
 
-      const nextAllowed = new Set(Array.from(allowedRoles))
-      if (next) nextAllowed.add(roleKey)
-      else nextAllowed.delete(roleKey)
+      const nextAllowed = new Set(Array.from(allowedAccessLevels))
+      if (next) nextAllowed.add(accessLevelName)
+      else nextAllowed.delete(accessLevelName)
 
       await apiFetch(key, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ allowedRoles: Array.from(nextAllowed) }),
+        body: JSON.stringify({ allowedAccessLevels: Array.from(nextAllowed) }),
       })
       await mutate()
       toast({ title: "Saved", description: "Access Control updated" })
@@ -84,7 +75,7 @@ export function AccessControlTab({ departmentId }: { departmentId: string }) {
     <Card>
       <CardHeader>
         <CardTitle>Access Control</CardTitle>
-        <CardDescription>Configure who can answer department-scoped questions in reports.</CardDescription>
+        <CardDescription>Configure which department access levels can answer department report questions.</CardDescription>
       </CardHeader>
       <CardContent>
         {isLoading ? (
@@ -103,18 +94,20 @@ export function AccessControlTab({ departmentId }: { departmentId: string }) {
         ) : (
           <div className="space-y-4">
             <div className="space-y-2">
-              {departmentRoles.map((r) => {
-                const checked = allowedRoles.has(r.key)
+              {accessLevels.map((level) => {
+                const checked = allowedAccessLevels.has(level.name)
                 return (
-                  <div key={r.key} className="flex items-center justify-between rounded-md border p-3">
+                  <div key={level.name} className="flex items-center justify-between rounded-md border p-3">
                     <div className="min-w-0">
-                      <div className="font-medium">{r.label}</div>
-                      <div className="text-muted-foreground text-sm">Can answer department questions</div>
+                      <div className="font-medium">{level.display_name}</div>
+                      <div className="text-muted-foreground text-sm">
+                        {level.description || "Can answer department report questions"}
+                      </div>
                     </div>
                     <Switch
                       checked={checked}
                       onCheckedChange={(v: boolean) => {
-                        void toggleRole(r.key, v)
+                        void toggleAccessLevel(level.name, v)
                       }}
                       disabled={saving}
                     />
