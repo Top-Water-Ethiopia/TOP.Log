@@ -1,6 +1,7 @@
 import Link from "next/link"
-import { Building2, Calendar, Eye, FileText, Plus } from "lucide-react"
+import { Building2, Calendar, Eye, FileText, PhoneCall, Plus } from "lucide-react"
 import { Button } from "@/components/ui/button"
+import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
 import { formatDateHuman } from "@/lib/date-restrictions"
 import { buildLogsPageHref } from "@/lib/logs-page-filters"
@@ -74,6 +75,13 @@ export function LogsList({
                   <Building2 className="text-muted-foreground h-3.5 w-3.5" />
                   <span className="text-muted-foreground text-sm">{log.department_name}</span>
                 </div>
+                {log.entry_kind === "agent_call" && log.subject_agent_name ? (
+                  <div className="mt-2 flex items-center gap-2">
+                    <PhoneCall className="text-muted-foreground h-3.5 w-3.5" />
+                    <span className="text-sm font-medium">{log.subject_agent_name}</span>
+                    <Badge variant="outline">Agent Call</Badge>
+                  </div>
+                ) : null}
                 <div className="mt-1 text-xs text-slate-500">
                   {log.response_count} response{log.response_count !== 1 ? "s" : ""}
                 </div>

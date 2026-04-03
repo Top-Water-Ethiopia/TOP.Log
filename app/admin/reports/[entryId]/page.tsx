@@ -7,7 +7,7 @@ import { useRBAC } from "@/hooks/use-rbac"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
-import { ArrowLeft, Loader2, Trash2 } from "lucide-react"
+import { ArrowLeft, Loader2, MapPin, Phone, Trash2 } from "lucide-react"
 import { ReportDetailsSkeleton } from "@/components/skeletons/report-details-skeleton"
 import { format, parseISO } from "date-fns"
 import { apiFetch, getErrorMessage } from "@/lib/api-client"
@@ -44,10 +44,16 @@ interface EnrichedEntry {
   id: string
   user_id: string
   date: string
+  entry_kind?: string | null
   created_at: string
   updated_at: string
   version: number
   metadata: unknown
+  subject_agent_snapshot?: {
+    name?: string | null
+    location?: string | null
+    phone?: string | null
+  } | null
   custom_responses: CustomResponse[]
   user_profile: UserProfile | null
 }
@@ -287,6 +293,12 @@ export default function AdminReportDetailsPage() {
                 <div className="text-muted-foreground">Submitted By:</div>
                 <div className="font-medium">{name}</div>
               </div>
+              {entry.entry_kind === "agent_call" ? (
+                <div>
+                  <div className="text-muted-foreground">Entry Type:</div>
+                  <div className="font-medium">Agent Call</div>
+                </div>
+              ) : null}
             </CardContent>
           </Card>
 
@@ -295,6 +307,26 @@ export default function AdminReportDetailsPage() {
               <CardTitle>Responses</CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
+              {entry.subject_agent_snapshot?.name ? (
+                <div className="space-y-3 rounded-lg border p-4">
+                  <div className="text-sm font-semibold">{entry.subject_agent_snapshot.name}</div>
+                  <div className="space-y-2 text-sm">
+                    {entry.subject_agent_snapshot.location ? (
+                      <div className="flex items-center gap-2">
+                        <MapPin className="text-muted-foreground h-4 w-4 shrink-0" />
+                        <span>{entry.subject_agent_snapshot.location}</span>
+                      </div>
+                    ) : null}
+                    {entry.subject_agent_snapshot.phone ? (
+                      <div className="flex items-center gap-2">
+                        <Phone className="text-muted-foreground h-4 w-4 shrink-0" />
+                        <span>{entry.subject_agent_snapshot.phone}</span>
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+
               {(() => {
                 const responses = (entry.custom_responses || []).filter((r) => {
                   const v = r.value
@@ -312,7 +344,27 @@ export default function AdminReportDetailsPage() {
                   <div key={`${r.question_id}-${idx}`} className="space-y-1">
                     <div className="font-semibold">{`Q${idx + 1}: ${r.question_label || r.question_key}`}</div>
                     <div className="text-muted-foreground text-sm whitespace-pre-wrap">
-                      {Array.isArray(r.value) ? r.value.join(", ") : String(r.value)}
+                      {(() => {
+                        if (Array.isArray(r.value)) {
+                          return r.value.join(", ")
+                        }
+
+                        if (typeof r.value === "object" && r.value !== null) {
+                          const label = (r.value as { label?: unknown }).label
+                          if (typeof label === "string" && label.trim()) {
+                            return label
+                          }
+
+                          const name = (r.value as { name?: unknown }).name
+                          if (typeof name === "string" && name.trim()) {
+                            return name
+                          }
+
+                          return JSON.stringify(r.value, null, 2)
+                        }
+
+                        return String(r.value)
+                      })()}
                     </div>
                     {idx < responses.length - 1 ? <div className="bg-border mt-3 h-px" /> : null}
                   </div>

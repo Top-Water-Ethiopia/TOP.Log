@@ -112,6 +112,11 @@ export function AdminSidebar() {
       icon: FileQuestion,
       path: "/admin/questions",
     },
+    {
+      name: "Marketing Agents",
+      icon: Users,
+      path: "/admin/marketing-agents",
+    },
   ]
 
   const overviewNavItems = [

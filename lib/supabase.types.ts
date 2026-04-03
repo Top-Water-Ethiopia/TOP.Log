@@ -49,8 +49,11 @@ export interface Database {
           user_id: string
           date: string
           department_id: string | null
+          entry_kind: string
           submitted_by_user_id: string | null
           report_kind: string
+          subject_agent_id: string | null
+          subject_agent_snapshot: Json | null
           subject_department_id: string | null
           subject_profession_id: string | null
           created_at: string
@@ -63,8 +66,11 @@ export interface Database {
           user_id: string
           date: string
           department_id?: string | null
+          entry_kind?: string
           submitted_by_user_id?: string | null
           report_kind?: string
+          subject_agent_id?: string | null
+          subject_agent_snapshot?: Json | null
           subject_department_id?: string | null
           subject_profession_id?: string | null
           created_at?: string
@@ -77,8 +83,11 @@ export interface Database {
           user_id?: string
           date?: string
           department_id?: string | null
+          entry_kind?: string
           submitted_by_user_id?: string | null
           report_kind?: string
+          subject_agent_id?: string | null
+          subject_agent_snapshot?: Json | null
           subject_department_id?: string | null
           subject_profession_id?: string | null
           created_at?: string
@@ -99,6 +108,13 @@ export interface Database {
             columns: ["department_id"]
             isOneToOne: false
             referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "captain_log_entries_subject_agent_id_fkey"
+            columns: ["subject_agent_id"]
+            isOneToOne: false
+            referencedRelation: "marketing_agents"
             referencedColumns: ["id"]
           },
           {
@@ -331,6 +347,63 @@ export interface Database {
             columns: ["department_profession_id"]
             isOneToOne: false
             referencedRelation: "department_professions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      marketing_agents: {
+        Row: {
+          id: string
+          department_id: string
+          sales_promoter_user_id: string
+          name: string
+          location: string | null
+          phone_e164: string | null
+          phone_raw: string | null
+          is_active: boolean
+          metadata: Json
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          department_id: string
+          sales_promoter_user_id: string
+          name: string
+          location?: string | null
+          phone_e164?: string | null
+          phone_raw?: string | null
+          is_active?: boolean
+          metadata?: Json
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          department_id?: string
+          sales_promoter_user_id?: string
+          name?: string
+          location?: string | null
+          phone_e164?: string | null
+          phone_raw?: string | null
+          is_active?: boolean
+          metadata?: Json
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "marketing_agents_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "marketing_agents_sales_promoter_user_id_fkey"
+            columns: ["sales_promoter_user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
             referencedColumns: ["id"]
           },
         ]

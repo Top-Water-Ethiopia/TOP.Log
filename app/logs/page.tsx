@@ -10,6 +10,12 @@ import { buildLogsPageHref, getMonthDateRange, normalizeLogsPageState } from "@/
 import type { LogsPageSearchParams } from "@/lib/logs-page-filters"
 import type { CalendarDaySummary, LogEntry } from "@/lib/logs/types"
 import { canViewDepartmentLogs } from "@/lib/logs/visibility"
+import {
+  getAgentSnapshotName,
+  isMarketingDepartmentName,
+  isSalesPromoterProfessionKey,
+  normalizeSalesPromoterProfessionKey,
+} from "@/lib/marketing-agents"
 import { LogsCalendar } from "@/components/logs/logs-calendar"
 import { LogsFilters } from "@/components/logs/logs-filters"
 import { LogsList } from "@/components/logs/logs-list"
@@ -32,8 +38,14 @@ interface LogRow {
   date: string
   department_id: string | null
   departments: { name?: string } | null
+  entry_kind?: string | null
   id: string
+  subject_agent_snapshot?: unknown
   updated_at: string | null
+}
+
+interface ViewerDepartmentProfession {
+  profession_key: string | null
 }
 
 async function fetchAccessibleDepartmentIds(
@@ -83,6 +95,12 @@ async function mapRowsToLogs(
     created_at: entry.created_at,
     updated_at: entry.updated_at,
     response_count: responseCounts.get(entry.id) || 0,
+    entry_kind: entry.entry_kind === "agent_call" ? "agent_call" : "standard",
+    subject_agent_name: getAgentSnapshotName(entry.subject_agent_snapshot),
+    subject_agent_snapshot:
+      typeof entry.subject_agent_snapshot === "object" && entry.subject_agent_snapshot !== null
+        ? (entry.subject_agent_snapshot as LogEntry["subject_agent_snapshot"])
+        : null,
   }))
 }
 
@@ -103,6 +121,8 @@ async function fetchUserLogs(
       department_id,
       created_at,
       updated_at,
+      entry_kind,
+      subject_agent_snapshot,
       departments:department_id (name)
     `,
       { count: "exact" }
@@ -162,6 +182,8 @@ async function fetchLogsForMonth(
       department_id,
       created_at,
       updated_at,
+      entry_kind,
+      subject_agent_snapshot,
       departments:department_id (name)
     `
     )
@@ -266,6 +288,42 @@ async function fetchViewerProfile(
   }
 }
 
+async function fetchViewerDepartmentProfession(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  departmentId: string
+): Promise<ViewerDepartmentProfession | null> {
+  const { data, error } = await supabase
+    .from("user_department_professions")
+    .select(
+      `
+      role,
+      department_profession:department_professions!fk_user_department_professions_department_profession (
+        key
+      )
+    `
+    )
+    .eq("user_id", userId)
+    .eq("department_id", departmentId)
+    .eq("is_active", true)
+    .maybeSingle()
+
+  if (error || !data) {
+    return null
+  }
+
+  const professionKey =
+    typeof data.department_profession?.key === "string"
+      ? normalizeSalesPromoterProfessionKey(data.department_profession.key)
+      : typeof data.role === "string"
+        ? normalizeSalesPromoterProfessionKey(data.role)
+        : null
+
+  return {
+    profession_key: professionKey,
+  }
+}
+
 async function fetchViewerDepartmentAccess(
   supabase: Awaited<ReturnType<typeof createClient>>,
   userId: string,
@@ -366,6 +424,10 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
     ? departments.find((department) => department.id === forcedDepartmentId) || departments[0] || null
     : departments[0] || null
   const reportStatus = primaryDepartment ? await getReportStatus(supabase, userId, primaryDepartment.id) : null
+  const viewerProfession =
+    primaryDepartment && primaryDepartment.id
+      ? await fetchViewerDepartmentProfession(supabase, userId, primaryDepartment.id)
+      : null
   const canCreateNewReport = !!primaryDepartment
   const newReportHref =
     canCreateNewReport && primaryDepartment
@@ -373,6 +435,10 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
           pageState.date ? `&date=${encodeURIComponent(pageState.date)}` : ""
         }`
       : null
+  const isSalesPromoterWorkflow =
+    !!primaryDepartment &&
+    isMarketingDepartmentName(primaryDepartment.name) &&
+    isSalesPromoterProfessionKey(viewerProfession?.profession_key)
 
   const hasFilters = !!pageState.date || (!isBasicUser && !!pageState.departmentId)
   const calendarDaySummaries = pageState.view === "calendar" ? summarizeCalendarDays(monthLogs) : []
@@ -394,7 +460,15 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Daily Logs</h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            {reportStatus ? (
+            {isSalesPromoterWorkflow ? (
+              listResult.count > 0 ? (
+                <>
+                  Showing {listResult.logs.length} of {listResult.count} call report{listResult.count === 1 ? "" : "s"}
+                </>
+              ) : (
+                "Track one call report per assigned agent and date."
+              )
+            ) : reportStatus ? (
               `${reportStatus.submittedDates.length} of ${reportStatus.allowedDates.length} recent day${
                 reportStatus.allowedDates.length === 1 ? "" : "s"
               } logged`

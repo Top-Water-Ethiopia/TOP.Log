@@ -71,6 +71,27 @@ describe("reporting model helpers", () => {
     ).toBe("profession:dept-1:unknown:software-engineer")
   })
 
+  it("normalizes legacy sales promoter keys to the hyphenated canonical key", () => {
+    const question = {
+      department_id: "dept-1",
+      department_profession_id: null,
+      department_role: "sales_promoter",
+    }
+
+    expect(resolveRoleQuestionScope(question)).toEqual({
+      kind: "profession",
+      departmentId: "dept-1",
+      departmentProfessionId: null,
+      departmentProfessionKey: "sales-promoter",
+    })
+    expect(
+      matchesProfessionQuestion(question, "dept-1", {
+        professionId: null,
+        professionKey: "sales-promoter",
+      })
+    ).toBe(true)
+  })
+
   it("derives report kind from response categories", () => {
     expect(deriveReportKindFromResponses([{ questionCategory: "department_report" }])).toBe("department")
     expect(deriveReportKindFromResponses([{ questionCategory: "profession_question" }])).toBe("personal")

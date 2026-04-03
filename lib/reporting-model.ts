@@ -1,4 +1,5 @@
 import type { QuestionResponse } from "@/lib/rbac/types"
+import { normalizeSalesPromoterProfessionKey } from "@/lib/marketing-agents"
 
 export type ReportKind = "personal" | "department" | "mixed"
 
@@ -34,7 +35,7 @@ function getNonEmptyString(value: unknown): string | null {
 export function resolveRoleQuestionScope(question: RoleQuestionScopeLike): RoleQuestionScope | null {
   const departmentId = getNonEmptyString(question.department_id)
   const departmentProfessionId = getNonEmptyString(question.department_profession_id)
-  const departmentProfessionKey = getNonEmptyString(question.department_role)
+  const departmentProfessionKey = normalizeSalesPromoterProfessionKey(question.department_role)
 
   if (departmentProfessionId || departmentProfessionKey) {
     return {
@@ -81,7 +82,7 @@ export function matchesProfessionQuestion(
     return true
   }
 
-  const targetProfessionKey = getNonEmptyString(identity.professionKey)
+  const targetProfessionKey = normalizeSalesPromoterProfessionKey(identity.professionKey)
   if (targetProfessionKey && scope.departmentProfessionKey === targetProfessionKey) {
     return true
   }

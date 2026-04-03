@@ -93,9 +93,12 @@ export type Database = {
           created_at: string | null
           date: string
           department_id: string | null
+          entry_kind: string
           id: string
           metadata: Json | null
           report_kind: string
+          subject_agent_id: string | null
+          subject_agent_snapshot: Json | null
           subject_department_id: string | null
           subject_profession_id: string | null
           submitted_by_user_id: string | null
@@ -107,9 +110,12 @@ export type Database = {
           created_at?: string | null
           date: string
           department_id?: string | null
+          entry_kind?: string
           id?: string
           metadata?: Json | null
           report_kind?: string
+          subject_agent_id?: string | null
+          subject_agent_snapshot?: Json | null
           subject_department_id?: string | null
           subject_profession_id?: string | null
           submitted_by_user_id?: string | null
@@ -121,9 +127,12 @@ export type Database = {
           created_at?: string | null
           date?: string
           department_id?: string | null
+          entry_kind?: string
           id?: string
           metadata?: Json | null
           report_kind?: string
+          subject_agent_id?: string | null
+          subject_agent_snapshot?: Json | null
           subject_department_id?: string | null
           subject_profession_id?: string | null
           submitted_by_user_id?: string | null
@@ -137,6 +146,13 @@ export type Database = {
             columns: ["department_id"]
             isOneToOne: false
             referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "captain_log_entries_subject_agent_id_fkey"
+            columns: ["subject_agent_id"]
+            isOneToOne: false
+            referencedRelation: "marketing_agents"
             referencedColumns: ["id"]
           },
           {
@@ -356,6 +372,63 @@ export type Database = {
           updated_by?: string | null
         }
         Relationships: []
+      }
+      marketing_agents: {
+        Row: {
+          created_at: string
+          department_id: string
+          id: string
+          is_active: boolean
+          location: string | null
+          metadata: Json
+          name: string
+          phone_e164: string | null
+          phone_raw: string | null
+          sales_promoter_user_id: string
+          updated_at: string
+        }
+        Insert: {
+          created_at?: string
+          department_id: string
+          id?: string
+          is_active?: boolean
+          location?: string | null
+          metadata?: Json
+          name: string
+          phone_e164?: string | null
+          phone_raw?: string | null
+          sales_promoter_user_id: string
+          updated_at?: string
+        }
+        Update: {
+          created_at?: string
+          department_id?: string
+          id?: string
+          is_active?: boolean
+          location?: string | null
+          metadata?: Json
+          name?: string
+          phone_e164?: string | null
+          phone_raw?: string | null
+          sales_promoter_user_id?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "marketing_agents_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "marketing_agents_sales_promoter_user_id_fkey"
+            columns: ["sales_promoter_user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       permission_definitions: {
         Row: {

@@ -1,9 +1,10 @@
 import React from "react"
-import { fireEvent, render, screen } from "@testing-library/react"
+import { fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { EntryFormMultistep } from "@/components/entry-form-multistep"
 
 const mockAddEntry = jest.fn()
 const mockUseRoleQuestions = jest.fn()
+const mockFetch = jest.fn()
 
 jest.mock("@/contexts/supabase-log-context", () => ({
   useCaptainLog: () => ({
@@ -27,8 +28,15 @@ jest.mock("@/contexts/supabase-auth-context", () => ({
 jest.mock("@/hooks/use-rbac", () => ({
   useRBAC: () => ({
     validateResponse: () => null,
-    processResponses: (_questions: unknown, responses: unknown) => ({
-      processedResponses: responses,
+    processResponses: (questions: unknown, responses: unknown) => ({
+      processedResponses: ((questions as Array<Record<string, unknown>>) || []).map((question) => ({
+        questionId: question.id,
+        questionKey: question.key,
+        questionLabel: question.label,
+        questionType: question.type,
+        questionCategory: question.category,
+        value: (responses as Record<string, unknown>)[String(question.key)],
+      })),
     }),
   }),
 }))
@@ -44,6 +52,38 @@ jest.mock("@/components/role-based-question-fields", () => ({
 jest.mock("@/components/features/daily-log/molecules", () => ({
   DateRestrictionBanner: ({ title }: { title: string }) => <div data-testid="date-banner">{title}</div>,
   QuickDateChips: () => <div data-testid="quick-date-chips" />,
+}))
+
+jest.mock("@/components/ui/select", () => ({
+  Select: ({
+    children,
+    onValueChange,
+    value,
+  }: {
+    children: React.ReactNode
+    onValueChange: (value: string) => void
+    value?: string
+  }) => (
+    <select aria-label="Select input" value={value ?? ""} onChange={(event) => onValueChange(event.target.value)}>
+      {children}
+    </select>
+  ),
+  SelectTrigger: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  SelectValue: ({ placeholder }: { placeholder?: string }) => <option value="">{placeholder || "Select"}</option>,
+  SelectContent: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+  SelectItem: ({
+    children,
+    disabled,
+    value,
+  }: {
+    children: React.ReactNode
+    disabled?: boolean
+    value: string
+  }) => (
+    <option value={value} disabled={disabled}>
+      {children}
+    </option>
+  ),
 }))
 
 function renderForm(questions: Array<Record<string, unknown>>) {
@@ -72,6 +112,11 @@ function renderForm(questions: Array<Record<string, unknown>>) {
 describe("EntryFormMultistep", () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    global.fetch = mockFetch as unknown as typeof fetch
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({ data: [] }),
+    })
   })
 
   it("shows department context, category labels, and grouped preview sections", () => {
@@ -144,6 +189,124 @@ describe("EntryFormMultistep", () => {
 
     const submitButton = screen.getByRole("button", { name: "No Questions Available" })
     expect(submitButton).toBeDisabled()
+    expect(mockAddEntry).not.toHaveBeenCalled()
+  })
+
+  it("loads assigned agents, shows the selected agent context, and saves an agent-call entry", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: [
+          {
+            id: "agent-1",
+            name: "Agent One",
+            location: "Addis Ababa",
+            phone: "+251912345678",
+            alreadyReported: false,
+          },
+          {
+            id: "agent-2",
+            name: "Agent Two",
+            location: "Adama",
+            phone: "+251955555555",
+            alreadyReported: true,
+          },
+        ],
+      }),
+    })
+
+    renderForm([
+      {
+        id: "agent-question",
+        key: "agent-contact",
+        label: "Agent contacted",
+        title: "Agent contacted",
+        type: "select",
+        category: "profession_question",
+        required: true,
+        order: 1,
+        optionSourceKind: "assigned_agents",
+      },
+    ])
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }))
+
+    await waitFor(() => {
+      expect(screen.getByText("1 of 2 already reported today")).toBeInTheDocument()
+    })
+
+    fireEvent.change(screen.getByRole("combobox"), {
+      target: { value: "agent-1" },
+    })
+
+    expect(screen.getByText("Addis Ababa")).toBeInTheDocument()
+    expect(screen.getByText("+251912345678")).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: "Next" }))
+    fireEvent.click(screen.getByRole("button", { name: "Submit Log" }))
+
+    await waitFor(() => {
+      expect(mockAddEntry).toHaveBeenCalledWith(
+        expect.objectContaining({
+          department_id: "dept-1",
+          entry_kind: "agent_call",
+          subject_agent_id: "agent-1",
+          subject_agent_snapshot: {
+            name: "Agent One",
+            location: "Addis Ababa",
+            phone: "+251912345678",
+          },
+          customResponses: [
+            expect.objectContaining({
+              questionKey: "agent-contact",
+              value: {
+                value: "agent-1",
+                label: "Agent One",
+              },
+            }),
+          ],
+        })
+      )
+    })
+  })
+
+  it("blocks progress when no assigned agents remain for the selected date", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        data: [
+          {
+            id: "agent-1",
+            name: "Agent One",
+            location: "Addis Ababa",
+            phone: "+251912345678",
+            alreadyReported: true,
+          },
+        ],
+      }),
+    })
+
+    renderForm([
+      {
+        id: "agent-question",
+        key: "agent-contact",
+        label: "Agent contacted",
+        title: "Agent contacted",
+        type: "select",
+        category: "profession_question",
+        required: true,
+        order: 1,
+        optionSourceKind: "assigned_agents",
+      },
+    ])
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }))
+
+    await waitFor(() => {
+      expect(screen.getByText("No agents available for this date")).toBeInTheDocument()
+    })
+
+    expect(screen.getByRole("button", { name: "Next" })).toBeDisabled()
     expect(mockAddEntry).not.toHaveBeenCalled()
   })
 })

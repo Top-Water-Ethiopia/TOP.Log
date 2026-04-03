@@ -1,6 +1,13 @@
 import { NextResponse } from "next/server"
 import { findDuplicateValues, getLegacyQuestionKeyFromMetadata, normalizeQuestionKey } from "@/lib/role-question-identity"
 import { getRoleQuestionScopeCacheKey, resolveRoleQuestionScope } from "@/lib/reporting-model"
+import {
+  ASSIGNED_AGENTS_OPTION_SOURCE_KIND,
+  getQuestionOptionSource,
+  isMarketingDepartmentName,
+  isSalesPromoterProfessionKey,
+  normalizeSalesPromoterProfessionKey,
+} from "@/lib/marketing-agents"
 import { adminSupabase } from "@/lib/supabase/admin"
 import { createClient } from "@/lib/supabase/server"
 
@@ -105,6 +112,101 @@ function collectDuplicateKeyErrors(questions: any[]): string[] {
   return errors
 }
 
+async function collectOptionSourceErrors(questions: any[]): Promise<string[]> {
+  const sourceQuestions = questions.filter((question) => {
+    return getQuestionOptionSource(question?.metadata)?.kind === ASSIGNED_AGENTS_OPTION_SOURCE_KIND
+  })
+
+  if (sourceQuestions.length === 0) {
+    return []
+  }
+
+  const errors: string[] = []
+  const scopeCounts = new Map<string, number>()
+  const departmentIds = Array.from(
+    new Set(
+      sourceQuestions
+        .map((question) => getQuestionScope(question))
+        .filter((scope): scope is NonNullable<ReturnType<typeof getQuestionScope>> => Boolean(scope))
+        .map((scope) => (scope.kind === "department" ? scope.id : scope.departmentId))
+        .filter((value): value is string => typeof value === "string" && value.length > 0)
+    )
+  )
+
+  const professionIds = Array.from(
+    new Set(
+      sourceQuestions
+        .map((question) => getQuestionScope(question))
+        .filter((scope): scope is Extract<NonNullable<ReturnType<typeof getQuestionScope>>, { kind: "profession" }> => {
+          return Boolean(scope && scope.kind === "profession" && scope.departmentProfessionId)
+        })
+        .map((scope) => scope.departmentProfessionId)
+        .filter((value): value is string => typeof value === "string" && value.length > 0)
+    )
+  )
+
+  const [{ data: departments, error: departmentsError }, { data: professions, error: professionsError }] = await Promise.all([
+    departmentIds.length > 0
+      ? adminSupabase.from("departments").select("id, name").in("id", departmentIds)
+      : Promise.resolve({ data: [], error: null }),
+    professionIds.length > 0
+      ? adminSupabase.from("department_professions").select("id, key").in("id", professionIds)
+      : Promise.resolve({ data: [], error: null }),
+  ])
+
+  if (departmentsError) {
+    return ["Failed to validate assigned agent question departments"]
+  }
+
+  if (professionsError) {
+    return ["Failed to validate assigned agent question professions"]
+  }
+
+  const departmentNameById = new Map((departments || []).map((row) => [row.id, row.name]))
+  const professionKeyById = new Map((professions || []).map((row) => [row.id, row.key]))
+
+  sourceQuestions.forEach((question, index) => {
+    const scope = getQuestionScope(question)
+    if (!scope || scope.kind !== "profession") {
+      errors.push(
+        `Question ${index + 1}: assigned agent questions are only supported for profession-scoped questions`
+      )
+      return
+    }
+
+    const scopeKey = getScopeCacheKey(scope)
+    scopeCounts.set(scopeKey, (scopeCounts.get(scopeKey) || 0) + 1)
+
+    if (question.question_type !== "select") {
+      errors.push(`Question ${index + 1}: assigned agent questions must use the Select question type`)
+    }
+
+    if (Array.isArray(question.options) && question.options.length > 0) {
+      errors.push(`Question ${index + 1}: assigned agent questions cannot define static options`)
+    }
+
+    const departmentName = departmentNameById.get(scope.departmentId)
+    if (!isMarketingDepartmentName(departmentName)) {
+      errors.push(`Question ${index + 1}: assigned agent questions are only supported in the Marketing department`)
+    }
+
+    const professionKey = normalizeSalesPromoterProfessionKey(
+      scope.departmentProfessionKey || professionKeyById.get(scope.departmentProfessionId || "")
+    )
+    if (!isSalesPromoterProfessionKey(professionKey)) {
+      errors.push(`Question ${index + 1}: assigned agent questions are only supported for the sales-promoter profession`)
+    }
+  })
+
+  scopeCounts.forEach((count, scopeKey) => {
+    if (count > 1) {
+      errors.push(`Only one assigned agent question is allowed in scope ${scopeKey}`)
+    }
+  })
+
+  return errors
+}
+
 export async function POST(request: Request) {
   try {
     // Temporarily disabled for testing - TODO: Add proper permission check
@@ -152,6 +254,7 @@ export async function POST(request: Request) {
     }
 
     errors.push(...collectDuplicateKeyErrors(questions))
+    errors.push(...(await collectOptionSourceErrors(questions)))
 
     if (errors.length > 0) {
       return NextResponse.json({ error: "Validation failed", details: errors }, { status: 400 })
@@ -164,13 +267,22 @@ export async function POST(request: Request) {
         return {
         department_id: scope?.kind === "department" ? scope.id : (scope?.departmentId ?? null),
         department_profession_id: scope?.kind === "profession" ? scope.departmentProfessionId : null,
-        department_role: scope?.kind === "profession" ? scope.departmentProfessionKey : null,
+        department_role:
+          scope?.kind === "profession" ? normalizeSalesPromoterProfessionKey(scope.departmentProfessionKey) : null,
         question_label: question.question_label.trim(),
         question_type: question.question_type,
         question_description: question.question_description?.trim() || null,
         placeholder: question.placeholder?.trim() || null,
-        options: question.options && question.options.length > 0 ? question.options : null,
-        is_required: question.is_required || false,
+        options:
+          getQuestionOptionSource(question.metadata)?.kind === ASSIGNED_AGENTS_OPTION_SOURCE_KIND
+            ? null
+            : question.options && question.options.length > 0
+              ? question.options
+              : null,
+        is_required:
+          getQuestionOptionSource(question.metadata)?.kind === ASSIGNED_AGENTS_OPTION_SOURCE_KIND
+            ? true
+            : question.is_required || false,
         display_order: question.display_order ?? index,
         validation_rules: question.validation_rules || null,
         is_active: question.is_active !== false,
@@ -273,6 +385,7 @@ export async function PUT(request: Request) {
     }
 
     errors.push(...collectDuplicateKeyErrors(questions))
+    errors.push(...(await collectOptionSourceErrors(questions)))
 
     if (errors.length > 0) {
       return NextResponse.json({ error: "Validation failed", details: errors }, { status: 400 })
@@ -426,13 +539,22 @@ export async function PUT(request: Request) {
           ...(resolvedId ? { id: resolvedId } : {}),
           department_id: scope.kind === "department" ? scope.id : scope.departmentId,
           department_profession_id: scope.kind === "profession" ? scope.departmentProfessionId : null,
-          department_role: scope.kind === "profession" ? scope.departmentProfessionKey : null,
+          department_role:
+            scope.kind === "profession" ? normalizeSalesPromoterProfessionKey(scope.departmentProfessionKey) : null,
           question_label: question.question_label.trim(),
           question_type: question.question_type,
           question_description: question.question_description?.trim() || null,
           placeholder: question.placeholder?.trim() || null,
-          options: question.options && question.options.length > 0 ? question.options : null,
-          is_required: question.is_required || false,
+          options:
+            getQuestionOptionSource(question.metadata)?.kind === ASSIGNED_AGENTS_OPTION_SOURCE_KIND
+              ? null
+              : question.options && question.options.length > 0
+                ? question.options
+                : null,
+          is_required:
+            getQuestionOptionSource(question.metadata)?.kind === ASSIGNED_AGENTS_OPTION_SOURCE_KIND
+              ? true
+              : question.is_required || false,
           display_order: question.display_order ?? index,
           validation_rules: question.validation_rules || null,
           is_active: question.is_active !== false,

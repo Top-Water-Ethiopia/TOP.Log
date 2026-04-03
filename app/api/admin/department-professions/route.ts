@@ -28,9 +28,9 @@ function asObject(value: unknown): Record<string, unknown> {
 
 function normalizeProfessionKey(raw: unknown) {
   if (typeof raw !== "string") return null
-  const key = raw.trim()
+  const key = raw.trim().toLowerCase()
   if (!key) return null
-  if (!/^[a-z0-9_]+$/.test(key)) return null
+  if (!/^[a-z0-9-]+$/.test(key)) return null
   return key
 }
 
@@ -76,7 +76,7 @@ export async function POST(request: Request) {
   const is_default = body.is_default === true
 
   if (!key) {
-    return NextResponse.json({ error: "Invalid key" }, { status: 400 })
+    return NextResponse.json({ error: "Invalid key. Use lowercase letters, numbers, and hyphens only." }, { status: 400 })
   }
   if (!label) {
     return NextResponse.json({ error: "Invalid label" }, { status: 400 })
@@ -127,7 +127,7 @@ export async function PUT(request: Request) {
 
   const key = normalizeProfessionKey(body.key)
   if (!key) {
-    return NextResponse.json({ error: "key is required" }, { status: 400 })
+    return NextResponse.json({ error: "Invalid key. Use lowercase letters, numbers, and hyphens only." }, { status: 400 })
   }
 
   const updates: DepartmentProfessionUpdate = {
@@ -200,7 +200,7 @@ export async function DELETE(request: Request) {
   const url = new URL(request.url)
   const key = normalizeProfessionKey(url.searchParams.get("key"))
   if (!key) {
-    return NextResponse.json({ error: "key is required" }, { status: 400 })
+    return NextResponse.json({ error: "Invalid key. Use lowercase letters, numbers, and hyphens only." }, { status: 400 })
   }
 
   const { data: existing, error: existingError } = await adminSupabase

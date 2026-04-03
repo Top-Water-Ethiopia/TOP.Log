@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { AlertCircle, Calendar, ExternalLink, Loader2, Shield } from "lucide-react"
+import { AlertCircle, Calendar, ExternalLink, Loader2, MapPin, Phone, Shield } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { RightSidePanel } from "@/components/ui/right-side-panel"
@@ -21,9 +21,15 @@ interface ReportPreview {
   created_at: string
   custom_responses?: CustomResponse[]
   date: string
+  entry_kind?: string | null
   id: string
   profile?: {
     name: string | null
+  } | null
+  subject_agent_snapshot?: {
+    name?: string | null
+    location?: string | null
+    phone?: string | null
   } | null
 }
 
@@ -43,6 +49,16 @@ function formatResponseValue(value: unknown): string {
   }
 
   if (typeof value === "object") {
+    const label = (value as { label?: unknown }).label
+    if (typeof label === "string" && label.trim()) {
+      return label
+    }
+
+    const name = (value as { name?: unknown }).name
+    if (typeof name === "string" && name.trim()) {
+      return name
+    }
+
     return JSON.stringify(value, null, 2)
   }
 
@@ -159,8 +175,29 @@ export function LogReportPreviewPanel({ canAccessAdmin, closeHref, reportId }: L
               <Calendar className="h-3.5 w-3.5" />
               {formatDateHuman(report.date)}
             </Badge>
+            {report.entry_kind === "agent_call" ? <Badge variant="outline">Agent Call</Badge> : null}
             <Badge variant="outline">{responses.length} response{responses.length === 1 ? "" : "s"}</Badge>
           </div>
+
+          {report.subject_agent_snapshot?.name ? (
+            <div className="space-y-3 rounded-lg border p-4">
+              <div className="text-sm font-semibold">{report.subject_agent_snapshot.name}</div>
+              <div className="space-y-2 text-sm">
+                {report.subject_agent_snapshot.location ? (
+                  <div className="flex items-center gap-2">
+                    <MapPin className="text-muted-foreground h-4 w-4 shrink-0" />
+                    <span>{report.subject_agent_snapshot.location}</span>
+                  </div>
+                ) : null}
+                {report.subject_agent_snapshot.phone ? (
+                  <div className="flex items-center gap-2">
+                    <Phone className="text-muted-foreground h-4 w-4 shrink-0" />
+                    <span>{report.subject_agent_snapshot.phone}</span>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
 
           {responses.length === 0 ? (
             <div className="bg-muted/30 text-muted-foreground rounded-lg border p-4 text-sm">

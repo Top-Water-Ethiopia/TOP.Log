@@ -174,10 +174,13 @@ export async function createEntry(entry: CaptainLogEntryInsert) {
   console.log("[createEntry] inserting", {
     id: entryWithDefaults.id ?? null,
     user_id: entryWithDefaults.user_id ?? null,
+    entry_kind: entryWithDefaults.entry_kind ?? null,
     submitted_by_user_id: entryWithDefaults.submitted_by_user_id ?? null,
     date: entryWithDefaults.date ?? null,
     department_id: entryWithDefaults.department_id ?? null,
     report_kind: entryWithDefaults.report_kind ?? null,
+    subject_agent_id: entryWithDefaults.subject_agent_id ?? null,
+    subject_agent_snapshot: entryWithDefaults.subject_agent_snapshot ?? null,
     subject_department_id: entryWithDefaults.subject_department_id ?? null,
     subject_profession_id: entryWithDefaults.subject_profession_id ?? null,
   })

@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/
 import { Progress } from "@/components/ui/progress"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar } from "@/components/ui/calendar"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import type { Matcher } from "react-day-picker"
 import { useCaptainLog } from "@/contexts/supabase-log-context"
 import { useAuth } from "@/contexts/auth-context"
@@ -19,7 +20,20 @@ import { RoleBasedQuestionFields } from "@/components/role-based-question-fields
 import { DateRestrictionBanner, QuickDateChips } from "@/components/features/daily-log/molecules"
 import type { CustomQuestion, QuestionResponse } from "@/lib/rbac/types"
 import { getQuestionReactKey } from "@/lib/role-question-identity"
-import { ArrowLeft, ArrowRight, Save, Eye, AlertCircle, ListChecks, Pencil, CalendarDays, Lock } from "lucide-react"
+import {
+  ArrowLeft,
+  ArrowRight,
+  Save,
+  Eye,
+  AlertCircle,
+  ListChecks,
+  Pencil,
+  CalendarDays,
+  Lock,
+  Loader2,
+  MapPin,
+  Phone,
+} from "lucide-react"
 import { Skeleton } from "@/components/ui/skeleton"
 import { toast } from "sonner"
 import {
@@ -30,6 +44,11 @@ import {
   getDateRestrictionMessage,
   getToday,
 } from "@/lib/date-restrictions"
+import {
+  ASSIGNED_AGENTS_OPTION_SOURCE_KIND,
+  type AssignedAgentOption,
+  parseAgentResponseValue,
+} from "@/lib/marketing-agents"
 
 interface EntryFormMultistepProps {
   date?: string
@@ -55,6 +74,8 @@ type FormQuestion = {
   order: number
   validationRules?: unknown
   defaultValue?: unknown
+  metadata?: unknown
+  optionSourceKind?: string
 }
 
 export function EntryFormMultistep({
@@ -95,6 +116,14 @@ export function EntryFormMultistep({
   }, [roleQuestions])
   const normalizedDepartmentName = departmentName?.trim() || "Department"
   const hasVisibleQuestions = roleQuestions.length > 0
+  const assignedAgentsQuestion = useMemo(
+    () =>
+      roleQuestions.find(
+        (question) => (question as FormQuestion).optionSourceKind === ASSIGNED_AGENTS_OPTION_SOURCE_KIND
+      ) as FormQuestion | undefined,
+    [roleQuestions]
+  )
+  const hasAssignedAgentsQuestion = !!assignedAgentsQuestion
   const hasDepartmentReportQuestions = useMemo(
     () => roleQuestions.some((question) => (question as FormQuestion).category === "department_report"),
     [roleQuestions]
@@ -146,6 +175,9 @@ export function EntryFormMultistep({
   const [dateError, setDateError] = useState<string | null>(null)
   const [liveMessage, setLiveMessage] = useState("")
   const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null)
+  const [assignedAgents, setAssignedAgents] = useState<AssignedAgentOption[]>([])
+  const [isAssignedAgentsLoading, setIsAssignedAgentsLoading] = useState(false)
+  const [assignedAgentsError, setAssignedAgentsError] = useState<string | null>(null)
 
   const selectedDateAsDate = useMemo(() => {
     const d = new Date(selectedDate + "T00:00:00")
@@ -236,6 +268,130 @@ export function EntryFormMultistep({
     return `Saved ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
   }, [draftSavedAt])
 
+  const reportedAssignedAgentsCount = useMemo(
+    () => assignedAgents.filter((agent) => agent.alreadyReported).length,
+    [assignedAgents]
+  )
+  const availableAssignedAgents = useMemo(
+    () => assignedAgents.filter((agent) => !agent.alreadyReported),
+    [assignedAgents]
+  )
+  const assignedAgentQuestionKey = assignedAgentsQuestion?.key
+  const selectedAssignedAgentResponse = assignedAgentQuestionKey
+    ? customResponses[String(assignedAgentQuestionKey)]
+    : undefined
+  const selectedAssignedAgentId = useMemo(() => {
+    return parseAgentResponseValue(selectedAssignedAgentResponse)?.value ?? null
+  }, [selectedAssignedAgentResponse])
+  const selectedAssignedAgent = useMemo(
+    () => assignedAgents.find((agent) => agent.id === selectedAssignedAgentId) ?? null,
+    [assignedAgents, selectedAssignedAgentId]
+  )
+  const noAvailableAssignedAgents =
+    hasAssignedAgentsQuestion && !isAssignedAgentsLoading && !assignedAgentsError && availableAssignedAgents.length === 0
+
+  useEffect(() => {
+    if (!hasAssignedAgentsQuestion) {
+      setAssignedAgents([])
+      setAssignedAgentsError(null)
+      setIsAssignedAgentsLoading(false)
+      return
+    }
+
+    const dateValidation = canCreateEntryForDate(selectedDate)
+    if (!dateValidation.isValid) {
+      setAssignedAgents([])
+      setAssignedAgentsError(dateValidation.error || "Assigned agents are unavailable for this date")
+      setIsAssignedAgentsLoading(false)
+      return
+    }
+
+    const controller = new AbortController()
+    const loadAssignedAgents = async () => {
+      try {
+        setIsAssignedAgentsLoading(true)
+        setAssignedAgentsError(null)
+
+        const response = await fetch(
+          `/api/reporting/assigned-agents?departmentId=${encodeURIComponent(departmentId)}&date=${encodeURIComponent(selectedDate)}`,
+          {
+            cache: "no-store",
+            signal: controller.signal,
+          }
+        )
+        const payload = await response.json().catch(() => ({}))
+
+        if (!response.ok) {
+          throw new Error(
+            typeof payload?.error === "string" ? payload.error : `Failed to load assigned agents (HTTP ${response.status})`
+          )
+        }
+
+        const nextAgents = Array.isArray(payload?.data) ? (payload.data as AssignedAgentOption[]) : []
+        setAssignedAgents(nextAgents)
+      } catch (error) {
+        if ((error as Error).name === "AbortError") {
+          return
+        }
+
+        console.error("Failed to load assigned agents:", error)
+        setAssignedAgents([])
+        setAssignedAgentsError(error instanceof Error ? error.message : "Failed to load assigned agents")
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsAssignedAgentsLoading(false)
+        }
+      }
+    }
+
+    void loadAssignedAgents()
+
+    return () => {
+      controller.abort()
+    }
+  }, [departmentId, hasAssignedAgentsQuestion, selectedDate])
+
+  const getAssignedAgentValidationError = useCallback(
+    (question: FormQuestion | undefined, value: unknown) => {
+      if (!question || question.optionSourceKind !== ASSIGNED_AGENTS_OPTION_SOURCE_KIND) {
+        return null
+      }
+
+      if (isAssignedAgentsLoading) {
+        return "Assigned agents are still loading"
+      }
+
+      if (assignedAgentsError) {
+        return assignedAgentsError
+      }
+
+      if (assignedAgents.length === 0) {
+        return "No agents are assigned to you yet."
+      }
+
+      if (availableAssignedAgents.length === 0) {
+        return "All assigned agents already have a call report for this date."
+      }
+
+      const selectedValue = parseAgentResponseValue(value)?.value ?? null
+      if (!selectedValue) {
+        return question.required ? `${question.label} is required` : null
+      }
+
+      const matchedAgent = assignedAgents.find((agent) => agent.id === selectedValue)
+      if (!matchedAgent) {
+        return "Select a valid assigned agent"
+      }
+
+      if (matchedAgent.alreadyReported) {
+        return "A call report for this agent already exists on this date."
+      }
+
+      return null
+    },
+    [assignedAgents, assignedAgentsError, availableAssignedAgents.length, isAssignedAgentsLoading]
+  )
+
   const buildInitialCustomResponses = useCallback((existingResponses?: QuestionResponse[]) => {
     const responseMap: Record<string, unknown> = {}
 
@@ -323,6 +479,13 @@ export function EntryFormMultistep({
   useEffect(() => {
     const handle = window.setTimeout(() => {
       const errors = getZodErrors(customResponses)
+      roleQuestions.forEach((question) => {
+        const typedQuestion = question as FormQuestion
+        const agentError = getAssignedAgentValidationError(typedQuestion, customResponses[String(typedQuestion.key)])
+        if (agentError) {
+          errors[String(typedQuestion.key)] = agentError
+        }
+      })
       setCustomErrors(errors)
 
       if (Object.keys(errors).length > 0) {
@@ -331,7 +494,7 @@ export function EntryFormMultistep({
     }, 300)
 
     return () => window.clearTimeout(handle)
-  }, [customResponses, getZodErrors])
+  }, [customResponses, getAssignedAgentValidationError, getZodErrors, roleQuestions])
 
   useEffect(() => {
     if (typeof window === "undefined") return
@@ -406,6 +569,11 @@ export function EntryFormMultistep({
     roleQuestions.forEach((question) => {
       const q = question as Record<string, unknown>
       if (mergedErrors[String(q.key)]) return
+      const agentError = getAssignedAgentValidationError(q as FormQuestion, customResponses[String(q.key)])
+      if (agentError) {
+        mergedErrors[String(q.key)] = agentError
+        return
+      }
       try {
         const error = validateResponse(q as unknown as CustomQuestion, customResponses[String(q.key)])
         if (error) {
@@ -418,7 +586,7 @@ export function EntryFormMultistep({
 
     setCustomErrors(mergedErrors)
     return Object.keys(mergedErrors).length === 0
-  }, [roleQuestions, customResponses, validateResponse, getZodErrors])
+  }, [roleQuestions, customResponses, validateResponse, getZodErrors, getAssignedAgentValidationError])
 
   // Validate a specific step by its index (0-based in the steps array)
   const validateStepByIndex = useCallback(
@@ -441,6 +609,16 @@ export function EntryFormMultistep({
         return true
       }
 
+      const assignedAgentError = getAssignedAgentValidationError(
+        question as FormQuestion,
+        customResponses[String(question.key)]
+      )
+      if (assignedAgentError) {
+        setCustomErrors((prev) => ({ ...prev, [String(question.key)]: assignedAgentError }))
+        setLiveMessage("Please fix the highlighted fields")
+        return false
+      }
+
       const zodErrors = getZodErrors(customResponses)
       const mergedErrors: Record<string, string> = { ...zodErrors }
       try {
@@ -460,7 +638,7 @@ export function EntryFormMultistep({
 
       return true
     },
-    [steps, roleQuestions, customResponses, validateResponse, getZodErrors]
+    [steps, roleQuestions, customResponses, validateResponse, getZodErrors, getAssignedAgentValidationError]
   )
 
   const handleNext = () => {
@@ -519,11 +697,44 @@ export function EntryFormMultistep({
     // For question steps, check if there are errors
     if (step.key.startsWith("question-")) {
       const questionKey = step.key.replace("question-", "")
+      const question = roleQuestions.find((q: unknown) => {
+        if (!q || typeof q !== "object") return false
+        return (q as { key?: unknown }).key === questionKey
+      }) as FormQuestion | undefined
+
+      if (question?.optionSourceKind === ASSIGNED_AGENTS_OPTION_SOURCE_KIND) {
+        return isAssignedAgentsLoading || !!assignedAgentsError || noAvailableAssignedAgents
+      }
+
       return customErrors[questionKey] !== undefined && customErrors[questionKey] !== ""
     }
 
     return false
-  }, [currentStep, steps, customErrors])
+  }, [assignedAgentsError, currentStep, customErrors, isAssignedAgentsLoading, noAvailableAssignedAgents, roleQuestions, steps])
+
+  const formatQuestionResponseValue = useCallback(
+    (question: FormQuestion, value: unknown) => {
+      if (question.optionSourceKind === ASSIGNED_AGENTS_OPTION_SOURCE_KIND) {
+        const parsed = parseAgentResponseValue(value)
+        if (!parsed) {
+          return "Not provided"
+        }
+        const agent = assignedAgents.find((item) => item.id === parsed.value)
+        return agent?.name || parsed.label || parsed.value
+      }
+
+      if (Array.isArray(value)) {
+        return value.length ? value.join(", ") : "Not provided"
+      }
+
+      if (value === "" || value === undefined || value === null) {
+        return "Not provided"
+      }
+
+      return String(value)
+    },
+    [assignedAgents]
+  )
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -542,6 +753,43 @@ export function EntryFormMultistep({
         return
       }
 
+      let selectedAgentForEntry: AssignedAgentOption | null = null
+      let responsesForProcessing = { ...customResponses }
+      if (assignedAgentsQuestion) {
+        const selectedAgentError = getAssignedAgentValidationError(
+          assignedAgentsQuestion,
+          customResponses[String(assignedAgentsQuestion.key)]
+        )
+
+        if (selectedAgentError) {
+          setCustomErrors((prev) => ({ ...prev, [String(assignedAgentsQuestion.key)]: selectedAgentError }))
+          setLiveMessage("Please fix the highlighted fields")
+          setIsSubmitting(false)
+          return
+        }
+
+        const selectedValue = parseAgentResponseValue(customResponses[String(assignedAgentsQuestion.key)])?.value ?? null
+        selectedAgentForEntry = assignedAgents.find((agent) => agent.id === selectedValue) ?? null
+
+        if (!selectedAgentForEntry) {
+          setCustomErrors((prev) => ({
+            ...prev,
+            [String(assignedAgentsQuestion.key)]: "Select a valid assigned agent",
+          }))
+          setLiveMessage("Please fix the highlighted fields")
+          setIsSubmitting(false)
+          return
+        }
+
+        responsesForProcessing = {
+          ...responsesForProcessing,
+          [String(assignedAgentsQuestion.key)]: {
+            value: selectedAgentForEntry.id,
+            label: selectedAgentForEntry.name,
+          },
+        }
+      }
+
       // Validate date before submission
       const dateValidation = canCreateEntryForDate(selectedDate)
 
@@ -554,7 +802,7 @@ export function EntryFormMultistep({
       // Process custom responses for storage
       const processedCustom = processResponses(
         roleQuestions.map((q) => q as unknown as CustomQuestion),
-        customResponses
+        responsesForProcessing
       )
 
       // Synchronize standard fields from customResponses back to formData
@@ -579,6 +827,15 @@ export function EntryFormMultistep({
         date: selectedDate,
         ...updatedFormData,
         customResponses: processedCustom.processedResponses,
+        entry_kind: selectedAgentForEntry ? ("agent_call" as const) : ("standard" as const),
+        subject_agent_id: selectedAgentForEntry?.id || null,
+        subject_agent_snapshot: selectedAgentForEntry
+          ? {
+              name: selectedAgentForEntry.name,
+              location: selectedAgentForEntry.location,
+              phone: selectedAgentForEntry.phone,
+            }
+          : null,
       }
 
       const now = new Date().toISOString()
@@ -663,7 +920,15 @@ export function EntryFormMultistep({
     },
     [normalizedDepartmentName]
   )
-  const submitButtonLabel = !hasVisibleQuestions ? "No Questions Available" : isSubmitting ? "Saving..." : "Submit Log"
+  const submitButtonLabel = !hasVisibleQuestions
+    ? "No Questions Available"
+    : noAvailableAssignedAgents
+      ? assignedAgents.length === 0
+        ? "No Assigned Agents Available"
+        : "All Assigned Agents Reported"
+      : isSubmitting
+        ? "Saving..."
+        : "Submit Log"
 
   return (
     <div className="mx-auto flex h-full w-full max-w-3xl flex-col space-y-4">
@@ -849,13 +1114,103 @@ export function EntryFormMultistep({
                       </div>
 
                       <div className="mt-4">
-                        <RoleBasedQuestionFields
-                          questions={[question]}
-                          responses={customResponses}
-                          errors={customErrors}
-                          onChange={handleCustomResponseChange}
-                          renderMode="fieldsOnly"
-                        />
+                        {question.optionSourceKind === ASSIGNED_AGENTS_OPTION_SOURCE_KIND ? (
+                          <div className="space-y-4">
+                            <div className="bg-muted/30 rounded-lg border p-4">
+                              <div className="flex flex-wrap items-center gap-2">
+                                <Badge variant="outline">Assigned agents</Badge>
+                                <span className="text-sm font-medium">
+                                  {reportedAssignedAgentsCount} of {assignedAgents.length} already reported today
+                                </span>
+                              </div>
+                              <p className="text-muted-foreground mt-2 text-sm">
+                                Select one assigned agent to record this call report. Each agent can only have one call
+                                report per date.
+                              </p>
+                            </div>
+
+                            {isAssignedAgentsLoading ? (
+                              <div className="flex items-center gap-2 rounded-lg border p-4 text-sm">
+                                <Loader2 className="text-muted-foreground h-4 w-4 animate-spin" />
+                                <span>Loading assigned agents...</span>
+                              </div>
+                            ) : assignedAgentsError ? (
+                              <div className="rounded-lg border border-red-500/40 bg-red-500/10 p-4">
+                                <p className="flex items-center gap-2 text-sm text-red-600 dark:text-red-400">
+                                  <AlertCircle className="h-4 w-4 shrink-0" />
+                                  {assignedAgentsError}
+                                </p>
+                              </div>
+                            ) : noAvailableAssignedAgents ? (
+                              <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-4">
+                                <p className="text-foreground text-sm font-medium">No agents available for this date</p>
+                                <p className="text-muted-foreground mt-2 text-sm">
+                                  All assigned agents already have a call report on {formatDateHuman(selectedDate)}.
+                                  Change the date or wait until a new agent is assigned.
+                                </p>
+                              </div>
+                            ) : (
+                              <div className="space-y-4">
+                                <Select
+                                  value={typeof customResponses[String(question.key)] === "string" ? String(customResponses[String(question.key)]) : ""}
+                                  onValueChange={(newValue) => handleCustomResponseChange(String(question.key), newValue)}
+                                >
+                                  <SelectTrigger className={customErrors[String(question.key)] ? "border-destructive" : ""}>
+                                    <SelectValue placeholder="Select an assigned agent" />
+                                  </SelectTrigger>
+                                  <SelectContent>
+                                    {assignedAgents.map((agent) => (
+                                      <SelectItem
+                                        key={agent.id}
+                                        value={agent.id}
+                                        disabled={agent.alreadyReported}
+                                      >
+                                        {agent.name}
+                                        {agent.alreadyReported ? " (already reported)" : ""}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+
+                                {selectedAssignedAgent ? (
+                                  <div className="bg-muted/20 rounded-lg border p-4">
+                                    <div className="space-y-2">
+                                      <p className="text-sm font-medium">{selectedAssignedAgent.name}</p>
+                                      <div className="text-muted-foreground space-y-2 text-sm">
+                                        {selectedAssignedAgent.location ? (
+                                          <div className="flex items-center gap-2">
+                                            <MapPin className="h-4 w-4 shrink-0" />
+                                            <span>{selectedAssignedAgent.location}</span>
+                                          </div>
+                                        ) : null}
+                                        {selectedAssignedAgent.phone ? (
+                                          <div className="flex items-center gap-2">
+                                            <Phone className="h-4 w-4 shrink-0" />
+                                            <span>{selectedAssignedAgent.phone}</span>
+                                          </div>
+                                        ) : null}
+                                      </div>
+                                    </div>
+                                  </div>
+                                ) : null}
+                              </div>
+                            )}
+
+                            {customErrors[String(question.key)] ? (
+                              <p id={`${question.key}-error`} className="text-destructive mt-2 text-sm">
+                                {customErrors[String(question.key)]}
+                              </p>
+                            ) : null}
+                          </div>
+                        ) : (
+                          <RoleBasedQuestionFields
+                            questions={[question]}
+                            responses={customResponses}
+                            errors={customErrors}
+                            onChange={handleCustomResponseChange}
+                            renderMode="fieldsOnly"
+                          />
+                        )}
 
                         {showCharacterCount ? (
                           <div className="mt-4 flex items-center justify-between">
@@ -911,49 +1266,43 @@ export function EntryFormMultistep({
                           </div>
                           <div className="space-y-4">
                             {group.questions.map((question, index) => {
-                      const value = customResponses[String(question.key)]
-                      const displayValue = Array.isArray(value)
-                        ? value.length
-                          ? value.join(", ")
-                          : "Not provided"
-                        : value === "" || value === undefined || value === null
-                          ? "Not provided"
-                          : String(value)
+                              const value = customResponses[String(question.key)]
+                              const displayValue = formatQuestionResponseValue(question, value)
 
-                      const questionStepIndex = steps.findIndex((step) => step.key === `question-${question.key}`)
-                      const questionStepNumber = questionStepIndex >= 0 ? steps[questionStepIndex].number : null
-                      const reactKey = getQuestionReactKey(question, index)
+                              const questionStepIndex = steps.findIndex((step) => step.key === `question-${question.key}`)
+                              const questionStepNumber = questionStepIndex >= 0 ? steps[questionStepIndex].number : null
+                              const reactKey = getQuestionReactKey(question, index)
 
-                      return (
-                        <div
-                          key={reactKey}
-                          className="bg-muted/30 border-border/40 flex items-start justify-between gap-4 rounded-lg border p-4"
-                        >
-                          <div className="min-w-0 flex-1">
-                            <button
-                              type="button"
-                              onClick={() => questionStepNumber && handleStepClick(questionStepNumber)}
-                              className="text-foreground hover:text-primary cursor-pointer text-left text-sm font-medium transition-colors duration-150 ease-in-out disabled:cursor-default"
-                              disabled={!questionStepNumber}
-                            >
-                              {question.label}
-                            </button>
-                            <p className="text-muted-foreground mt-2 text-sm whitespace-pre-wrap">{displayValue}</p>
-                          </div>
-                          {questionStepNumber && (
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="icon"
-                              className="text-muted-foreground hover:text-primary hover:bg-muted h-8 w-8 cursor-pointer"
-                              onClick={() => handleStepClick(questionStepNumber)}
-                              aria-label="Edit response"
-                            >
-                              <Pencil className="h-4 w-4" />
-                            </Button>
-                          )}
-                        </div>
-                      )
+                              return (
+                                <div
+                                  key={reactKey}
+                                  className="bg-muted/30 border-border/40 flex items-start justify-between gap-4 rounded-lg border p-4"
+                                >
+                                  <div className="min-w-0 flex-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => questionStepNumber && handleStepClick(questionStepNumber)}
+                                      className="text-foreground hover:text-primary cursor-pointer text-left text-sm font-medium transition-colors duration-150 ease-in-out disabled:cursor-default"
+                                      disabled={!questionStepNumber}
+                                    >
+                                      {question.label}
+                                    </button>
+                                    <p className="text-muted-foreground mt-2 text-sm whitespace-pre-wrap">{displayValue}</p>
+                                  </div>
+                                  {questionStepNumber && (
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="icon"
+                                      className="text-muted-foreground hover:text-primary hover:bg-muted h-8 w-8 cursor-pointer"
+                                      onClick={() => handleStepClick(questionStepNumber)}
+                                      aria-label="Edit response"
+                                    >
+                                      <Pencil className="h-4 w-4" />
+                                    </Button>
+                                  )}
+                                </div>
+                              )
                             })}
                           </div>
                         </div>
@@ -999,7 +1348,18 @@ export function EntryFormMultistep({
             <ArrowRight className="h-4 w-4" />
           </Button>
         ) : (
-          <Button onClick={handleSubmit} disabled={isSubmitting || hasCustomErrors || !hasVisibleQuestions} className="gap-2">
+          <Button
+            onClick={handleSubmit}
+            disabled={
+              isSubmitting ||
+              hasCustomErrors ||
+              !hasVisibleQuestions ||
+              isAssignedAgentsLoading ||
+              !!assignedAgentsError ||
+              noAvailableAssignedAgents
+            }
+            className="gap-2"
+          >
             <Save className="h-4 w-4" />
             {submitButtonLabel}
           </Button>

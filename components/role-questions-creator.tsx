@@ -17,6 +17,14 @@ import { Separator } from "@/components/ui/separator"
 import { Plus, Trash2, CheckCircle2, AlertCircle, Loader2, Shield, Eye, EyeOff, Save, X, Users } from "lucide-react"
 import { findDuplicateValues, normalizeQuestionKey } from "@/lib/role-question-identity"
 import { isDepartmentReportQuestion, matchesProfessionQuestion } from "@/lib/reporting-model"
+import {
+  ASSIGNED_AGENTS_OPTION_SOURCE_KIND,
+  getQuestionOptionSource,
+  isSalesPromoterProfessionKey,
+  MARKETING_DEPARTMENT_NAME,
+  SALES_PROMOTER_PROFESSION_KEY,
+  normalizeSalesPromoterProfessionKey,
+} from "@/lib/marketing-agents"
 import { toast } from "sonner"
 
 type ApiRoleQuestion = {
@@ -42,6 +50,7 @@ type ApiRoleQuestion = {
   min_date?: unknown
   max_date?: unknown
   is_active?: unknown
+  metadata?: unknown
 }
 
 type SavedQuestion = {
@@ -78,6 +87,7 @@ function createEmptyQuestion(displayOrder = 0): QuestionFormData {
     min_date: "",
     max_date: "",
     is_active: true,
+    option_source_kind: "static",
   }
 }
 
@@ -116,6 +126,7 @@ interface QuestionFormData {
   min_date: string
   max_date: string
   is_active: boolean
+  option_source_kind: "static" | typeof ASSIGNED_AGENTS_OPTION_SOURCE_KIND
 }
 
 type Step = "role" | "questions" | "success"
@@ -304,6 +315,10 @@ export function RoleQuestionsCreator() {
             min_date: asString(q.min_date) ?? "",
             max_date: asString(q.max_date) ?? "",
             is_active: q.is_active !== false,
+            option_source_kind:
+              getQuestionOptionSource(q.metadata)?.kind === ASSIGNED_AGENTS_OPTION_SOURCE_KIND
+                ? ASSIGNED_AGENTS_OPTION_SOURCE_KIND
+                : "static",
           }
         })
 
@@ -433,14 +448,48 @@ export function RoleQuestionsCreator() {
         return false
       }
 
+      const isAssignedAgentsQuestion = q.option_source_kind === ASSIGNED_AGENTS_OPTION_SOURCE_KIND
+
       if (
         (q.question_type === "select" ||
           q.question_type === "multiselect" ||
           q.question_type === "radio" ||
           q.question_type === "rating") &&
+        !isAssignedAgentsQuestion &&
         (!q.options || q.options.length === 0)
       ) {
         toast.error(`Question ${i + 1}: Options are required for this question type`)
+        return false
+      }
+
+      if (isAssignedAgentsQuestion && q.question_type !== "select") {
+        toast.error(`Question ${i + 1}: Assigned agent questions must use the Select question type`)
+        return false
+      }
+    }
+
+    const assignedAgentsQuestions = questions.filter(
+      (question) => question.option_source_kind === ASSIGNED_AGENTS_OPTION_SOURCE_KIND
+    )
+
+    if (assignedAgentsQuestions.length > 1) {
+      toast.error("Only one assigned agent question is allowed in a single question scope")
+      return false
+    }
+
+    if (assignedAgentsQuestions.length === 1) {
+      if (questionScope !== "role" || !selectedDepartmentForRole || !selectedDepartmentRole) {
+        toast.error("Assigned agent questions are only supported for profession-scoped questions")
+        return false
+      }
+
+      if (selectedDepartmentForRole.name.trim() !== MARKETING_DEPARTMENT_NAME) {
+        toast.error("Assigned agent questions are only supported in the Marketing department")
+        return false
+      }
+
+      if (!isSalesPromoterProfessionKey(selectedDepartmentRole.key)) {
+        toast.error(`Assigned agent questions are only supported for the ${SALES_PROMOTER_PROFESSION_KEY} profession`)
         return false
       }
     }
@@ -458,7 +507,7 @@ export function RoleQuestionsCreator() {
     }
 
     return true
-  }, [questions])
+  }, [questionScope, questions, selectedDepartmentForRole, selectedDepartmentRole])
 
   const handleSubmit = useCallback(async () => {
     const scopeOk =
@@ -478,7 +527,7 @@ export function RoleQuestionsCreator() {
             ? {
                 department_id: selectedDepartmentForRole!.id,
                 department_profession_id: selectedDepartmentRole!.id ?? null,
-                department_role: selectedDepartmentRole!.key,
+                department_role: normalizeSalesPromoterProfessionKey(selectedDepartmentRole!.key),
               }
             : { department_id: selectedDepartment!.id }
 
@@ -489,13 +538,25 @@ export function RoleQuestionsCreator() {
           question_type: q.question_type,
           question_description: q.question_description?.trim() || null,
           placeholder: q.placeholder?.trim() || null,
-          options: q.options && q.options.length > 0 ? q.options : null,
-          is_required: q.is_required,
+          options:
+            q.option_source_kind === ASSIGNED_AGENTS_OPTION_SOURCE_KIND
+              ? null
+              : q.options && q.options.length > 0
+                ? q.options
+                : null,
+          is_required: q.option_source_kind === ASSIGNED_AGENTS_OPTION_SOURCE_KIND ? true : q.is_required,
           display_order: q.display_order,
           validation_rules: null,
           is_active: q.is_active,
           metadata: {
             legacy_question_key: resolvedKey,
+            ...(q.option_source_kind === ASSIGNED_AGENTS_OPTION_SOURCE_KIND
+              ? {
+                  option_source: {
+                    kind: ASSIGNED_AGENTS_OPTION_SOURCE_KIND,
+                  },
+                }
+              : {}),
           },
           min_value: q.min_value,
           max_value: q.max_value,
@@ -1085,6 +1146,13 @@ interface QuestionFormProps {
 function QuestionForm({ question, index, onUpdate, onRemove, canRemove }: QuestionFormProps) {
   const [optionInput, setOptionInput] = useState("")
   const [isExpanded, setIsExpanded] = useState(true)
+  const isAssignedAgentQuestion = question.option_source_kind === ASSIGNED_AGENTS_OPTION_SOURCE_KIND
+  const showsStaticOptions =
+    (question.question_type === "select" ||
+      question.question_type === "multiselect" ||
+      question.question_type === "radio" ||
+      question.question_type === "rating") &&
+    !isAssignedAgentQuestion
 
   useEffect(() => {
     if (question.options) {
@@ -1111,6 +1179,29 @@ function QuestionForm({ question, index, onUpdate, onRemove, canRemove }: Questi
     }
   }
 
+  const handleQuestionTypeChange = (value: string) => {
+    if (value === "select") {
+      onUpdate({
+        question_type: value,
+        option_source_kind: question.option_source_kind || "static",
+        is_required: isAssignedAgentQuestion ? true : question.is_required,
+      })
+      return
+    }
+
+    onUpdate({
+      question_type: value,
+      option_source_kind: "static",
+      options:
+        value === "radio" || value === "multiselect" || value === "rating"
+          ? question.options
+          : value === "select"
+            ? question.options
+            : null,
+      is_required: question.is_required,
+    })
+  }
+
   return (
     <Card>
       <CardHeader>
@@ -1127,8 +1218,9 @@ function QuestionForm({ question, index, onUpdate, onRemove, canRemove }: Questi
               </div>
               <div className="flex items-center gap-2">
                 <Switch
-                  checked={question.is_required}
+                  checked={isAssignedAgentQuestion ? true : question.is_required}
                   onCheckedChange={(checked) => onUpdate({ is_required: checked })}
+                  disabled={isAssignedAgentQuestion}
                 />
                 <span className="text-muted-foreground text-xs">Required</span>
               </div>
@@ -1151,7 +1243,7 @@ function QuestionForm({ question, index, onUpdate, onRemove, canRemove }: Questi
             <Label>
               Question Type <span className="text-destructive">*</span>
             </Label>
-            <Select value={question.question_type} onValueChange={(value) => onUpdate({ question_type: value })}>
+            <Select value={question.question_type} onValueChange={handleQuestionTypeChange}>
               <SelectTrigger>
                 <SelectValue />
               </SelectTrigger>
@@ -1174,6 +1266,56 @@ function QuestionForm({ question, index, onUpdate, onRemove, canRemove }: Questi
               </SelectContent>
             </Select>
           </div>
+
+          {question.question_type === "select" && (
+            <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <div className="space-y-1">
+                <Label>Dropdown option source</Label>
+                <p className="text-muted-foreground text-xs">
+                  Choose whether this dropdown uses fixed options or loads assigned agents for a Sales Promoter.
+                </p>
+              </div>
+              <RadioGroup
+                value={question.option_source_kind}
+                onValueChange={(value) =>
+                  onUpdate({
+                    option_source_kind:
+                      value === ASSIGNED_AGENTS_OPTION_SOURCE_KIND ? ASSIGNED_AGENTS_OPTION_SOURCE_KIND : "static",
+                    is_required: value === ASSIGNED_AGENTS_OPTION_SOURCE_KIND ? true : question.is_required,
+                    options: value === ASSIGNED_AGENTS_OPTION_SOURCE_KIND ? null : question.options,
+                  })
+                }
+              >
+                <div className="flex items-start gap-3 rounded-md border border-slate-200 bg-white p-3">
+                  <RadioGroupItem value="static" id={`question-${question.id}-source-static`} />
+                  <div className="space-y-1">
+                    <Label htmlFor={`question-${question.id}-source-static`} className="cursor-pointer font-medium">
+                      Static options
+                    </Label>
+                    <p className="text-muted-foreground text-xs">Admins manually define the dropdown choices.</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3 rounded-md border border-slate-200 bg-white p-3">
+                  <RadioGroupItem
+                    value={ASSIGNED_AGENTS_OPTION_SOURCE_KIND}
+                    id={`question-${question.id}-source-assigned-agents`}
+                  />
+                  <div className="space-y-1">
+                    <Label
+                      htmlFor={`question-${question.id}-source-assigned-agents`}
+                      className="cursor-pointer font-medium"
+                    >
+                      Assigned agents
+                    </Label>
+                    <p className="text-muted-foreground text-xs">
+                      Loads the current Sales Promoter&apos;s assigned agents at report time. This dropdown is required
+                      and does not use static options.
+                    </p>
+                  </div>
+                </div>
+              </RadioGroup>
+            </div>
+          )}
 
           <div className="space-y-2">
             <Label>
@@ -1209,10 +1351,7 @@ function QuestionForm({ question, index, onUpdate, onRemove, canRemove }: Questi
           </div>
 
           {/* Options for select/radio/rating/multiselect */}
-          {(question.question_type === "select" ||
-            question.question_type === "multiselect" ||
-            question.question_type === "radio" ||
-            question.question_type === "rating") && (
+          {showsStaticOptions && (
             <div className="space-y-2">
               <Label>
                 Options <span className="text-destructive">*</span>
@@ -1245,6 +1384,13 @@ function QuestionForm({ question, index, onUpdate, onRemove, canRemove }: Questi
               )}
             </div>
           )}
+
+          {question.question_type === "select" && isAssignedAgentQuestion ? (
+            <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
+              This dropdown will load assigned agents for the logged-in Sales Promoter at report time. Static options
+              are disabled for this question.
+            </div>
+          ) : null}
 
           <div className="space-y-4">
             {/* Text validation */}
@@ -1637,7 +1783,16 @@ function QuestionPreview({ question, isPreviewMode = false, displayIndex }: Ques
         />
       )}
 
-      {question.question_type === "select" && question.options && (
+      {question.question_type === "select" &&
+        question.option_source_kind === ASSIGNED_AGENTS_OPTION_SOURCE_KIND && (
+          <div className="rounded-lg border border-dashed border-blue-300 bg-blue-50 p-4 text-sm text-blue-900">
+            Assigned agents will load dynamically for the logged-in Sales Promoter when the report form is opened.
+          </div>
+        )}
+
+      {question.question_type === "select" &&
+        question.option_source_kind !== ASSIGNED_AGENTS_OPTION_SOURCE_KIND &&
+        question.options && (
         <Select value={previewValue} onValueChange={handleChange} required={question.is_required}>
           <SelectTrigger className={previewError ? "border-destructive" : ""}>
             <SelectValue placeholder={question.placeholder || "Select an option"} />

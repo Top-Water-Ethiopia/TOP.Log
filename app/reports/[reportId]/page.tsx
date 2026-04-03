@@ -7,7 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
-import { ArrowLeft, Calendar } from "lucide-react"
+import { ArrowLeft, Calendar, MapPin, Phone } from "lucide-react"
 import { format, parseISO } from "date-fns"
 
 type CustomResponse = {
@@ -22,12 +22,18 @@ type ReportEntry = {
   id: string
   user_id: string
   date: string
+  entry_kind?: string | null
   created_at: string
   updated_at: string
   custom_responses?: CustomResponse[]
   profile?: {
     name: string
   }
+  subject_agent_snapshot?: {
+    name?: string | null
+    location?: string | null
+    phone?: string | null
+  } | null
 }
 
 export default function ReportViewPage() {
@@ -98,7 +104,19 @@ export default function ReportViewPage() {
   const formatResponseValue = (value: unknown) => {
     if (value === null || value === undefined || value === "") return "Not provided"
     if (Array.isArray(value)) return value.length ? value.map((v) => String(v)).join(", ") : "Not provided"
-    if (typeof value === "object") return JSON.stringify(value, null, 2)
+    if (typeof value === "object") {
+      const label = (value as { label?: unknown }).label
+      if (typeof label === "string" && label.trim()) {
+        return label
+      }
+
+      const name = (value as { name?: unknown }).name
+      if (typeof name === "string" && name.trim()) {
+        return name
+      }
+
+      return JSON.stringify(value, null, 2)
+    }
     return String(value)
   }
 
@@ -180,6 +198,7 @@ export default function ReportViewPage() {
           </div>
         </div>
         <div className="flex items-center gap-2">
+          {report.entry_kind === "agent_call" ? <Badge variant="outline">Agent Call</Badge> : null}
           <Badge variant="secondary">{responses.length} responses</Badge>
         </div>
       </div>
@@ -203,6 +222,26 @@ export default function ReportViewPage() {
           </div>
         </CardHeader>
         <CardContent className="space-y-6">
+          {report.subject_agent_snapshot?.name ? (
+            <div className="space-y-3 rounded-lg border p-4">
+              <div className="text-sm font-semibold">{report.subject_agent_snapshot.name}</div>
+              <div className="space-y-2 text-sm">
+                {report.subject_agent_snapshot.location ? (
+                  <div className="flex items-center gap-2">
+                    <MapPin className="text-muted-foreground h-4 w-4 shrink-0" />
+                    <span>{report.subject_agent_snapshot.location}</span>
+                  </div>
+                ) : null}
+                {report.subject_agent_snapshot.phone ? (
+                  <div className="flex items-center gap-2">
+                    <Phone className="text-muted-foreground h-4 w-4 shrink-0" />
+                    <span>{report.subject_agent_snapshot.phone}</span>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+
           {responses.length === 0 ? (
             <div className="text-muted-foreground bg-muted/30 rounded-lg border p-6 text-center">
               No responses for this report.
