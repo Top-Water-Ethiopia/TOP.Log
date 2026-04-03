@@ -3,6 +3,7 @@ import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { toast } from "sonner"
 import { apiFetch, getErrorMessage } from "@/lib/api-client"
 import { getQuestionCategory } from "@/lib/reporting-model"
+import { getQuestionOptionSource } from "@/lib/marketing-agents"
 import useSWR from "swr"
 
 export interface RoleQuestion {
@@ -49,6 +50,7 @@ export interface RoleQuestion {
   is_active: boolean
   created_at: string
   updated_at: string
+  metadata?: unknown
 }
 
 // SWR fetcher for role questions
@@ -91,21 +93,26 @@ export function useRoleQuestions(initialQuestions?: RoleQuestion[], departmentId
 
   // Convert database questions to the format expected by RoleBasedQuestionFields
   const formattedQuestions = useMemo(() => {
-    return effectiveQuestions.map((q) => ({
-      id: q.id,
-      key: q.question_key || q.id,
-      label: q.question_label,
-      title: q.question_label,
-      type: q.question_type,
-      description: q.question_description || undefined,
-      placeholder: q.placeholder || undefined,
-      options: q.options || undefined,
-      category: getQuestionCategory(q),
-      required: q.is_required,
-      order: q.display_order,
-      validationRules: q.validation_rules || undefined,
-      defaultValue: q.question_type === "checkbox" ? false : q.question_type === "multiselect" ? [] : undefined,
-    }))
+    return effectiveQuestions.map((q) => {
+      const optionSource = getQuestionOptionSource(q.metadata)
+      return {
+        id: q.id,
+        key: q.question_key || q.id,
+        label: q.question_label,
+        title: q.question_label,
+        type: q.question_type,
+        description: q.question_description || undefined,
+        placeholder: q.placeholder || undefined,
+        options: q.options || undefined,
+        category: getQuestionCategory(q),
+        required: q.is_required,
+        order: q.display_order,
+        validationRules: q.validation_rules || undefined,
+        metadata: q.metadata,
+        optionSourceKind: optionSource?.kind,
+        defaultValue: q.question_type === "checkbox" ? false : q.question_type === "multiselect" ? [] : undefined,
+      }
+    })
   }, [effectiveQuestions])
 
   return {

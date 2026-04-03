@@ -19,10 +19,13 @@ export type CaptainLogEntry = {
   // Core properties
   id: string
   user_id: string
+  entry_kind: "standard" | "agent_call"
   submitted_by_user_id: string | null
   report_kind: ReportKind
   date: string
   department_id: string | null
+  subject_agent_id: string | null
+  subject_agent_snapshot: Json | null
   subject_department_id: string | null
   subject_profession_id: string | null
   created_at: string
@@ -66,6 +69,9 @@ type CaptainLogEntryDraftInput = {
   updatedAt?: string
   customResponses: unknown[]
   report_kind?: ReportKind
+  entry_kind?: "standard" | "agent_call"
+  subject_agent_id?: string | null
+  subject_agent_snapshot?: Json | null
   subject_department_id?: string | null
   subject_profession_id?: string | null
 }
@@ -362,12 +368,15 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
             ? await supabaseData.getProfessionRoleForUserInDepartment(user.id, entry.department_id)
             : null
         const reportKind = entry.report_kind || deriveReportKindFromResponses(entry.customResponses as any[])
+        const entryKind = entry.entry_kind || "standard"
         const subjectDepartmentId =
           typeof entry.subject_department_id === "string" ? entry.subject_department_id : entry.department_id
         const subjectProfessionId =
           typeof entry.subject_profession_id === "string"
             ? entry.subject_profession_id
             : derivedProfession?.roleId || null
+        const subjectAgentId = typeof entry.subject_agent_id === "string" ? entry.subject_agent_id : null
+        const subjectAgentSnapshot = entry.subject_agent_snapshot ?? null
 
         // Create the entry
         const now = new Date().toISOString()
@@ -380,10 +389,13 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
           ...dbEntry,
           id: uuidv4(),
           user_id: user.id,
+          entry_kind: entryKind,
           submitted_by_user_id: user.id,
           report_kind: reportKind,
           date: entry.date,
           department_id: entry.department_id,
+          subject_agent_id: subjectAgentId,
+          subject_agent_snapshot: subjectAgentSnapshot,
           subject_department_id: subjectDepartmentId,
           subject_profession_id: subjectProfessionId,
           created_at: now,
@@ -394,9 +406,11 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
         console.log("[addEntry] created", {
           entryId: newEntry.id,
           userId: newEntry.user_id,
+          entryKind: newEntry.entry_kind,
           submittedByUserId: newEntry.submitted_by_user_id,
           date: newEntry.date,
           departmentId: newEntry.department_id,
+          subjectAgentId: newEntry.subject_agent_id,
           subjectDepartmentId: newEntry.subject_department_id,
           subjectProfessionId: newEntry.subject_profession_id,
           reportKind: newEntry.report_kind,
@@ -476,11 +490,19 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
         toast.success("Entry saved successfully")
       } catch (error) {
         console.error("Failed to add entry:", error)
-        setError(error as Error)
+        const duplicateAgentCallMessage =
+          error instanceof supabaseData.SupabaseDataError &&
+          error.code === "duplicate" &&
+          entry.entry_kind === "agent_call"
+            ? "A call report for this agent already exists on this date."
+            : null
 
-        const message = error instanceof Error ? error.message : "Failed to create entry"
+        const normalizedError = duplicateAgentCallMessage ? new Error(duplicateAgentCallMessage) : (error as Error)
+        setError(normalizedError)
+
+        const message = duplicateAgentCallMessage || (error instanceof Error ? error.message : "Failed to create entry")
         toast.error(message)
-        throw error
+        throw normalizedError
       } finally {
         setIsLoading(false)
       }
