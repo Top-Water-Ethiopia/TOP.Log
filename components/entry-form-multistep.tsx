@@ -1,15 +1,16 @@
 "use client"
 
+import Link from "next/link"
 import type React from "react"
 import { useState, useEffect, useMemo, useCallback, useRef } from "react"
 import { z } from "zod"
+import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card"
 import { Progress } from "@/components/ui/progress"
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
 import { Calendar } from "@/components/ui/calendar"
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import type { Matcher } from "react-day-picker"
 import { useCaptainLog } from "@/contexts/supabase-log-context"
 import { useAuth } from "@/contexts/auth-context"
@@ -33,6 +34,8 @@ import {
   Loader2,
   MapPin,
   Phone,
+  Search,
+  X,
 } from "lucide-react"
 import { Skeleton } from "@/components/ui/skeleton"
 import { toast } from "sonner"
@@ -55,9 +58,24 @@ interface EntryFormMultistepProps {
   departmentId: string
   departmentName?: string
   allowedDates?: string[]
-  onSave: () => void
-  onCancel: () => void
+  initialExistingStandardEntryId?: string | null
+  onDateChange?: (date: string) => void
+  onSave: (result?: { entryKind: "standard" | "agent_call"; date: string }) => void
+  onCancel: (selectedDate?: string) => void
+  stayOnAgentCallSave?: boolean
   initialRoleQuestions?: unknown[]
+}
+
+const EMPTY_FORM_DATA = {
+  objectives: "",
+  keyResults: "",
+  challenges: "",
+  developmentTasks: "",
+  featuresCompleted: "",
+  challengesAndBlockers: "",
+  codeAndPriorities: "",
+  systemImprovements: "",
+  projectUpdates: "",
 }
 
 type FormQuestion = {
@@ -83,8 +101,11 @@ export function EntryFormMultistep({
   departmentId,
   departmentName,
   allowedDates,
+  initialExistingStandardEntryId,
+  onDateChange,
   onSave,
   onCancel,
+  stayOnAgentCallSave = false,
   initialRoleQuestions,
 }: EntryFormMultistepProps) {
   const { addEntry } = useCaptainLog()
@@ -154,21 +175,12 @@ export function EntryFormMultistep({
 
   useEffect(() => {
     if (initialDate && canCreateEntryForDate(initialDate).isValid) {
-      setSelectedDate(initialDate)
+      setSelectedDate((currentDate) => (currentDate === initialDate ? currentDate : initialDate))
     }
   }, [initialDate])
 
   const [formData, setFormData] = useState({
-    // Legacy fields (kept for backward compatibility with existing entries)
-    objectives: "",
-    keyResults: "",
-    challenges: "",
-    developmentTasks: "",
-    featuresCompleted: "",
-    challengesAndBlockers: "",
-    codeAndPriorities: "",
-    systemImprovements: "",
-    projectUpdates: "",
+    ...EMPTY_FORM_DATA,
   })
   const [customResponses, setCustomResponses] = useState<Record<string, unknown>>({})
   const [customErrors, setCustomErrors] = useState<Record<string, string>>({})
@@ -178,6 +190,16 @@ export function EntryFormMultistep({
   const [assignedAgents, setAssignedAgents] = useState<AssignedAgentOption[]>([])
   const [isAssignedAgentsLoading, setIsAssignedAgentsLoading] = useState(false)
   const [assignedAgentsError, setAssignedAgentsError] = useState<string | null>(null)
+  const [assignedAgentsSearch, setAssignedAgentsSearch] = useState("")
+  const [assignedAgentsReloadKey, setAssignedAgentsReloadKey] = useState(0)
+  const [existingStandardEntryId, setExistingStandardEntryId] = useState<string | null>(
+    initialExistingStandardEntryId ?? null
+  )
+  const [isEntryAvailabilityLoading, setIsEntryAvailabilityLoading] = useState(false)
+  const [entryAvailabilityError, setEntryAvailabilityError] = useState<string | null>(null)
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
+  const [wasDraftRestored, setWasDraftRestored] = useState(false)
+  const [agentCallSuccessMessage, setAgentCallSuccessMessage] = useState<string | null>(null)
 
   const selectedDateAsDate = useMemo(() => {
     const d = new Date(selectedDate + "T00:00:00")
@@ -204,6 +226,28 @@ export function EntryFormMultistep({
       return `${draftKeyPrefix}${date}`
     },
     [draftKeyPrefix]
+  )
+
+  const markAsChanged = useCallback(() => {
+    setHasUnsavedChanges(true)
+    setAgentCallSuccessMessage(null)
+  }, [])
+
+  const handleDateSelection = useCallback(
+    (newDate: string) => {
+      if (newDate === selectedDate) {
+        return
+      }
+
+      setSelectedDate(newDate)
+      setAssignedAgentsSearch("")
+      markAsChanged()
+      onDateChange?.(newDate)
+
+      const validation = canCreateEntryForDate(newDate)
+      setDateError(validation.isValid ? null : validation.error || "Invalid date")
+    },
+    [markAsChanged, onDateChange, selectedDate]
   )
 
   const roleQuestionsSchema = useMemo(() => {
@@ -289,12 +333,40 @@ export function EntryFormMultistep({
   )
   const noAvailableAssignedAgents =
     hasAssignedAgentsQuestion && !isAssignedAgentsLoading && !assignedAgentsError && availableAssignedAgents.length === 0
+  const existingStandardEntryHref = existingStandardEntryId ? `/reports/${existingStandardEntryId}` : null
+  const hasStandardEntryConflict = !hasAssignedAgentsQuestion && !!existingStandardEntryId
+  const filteredAssignedAgents = useMemo(() => {
+    const search = assignedAgentsSearch.trim().toLowerCase()
+    if (!search) {
+      return availableAssignedAgents
+    }
+
+    return availableAssignedAgents.filter((agent) =>
+      [agent.name, agent.location, agent.phone]
+        .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+        .some((value) => value.toLowerCase().includes(search))
+    )
+  }, [assignedAgentsSearch, availableAssignedAgents])
+  const noMatchingAssignedAgents =
+    hasAssignedAgentsQuestion &&
+    !isAssignedAgentsLoading &&
+    !assignedAgentsError &&
+    availableAssignedAgents.length > 0 &&
+    filteredAssignedAgents.length === 0
+
+  useEffect(() => {
+    setExistingStandardEntryId((currentValue) => {
+      const nextValue = initialExistingStandardEntryId ?? null
+      return currentValue === nextValue ? currentValue : nextValue
+    })
+  }, [initialExistingStandardEntryId])
 
   useEffect(() => {
     if (!hasAssignedAgentsQuestion) {
       setAssignedAgents([])
       setAssignedAgentsError(null)
       setIsAssignedAgentsLoading(false)
+      setAssignedAgentsSearch("")
       return
     }
 
@@ -349,7 +421,104 @@ export function EntryFormMultistep({
     return () => {
       controller.abort()
     }
+  }, [assignedAgentsReloadKey, departmentId, hasAssignedAgentsQuestion, selectedDate])
+
+  useEffect(() => {
+    if (hasAssignedAgentsQuestion) {
+      setExistingStandardEntryId(null)
+      setEntryAvailabilityError(null)
+      setIsEntryAvailabilityLoading(false)
+      return
+    }
+
+    const dateValidation = canCreateEntryForDate(selectedDate)
+    if (!dateValidation.isValid) {
+      setExistingStandardEntryId(null)
+      setEntryAvailabilityError(dateValidation.error || "Report availability is unavailable for this date")
+      setIsEntryAvailabilityLoading(false)
+      return
+    }
+
+    const controller = new AbortController()
+
+    const loadEntryAvailability = async () => {
+      try {
+        setIsEntryAvailabilityLoading(true)
+        setEntryAvailabilityError(null)
+
+        const response = await fetch(
+          `/api/reporting/entry-availability?departmentId=${encodeURIComponent(departmentId)}&date=${encodeURIComponent(selectedDate)}`,
+          {
+            cache: "no-store",
+            signal: controller.signal,
+          }
+        )
+        const payload = await response.json().catch(() => ({}))
+
+        if (!response.ok) {
+          throw new Error(
+            typeof payload?.error === "string"
+              ? payload.error
+              : `Failed to check report availability (HTTP ${response.status})`
+          )
+        }
+
+        setExistingStandardEntryId(
+          typeof payload?.data?.existingStandardEntryId === "string" ? payload.data.existingStandardEntryId : null
+        )
+      } catch (error) {
+        if ((error as Error).name === "AbortError") {
+          return
+        }
+
+        console.error("Failed to load entry availability:", error)
+        setExistingStandardEntryId(null)
+        setEntryAvailabilityError(error instanceof Error ? error.message : "Failed to check report availability")
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsEntryAvailabilityLoading(false)
+        }
+      }
+    }
+
+    void loadEntryAvailability()
+
+    return () => {
+      controller.abort()
+    }
   }, [departmentId, hasAssignedAgentsQuestion, selectedDate])
+
+  useEffect(() => {
+    if (!assignedAgentQuestionKey || isAssignedAgentsLoading || assignedAgentsError) {
+      return
+    }
+
+    const selectedValue = parseAgentResponseValue(customResponses[String(assignedAgentQuestionKey)])?.value ?? null
+    if (!selectedValue) {
+      return
+    }
+
+    const isStillAvailable = availableAssignedAgents.some((agent) => agent.id === selectedValue)
+    if (isStillAvailable) {
+      return
+    }
+
+    setCustomResponses((prev) => ({
+      ...prev,
+      [String(assignedAgentQuestionKey)]: "",
+    }))
+    setCustomErrors((prev) => ({
+      ...prev,
+      [String(assignedAgentQuestionKey)]: "",
+    }))
+    setLiveMessage("Selected agent is no longer available for this date")
+  }, [
+    assignedAgentQuestionKey,
+    assignedAgentsError,
+    availableAssignedAgents,
+    customResponses,
+    isAssignedAgentsLoading,
+  ])
 
   const getAssignedAgentValidationError = useCallback(
     (question: FormQuestion | undefined, value: unknown) => {
@@ -446,19 +615,17 @@ export function EntryFormMultistep({
     } else {
       setDraftSavedAt(null)
     }
+    setWasDraftRestored(hasDraft)
 
     const baseFormData = {
-      objectives: "",
-      keyResults: "",
-      challenges: "",
-      developmentTasks: "",
-      featuresCompleted: "",
-      challengesAndBlockers: "",
-      codeAndPriorities: "",
-      systemImprovements: "",
-      projectUpdates: "",
+      ...EMPTY_FORM_DATA,
     }
     const baseResponses = buildInitialCustomResponses()
+    const maxStep = roleQuestionsRef.current.length + 2
+    const restoredStep =
+      hasDraft && typeof draftObj?.currentStep === "number"
+        ? Math.min(Math.max(1, Math.trunc(draftObj.currentStep)), maxStep)
+        : 1
 
     const mergedFormData =
       hasDraft && draftObj?.formData && typeof draftObj.formData === "object"
@@ -471,9 +638,10 @@ export function EntryFormMultistep({
 
     setFormData(mergedFormData as typeof formData)
     setCustomResponses(mergedResponses as Record<string, unknown>)
-    // Always start from step 1 - don't restore draft step position
-    setCurrentStep(1)
+    setCurrentStep(restoredStep)
     setCustomErrors({})
+    setHasUnsavedChanges(false)
+    setAgentCallSuccessMessage(null)
   }, [selectedDate, buildInitialCustomResponses, draftKeyForDate, roleQuestionsSignature])
 
   useEffect(() => {
@@ -498,6 +666,7 @@ export function EntryFormMultistep({
 
   useEffect(() => {
     if (typeof window === "undefined") return
+    if (!hasUnsavedChanges) return
 
     const interval = window.setInterval(() => {
       try {
@@ -512,13 +681,59 @@ export function EntryFormMultistep({
         }
         window.localStorage.setItem(draftKeyForDate(selectedDate), JSON.stringify(payload))
         setDraftSavedAt(payload.savedAt)
+        setHasUnsavedChanges(false)
       } catch {
         // ignore
       }
     }, 5000)
 
     return () => window.clearInterval(interval)
-  }, [currentStep, customResponses, departmentId, draftKeyForDate, formData, selectedDate])
+  }, [currentStep, customResponses, departmentId, draftKeyForDate, formData, hasUnsavedChanges, selectedDate])
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !hasUnsavedChanges) return
+
+    const message = "You have unsaved changes. Leave this page?"
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = message
+      return message
+    }
+
+    const handleDocumentClick = (event: MouseEvent) => {
+      const target = event.target as Element | null
+      const anchor = target?.closest("a[href]") as HTMLAnchorElement | null
+      if (!anchor) return
+      if (anchor.target === "_blank" || anchor.hasAttribute("download")) return
+
+      const href = anchor.getAttribute("href")
+      if (!href || href.startsWith("#") || href.startsWith("javascript:")) return
+
+      const nextUrl = new URL(anchor.href, window.location.href)
+      const currentUrl = new URL(window.location.href)
+      if (
+        nextUrl.origin === currentUrl.origin &&
+        nextUrl.pathname === currentUrl.pathname &&
+        nextUrl.search === currentUrl.search &&
+        nextUrl.hash === currentUrl.hash
+      ) {
+        return
+      }
+
+      if (!window.confirm(message)) {
+        event.preventDefault()
+        event.stopPropagation()
+      }
+    }
+
+    window.addEventListener("beforeunload", handleBeforeUnload)
+    document.addEventListener("click", handleDocumentClick, true)
+
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload)
+      document.removeEventListener("click", handleDocumentClick, true)
+    }
+  }, [hasUnsavedChanges])
 
   // Steps: Date -> each role question -> Preview
   const steps = useMemo(() => {
@@ -549,6 +764,7 @@ export function EntryFormMultistep({
   }, [steps, currentStep])
 
   const handleCustomResponseChange = useCallback((questionKey: string, value: unknown) => {
+    markAsChanged()
     setCustomResponses((prev) => ({ ...prev, [questionKey]: value }))
     setCustomErrors((prev) => {
       if (!prev[questionKey]) {
@@ -556,7 +772,7 @@ export function EntryFormMultistep({
       }
       return { ...prev, [questionKey]: "" }
     })
-  }, [])
+  }, [markAsChanged])
 
   const validateCustomResponses = useCallback(() => {
     if (roleQuestions.length === 0) {
@@ -659,12 +875,14 @@ export function EntryFormMultistep({
     }
 
     if (currentStep < steps.length) {
+      markAsChanged()
       setCurrentStep(currentStep + 1)
     }
   }
 
   const handlePrevious = () => {
     if (currentStep > 1) {
+      markAsChanged()
       setCurrentStep(currentStep - 1)
     }
   }
@@ -675,6 +893,7 @@ export function EntryFormMultistep({
 
     // Always allow going backwards without validation
     if (targetStepNumber < currentStep) {
+      markAsChanged()
       setCurrentStep(targetStepNumber)
       return
     }
@@ -685,6 +904,7 @@ export function EntryFormMultistep({
       return
     }
 
+    markAsChanged()
     setCurrentStep(targetStepNumber)
   }
 
@@ -740,6 +960,10 @@ export function EntryFormMultistep({
     e.preventDefault()
     if (!hasVisibleQuestions) {
       setLiveMessage("No questions available for this report")
+      return
+    }
+    if (hasStandardEntryConflict) {
+      openExistingStandardReport()
       return
     }
 
@@ -854,9 +1078,28 @@ export function EntryFormMultistep({
         // ignore
       }
       setDraftSavedAt(null)
+      setWasDraftRestored(false)
+      setHasUnsavedChanges(false)
       setLiveMessage("Log submitted")
 
-      onSave()
+      if (selectedAgentForEntry && stayOnAgentCallSave) {
+        setFormData({ ...EMPTY_FORM_DATA })
+        setCustomResponses(buildInitialCustomResponses())
+        setCustomErrors({})
+        setCurrentStep(roleQuestions.length > 0 ? 2 : 1)
+        setAssignedAgentsSearch("")
+        setAssignedAgentsReloadKey((prev) => prev + 1)
+        setAgentCallSuccessMessage(
+          `Saved the call report for ${selectedAgentForEntry.name}. You can now log the next assigned agent.`
+        )
+        onSave({ entryKind: "agent_call", date: selectedDate })
+        return
+      }
+
+      onSave({
+        entryKind: selectedAgentForEntry ? "agent_call" : "standard",
+        date: selectedDate,
+      })
     } catch (error) {
       console.error("Failed to save entry:", error)
       setLiveMessage("Failed to save entry")
@@ -922,6 +1165,8 @@ export function EntryFormMultistep({
   )
   const submitButtonLabel = !hasVisibleQuestions
     ? "No Questions Available"
+    : hasStandardEntryConflict
+      ? "Open Existing Report"
     : noAvailableAssignedAgents
       ? assignedAgents.length === 0
         ? "No Assigned Agents Available"
@@ -929,6 +1174,46 @@ export function EntryFormMultistep({
       : isSubmitting
         ? "Saving..."
         : "Submit Log"
+
+  const handleDiscardDraft = useCallback(() => {
+    if (typeof window !== "undefined") {
+      try {
+        window.localStorage.removeItem(draftKeyForDate(selectedDate))
+      } catch {
+        // ignore
+      }
+    }
+
+    setFormData({ ...EMPTY_FORM_DATA })
+    setCustomResponses(buildInitialCustomResponses())
+    setCustomErrors({})
+    setCurrentStep(1)
+    setDraftSavedAt(null)
+    setWasDraftRestored(false)
+    setHasUnsavedChanges(false)
+    setAssignedAgentsSearch("")
+    setAgentCallSuccessMessage(null)
+    setLiveMessage("Draft discarded")
+  }, [buildInitialCustomResponses, draftKeyForDate, selectedDate])
+
+  const handleCancelClick = useCallback(() => {
+    if (hasUnsavedChanges && typeof window !== "undefined") {
+      const shouldLeave = window.confirm("You have unsaved changes. Leave this page?")
+      if (!shouldLeave) {
+        return
+      }
+    }
+
+    onCancel(selectedDate)
+  }, [hasUnsavedChanges, onCancel, selectedDate])
+
+  const openExistingStandardReport = useCallback(() => {
+    if (!existingStandardEntryHref || typeof window === "undefined") {
+      return
+    }
+
+    window.location.assign(existingStandardEntryHref)
+  }, [existingStandardEntryHref])
 
   return (
     <div className="mx-auto flex h-full w-full max-w-3xl flex-col space-y-4">
@@ -941,13 +1226,25 @@ export function EntryFormMultistep({
           <h2 className="text-foreground text-3xl font-bold">Daily Log Entry</h2>
           <p className="text-muted-foreground mt-2 text-sm">Reporting for {normalizedDepartmentName}</p>
           <p className="text-muted-foreground mt-1 text-base">{formatDate(selectedDate)}</p>
-          {draftSavedLabel ? <p className="text-muted-foreground mt-2 text-xs">{draftSavedLabel}</p> : null}
         </div>
-        <Button variant="outline" size="sm" onClick={onCancel} className="gap-2">
+        <Button variant="outline" size="sm" onClick={handleCancelClick} className="gap-2">
           <ArrowLeft className="h-4 w-4" />
           Cancel
         </Button>
       </div>
+
+      {draftSavedLabel ? (
+        <div className="bg-muted/40 flex items-center justify-between gap-3 rounded-lg border p-4">
+          <div className="space-y-1">
+            <p className="text-sm font-medium">{wasDraftRestored ? "Draft restored" : "Draft saved"}</p>
+            <p className="text-muted-foreground text-xs">{draftSavedLabel}</p>
+          </div>
+          <Button variant="ghost" size="sm" onClick={handleDiscardDraft} className="gap-2">
+            <X className="h-4 w-4" />
+            Discard Draft
+          </Button>
+        </div>
+      ) : null}
 
       {/* Step Content */}
       <Card className="flex flex-1 flex-col overflow-hidden shadow-sm">
@@ -970,6 +1267,32 @@ export function EntryFormMultistep({
               <p className="text-muted-foreground mt-2 text-sm">
                 These answers represent the {normalizedDepartmentName} department.
               </p>
+            </div>
+          ) : null}
+          {hasStandardEntryConflict ? (
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
+              <p className="flex items-center gap-2 text-sm font-medium text-amber-700 dark:text-amber-300">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                A standard report already exists for this date
+              </p>
+              <p className="text-muted-foreground mt-2 text-sm">
+                Open the existing report for {normalizedDepartmentName} on {formatDateHuman(selectedDate)} instead of
+                creating another one.
+              </p>
+            </div>
+          ) : null}
+          {entryAvailabilityError && !hasAssignedAgentsQuestion ? (
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
+              <p className="flex items-center gap-2 text-sm text-amber-700 dark:text-amber-300">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                {entryAvailabilityError}
+              </p>
+            </div>
+          ) : null}
+          {agentCallSuccessMessage ? (
+            <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-4">
+              <p className="text-sm font-medium text-emerald-700 dark:text-emerald-300">Ready for the next call report</p>
+              <p className="text-muted-foreground mt-2 text-sm">{agentCallSuccessMessage}</p>
             </div>
           ) : null}
         </CardHeader>
@@ -1024,12 +1347,8 @@ export function EntryFormMultistep({
                       selected={selectedDateAsDate}
                       onSelect={(date) => {
                         if (!date) return
-                        const newDate = formatLocalDate(date)
-                        setSelectedDate(newDate)
+                        handleDateSelection(formatLocalDate(date))
                         setIsDatePickerOpen(false)
-
-                        const validation = canCreateEntryForDate(newDate)
-                        setDateError(validation.isValid ? null : validation.error || "Invalid date")
                       }}
                       disabled={((date: Date) => !canCreateEntryForDate(formatLocalDate(date)).isValid) as Matcher}
                       initialFocus
@@ -1047,12 +1366,7 @@ export function EntryFormMultistep({
                 <QuickDateChips
                   options={quickDateOptions}
                   selectedDate={selectedDate}
-                  onSelectDate={(newDate) => {
-                    setSelectedDate(newDate)
-
-                    const validation = canCreateEntryForDate(newDate)
-                    setDateError(validation.isValid ? null : validation.error || "Invalid date")
-                  }}
+                  onSelectDate={handleDateSelection}
                 />
                 {dateError && (
                   <div className="mt-2 rounded-md border border-red-500/50 bg-red-500/10 p-4">
@@ -1142,35 +1456,74 @@ export function EntryFormMultistep({
                                 </p>
                               </div>
                             ) : noAvailableAssignedAgents ? (
-                              <div className="rounded-lg border border-amber-500/40 bg-amber-500/10 p-4">
-                                <p className="text-foreground text-sm font-medium">No agents available for this date</p>
+                              <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-4">
+                                <p className="text-sm font-medium text-emerald-700 dark:text-emerald-300">
+                                  All assigned agents are already reported
+                                </p>
                                 <p className="text-muted-foreground mt-2 text-sm">
-                                  All assigned agents already have a call report on {formatDateHuman(selectedDate)}.
-                                  Change the date or wait until a new agent is assigned.
+                                  Every assigned agent already has a call report on {formatDateHuman(selectedDate)}.
+                                  Change the date to keep reporting or wait until a new agent is assigned.
                                 </p>
                               </div>
                             ) : (
                               <div className="space-y-4">
-                                <Select
-                                  value={typeof customResponses[String(question.key)] === "string" ? String(customResponses[String(question.key)]) : ""}
-                                  onValueChange={(newValue) => handleCustomResponseChange(String(question.key), newValue)}
-                                >
-                                  <SelectTrigger className={customErrors[String(question.key)] ? "border-destructive" : ""}>
-                                    <SelectValue placeholder="Select an assigned agent" />
-                                  </SelectTrigger>
-                                  <SelectContent>
-                                    {assignedAgents.map((agent) => (
-                                      <SelectItem
-                                        key={agent.id}
-                                        value={agent.id}
-                                        disabled={agent.alreadyReported}
-                                      >
-                                        {agent.name}
-                                        {agent.alreadyReported ? " (already reported)" : ""}
-                                      </SelectItem>
-                                    ))}
-                                  </SelectContent>
-                                </Select>
+                                <div className="space-y-3">
+                                  <label htmlFor={`assigned-agent-search-${question.key}`} className="sr-only">
+                                    Search assigned agents
+                                  </label>
+                                  <div className="relative">
+                                    <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
+                                    <Input
+                                      id={`assigned-agent-search-${question.key}`}
+                                      value={assignedAgentsSearch}
+                                      onChange={(event) => {
+                                        markAsChanged()
+                                        setAssignedAgentsSearch(event.target.value)
+                                      }}
+                                      placeholder="Search assigned agents"
+                                      className="pl-9"
+                                    />
+                                  </div>
+
+                                  {noMatchingAssignedAgents ? (
+                                    <div className="text-muted-foreground rounded-lg border border-dashed p-4 text-sm">
+                                      No assigned agents match your search.
+                                    </div>
+                                  ) : (
+                                    <div className="max-h-72 space-y-2 overflow-y-auto rounded-lg border p-2">
+                                      {filteredAssignedAgents.map((agent) => {
+                                        const isSelected = selectedAssignedAgentId === agent.id
+
+                                        return (
+                                          <button
+                                            key={agent.id}
+                                            type="button"
+                                            onClick={() =>
+                                              handleCustomResponseChange(String(question.key), {
+                                                value: agent.id,
+                                                label: agent.name,
+                                              })
+                                            }
+                                            className={`w-full rounded-lg border p-3 text-left transition-colors ${
+                                              isSelected
+                                                ? "border-primary bg-primary/5"
+                                                : "border-border/60 hover:border-primary/40 hover:bg-muted/40"
+                                            }`}
+                                            aria-pressed={isSelected}
+                                          >
+                                            <div className="space-y-1">
+                                              <p className="text-sm font-medium">{agent.name}</p>
+                                              <div className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                                                {agent.location ? <span>{agent.location}</span> : null}
+                                                {agent.phone ? <span>{agent.phone}</span> : null}
+                                              </div>
+                                            </div>
+                                          </button>
+                                        )
+                                      })}
+                                    </div>
+                                  )}
+                                </div>
 
                                 {selectedAssignedAgent ? (
                                   <div className="bg-muted/20 rounded-lg border p-4">
@@ -1272,6 +1625,8 @@ export function EntryFormMultistep({
                               const questionStepIndex = steps.findIndex((step) => step.key === `question-${question.key}`)
                               const questionStepNumber = questionStepIndex >= 0 ? steps[questionStepIndex].number : null
                               const reactKey = getQuestionReactKey(question, index)
+                              const previewAgent =
+                                question.optionSourceKind === ASSIGNED_AGENTS_OPTION_SOURCE_KIND ? selectedAssignedAgent : null
 
                               return (
                                 <div
@@ -1288,6 +1643,22 @@ export function EntryFormMultistep({
                                       {question.label}
                                     </button>
                                     <p className="text-muted-foreground mt-2 text-sm whitespace-pre-wrap">{displayValue}</p>
+                                    {previewAgent ? (
+                                      <div className="text-muted-foreground mt-3 space-y-2 text-xs">
+                                        {previewAgent.location ? (
+                                          <div className="flex items-center gap-2">
+                                            <MapPin className="h-3.5 w-3.5 shrink-0" />
+                                            <span>{previewAgent.location}</span>
+                                          </div>
+                                        ) : null}
+                                        {previewAgent.phone ? (
+                                          <div className="flex items-center gap-2">
+                                            <Phone className="h-3.5 w-3.5 shrink-0" />
+                                            <span>{previewAgent.phone}</span>
+                                          </div>
+                                        ) : null}
+                                      </div>
+                                    ) : null}
                                   </div>
                                   {questionStepNumber && (
                                     <Button
@@ -1343,26 +1714,59 @@ export function EntryFormMultistep({
         )}
 
         {currentStep < steps.length ? (
-          <Button onClick={handleNext} disabled={isNextDisabled} className="gap-2">
-            {currentStepConfig?.key === "date" ? "Continue" : "Next"}
-            <ArrowRight className="h-4 w-4" />
-          </Button>
+          hasStandardEntryConflict ? (
+            existingStandardEntryHref && !isEntryAvailabilityLoading ? (
+              <Button asChild className="gap-2">
+                <Link href={existingStandardEntryHref}>
+                  <Eye className="h-4 w-4" />
+                  Open Existing Report
+                </Link>
+              </Button>
+            ) : (
+              <Button disabled className="gap-2">
+                <Eye className="h-4 w-4" />
+                Open Existing Report
+              </Button>
+            )
+          ) : (
+            <Button onClick={handleNext} disabled={isNextDisabled || isEntryAvailabilityLoading} className="gap-2">
+              {currentStepConfig?.key === "date" ? "Continue" : "Next"}
+              <ArrowRight className="h-4 w-4" />
+            </Button>
+          )
         ) : (
-          <Button
-            onClick={handleSubmit}
-            disabled={
-              isSubmitting ||
-              hasCustomErrors ||
-              !hasVisibleQuestions ||
-              isAssignedAgentsLoading ||
-              !!assignedAgentsError ||
-              noAvailableAssignedAgents
-            }
-            className="gap-2"
-          >
-            <Save className="h-4 w-4" />
-            {submitButtonLabel}
-          </Button>
+          hasStandardEntryConflict ? (
+            existingStandardEntryHref && !isEntryAvailabilityLoading ? (
+              <Button asChild className="gap-2">
+                <Link href={existingStandardEntryHref}>
+                  <Eye className="h-4 w-4" />
+                  Open Existing Report
+                </Link>
+              </Button>
+            ) : (
+              <Button disabled className="gap-2">
+                <Eye className="h-4 w-4" />
+                Open Existing Report
+              </Button>
+            )
+          ) : (
+            <Button
+              onClick={handleSubmit}
+              disabled={
+                isSubmitting ||
+                hasCustomErrors ||
+                !hasVisibleQuestions ||
+                isAssignedAgentsLoading ||
+                !!assignedAgentsError ||
+                noAvailableAssignedAgents ||
+                isEntryAvailabilityLoading
+              }
+              className="gap-2"
+            >
+              <Save className="h-4 w-4" />
+              {submitButtonLabel}
+            </Button>
+          )
         )}
       </div>
     </div>

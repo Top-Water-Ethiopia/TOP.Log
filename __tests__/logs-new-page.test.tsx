@@ -86,11 +86,13 @@ function createSupabaseMock({
   professionAssignments = [],
   accessAssignments = [],
   questionRows = [],
+  entryRows = [],
 }: {
   userId?: string
   professionAssignments?: Row[]
   accessAssignments?: Row[]
   questionRows?: Row[]
+  entryRows?: Row[]
 }) {
   return {
     auth: {
@@ -112,6 +114,10 @@ function createSupabaseMock({
         return createQueryBuilder(questionRows)
       }
 
+      if (table === "captain_log_entries") {
+        return createQueryBuilder(entryRows)
+      }
+
       if (table === "user_profiles" || table === "departments") {
         return createQueryBuilder([])
       }
@@ -127,6 +133,7 @@ function getRenderedClientProps() {
     departmentId: string
     departmentName: string
     date: string
+    initialExistingStandardEntryId: string | null
     initialRoleQuestions: Array<{ id: string }>
   }
 }
@@ -296,5 +303,63 @@ describe("/logs/new page", () => {
     ).rejects.toThrow("REDIRECT:/logs/new?departmentId=dept-1&date=2026-04-02")
 
     expect(mockRedirect).toHaveBeenCalledWith("/logs/new?departmentId=dept-1&date=2026-04-02")
+  })
+
+  it("canonicalizes the route when departmentId is missing by redirecting to the resolved department and date", async () => {
+    mockCreateClient.mockResolvedValue(
+      createSupabaseMock({
+        professionAssignments: [
+          {
+            user_id: "user-1",
+            department_id: "dept-1",
+            role: "software-engineer",
+            is_active: true,
+            department: { id: "dept-1", name: "Engineering" },
+          },
+        ],
+      })
+    )
+
+    await expect(
+      NewLogPage({
+        searchParams: Promise.resolve({ date: "2026-04-02" }),
+      })
+    ).rejects.toThrow("REDIRECT:/logs/new?departmentId=dept-1&date=2026-04-02")
+
+    expect(mockRedirect).toHaveBeenCalledWith("/logs/new?departmentId=dept-1&date=2026-04-02")
+  })
+
+  it("passes the initial existing standard entry id for duplicate standard report dates", async () => {
+    mockCreateClient.mockResolvedValue(
+      createSupabaseMock({
+        professionAssignments: [
+          {
+            user_id: "user-1",
+            department_id: "dept-1",
+            role: "software-engineer",
+            is_active: true,
+            department: { id: "dept-1", name: "Engineering" },
+          },
+        ],
+        entryRows: [
+          {
+            id: "entry-1",
+            submitted_by_user_id: "user-1",
+            entry_kind: "standard",
+            subject_department_id: "dept-1",
+            date: "2026-04-02",
+          },
+        ],
+      })
+    )
+
+    const element = await NewLogPage({
+      searchParams: Promise.resolve({ departmentId: "dept-1", date: "2026-04-02" }),
+    })
+
+    render(element)
+
+    const props = getRenderedClientProps()
+    expect(props.initialExistingStandardEntryId).toBe("entry-1")
   })
 })

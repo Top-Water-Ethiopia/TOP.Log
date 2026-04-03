@@ -11,7 +11,6 @@ import { EntryFormMultistepClient } from "./client"
 interface SearchParams {
   departmentId?: string
   date?: string
-  template?: string
 }
 
 interface UserDepartment {
@@ -44,7 +43,6 @@ function buildQueryString(params: SearchParams): string {
   const query = new URLSearchParams()
   if (params.departmentId) query.set("departmentId", params.departmentId)
   if (params.date) query.set("date", params.date)
-  if (params.template) query.set("template", params.template)
   const qs = query.toString()
   return qs ? `?${qs}` : ""
 }
@@ -309,6 +307,31 @@ async function fetchRoleQuestions(
   })
 }
 
+async function fetchExistingStandardEntryId(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  departmentId: string,
+  userId: string,
+  date: string
+): Promise<string | null> {
+  const { data, error } = await supabase
+    .from("captain_log_entries")
+    .select("id")
+    .eq("submitted_by_user_id", userId)
+    .eq("entry_kind", "standard")
+    .eq("subject_department_id", departmentId)
+    .eq("date", date)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
+  if (error) {
+    console.error("Error checking existing standard entry availability:", error)
+    return null
+  }
+
+  return typeof data?.id === "string" ? data.id : null
+}
+
 export default async function NewLogPage({ searchParams }: { searchParams: Promise<SearchParams> }) {
   // 1. Authenticate (use getUser() instead of getSession() for security)
   const supabase = await createClient()
@@ -370,8 +393,11 @@ export default async function NewLogPage({ searchParams }: { searchParams: Promi
     redirect(`/logs/new${canonicalQuery}`)
   }
 
-  // 6. Fetch role questions for the active reporting subject.
-  const roleQuestions = await fetchRoleQuestions(supabase, department.id, userId)
+  // 6. Fetch role questions and initial standard-entry availability for the active reporting subject.
+  const [roleQuestions, initialExistingStandardEntryId] = await Promise.all([
+    fetchRoleQuestions(supabase, department.id, userId),
+    fetchExistingStandardEntryId(supabase, department.id, userId, targetDate),
+  ])
 
   return (
     <EntryFormMultistepClient
@@ -379,6 +405,7 @@ export default async function NewLogPage({ searchParams }: { searchParams: Promi
       departmentName={department.name}
       date={targetDate}
       allowedDates={getAllowedDates()}
+      initialExistingStandardEntryId={initialExistingStandardEntryId}
       initialRoleQuestions={roleQuestions}
     />
   )

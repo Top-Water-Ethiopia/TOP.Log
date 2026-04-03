@@ -25,6 +25,7 @@ interface RoleBasedQuestionFieldsProps {
         required: boolean
         order: number
         category?: string
+        validationRules?: any
         validation?: any
         defaultValue?: any
       }
@@ -47,7 +48,7 @@ export function RoleBasedQuestionFields({
   }
 
   const renderField = (question: any, value: any, error?: string) => {
-    const validation = question?.validation as any
+    const validationRules = (question?.validationRules || question?.validation || {}) as any
 
     const ariaInvalid = !!error
     const ariaDescribedBy = error ? `${question.key}-error` : undefined
@@ -87,7 +88,7 @@ export function RoleBasedQuestionFields({
             type="email"
             value={value ?? ""}
             onChange={(event) => onChange(question.key, event.target.value)}
-            placeholder={question.placeholder || "youremail@topwaterethiopia.com"}
+            placeholder={question.placeholder || "name@example.com"}
             aria-invalid={ariaInvalid}
             aria-describedby={ariaDescribedBy}
             className={error ? "border-destructive" : ""}
@@ -101,7 +102,7 @@ export function RoleBasedQuestionFields({
             type="url"
             value={value ?? ""}
             onChange={(event) => onChange(question.key, event.target.value)}
-            placeholder={question.placeholder || "https://topwaterethiopia.com"}
+            placeholder={question.placeholder || "https://example.com"}
             aria-invalid={ariaInvalid}
             aria-describedby={ariaDescribedBy}
             className={error ? "border-destructive" : ""}
@@ -131,14 +132,13 @@ export function RoleBasedQuestionFields({
               value={value ?? ""}
               onChange={(event) => onChange(question.key, event.target.value)}
               placeholder={question.placeholder}
-              min={validation?.min ?? 0}
-              max={validation?.max ?? 100}
-              step={validation?.step ?? 1}
+              min={validationRules?.min_value ?? validationRules?.min}
+              max={validationRules?.max_value ?? validationRules?.max}
+              step={validationRules?.step}
               aria-invalid={ariaInvalid}
               aria-describedby={ariaDescribedBy}
               className={error ? "border-destructive" : ""}
             />
-            <span className="text-muted-foreground absolute top-1/2 right-3 -translate-y-1/2">/100</span>
           </div>
         )
 
@@ -152,9 +152,9 @@ export function RoleBasedQuestionFields({
               value={value ?? ""}
               onChange={(event) => onChange(question.key, event.target.value)}
               placeholder={question.placeholder || "0.00"}
-              min={validation?.min ?? 0}
-              max={validation?.max}
-              step={validation?.step ?? "0.01"}
+              min={validationRules?.min_value ?? validationRules?.min}
+              max={validationRules?.max_value ?? validationRules?.max}
+              step={validationRules?.step ?? "0.01"}
               aria-invalid={ariaInvalid}
               aria-describedby={ariaDescribedBy}
               className={`pl-7 ${error ? "border-destructive" : ""}`}
@@ -171,9 +171,9 @@ export function RoleBasedQuestionFields({
               value={value ?? ""}
               onChange={(event) => onChange(question.key, event.target.value)}
               placeholder={question.placeholder || "0"}
-              min={validation?.min ?? 0}
-              max={validation?.max ?? 100}
-              step={validation?.step ?? 1}
+              min={validationRules?.min_value ?? validationRules?.min}
+              max={validationRules?.max_value ?? validationRules?.max}
+              step={validationRules?.step}
               aria-invalid={ariaInvalid}
               aria-describedby={ariaDescribedBy}
               className={`pr-7 ${error ? "border-destructive" : ""}`}
@@ -189,8 +189,8 @@ export function RoleBasedQuestionFields({
             type="date"
             value={value ?? ""}
             onChange={(event) => onChange(question.key, event.target.value)}
-            min={validation?.min_date}
-            max={validation?.max_date}
+            min={validationRules?.min_date}
+            max={validationRules?.max_date}
             aria-invalid={ariaInvalid}
             aria-describedby={ariaDescribedBy}
             className={error ? "border-destructive" : ""}
@@ -217,8 +217,8 @@ export function RoleBasedQuestionFields({
             type="datetime-local"
             value={value ?? ""}
             onChange={(event) => onChange(question.key, event.target.value)}
-            min={validation?.min_date}
-            max={validation?.max_date}
+            min={validationRules?.min_date}
+            max={validationRules?.max_date}
             aria-invalid={ariaInvalid}
             aria-describedby={ariaDescribedBy}
             className={error ? "border-destructive" : ""}
@@ -234,8 +234,8 @@ export function RoleBasedQuestionFields({
                 type="date"
                 value={value?.start ?? ""}
                 onChange={(event) => onChange(question.key, { ...value, start: event.target.value })}
-                min={validation?.min_date}
-                max={value?.end || validation?.max_date}
+                min={validationRules?.min_date}
+                max={value?.end || validationRules?.max_date}
                 className={error ? "border-destructive" : ""}
               />
             </div>
@@ -245,8 +245,8 @@ export function RoleBasedQuestionFields({
                 type="date"
                 value={value?.end ?? ""}
                 onChange={(event) => onChange(question.key, { ...value, end: event.target.value })}
-                min={value?.start || validation?.min_date}
-                max={validation?.max_date}
+                min={value?.start || validationRules?.min_date}
+                max={validationRules?.max_date}
                 className={error ? "border-destructive" : ""}
               />
             </div>
@@ -390,17 +390,23 @@ export function RoleBasedQuestionFields({
           <div className="space-y-4">
             <input
               type="range"
-              value={value ?? question.validation?.min ?? 0}
+              value={value ?? validationRules?.min_value ?? validationRules?.min ?? 0}
               onChange={(event) => onChange(question.key, event.target.value)}
-              min={question.validation?.min ?? 0}
-              max={question.validation?.max ?? 100}
-              step={question.validation?.step ?? 1}
+              min={validationRules?.min_value ?? validationRules?.min}
+              max={validationRules?.max_value ?? validationRules?.max}
+              step={validationRules?.step}
               className="h-2 w-full cursor-pointer appearance-none rounded-lg bg-gray-200"
             />
             <div className="flex items-center justify-between">
-              <span className="text-muted-foreground text-sm">{question.validation?.min ?? 0}</span>
-              <span className="text-primary text-lg font-semibold">{value ?? question.validation?.min ?? 0}</span>
-              <span className="text-muted-foreground text-sm">{question.validation?.max ?? 100}</span>
+              <span className="text-muted-foreground text-sm">
+                {validationRules?.min_value ?? validationRules?.min ?? ""}
+              </span>
+              <span className="text-primary text-lg font-semibold">
+                {value ?? validationRules?.min_value ?? validationRules?.min ?? 0}
+              </span>
+              <span className="text-muted-foreground text-sm">
+                {validationRules?.max_value ?? validationRules?.max ?? ""}
+              </span>
             </div>
           </div>
         )
