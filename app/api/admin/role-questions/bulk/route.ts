@@ -1,8 +1,14 @@
 import { NextResponse } from "next/server"
-import { findDuplicateValues, getLegacyQuestionKeyFromMetadata, normalizeQuestionKey } from "@/lib/role-question-identity"
+import { randomUUID } from "crypto"
+import {
+  findDuplicateValues,
+  getLegacyQuestionKeyFromMetadata,
+  normalizeQuestionKey,
+} from "@/lib/role-question-identity"
 import { getRoleQuestionScopeCacheKey, resolveRoleQuestionScope } from "@/lib/reporting-model"
 import {
   ASSIGNED_AGENTS_OPTION_SOURCE_KIND,
+  getAssignedAgentsDailyLimit,
   getQuestionOptionSource,
   isMarketingDepartmentName,
   isSalesPromoterProfessionKey,
@@ -10,6 +16,98 @@ import {
 } from "@/lib/marketing-agents"
 import { adminSupabase } from "@/lib/supabase/admin"
 import { createClient } from "@/lib/supabase/server"
+
+// Normalize entry kind to lowercase
+function normalizeEntryKind(value: string | null | undefined): string {
+  if (!value || typeof value !== "string") return "standard"
+  return value.trim().toLowerCase()
+}
+
+// Load valid entry kinds for a scope from database
+async function loadScopeEntryKinds(
+  departmentId: string,
+  departmentProfessionKey?: string | null
+): Promise<Array<{ entry_kind: string; is_active: boolean }>> {
+  try {
+    const query = (adminSupabase as any)
+      .from("scope_entry_kinds")
+      .select("entry_kind, is_active")
+      .eq("department_id", departmentId)
+      .eq("department_profession_id", departmentProfessionKey || null)
+
+    const { data, error } = await query
+
+    if (error) {
+      console.error("Error loading scope entry kinds:", error)
+      return []
+    }
+
+    return data || []
+  } catch (error) {
+    console.error("Unexpected error loading scope entry kinds:", error)
+    return []
+  }
+}
+
+// Collect entry kind validation errors with scope-aware lookup
+async function collectEntryKindErrors(questions: any[]): Promise<{ errors: string[]; normalizedQuestions: any[] }> {
+  const errors: string[] = []
+  const scopeKeys = new Set<string>()
+
+  // First pass: collect all unique scopes
+  questions.forEach((question) => {
+    const scope = getQuestionScope(question)
+    if (!scope) return
+
+    const deptId = scope.kind === "department" ? scope.id : scope.departmentId
+    const profKey = scope.kind === "profession" ? scope.departmentProfessionKey : null
+    const scopeKey = `${deptId}:${profKey || "null"}`
+    scopeKeys.add(scopeKey)
+  })
+
+  // Load valid entry kinds for each scope
+  const scopeValidKinds = new Map<string, Set<string>>()
+
+  await Promise.all(
+    Array.from(scopeKeys).map(async (scopeKey) => {
+      const [deptId, profKey] = scopeKey.split(":")
+      const professionKey = profKey === "null" ? null : profKey
+      const kinds = await loadScopeEntryKinds(deptId, professionKey)
+      // Accept both active and inactive entry kinds (legacy support)
+      scopeValidKinds.set(scopeKey, new Set(kinds.map((k) => k.entry_kind.toLowerCase())))
+    })
+  )
+
+  // Validate each question and normalize entry_kind
+  const normalizedQuestions = questions.map((question, index) => {
+    const scope = getQuestionScope(question)
+    if (!scope) return question
+
+    const deptId = scope.kind === "department" ? scope.id : scope.departmentId
+    const profKey = scope.kind === "profession" ? scope.departmentProfessionKey : null
+    const scopeKey = `${deptId}:${profKey || "null"}`
+
+    const validKinds = scopeValidKinds.get(scopeKey)
+    const rawEntryKind = question.entry_kind || "standard"
+    const normalizedEntryKind = normalizeEntryKind(rawEntryKind)
+
+    // If scope has no configured entry kinds, allow any (graceful degradation)
+    if (validKinds && validKinds.size > 0 && !validKinds.has(normalizedEntryKind)) {
+      errors.push(
+        `Question ${index + 1}: Entry kind "${rawEntryKind}" is not configured for this scope. ` +
+          `Allowed kinds: ${Array.from(validKinds).join(", ")}`
+      )
+    }
+
+    // Return question with normalized entry_kind
+    return {
+      ...question,
+      entry_kind: normalizedEntryKind,
+    }
+  })
+
+  return { errors, normalizedQuestions }
+}
 
 export const dynamic = "force-dynamic"
 
@@ -32,9 +130,7 @@ function mergeMetadata(existingMeta: unknown, incomingMeta: unknown, legacyQuest
   }
 }
 
-function getQuestionScope(
-  question: any
-):
+function getQuestionScope(question: any):
   | {
       kind: "profession"
       departmentId: string
@@ -88,14 +184,20 @@ function resolveIncomingQuestionKey(question: any, index: number): string {
   return `question_${index + 1}`
 }
 
+function getDuplicateKeyScopeKey(question: any): string | null {
+  const scope = getQuestionScope(question)
+  if (!scope) return null
+  const scopeKey = getScopeCacheKey(scope)
+  const entryKind = normalizeEntryKind(question?.entry_kind || "standard")
+  return `${scopeKey}:${entryKind}`
+}
+
 function collectDuplicateKeyErrors(questions: any[]): string[] {
   const scopeEntries = new Map<string, string[]>()
 
   questions.forEach((question, index) => {
-    const scope = getQuestionScope(question)
-    if (!scope) return
-
-    const scopeKey = getScopeCacheKey(scope)
+    const scopeKey = getDuplicateKeyScopeKey(question)
+    if (!scopeKey) return
     const scopedKeys = scopeEntries.get(scopeKey) ?? []
     scopedKeys.push(resolveIncomingQuestionKey(question, index))
     scopeEntries.set(scopeKey, scopedKeys)
@@ -112,6 +214,11 @@ function collectDuplicateKeyErrors(questions: any[]): string[] {
   return errors
 }
 
+function getScopedLegacyQuestionKey(entryKind: string | null | undefined, legacyQuestionKey: string | null): string | null {
+  if (!legacyQuestionKey) return null
+  return `${normalizeEntryKind(entryKind || "standard")}:${legacyQuestionKey}`
+}
+
 async function collectOptionSourceErrors(questions: any[]): Promise<string[]> {
   const sourceQuestions = questions.filter((question) => {
     return getQuestionOptionSource(question?.metadata)?.kind === ASSIGNED_AGENTS_OPTION_SOURCE_KIND
@@ -122,85 +229,79 @@ async function collectOptionSourceErrors(questions: any[]): Promise<string[]> {
   }
 
   const errors: string[] = []
-  const scopeCounts = new Map<string, number>()
-  const departmentIds = Array.from(
-    new Set(
-      sourceQuestions
-        .map((question) => getQuestionScope(question))
-        .filter((scope): scope is NonNullable<ReturnType<typeof getQuestionScope>> => Boolean(scope))
-        .map((scope) => (scope.kind === "department" ? scope.id : scope.departmentId))
-        .filter((value): value is string => typeof value === "string" && value.length > 0)
-    )
+  const scopeKeys = new Set<string>()
+  sourceQuestions.forEach((question) => {
+    const scope = getQuestionScope(question)
+    if (!scope) return
+    const deptId = scope.kind === "department" ? scope.id : scope.departmentId
+    const profKey = scope.kind === "profession" ? scope.departmentProfessionKey : null
+    scopeKeys.add(`${deptId}:${profKey || "null"}`)
+  })
+
+  // Load scope entry kinds to check supports_assigned_agent capability
+  const scopeCapabilities = new Map<string, Set<string>>() // scopeKey -> Set of entry_kinds that support assigned agents
+
+  await Promise.all(
+    Array.from(scopeKeys).map(async (scopeKey) => {
+      const [deptId, profKey] = scopeKey.split(":")
+      const professionKey = profKey === "null" ? null : profKey
+
+      const { data: entryKinds, error } = await (adminSupabase as any)
+        .from("scope_entry_kinds")
+        .select("entry_kind, supports_assigned_agent")
+        .eq("department_id", deptId)
+        .eq("department_profession_id", professionKey || null)
+
+      if (error) {
+        console.error(`Error loading scope entry kinds for ${scopeKey}:`, error)
+        return
+      }
+
+      const supportingKinds = new Set<string>()
+      entryKinds?.forEach((k: { entry_kind: string; supports_assigned_agent: boolean }) => {
+        if (k.supports_assigned_agent) {
+          supportingKinds.add(k.entry_kind.toLowerCase())
+        }
+      })
+      scopeCapabilities.set(scopeKey, supportingKinds)
+    })
   )
-
-  const professionIds = Array.from(
-    new Set(
-      sourceQuestions
-        .map((question) => getQuestionScope(question))
-        .filter((scope): scope is Extract<NonNullable<ReturnType<typeof getQuestionScope>>, { kind: "profession" }> => {
-          return Boolean(scope && scope.kind === "profession" && scope.departmentProfessionId)
-        })
-        .map((scope) => scope.departmentProfessionId)
-        .filter((value): value is string => typeof value === "string" && value.length > 0)
-    )
-  )
-
-  const [{ data: departments, error: departmentsError }, { data: professions, error: professionsError }] = await Promise.all([
-    departmentIds.length > 0
-      ? adminSupabase.from("departments").select("id, name").in("id", departmentIds)
-      : Promise.resolve({ data: [], error: null }),
-    professionIds.length > 0
-      ? adminSupabase.from("department_professions").select("id, key").in("id", professionIds)
-      : Promise.resolve({ data: [], error: null }),
-  ])
-
-  if (departmentsError) {
-    return ["Failed to validate assigned agent question departments"]
-  }
-
-  if (professionsError) {
-    return ["Failed to validate assigned agent question professions"]
-  }
-
-  const departmentNameById = new Map((departments || []).map((row) => [row.id, row.name]))
-  const professionKeyById = new Map((professions || []).map((row) => [row.id, row.key]))
 
   sourceQuestions.forEach((question, index) => {
     const scope = getQuestionScope(question)
-    if (!scope || scope.kind !== "profession") {
-      errors.push(
-        `Question ${index + 1}: assigned agent questions are only supported for profession-scoped questions`
-      )
+    if (!scope) {
+      errors.push(`Question ${index + 1}: assigned agent questions require a valid scope`)
       return
     }
 
-    const scopeKey = getScopeCacheKey(scope)
-    scopeCounts.set(scopeKey, (scopeCounts.get(scopeKey) || 0) + 1)
+    if (question.question_type !== "select" && question.question_type !== "multiselect") {
+      errors.push(`Question ${index + 1}: assigned agent questions must use the Select or Multi-Select question type`)
+    }
 
-    if (question.question_type !== "select") {
-      errors.push(`Question ${index + 1}: assigned agent questions must use the Select question type`)
+    const dailyLimit = getAssignedAgentsDailyLimit(question.metadata)
+    const rawDailyLimit = getQuestionOptionSource(question.metadata)?.max_logs_per_agent_per_day
+    if (rawDailyLimit !== undefined && rawDailyLimit !== null && dailyLimit === null) {
+      errors.push(`Question ${index + 1}: max_logs_per_agent_per_day must be a positive integer or null`)
     }
 
     if (Array.isArray(question.options) && question.options.length > 0) {
       errors.push(`Question ${index + 1}: assigned agent questions cannot define static options`)
     }
 
-    const departmentName = departmentNameById.get(scope.departmentId)
-    if (!isMarketingDepartmentName(departmentName)) {
-      errors.push(`Question ${index + 1}: assigned agent questions are only supported in the Marketing department`)
-    }
+    // Check if the entry kind supports assigned agents
+    const deptId = scope.kind === "department" ? scope.id : scope.departmentId
+    const profKey = scope.kind === "profession" ? scope.departmentProfessionKey : null
+    const capabilityScopeKey = `${deptId}:${profKey || "null"}`
 
-    const professionKey = normalizeSalesPromoterProfessionKey(
-      scope.departmentProfessionKey || professionKeyById.get(scope.departmentProfessionId || "")
-    )
-    if (!isSalesPromoterProfessionKey(professionKey)) {
-      errors.push(`Question ${index + 1}: assigned agent questions are only supported for the sales-promoter profession`)
-    }
-  })
+    const entryKind = normalizeEntryKind(question.entry_kind)
+    const supportingEntryKinds = scopeCapabilities.get(capabilityScopeKey)
 
-  scopeCounts.forEach((count, scopeKey) => {
-    if (count > 1) {
-      errors.push(`Only one assigned agent question is allowed in scope ${scopeKey}`)
+    // If no entry kinds are configured for this scope, allow (graceful degradation)
+    if (supportingEntryKinds && supportingEntryKinds.size > 0 && !supportingEntryKinds.has(entryKind)) {
+      errors.push(
+        `Question ${index + 1}: Entry kind "${entryKind}" does not support assigned agents. ` +
+          `Supported entry kinds: ${Array.from(supportingEntryKinds).join(", ")}`
+      )
     }
   })
 
@@ -256,19 +357,25 @@ export async function POST(request: Request) {
     errors.push(...collectDuplicateKeyErrors(questions))
     errors.push(...(await collectOptionSourceErrors(questions)))
 
+    // Scope-aware entry kind validation with lowercase normalization
+    const { errors: entryKindErrors, normalizedQuestions } = await collectEntryKindErrors(questions)
+    errors.push(...entryKindErrors)
+
     if (errors.length > 0) {
       return NextResponse.json({ error: "Validation failed", details: errors }, { status: 400 })
     }
 
-    // Prepare questions for insertion
-    const questionsToInsert = questions.map((question: any, index: number) => {
-        const legacyQuestionKey = resolveIncomingQuestionKey(question, index)
-        const scope = getQuestionScope(question)
-        return {
+    // Prepare questions for insertion (using normalized questions)
+    const questionsToInsert = normalizedQuestions.map((question: any, index: number) => {
+      const legacyQuestionKey = resolveIncomingQuestionKey(question, index)
+      const scope = getQuestionScope(question)
+      const entryKind = question.entry_kind || "standard"
+      return {
         department_id: scope?.kind === "department" ? scope.id : (scope?.departmentId ?? null),
         department_profession_id: scope?.kind === "profession" ? scope.departmentProfessionId : null,
         department_role:
           scope?.kind === "profession" ? normalizeSalesPromoterProfessionKey(scope.departmentProfessionKey) : null,
+        entry_kind: entryKind,
         question_label: question.question_label.trim(),
         question_type: question.question_type,
         question_description: question.question_description?.trim() || null,
@@ -387,12 +494,16 @@ export async function PUT(request: Request) {
     errors.push(...collectDuplicateKeyErrors(questions))
     errors.push(...(await collectOptionSourceErrors(questions)))
 
+    // Scope-aware entry kind validation with lowercase normalization
+    const { errors: entryKindErrors, normalizedQuestions } = await collectEntryKindErrors(questions)
+    errors.push(...entryKindErrors)
+
     if (errors.length > 0) {
       return NextResponse.json({ error: "Validation failed", details: errors }, { status: 400 })
     }
 
     const seenIds = new Set<string>()
-    questions.forEach((question: any, index: number) => {
+    normalizedQuestions.forEach((question: any, index: number) => {
       if (typeof question.id === "string" && question.id) {
         if (seenIds.has(question.id)) {
           errors.push(`Question ${index + 1}: Duplicate id "${question.id}"`)
@@ -407,7 +518,7 @@ export async function PUT(request: Request) {
 
     const scopeKeys = Array.from(
       new Set(
-        questions
+        normalizedQuestions
           .map((q: any) => {
             const scope = getQuestionScope(q)
             if (!scope) return null
@@ -437,7 +548,7 @@ export async function PUT(request: Request) {
               departmentProfessionId: parts[2] !== "unknown" ? parts[2] : null,
               departmentProfessionKey: parts[3] !== "unknown" ? parts[3] : null,
             }
-      const scopeQuestions = questions.filter((q: any) => {
+      const scopeQuestions = normalizedQuestions.filter((q: any) => {
         const qScope = getQuestionScope(q)
         if (kind === "department") {
           return qScope?.kind === "department" && qScope?.id === parts[1]
@@ -454,7 +565,7 @@ export async function PUT(request: Request) {
       const targetDepartmentId = scope.kind === "department" ? scope.id : scope.departmentId
       const { data: existingRows, error: existingError } = await adminSupabase
         .from("role_questions")
-        .select("id, metadata, department_id, department_profession_id, department_role")
+        .select("id, metadata, entry_kind, department_id, department_profession_id, department_role")
         .eq("department_id", targetDepartmentId)
         .limit(10000)
 
@@ -486,7 +597,7 @@ export async function PUT(request: Request) {
             existingById.set(row.id, row)
             const legacyKey = row.metadata?.legacy_question_key
             if (typeof legacyKey === "string" && legacyKey.trim()) {
-              existingByLegacyKey.set(legacyKey.trim(), row)
+              existingByLegacyKey.set(getScopedLegacyQuestionKey(row.entry_kind, legacyKey.trim()) || legacyKey.trim(), row)
             }
           }
         })
@@ -502,7 +613,7 @@ export async function PUT(request: Request) {
 
         const legacyKey = getLegacyQuestionKey(q)
         if (legacyKey) {
-          const existing = existingByLegacyKey.get(legacyKey)
+          const existing = existingByLegacyKey.get(getScopedLegacyQuestionKey(q.entry_kind, legacyKey) || legacyKey)
           if (existing?.id) {
             keepIds.add(existing.id)
           }
@@ -528,19 +639,22 @@ export async function PUT(request: Request) {
           typeof question.id === "string" && question.id
             ? existingById.get(question.id)
             : legacyQuestionKey
-              ? existingByLegacyKey.get(legacyQuestionKey)
+              ? existingByLegacyKey.get(getScopedLegacyQuestionKey(question.entry_kind, legacyQuestionKey) || legacyQuestionKey)
               : undefined
 
         const resolvedId = typeof question.id === "string" && question.id ? question.id : resolvedExisting?.id
         const existingMeta = resolvedExisting?.metadata
         const nextMeta = mergeMetadata(existingMeta, question.metadata, legacyQuestionKey)
 
+        const entryKind = question.entry_kind || resolvedExisting?.entry_kind || "standard"
+
         const base = {
-          ...(resolvedId ? { id: resolvedId } : {}),
+          id: resolvedId ?? randomUUID(),
           department_id: scope.kind === "department" ? scope.id : scope.departmentId,
           department_profession_id: scope.kind === "profession" ? scope.departmentProfessionId : null,
           department_role:
             scope.kind === "profession" ? normalizeSalesPromoterProfessionKey(scope.departmentProfessionKey) : null,
+          entry_kind: entryKind,
           question_label: question.question_label.trim(),
           question_type: question.question_type,
           question_description: question.question_description?.trim() || null,

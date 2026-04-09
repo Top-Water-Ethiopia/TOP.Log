@@ -87,12 +87,14 @@ function createSupabaseMock({
   accessAssignments = [],
   questionRows = [],
   entryRows = [],
+  scopeEntryKinds = [],
 }: {
   userId?: string
   professionAssignments?: Row[]
   accessAssignments?: Row[]
   questionRows?: Row[]
   entryRows?: Row[]
+  scopeEntryKinds?: Row[]
 }) {
   return {
     auth: {
@@ -118,6 +120,10 @@ function createSupabaseMock({
         return createQueryBuilder(entryRows)
       }
 
+      if (table === "scope_entry_kinds") {
+        return createQueryBuilder(scopeEntryKinds)
+      }
+
       if (table === "user_profiles" || table === "departments") {
         return createQueryBuilder([])
       }
@@ -133,8 +139,11 @@ function getRenderedClientProps() {
     departmentId: string
     departmentName: string
     date: string
-    initialExistingStandardEntryId: string | null
+    initialExistingEntryId: string | null
     initialRoleQuestions: Array<{ id: string }>
+    initialQuestionsByKind?: Record<string, Array<{ id: string }>>
+    initialAvailableEntryKinds?: Array<{ entry_kind: string; is_default?: boolean }>
+    role: string | null
   }
 }
 
@@ -177,6 +186,39 @@ describe("/logs/new page", () => {
     mockUserCanAnswerDepartmentQuestions.mockResolvedValue(false)
   })
 
+  it("allows a contributor with profession assignment to access logs/new page", async () => {
+    mockCreateClient.mockResolvedValue(
+      createSupabaseMock({
+        professionAssignments: [
+          {
+            user_id: "user-1",
+            department_id: "dept-1",
+            role: "sales-promoter",
+            is_active: true,
+            department: { id: "dept-1", name: "Sales" },
+          },
+        ],
+        questionRows: [],
+      })
+    )
+    mockGetUserDepartmentProfessionAssignment.mockResolvedValue({
+      professionId: "profession-1",
+      professionKey: "sales-promoter",
+    })
+
+    const element = await NewLogPage({
+      searchParams: Promise.resolve({ departmentId: "dept-1", date: "2026-04-07" }),
+    })
+
+    render(element)
+
+    const props = getRenderedClientProps()
+    expect(props.departmentId).toBe("dept-1")
+    expect(props.departmentName).toBe("Sales")
+    expect(props.date).toBe("2026-04-07")
+    expect(props.role).toBe("sales-promoter")
+  })
+
   it("shows only profession questions to a contributor without department report permission", async () => {
     mockCreateClient.mockResolvedValue(
       createSupabaseMock({
@@ -214,6 +256,86 @@ describe("/logs/new page", () => {
 
     const props = getRenderedClientProps()
     expect(props.departmentId).toBe("dept-1")
+    expect(props.initialRoleQuestions.map((question) => question.id)).toEqual(["profession-q"])
+  })
+
+  it("preserves custom entry-kind question groups for the new-log client", async () => {
+    mockCreateClient.mockResolvedValue(
+      createSupabaseMock({
+        professionAssignments: [
+          {
+            user_id: "user-1",
+            department_id: "dept-1",
+            role: "sales-promoter",
+            is_active: true,
+            department: { id: "dept-1", name: "Sales" },
+          },
+        ],
+        questionRows: [
+          {
+            ...makeQuestion({
+              id: "major-activity-q",
+              displayOrder: 1,
+              departmentProfessionId: "profession-1",
+              departmentRole: "sales-promoter",
+            }),
+            entry_kind: "major_activity",
+          },
+        ],
+      })
+    )
+    mockGetUserDepartmentProfessionAssignment.mockResolvedValue({
+      professionId: "profession-1",
+      professionKey: "sales-promoter",
+    })
+    mockUserCanAnswerDepartmentQuestions.mockResolvedValue(false)
+
+    const element = await NewLogPage({
+      searchParams: Promise.resolve({ departmentId: "dept-1", date: "2026-04-08" }),
+    })
+
+    render(element)
+
+    const props = getRenderedClientProps()
+    expect(props.initialQuestionsByKind?.major_activity?.map((question) => question.id)).toEqual(["major-activity-q"])
+  })
+
+  it("prefers the resolved profession assignment over a special membership role token", async () => {
+    mockCreateClient.mockResolvedValue(
+      createSupabaseMock({
+        professionAssignments: [
+          {
+            user_id: "user-1",
+            department_id: "dept-1",
+            role: "role-assignment-sales-promoter",
+            is_active: true,
+            department: { id: "dept-1", name: "Sales" },
+          },
+        ],
+        questionRows: [
+          makeQuestion({
+            id: "profession-q",
+            displayOrder: 1,
+            departmentProfessionId: "profession-1",
+            departmentRole: "sales-promoter",
+          }),
+        ],
+      })
+    )
+    mockGetUserDepartmentProfessionAssignment.mockResolvedValue({
+      professionId: "profession-1",
+      professionKey: "sales-promoter",
+    })
+    mockUserCanAnswerDepartmentQuestions.mockResolvedValue(false)
+
+    const element = await NewLogPage({
+      searchParams: Promise.resolve({ departmentId: "dept-1", date: "2026-04-08" }),
+    })
+
+    render(element)
+
+    const props = getRenderedClientProps()
+    expect(props.role).toBe("sales-promoter")
     expect(props.initialRoleQuestions.map((question) => question.id)).toEqual(["profession-q"])
   })
 
@@ -360,6 +482,92 @@ describe("/logs/new page", () => {
     render(element)
 
     const props = getRenderedClientProps()
-    expect(props.initialExistingStandardEntryId).toBe("entry-1")
+    expect(props.initialExistingEntryId).toBe("entry-1")
+  })
+
+  it("uses the configured default entry kind instead of hardcoding standard", async () => {
+    mockCreateClient.mockResolvedValue(
+      createSupabaseMock({
+        professionAssignments: [
+          {
+            user_id: "user-1",
+            department_id: "dept-1",
+            role: "sales-promoter",
+            is_active: true,
+            department: { id: "dept-1", name: "Marketing" },
+          },
+        ],
+        questionRows: [
+          {
+            ...makeQuestion({
+              id: "standard-q",
+              displayOrder: 2,
+              departmentProfessionId: "profession-1",
+              departmentRole: "sales-promoter",
+            }),
+            entry_kind: "standard",
+          },
+          {
+            ...makeQuestion({
+              id: "marketing-q",
+              displayOrder: 1,
+              departmentProfessionId: "profession-1",
+              departmentRole: "sales-promoter",
+            }),
+            entry_kind: "marketing_performance_report",
+          },
+        ],
+        scopeEntryKinds: [
+          {
+            department_id: "dept-1",
+            entry_kind: "standard",
+            label: "Agent Report",
+            is_default: false,
+            is_active: true,
+            allow_multiple_per_day: true,
+            department_profession_id: "sales-promoter",
+          },
+          {
+            department_id: "dept-1",
+            entry_kind: "marketing_performance_report",
+            label: "Marketing Performance Report",
+            is_default: true,
+            is_active: true,
+            allow_multiple_per_day: false,
+            department_profession_id: "sales-promoter",
+          },
+        ],
+        entryRows: [
+          {
+            id: "marketing-entry-1",
+            submitted_by_user_id: "user-1",
+            entry_kind: "marketing_performance_report",
+            subject_department_id: "dept-1",
+            date: "2026-04-02",
+          },
+        ],
+      })
+    )
+    mockGetUserDepartmentProfessionAssignment.mockResolvedValue({
+      professionId: "profession-1",
+      professionKey: "sales-promoter",
+    })
+    mockUserCanAnswerDepartmentQuestions.mockResolvedValue(false)
+
+    const element = await NewLogPage({
+      searchParams: Promise.resolve({ departmentId: "dept-1", date: "2026-04-02" }),
+    })
+
+    render(element)
+
+    const props = getRenderedClientProps()
+    expect(props.initialAvailableEntryKinds?.map((kind) => kind.entry_kind)).toEqual([
+      "standard",
+      "marketing_performance_report",
+    ])
+    expect(props.initialAvailableEntryKinds?.find((kind) => kind.entry_kind === "marketing_performance_report")?.is_default).toBe(
+      true
+    )
+    expect(props.initialExistingEntryId).toBe("marketing-entry-1")
   })
 })

@@ -49,6 +49,32 @@ jest.mock("@/components/role-based-question-fields", () => ({
   RoleBasedQuestionFields: () => <div data-testid="role-question-fields">Role question fields</div>,
 }))
 
+jest.mock("@/components/entry-kind-dropdown", () => ({
+  EntryKindDropdown: ({
+    value,
+    onChange,
+    label,
+  }: {
+    value: string | null
+    onChange: (value: string | null) => void
+    label?: string
+  }) => (
+    <div data-testid="entry-kind-dropdown">
+      <span>{label || "Report Type"}</span>
+      <span data-testid="selected-entry-kind">{value || "none"}</span>
+      <button type="button" onClick={() => onChange("standard")}>
+        select standard
+      </button>
+      <button type="button" onClick={() => onChange("major_activity")}>
+        select major activity
+      </button>
+      <button type="button" onClick={() => onChange("agent_call")}>
+        select agent call
+      </button>
+    </div>
+  ),
+}))
+
 jest.mock("@/components/features/daily-log/molecules", () => ({
   DateRestrictionBanner: ({ title }: { title: string }) => <div data-testid="date-banner">{title}</div>,
   QuickDateChips: ({
@@ -78,10 +104,14 @@ function createFetchResponse(body: unknown, ok = true, status = 200) {
 
 function setupFetch({
   entryAvailabilityId = null,
+  allowMultiplePerDay = false,
   assignedAgents = [],
+  usageByQuestion = {},
 }: {
   entryAvailabilityId?: string | null
+  allowMultiplePerDay?: boolean
   assignedAgents?: Array<Record<string, unknown>>
+  usageByQuestion?: Record<string, Record<string, number>>
 } = {}) {
   mockFetch.mockImplementation((input: RequestInfo | URL) => {
     const url = String(input)
@@ -89,7 +119,9 @@ function setupFetch({
       return Promise.resolve(
         createFetchResponse({
           data: {
+            existingEntryId: entryAvailabilityId,
             existingStandardEntryId: entryAvailabilityId,
+            allowMultiplePerDay,
           },
         })
       )
@@ -99,6 +131,7 @@ function setupFetch({
       return Promise.resolve(
         createFetchResponse({
           data: assignedAgents,
+          usageByQuestion,
         })
       )
     }
@@ -111,11 +144,13 @@ function renderForm(
   questions: Array<Record<string, unknown>>,
   options: {
     date?: string
-    initialExistingStandardEntryId?: string | null
+    initialExistingEntryId?: string | null
     stayOnAgentCallSave?: boolean
     onSave?: jest.Mock
     onCancel?: jest.Mock
     onDateChange?: jest.Mock
+    role?: string | null
+    initialQuestionsByKind?: Record<string, Array<Record<string, unknown>>>
   } = {}
 ) {
   mockUseRoleQuestions.mockReturnValue({
@@ -133,11 +168,14 @@ function renderForm(
       departmentId="dept-1"
       departmentName="Engineering"
       date={options.date || "2026-04-02"}
-      initialExistingStandardEntryId={options.initialExistingStandardEntryId ?? null}
+      allowedDates={["2026-04-01", "2026-04-02", "2026-04-08"]}
+      initialExistingEntryId={options.initialExistingEntryId ?? null}
       stayOnAgentCallSave={options.stayOnAgentCallSave}
       onDateChange={onDateChange}
       onSave={onSave}
       onCancel={onCancel}
+      role={options.role}
+      initialQuestionsByKind={options.initialQuestionsByKind}
     />
   )
 
@@ -232,12 +270,12 @@ describe("EntryFormMultistep", () => {
         },
       ],
       {
-        initialExistingStandardEntryId: "entry-1",
+        initialExistingEntryId: "entry-1",
       }
     )
     await settleAvailabilityEffect()
 
-    expect(screen.getByText("A standard report already exists for this date")).toBeInTheDocument()
+    expect(screen.getByText("A report for this type already exists on this date")).toBeInTheDocument()
 
     await waitFor(() => {
       expect(screen.getByRole("link", { name: "Open Existing Report" })).toBeInTheDocument()
@@ -245,6 +283,32 @@ describe("EntryFormMultistep", () => {
 
     const openLink = screen.getByRole("link", { name: "Open Existing Report" })
     expect(openLink).toHaveAttribute("href", "/reports/entry-1")
+  })
+
+  it("allows another same-day entry when the selected report type is recurring", async () => {
+    setupFetch({ entryAvailabilityId: "entry-1", allowMultiplePerDay: true })
+
+    renderForm(
+      [
+        {
+          id: "profession-question",
+          key: "profession-question",
+          label: "Implemented work",
+          title: "Implemented work",
+          type: "textarea",
+          category: "profession_question",
+          required: false,
+          order: 1,
+        },
+      ],
+      {
+        initialExistingEntryId: "entry-1",
+      }
+    )
+    await settleAvailabilityEffect()
+
+    expect(screen.queryByText("A report for this type already exists on this date")).not.toBeInTheDocument()
+    await waitForPrimaryButton("Continue")
   })
 
   it("shows an empty state and disables submission when no report questions are available", async () => {
@@ -267,7 +331,7 @@ describe("EntryFormMultistep", () => {
     renderForm([], { onDateChange })
     await settleAvailabilityEffect()
 
-    expect(screen.getByText("Thursday, April 2, 2026")).toBeInTheDocument()
+    expect(screen.getAllByText("Thursday, April 2, 2026").length).toBeGreaterThan(0)
 
     fireEvent.click(screen.getByRole("button", { name: "Apr 1" }))
     await settleAvailabilityEffect()
@@ -301,9 +365,14 @@ describe("EntryFormMultistep", () => {
           name: "Agent Two",
           location: "Adama",
           phone: "+251955555555",
-          alreadyReported: true,
+          alreadyReported: false,
         },
       ],
+      usageByQuestion: {
+        "agent-contact": {
+          "agent-2": 1,
+        },
+      },
     })
 
     renderForm([
@@ -317,13 +386,15 @@ describe("EntryFormMultistep", () => {
         required: true,
         order: 1,
         optionSourceKind: "assigned_agents",
+        maxLogsPerAgentPerDay: 1,
       },
     ])
 
+    await waitForPrimaryButton("Continue")
     fireEvent.click(screen.getByRole("button", { name: "Continue" }))
 
     await waitFor(() => {
-      expect(screen.getByText("1 of 2 already reported today")).toBeInTheDocument()
+      expect(screen.getByRole("button", { name: /Agent One/ })).toBeInTheDocument()
     })
 
     expect(screen.queryByText("Agent Two")).not.toBeInTheDocument()
@@ -340,7 +411,7 @@ describe("EntryFormMultistep", () => {
       expect(mockAddEntry).toHaveBeenCalledWith(
         expect.objectContaining({
           department_id: "dept-1",
-          entry_kind: "agent_call",
+          entry_kind: "standard",
           subject_agent_id: "agent-1",
           subject_agent_snapshot: {
             name: "Agent One",
@@ -356,6 +427,272 @@ describe("EntryFormMultistep", () => {
               },
             }),
           ],
+        })
+      )
+    })
+  })
+
+  it("loads assigned agents for multiselect questions and saves the selected ids", async () => {
+    setupFetch({
+      assignedAgents: [
+        {
+          id: "agent-1",
+          name: "Agent One",
+          location: "Addis Ababa",
+          phone: "+251912345678",
+          alreadyReported: false,
+        },
+        {
+          id: "agent-2",
+          name: "Agent Two",
+          location: "Adama",
+          phone: "+251955555555",
+          alreadyReported: false,
+        },
+      ],
+    })
+
+    renderForm([
+      {
+        id: "agents-question",
+        key: "agents-contacted",
+        label: "Agents contacted",
+        title: "Agents contacted",
+        type: "multiselect",
+        category: "profession_question",
+        required: true,
+        order: 1,
+        optionSourceKind: "assigned_agents",
+      },
+    ])
+
+    await waitForPrimaryButton("Continue")
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }))
+
+    await waitFor(() => {
+      expect(screen.getByText("Agent One")).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByText("Agent One"))
+    fireEvent.click(screen.getByText("Agent Two"))
+
+    fireEvent.click(screen.getByRole("button", { name: "Next" }))
+    fireEvent.click(screen.getByRole("button", { name: "Submit Log" }))
+
+    await waitFor(() => {
+      expect(mockAddEntry).toHaveBeenCalledWith(
+        expect.objectContaining({
+          department_id: "dept-1",
+          entry_kind: "standard",
+          customResponses: [
+            expect.objectContaining({
+              questionKey: "agents-contacted",
+              value: ["agent-1", "agent-2"],
+            }),
+          ],
+        })
+      )
+    })
+  })
+
+  it("preserves a custom entry kind when a single assigned agent is selected", async () => {
+    setupFetch({
+      assignedAgents: [
+        {
+          id: "agent-1",
+          name: "Agent One",
+          location: "Addis Ababa",
+          phone: "+251912345678",
+          alreadyReported: false,
+        },
+      ],
+    })
+
+    renderForm([], {
+      role: "sales-promoter",
+      initialQuestionsByKind: {
+        standard: [
+          {
+            id: "standard-question",
+            question_key: "standard-question",
+            question_label: "Standard question",
+            question_type: "textarea",
+            category: "profession_question",
+            is_required: false,
+            display_order: 1,
+            metadata: null,
+          },
+        ],
+        major_activity: [
+          {
+            id: "agent-question",
+            question_key: "agent-contact",
+            question_label: "Agent contacted",
+            question_type: "select",
+            category: "profession_question",
+            is_required: true,
+            display_order: 1,
+            metadata: {
+              option_source: {
+                kind: "assigned_agents",
+                max_logs_per_agent_per_day: 1,
+              },
+            },
+          },
+        ],
+      },
+    })
+
+    await settleAvailabilityEffect()
+
+    fireEvent.click(screen.getByRole("button", { name: "select major activity" }))
+    await waitForPrimaryButton("Continue")
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }))
+
+    await waitFor(() => {
+      expect(screen.getByText("Agent One")).toBeInTheDocument()
+    })
+
+    fireEvent.click(screen.getByRole("button", { name: /Agent One/ }))
+    fireEvent.click(screen.getByRole("button", { name: "Next" }))
+    fireEvent.click(screen.getByRole("button", { name: "Submit Log" }))
+
+    await waitFor(() => {
+      expect(mockAddEntry).toHaveBeenCalledWith(
+        expect.objectContaining({
+          department_id: "dept-1",
+          entry_kind: "major_activity",
+          subject_agent_id: "agent-1",
+          subject_agent_snapshot: {
+            name: "Agent One",
+            location: "Addis Ababa",
+            phone: "+251912345678",
+          },
+        })
+      )
+    })
+  })
+
+  it("defaults to standard and still lets the user switch to a custom report kind", async () => {
+    renderForm([], {
+      role: "sales-promoter",
+      initialQuestionsByKind: {
+        standard: [
+          {
+            id: "standard-question",
+            question_key: "standard-question",
+            question_label: "Standard question",
+            question_type: "textarea",
+            category: "profession_question",
+            is_required: false,
+            display_order: 1,
+            metadata: null,
+          },
+        ],
+        major_activity: [
+          {
+            id: "major-activity-question",
+            question_key: "major-activity-question",
+            question_label: "Major activity question",
+            question_type: "textarea",
+            category: "profession_question",
+            is_required: false,
+            display_order: 1,
+            metadata: null,
+          },
+        ],
+      },
+    })
+    await settleAvailabilityEffect()
+
+    expect(screen.getByText("Report Type")).toBeInTheDocument()
+    expect(screen.getByTestId("selected-entry-kind")).toHaveTextContent("standard")
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }))
+    expect(screen.getByText("Standard question")).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: "Previous" }))
+
+    fireEvent.click(screen.getByRole("button", { name: "select major activity" }))
+    expect(screen.getByTestId("selected-entry-kind")).toHaveTextContent("major_activity")
+
+    await waitForPrimaryButton("Continue")
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }))
+    await waitFor(() => {
+      expect(screen.getByText("Major activity question")).toBeInTheDocument()
+    })
+  })
+
+  it("treats standard as selected by default when it is shown as the default report type", async () => {
+    renderForm([], {
+      role: "sales-promoter",
+      initialQuestionsByKind: {
+        standard: [
+          {
+            id: "standard-question",
+            question_key: "standard-question",
+            question_label: "Standard question",
+            question_type: "textarea",
+            category: "profession_question",
+            is_required: false,
+            display_order: 1,
+            metadata: null,
+          },
+        ],
+        major_activity: [
+          {
+            id: "major-activity-question",
+            question_key: "major-activity-question",
+            question_label: "Major activity question",
+            question_type: "textarea",
+            category: "profession_question",
+            is_required: false,
+            display_order: 1,
+            metadata: null,
+          },
+        ],
+      },
+    })
+    await settleAvailabilityEffect()
+
+    expect(screen.getByTestId("selected-entry-kind")).toHaveTextContent("standard")
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }))
+
+    expect(screen.getByText("Standard question")).toBeInTheDocument()
+    expect(screen.queryByText("Select a report type to continue")).not.toBeInTheDocument()
+  })
+
+  it("submits the selected custom report kind instead of forcing standard", async () => {
+    renderForm([], {
+      initialQuestionsByKind: {
+        major_activity: [
+          {
+            id: "major-activity-question",
+            question_key: "major-activity-question",
+            question_label: "Major activity question",
+            question_type: "textarea",
+            category: "profession_question",
+            is_required: false,
+            display_order: 1,
+            metadata: null,
+          },
+        ],
+      },
+    })
+    await settleAvailabilityEffect()
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }))
+    expect(screen.getByText("Major activity question")).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: "Next" }))
+    fireEvent.click(screen.getByRole("button", { name: "Submit Log" }))
+
+    await waitFor(() => {
+      expect(mockAddEntry).toHaveBeenCalledWith(
+        expect.objectContaining({
+          department_id: "dept-1",
+          entry_kind: "major_activity",
         })
       )
     })
@@ -384,7 +721,9 @@ describe("EntryFormMultistep", () => {
     mockFetch.mockImplementationOnce((input: RequestInfo | URL) => {
       const url = String(input)
       if (url.includes("/api/reporting/entry-availability")) {
-        return Promise.resolve(createFetchResponse({ data: { existingStandardEntryId: null } }))
+        return Promise.resolve(
+          createFetchResponse({ data: { existingEntryId: null, existingStandardEntryId: null, allowMultiplePerDay: false } })
+        )
       }
       if (url.includes("/api/reporting/assigned-agents")) {
         return Promise.resolve(
@@ -405,6 +744,7 @@ describe("EntryFormMultistep", () => {
                 alreadyReported: false,
               },
             ],
+            usageByQuestion: {},
           })
         )
       }
@@ -422,7 +762,7 @@ describe("EntryFormMultistep", () => {
                 name: "Agent One",
                 location: "Addis Ababa",
                 phone: "+251912345678",
-                alreadyReported: true,
+                alreadyReported: false,
               },
               {
                 id: "agent-2",
@@ -432,33 +772,46 @@ describe("EntryFormMultistep", () => {
                 alreadyReported: false,
               },
             ],
+            usageByQuestion: {
+              "agent-contact": {
+                "agent-1": 1,
+              },
+            },
           })
         )
       }
-      return Promise.resolve(createFetchResponse({ data: { existingStandardEntryId: null } }))
+      return Promise.resolve(
+        createFetchResponse({ data: { existingEntryId: null, existingStandardEntryId: null, allowMultiplePerDay: false } })
+      )
     })
 
     const onSave = jest.fn()
-    renderForm(
-      [
-        {
-          id: "agent-question",
-          key: "agent-contact",
-          label: "Agent contacted",
-          title: "Agent contacted",
-          type: "select",
-          category: "profession_question",
-          required: true,
-          order: 1,
-          optionSourceKind: "assigned_agents",
-        },
-      ],
-      {
-        onSave,
-        stayOnAgentCallSave: true,
-      }
-    )
+    renderForm([], {
+      onSave,
+      stayOnAgentCallSave: true,
+      initialQuestionsByKind: {
+        agent_call: [
+          {
+            id: "agent-question",
+            question_key: "agent-contact",
+            question_label: "Agent contacted",
+            question_type: "select",
+            category: "profession_question",
+            is_required: true,
+            display_order: 1,
+            metadata: {
+              option_source: {
+                kind: "assigned_agents",
+              },
+            },
+          },
+        ],
+      },
+    })
 
+    fireEvent.click(screen.getByRole("button", { name: "select agent call" }))
+
+    await waitForPrimaryButton("Continue")
     fireEvent.click(screen.getByRole("button", { name: "Continue" }))
 
     await waitFor(() => {
@@ -475,9 +828,8 @@ describe("EntryFormMultistep", () => {
 
     expect(onSave).toHaveBeenCalledWith({ entryKind: "agent_call", date: "2026-04-02" })
 
-    await waitFor(() => {
-      expect(screen.queryByText("Addis Ababa")).not.toBeInTheDocument()
-    })
+    expect(screen.getByRole("button", { name: /Agent One/ })).toHaveAttribute("aria-pressed", "false")
+    expect(screen.getByRole("button", { name: /Agent Two/ })).toBeInTheDocument()
   })
 
   it("blocks progress when no assigned agents remain for the selected date", async () => {
@@ -488,9 +840,14 @@ describe("EntryFormMultistep", () => {
           name: "Agent One",
           location: "Addis Ababa",
           phone: "+251912345678",
-          alreadyReported: true,
+          alreadyReported: false,
         },
       ],
+      usageByQuestion: {
+        "agent-contact": {
+          "agent-1": 1,
+        },
+      },
     })
 
     renderForm([
@@ -504,13 +861,15 @@ describe("EntryFormMultistep", () => {
         required: true,
         order: 1,
         optionSourceKind: "assigned_agents",
+        maxLogsPerAgentPerDay: 1,
       },
     ])
 
+    await waitForPrimaryButton("Continue")
     fireEvent.click(screen.getByRole("button", { name: "Continue" }))
 
     await waitFor(() => {
-      expect(screen.getByText(/All assigned agents are already reported/i)).toBeInTheDocument()
+      expect(screen.getByText("All assigned agents have reached this field's daily limit of 1.")).toBeInTheDocument()
     })
 
     expect(screen.getByRole("button", { name: "Next" })).toBeDisabled()
@@ -551,7 +910,12 @@ describe("EntryFormMultistep", () => {
       "dailyLogDraft:v1:user-1:dept-1:2026-04-02",
       JSON.stringify({
         version: 1,
+        schemaVersion: 1,
         savedAt: "2026-04-03T08:00:00.000Z",
+        entryKind: "standard",
+        questionIds: ["profession-question"],
+        selectedDate: "2026-04-02",
+        departmentId: "dept-1",
         currentStep: 2,
         formData: {},
         customResponses: {},

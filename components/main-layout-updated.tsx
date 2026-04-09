@@ -19,6 +19,7 @@ import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { ApiError, apiFetch, getErrorMessage } from "@/lib/api-client"
 import { isFeatureEnabledClient } from "@/lib/feature-flags/client"
 import { canCreateEntryForDate, getToday } from "@/lib/date-restrictions"
+import { normalizeSalesPromoterProfessionKey } from "@/lib/marketing-agents"
 import { useRouter } from "next/navigation"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import { ChevronDown } from "lucide-react"
@@ -30,6 +31,10 @@ interface MainLayoutUpdatedProps {
 
 type DepartmentMembership = {
   department_id: string
+  role?: string | null
+  department_profession?: {
+    key?: string | null
+  } | null
   department: {
     id: string
     name: string
@@ -164,9 +169,24 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
     return entries.filter((e) => e.department_id === activeDepartmentId)
   }, [entries, activeDepartmentId])
 
+  const activeDepartmentRole = useMemo(() => {
+    if (!activeDepartmentId) return null
+    const membership = memberships.find((m) => m.department_id === activeDepartmentId)
+    const professionKey = membership?.department_profession?.key
+    if (typeof professionKey === "string" && professionKey.trim().length > 0) {
+      return normalizeSalesPromoterProfessionKey(professionKey)
+    }
+    if (typeof membership?.role === "string" && membership.role.trim().length > 0) {
+      return normalizeSalesPromoterProfessionKey(membership.role)
+    }
+    return null
+  }, [activeDepartmentId, memberships])
+
   const { questions: roleQuestions, isLoading: isRoleQuestionsLoading } = useRoleQuestions(
     initialRoleQuestions,
-    activeDepartmentId || undefined
+    activeDepartmentId || undefined,
+    undefined,
+    activeDepartmentRole
   )
 
   const [selectedDate, setSelectedDate] = useState<string>(getToday())

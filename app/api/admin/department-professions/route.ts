@@ -49,7 +49,7 @@ export async function GET(request: Request) {
 
   const { data, error } = await adminSupabase
     .from("department_professions")
-    .select("key, label, sort_order, is_active, is_default")
+    .select("id, key, label, sort_order, is_active, is_default")
     .order("sort_order", { ascending: true })
     .order("key", { ascending: true })
 

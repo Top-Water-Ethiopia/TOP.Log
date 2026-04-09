@@ -603,6 +603,16 @@ export function validateQuestionResponse(question: CustomQuestion | unknown, val
       break
 
     case "checkbox":
+      if (Array.isArray(q.options) && q.options.length > 0) {
+        if (!Array.isArray(value) || value.length === 0) {
+          return "Please select at least one option"
+        }
+        if (!value.every((v) => (q.options as string[]).includes(v as string))) {
+          return "One or more selected options are invalid"
+        }
+        break
+      }
+
       if (typeof value !== "boolean") {
         return "Please check or uncheck this field"
       }

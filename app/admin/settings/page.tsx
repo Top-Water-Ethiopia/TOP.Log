@@ -115,6 +115,26 @@ export default function AdminSettingsPage() {
         )}
         <Card>
           <CardHeader>
+            <CardTitle>Report Types</CardTitle>
+            <CardDescription>
+              Configure which report types are available for departments and professions
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="space-y-4">
+              <p className="text-muted-foreground text-sm">
+                Manage report types (Agent Call, Daily Summary, custom types, etc.) that can be used when creating
+                questions.
+              </p>
+              <Button asChild variant="outline">
+                <Link href="/admin/settings/entry-kinds">Manage Report Types</Link>
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
             <CardTitle>Audit Logs</CardTitle>
             <CardDescription>View system activity and user actions</CardDescription>
           </CardHeader>

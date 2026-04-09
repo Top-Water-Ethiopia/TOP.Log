@@ -2,6 +2,8 @@ import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { getAllowedDates } from "@/lib/date-restrictions"
 import { isDepartmentReportQuestion, matchesProfessionQuestion } from "@/lib/reporting-model"
+import { getDefaultEntryKind as getConfiguredDefaultEntryKind } from "@/lib/entry-kinds"
+import { normalizeSalesPromoterProfessionKey } from "@/lib/marketing-agents"
 import {
   getUserDepartmentProfessionAssignment,
   userCanAnswerDepartmentQuestions,
@@ -37,6 +39,7 @@ type DepartmentQuestionRow = {
   created_at: string
   updated_at: string
   metadata: unknown
+  entry_kind?: string
 }
 
 function buildQueryString(params: SearchParams): string {
@@ -248,15 +251,15 @@ async function fetchAuthorizedDepartment(
 }
 
 /**
- * Fetch questions for the reporting form.
+ * Fetch questions grouped by entry_kind for the reporting form.
  * Department report questions are shown only to users with department-level
  * reporting permission, while profession questions follow the user's assigned profession.
  */
-async function fetchRoleQuestions(
+async function fetchRoleQuestionsByKind(
   supabase: Awaited<ReturnType<typeof createClient>>,
   departmentId: string,
   userId: string
-) {
+): Promise<Record<string, DepartmentQuestionRow[]>> {
   const getLegacyQuestionKeyFromMetadata = (metadata: unknown): string | null => {
     if (typeof metadata !== "object" || metadata === null) return null
     const value = (metadata as { legacy_question_key?: unknown }).legacy_question_key
@@ -285,7 +288,7 @@ async function fetchRoleQuestions(
 
   if (questionsError) {
     console.error("Error fetching report questions:", questionsError)
-    return []
+    return { standard: [], agent_call: [], daily_summary: [] }
   }
 
   const questions = ((questionRows as DepartmentQuestionRow[] | null) || []).filter((question) => {
@@ -295,29 +298,78 @@ async function fetchRoleQuestions(
 
     return matchesProfessionQuestion(question, departmentId, professionAssignmentResult || {})
   })
-  questions.sort((a, b) => (a?.display_order ?? 0) - (b?.display_order ?? 0))
 
-  return questions.map((question) => {
-    const directKey = typeof question.question_key === "string" ? question.question_key.trim() : ""
-    const legacyKey = getLegacyQuestionKeyFromMetadata(question.metadata)
-    return {
-      ...question,
-      question_key: directKey || legacyKey || question.id,
-    }
+  // Group by entry_kind
+  const grouped = questions.reduce(
+    (acc, question) => {
+      const kind = question.entry_kind || "standard"
+      if (!acc[kind]) acc[kind] = []
+      acc[kind].push(question)
+      return acc
+    },
+    {} as Record<string, DepartmentQuestionRow[]>
+  )
+
+  // Ensure all entry kinds exist (even if empty)
+  const allKinds = ["standard", "agent_call", "daily_summary"]
+  allKinds.forEach((k) => {
+    if (!grouped[k]) grouped[k] = []
+    // Sort within each group
+    grouped[k].sort((a, b) => (a?.display_order ?? 0) - (b?.display_order ?? 0))
+    // Add question keys
+    grouped[k] = grouped[k].map((question) => {
+      const directKey = typeof question.question_key === "string" ? question.question_key.trim() : ""
+      const legacyKey = getLegacyQuestionKeyFromMetadata(question.metadata)
+      return {
+        ...question,
+        question_key: directKey || legacyKey || question.id,
+      }
+    })
   })
+
+  return grouped
 }
 
-async function fetchExistingStandardEntryId(
+/**
+ * @deprecated Use fetchRoleQuestionsByKind for new code
+ */
+async function fetchRoleQuestions(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  departmentId: string,
+  userId: string
+) {
+  const grouped = await fetchRoleQuestionsByKind(supabase, departmentId, userId)
+  // Flatten for backward compatibility
+  return Object.values(grouped).flat()
+}
+
+function resolveClientRole(
+  departmentRole: string | null,
+  professionKey: string | null | undefined
+): string | null {
+  if (typeof professionKey === "string" && professionKey.trim().length > 0) {
+    return normalizeSalesPromoterProfessionKey(professionKey)
+  }
+
+  if (typeof departmentRole === "string" && departmentRole.trim().length > 0) {
+    return normalizeSalesPromoterProfessionKey(departmentRole)
+  }
+
+  return null
+}
+
+async function fetchExistingEntryId(
   supabase: Awaited<ReturnType<typeof createClient>>,
   departmentId: string,
   userId: string,
-  date: string
+  date: string,
+  entryKind: string
 ): Promise<string | null> {
   const { data, error } = await supabase
     .from("captain_log_entries")
     .select("id")
     .eq("submitted_by_user_id", userId)
-    .eq("entry_kind", "standard")
+    .eq("entry_kind", entryKind)
     .eq("subject_department_id", departmentId)
     .eq("date", date)
     .order("created_at", { ascending: false })
@@ -393,11 +445,66 @@ export default async function NewLogPage({ searchParams }: { searchParams: Promi
     redirect(`/logs/new${canonicalQuery}`)
   }
 
-  // 6. Fetch role questions and initial standard-entry availability for the active reporting subject.
-  const [roleQuestions, initialExistingStandardEntryId] = await Promise.all([
-    fetchRoleQuestions(supabase, department.id, userId),
-    fetchExistingStandardEntryId(supabase, department.id, userId, targetDate),
+  const professionAssignment = await getUserDepartmentProfessionAssignment(supabase, userId, department.id).catch((error) => {
+    console.error("Error resolving profession assignment for new log page:", error)
+    return null
+  })
+  const resolvedRole = resolveClientRole(department.role, professionAssignment?.professionKey)
+
+  const { data: scopeEntryKinds } = await (supabase as any)
+    .from("scope_entry_kinds")
+    .select("entry_kind, label, is_default, allow_multiple_per_day, is_active, department_profession_id")
+    .eq("department_id", department.id)
+    .eq("is_active", true)
+    .eq("department_profession_id", resolvedRole || null)
+
+  // 6. Fetch role questions and initial entry availability for the active reporting subject.
+  const [questionsByKind] = await Promise.all([
+    fetchRoleQuestionsByKind(supabase, department.id, userId),
   ])
+
+  const initialAvailableEntryKinds = ((scopeEntryKinds as Array<{
+    entry_kind: string
+    label?: string
+    is_default?: boolean
+    allow_multiple_per_day?: boolean
+  }> | null) || []).filter((kind) => (questionsByKind[kind.entry_kind] || []).length > 0)
+
+  const initialEntryKind =
+    initialAvailableEntryKinds.length > 0
+      ? getConfiguredDefaultEntryKind(
+          initialAvailableEntryKinds.map((kind, index) => ({
+            id: `${kind.entry_kind}-${index}`,
+            department_id: department.id,
+            department_profession_id: resolvedRole,
+            entry_kind: kind.entry_kind,
+            label: kind.label || kind.entry_kind,
+            description: null,
+            sort_order: index,
+            is_default: kind.is_default === true,
+            is_active: true,
+            supports_assigned_agent: false,
+            allow_multiple_per_day: kind.allow_multiple_per_day === true,
+            color: null,
+            icon: null,
+            created_by: null,
+            updated_by: null,
+            created_at: "",
+            updated_at: "",
+          }))
+        )
+      : Object.keys(questionsByKind).find((kind) => (questionsByKind[kind] || []).length > 0) || "standard"
+
+  const initialExistingEntryId = await fetchExistingEntryId(
+    supabase,
+    department.id,
+    userId,
+    targetDate,
+    initialEntryKind
+  )
+
+  // Flatten for backward compatibility with existing client
+  const roleQuestions = Object.values(questionsByKind).flat()
 
   return (
     <EntryFormMultistepClient
@@ -405,8 +512,11 @@ export default async function NewLogPage({ searchParams }: { searchParams: Promi
       departmentName={department.name}
       date={targetDate}
       allowedDates={getAllowedDates()}
-      initialExistingStandardEntryId={initialExistingStandardEntryId}
+      initialExistingEntryId={initialExistingEntryId}
       initialRoleQuestions={roleQuestions}
+      initialQuestionsByKind={questionsByKind}
+      initialAvailableEntryKinds={initialAvailableEntryKinds}
+      role={resolvedRole}
     />
   )
 }

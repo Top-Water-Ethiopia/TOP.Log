@@ -1,0 +1,126 @@
+jest.mock("next/server", () => ({
+  NextResponse: {
+    json: (body: any, init?: any) => ({
+      status: init?.status ?? 200,
+      async json() {
+        return body
+      },
+    }),
+  },
+}))
+
+const mockCreateClient = jest.fn()
+const mockAdminFrom = jest.fn()
+
+jest.mock("@/lib/supabase/server", () => ({
+  createClient: () => mockCreateClient(),
+}))
+
+jest.mock("@/lib/supabase/admin", () => ({
+  adminSupabase: {
+    from: (...args: unknown[]) => mockAdminFrom(...args),
+  },
+}))
+
+const routeModule = require("@/app/api/departments/route")
+
+function createThenableBuilder(result: any) {
+  const builder: any = {
+    select: jest.fn(() => builder),
+    eq: jest.fn(() => builder),
+    single: jest.fn(() => Promise.resolve(result)),
+    maybeSingle: jest.fn(() => Promise.resolve(result)),
+    then: (resolve: any, reject: any) => Promise.resolve(result).then(resolve, reject),
+  }
+
+  return builder
+}
+
+describe("/api/departments", () => {
+  beforeEach(() => {
+    jest.clearAllMocks()
+  })
+
+  it("returns the normalized profession key for active department membership", async () => {
+    const membershipBuilder = createThenableBuilder({
+      data: {
+        department_id: "dept-1",
+        role: "role-assignment-sales-promoter",
+        department_profession: { key: "sales-promoter" },
+        department: {
+          id: "dept-1",
+          name: "Sales",
+          description: null,
+          is_active: true,
+        },
+      },
+      error: null,
+    })
+
+    const accessLevelBuilder = createThenableBuilder({
+      data: null,
+      error: null,
+    })
+
+    mockCreateClient.mockResolvedValue({
+      auth: {
+        getUser: jest.fn().mockResolvedValue({
+          data: { user: { id: "user-1" } },
+          error: null,
+        }),
+      },
+      from: jest.fn((table: string) => {
+        if (table === "user_department_professions") return membershipBuilder
+        if (table === "user_department_access_levels") return accessLevelBuilder
+        throw new Error(`Unexpected table ${table}`)
+      }),
+    })
+
+    mockAdminFrom.mockImplementation((table: string) => {
+      if (table === "user_profiles") {
+        return createThenableBuilder({
+          data: { role_id: "role-1" },
+          error: null,
+        })
+      }
+
+      if (table === "permissions") {
+        return createThenableBuilder({
+          data: [],
+          error: null,
+        })
+      }
+
+      if (table === "department_access_level_permissions") {
+        return createThenableBuilder({
+          data: [],
+          error: null,
+        })
+      }
+
+      throw new Error(`Unexpected admin table ${table}`)
+    })
+
+    const response = await routeModule.GET()
+
+    expect(response.status).toBe(200)
+    await expect(response.json()).resolves.toEqual({
+      data: [
+        {
+          department_id: "dept-1",
+          department: {
+            id: "dept-1",
+            name: "Sales",
+            description: null,
+            is_active: true,
+          },
+          role: "sales-promoter",
+          department_profession: {
+            key: "sales-promoter",
+          },
+        },
+      ],
+      hasSystemWideAccess: false,
+    })
+  })
+})

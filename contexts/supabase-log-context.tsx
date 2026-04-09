@@ -19,7 +19,7 @@ export type CaptainLogEntry = {
   // Core properties
   id: string
   user_id: string
-  entry_kind: "standard" | "agent_call"
+  entry_kind: string
   submitted_by_user_id: string | null
   report_kind: ReportKind
   date: string
@@ -69,7 +69,7 @@ type CaptainLogEntryDraftInput = {
   updatedAt?: string
   customResponses: unknown[]
   report_kind?: ReportKind
-  entry_kind?: "standard" | "agent_call"
+  entry_kind?: string
   subject_agent_id?: string | null
   subject_agent_snapshot?: Json | null
   subject_department_id?: string | null
@@ -128,6 +128,7 @@ function transformEntriesWithCustomResponses(
 
     return {
       ...entry,
+      entry_kind: typeof entry.entry_kind === "string" ? entry.entry_kind : "standard",
       report_kind: normalizeReportKind(entry.report_kind),
       // Standard fields from custom responses
       objectives: getField("objectives"),
@@ -190,6 +191,7 @@ async function transformEntryForComponents(entry: DbCaptainLogEntry): Promise<Ca
 
   return {
     ...entry,
+    entry_kind: typeof entry.entry_kind === "string" ? entry.entry_kind : "standard",
     report_kind: normalizeReportKind(entry.report_kind),
     // Standard fields from custom responses
     objectives: getField("objectives"),

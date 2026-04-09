@@ -55,7 +55,7 @@ describe("EntryFormMultistepClient", () => {
         departmentName="Engineering"
         date="2026-04-02"
         allowedDates={["2026-04-01", "2026-04-02"]}
-        initialExistingStandardEntryId={null}
+        initialExistingEntryId={null}
         initialRoleQuestions={[]}
       />
     )
@@ -72,7 +72,7 @@ describe("EntryFormMultistepClient", () => {
         departmentName="Engineering"
         date="2026-04-02"
         allowedDates={["2026-04-01", "2026-04-02"]}
-        initialExistingStandardEntryId={null}
+        initialExistingEntryId={null}
         initialRoleQuestions={[]}
       />
     )
@@ -89,7 +89,7 @@ describe("EntryFormMultistepClient", () => {
         departmentName="Engineering"
         date="2026-04-02"
         allowedDates={["2026-04-01", "2026-04-02"]}
-        initialExistingStandardEntryId={null}
+        initialExistingEntryId={null}
         initialRoleQuestions={[]}
       />
     )

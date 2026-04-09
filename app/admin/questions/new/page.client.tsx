@@ -19,20 +19,34 @@ export default function NewRoleQuestionsPageInner() {
 
   const scope = searchParams?.get("scope")
   const departmentId = searchParams?.get("departmentId")
-  const roleId = searchParams?.get("roleId")
+  const role = searchParams?.get("role")
+  const tab = searchParams?.get("tab")
 
   const isDepartmentScope = scope === "department"
   const isRoleScope = scope === "role" || !scope
 
-  const backHref = isDepartmentScope
-    ? departmentId
-      ? `/admin/questions/by-department/${encodeURIComponent(departmentId)}`
-      : "/admin/questions/by-department"
-    : isRoleScope
-      ? roleId
-        ? `/admin/questions/${encodeURIComponent(roleId)}`
-        : "/admin/questions"
-      : "/admin/questions"
+  const getBackHref = () => {
+    if (isDepartmentScope) {
+      if (departmentId && role) {
+        return `/admin/questions/by-department/${encodeURIComponent(departmentId)}?role=${encodeURIComponent(role)}`
+      }
+      if (departmentId) {
+        return `/admin/questions/by-department/${encodeURIComponent(departmentId)}`
+      }
+      return `/admin/questions?tab=${tab === "professions" ? "professions" : "department_reports"}`
+    }
+
+    if (isRoleScope && role) {
+      // Assuming role-scoped view exists at /admin/questions/[role]
+      // or if it was meant to be department-scoped profession
+      return `/admin/questions/${encodeURIComponent(role)}`
+    }
+
+    const validatedTab = tab === "department_reports" ? "department_reports" : "professions"
+    return `/admin/questions?tab=${validatedTab}`
+  }
+
+  const backHref = getBackHref()
 
   const { hasPermission, rbacChecked, rbacLoading } = useRBAC()
   const canAccessAdmin = hasPermission("admin.system")

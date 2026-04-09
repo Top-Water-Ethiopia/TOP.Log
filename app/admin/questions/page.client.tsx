@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useRef } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { useRBAC } from "@/hooks/use-rbac"
@@ -25,6 +25,7 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { PaginatedTable } from "@/components/ui/paginated-table"
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from "@/components/ui/accordion"
+import { VALID_QUESTION_TABS, type QuestionTab } from "@/lib/reporting-model"
 
 type Department = {
   id: string
@@ -63,9 +64,33 @@ export default function AdminRoleQuestionsPage() {
   const searchParams = useSearchParams()
   const { toast } = useToast()
 
-  const requestedTab = searchParams?.get("tab")
-  const defaultTab =
-    requestedTab === "department_reports" || requestedTab === "department_lead" ? "department_reports" : "professions"
+  const requestedTab = searchParams?.get("tab") as QuestionTab
+  const defaultTab = VALID_QUESTION_TABS.includes(requestedTab) ? requestedTab : "professions"
+
+  // Tab state for explicit sync
+  const [activeTab, setActiveTab] = useState<QuestionTab>(defaultTab)
+
+  // Sync tab state with URL when it changes externally (e.g. back button)
+  useEffect(() => {
+    const currentTab = searchParams?.get("tab") as QuestionTab
+    const validatedTab = VALID_QUESTION_TABS.includes(currentTab) ? currentTab : "professions"
+    if (validatedTab !== activeTab) {
+      setActiveTab(validatedTab)
+    }
+  }, [searchParams, activeTab])
+
+  // Update URL when tab changes internally
+  const handleTabChange = (value: string) => {
+    const newTab = value as QuestionTab
+    if (!VALID_QUESTION_TABS.includes(newTab)) return
+
+    setActiveTab(newTab)
+    const params = new URLSearchParams(searchParams?.toString())
+    if (params.get("tab") !== newTab) {
+      params.set("tab", newTab)
+      router.replace(`/admin/questions?${params.toString()}`)
+    }
+  }
 
   const { hasPermission, rbacChecked, rbacLoading } = useRBAC()
   const canAccessAdmin = hasPermission("admin.system")
@@ -110,9 +135,9 @@ export default function AdminRoleQuestionsPage() {
   const roleQuestionCounts = useMemo(() => {
     const map = new Map<string, { total: number; active: number }>()
     for (const q of questions) {
-      const professionScopeId = q.department_profession_id || q.department_role
-      if (q.department_id && professionScopeId) {
-        const key = `${q.department_id}:${professionScopeId}`
+      const professionScopeKey = q.department_profession?.key || q.department_role || q.department_profession_id
+      if (q.department_id && professionScopeKey) {
+        const key = `${q.department_id}:${professionScopeKey}`
         const current = map.get(key) || { total: 0, active: 0 }
         current.total += 1
         if (q.is_active) current.active += 1
@@ -149,10 +174,10 @@ export default function AdminRoleQuestionsPage() {
 
     // Group profession questions by department_id
     for (const q of questions) {
-      const professionScopeId = q.department_profession_id || q.department_role
-      if (!q.department_id || !professionScopeId) continue
+      const professionScopeKey = q.department_profession?.key || q.department_role || q.department_profession_id
+      if (!q.department_id || !professionScopeKey) continue
 
-      const countsKey = `${q.department_id}:${professionScopeId}`
+      const countsKey = `${q.department_id}:${professionScopeKey}`
       const current = roleQuestionCounts.get(countsKey) || { total: 0, active: 0 }
       if (current.total === 0) continue
 
@@ -161,12 +186,14 @@ export default function AdminRoleQuestionsPage() {
       const existing = grouped.get(departmentName) || []
 
       existing.push({
-        key: professionScopeId,
+        key: professionScopeKey,
         label:
           q.department_profession?.label ||
-          (q.department_role ? q.department_role.charAt(0).toUpperCase() + q.department_role.slice(1).replace(/-/g, " ") : "Unknown Profession"),
+          (q.department_role
+            ? q.department_role.charAt(0).toUpperCase() + q.department_role.slice(1).replace(/-/g, " ")
+            : "Unknown Profession"),
         departmentId: q.department_id,
-        roleId: q.department_profession_id || null,
+        roleId: q.department_profession_id || q.department_profession?.id || null,
       })
       grouped.set(departmentName, existing)
     }
@@ -288,6 +315,13 @@ export default function AdminRoleQuestionsPage() {
         </div>
 
         <div className="flex items-center gap-2">
+          {canAccessAdmin && (
+            <Link href="/admin/settings/entry-kinds">
+              <Button variant="outline" size="sm">
+                Manage Report Types
+              </Button>
+            </Link>
+          )}
           <Link href="/admin/questions/new">
             <Button className="gap-2">
               <Plus className="h-4 w-4" />
@@ -303,7 +337,7 @@ export default function AdminRoleQuestionsPage() {
           <CardDescription>Select a profession to manage its questions.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-2">
-          <Tabs defaultValue={defaultTab} className="w-full">
+          <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
             <TabsList>
               <TabsTrigger value="professions">Profession Questions</TabsTrigger>
               <TabsTrigger value="department_reports">Department Report Questions</TabsTrigger>
@@ -372,9 +406,7 @@ export default function AdminRoleQuestionsPage() {
                           searchKeys={["professionName", "departmentName"]}
                           searchPlaceholder="Search professions..."
                           rowHref={(row) =>
-                            row.roleId
-                              ? `/admin/questions/${encodeURIComponent(row.roleId)}`
-                              : `/admin/questions/by-department/${encodeURIComponent(row.departmentId)}?role=${encodeURIComponent(row.roleKey)}`
+                            `/admin/questions/by-department/${encodeURIComponent(row.departmentId)}?role=${encodeURIComponent(row.roleKey)}`
                           }
                           pageSize={10}
                           className="border-0 shadow-none"

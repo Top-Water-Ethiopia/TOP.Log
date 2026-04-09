@@ -2,6 +2,8 @@ import type { QuestionResponse } from "@/lib/rbac/types"
 import { normalizeSalesPromoterProfessionKey } from "@/lib/marketing-agents"
 
 export type ReportKind = "personal" | "department" | "mixed"
+export const VALID_QUESTION_TABS = ["professions", "department_reports"] as const
+export type QuestionTab = (typeof VALID_QUESTION_TABS)[number]
 
 type RoleQuestionScopeLike = {
   department_id?: unknown
@@ -66,6 +68,14 @@ export function getRoleQuestionScopeCacheKey(scope: RoleQuestionScope): string {
 
 export function isDepartmentReportQuestion(question: RoleQuestionScopeLike): boolean {
   return resolveRoleQuestionScope(question)?.kind === "department"
+}
+
+/**
+ * Positive check for profession-scoped questions.
+ * Identifies questions owned by a specific profession context.
+ */
+export function isProfessionQuestion(question: RoleQuestionScopeLike): boolean {
+  return resolveRoleQuestionScope(question)?.kind === "profession"
 }
 
 export function matchesProfessionQuestion(

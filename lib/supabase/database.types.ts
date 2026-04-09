@@ -506,6 +506,7 @@ export type Database = {
           department_profession_id: string | null
           department_role: string | null
           display_order: number
+          entry_kind: string
           id: string
           is_active: boolean
           is_required: boolean
@@ -534,6 +535,7 @@ export type Database = {
           department_profession_id?: string | null
           department_role?: string | null
           display_order?: number
+          entry_kind?: string
           id?: string
           is_active?: boolean
           is_required?: boolean
@@ -562,6 +564,7 @@ export type Database = {
           department_profession_id?: string | null
           department_role?: string | null
           display_order?: number
+          entry_kind?: string
           id?: string
           is_active?: boolean
           is_required?: boolean

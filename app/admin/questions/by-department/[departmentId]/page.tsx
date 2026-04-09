@@ -70,6 +70,16 @@ export default function AdminRoleQuestionsDepartmentPage() {
     isLoading: isDepartmentsLoading,
   } = useSWR<{ data: DepartmentRow[] }>(departmentsKey, (url: string) => apiFetch<{ data: DepartmentRow[] }>(url))
 
+  const rolesKey = canAccessAdmin && departmentRole ? "/api/admin/roles" : null
+  const { data: rolesResponse } = useSWR<{
+    data: Array<{ id: string; name: string; display_name?: string }>
+  }>(rolesKey, (url: string) => apiFetch<{ data: Array<{ id: string; name: string; display_name?: string }> }>(url))
+
+  const professionsKey = canAccessAdmin && departmentRole ? "/api/admin/department-professions" : null
+  const { data: professionsResponse } = useSWR<{
+    data: Array<{ id: string; key: string; label: string }>
+  }>(professionsKey, (url: string) => apiFetch<{ data: Array<{ id: string; key: string; label: string }> }>(url))
+
   useEffect(() => {
     if (!departmentsError) {
       lastLoadErrorRef.current = null
@@ -92,6 +102,38 @@ export default function AdminRoleQuestionsDepartmentPage() {
     if (!departmentId) return null
     return rows.find((d) => d.id === departmentId) || null
   }, [departmentsResponse, departmentId])
+
+  const roleName = useMemo(() => {
+    if (!departmentRole) return null
+
+    // 1. Try Profession Key or ID match (Department Professions Table)
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(departmentRole)
+    const profession = professionsResponse?.data?.find((p) =>
+      isUuid ? p.id === departmentRole : p.key === departmentRole
+    )
+    if (profession) return profession.label
+
+    // 2. Try Role ID (if UUID) or name match (RBAC Roles Table)
+    if (rolesResponse?.data) {
+      const role = isUuid
+        ? rolesResponse.data.find((r) => r.id === departmentRole)
+        : rolesResponse.data.find((r) => r.name.toLowerCase() === departmentRole.toLowerCase())
+
+      if (role) {
+        if (isUuid) {
+          console.warn(`⚠️ Role resolved by RBAC Role ID instead of profession key for "${departmentRole}"`)
+        }
+        return role.display_name || role.name.charAt(0).toUpperCase() + role.name.slice(1)
+      }
+    }
+
+    // 3. Formatted Fallback
+    console.warn(`⚠️ Falling back to formatted key for role identifier: "${departmentRole}"`)
+    return departmentRole
+      .split(/[_-]/)
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+      .join(" ")
+  }, [professionsResponse, rolesResponse, departmentRole])
 
   if (!departmentId || isLoading || rbacLoading || !user || !profile) {
     return (
@@ -140,19 +182,13 @@ export default function AdminRoleQuestionsDepartmentPage() {
 
   // Build contextual title based on department and role
   const departmentName = department?.name || "Department"
-  const roleDisplayName = departmentRole
-    ? departmentRole
-        .split("-")
-        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
-        .join(" ")
-    : null
 
-  const title = roleDisplayName
-    ? `${departmentName} · ${roleDisplayName} Profession Questions`
+  const title = roleName
+    ? `${departmentName} · ${roleName} Profession Questions`
     : `${departmentName} · Department Report Questions`
 
-  const subtitle = departmentRole
-    ? `Manage profession-specific questions for ${roleDisplayName} in ${departmentName}.`
+  const subtitle = roleName
+    ? `Manage profession-specific questions for ${roleName} in ${departmentName}.`
     : department?.description || `Manage department report questions for ${departmentName}.`
 
   return (
@@ -169,13 +205,11 @@ export default function AdminRoleQuestionsDepartmentPage() {
               <BreadcrumbSeparator />
               <BreadcrumbItem>
                 <BreadcrumbLink asChild>
-                  <Link href="/admin/questions">Questions</Link>
-                </BreadcrumbLink>
-              </BreadcrumbItem>
-              <BreadcrumbSeparator />
-              <BreadcrumbItem>
-                <BreadcrumbLink asChild>
-                  <Link href="/admin/questions/by-department">By Department</Link>
+                  <Link
+                    href={`/admin/questions?tab=${departmentRole ? "professions" : "department_reports"}`}
+                  >
+                    Questions
+                  </Link>
                 </BreadcrumbLink>
               </BreadcrumbItem>
               <BreadcrumbSeparator />
@@ -189,10 +223,12 @@ export default function AdminRoleQuestionsDepartmentPage() {
         </div>
 
         <div className="flex items-center gap-2">
-          <Link href={`/admin/questions/new?scope=department&departmentId=${encodeURIComponent(departmentId)}`}>
+          <Link
+            href={`/admin/questions/new?scope=${departmentRole ? "role" : "department"}&departmentId=${encodeURIComponent(departmentId)}${departmentRole ? `&roleId=${encodeURIComponent(departmentRole)}` : ""}&tab=${departmentRole ? "professions" : "department_reports"}`}
+          >
             <Button className="gap-2">Create Multiple Questions</Button>
           </Link>
-          <Link href="/admin/questions/by-department">
+          <Link href={`/admin/questions?tab=${departmentRole ? "professions" : "department_reports"}`}>
             <Button variant="ghost" className="gap-2">
               <ArrowLeft className="h-4 w-4" />
               Back

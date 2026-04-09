@@ -29,6 +29,12 @@ export class SupabaseDataError extends Error {
 
 // Helper function to process Supabase errors
 const handleSupabaseError = (error: PostgrestError): never => {
+  const isLegacyStandardUniquenessError =
+    error.code === "23505"
+    && (error.message?.includes("captain_log_entries_standard_unique")
+      || error.details?.includes("captain_log_entries_standard_unique")
+      || error.hint?.includes("captain_log_entries_standard_unique"))
+
   // Enhanced logging with more context
   console.error("Supabase error:", {
     message: error.message,
@@ -56,11 +62,11 @@ const handleSupabaseError = (error: PostgrestError): never => {
     errorCode = error.code
   }
 
-  throw new SupabaseDataError(
-    error.message || "An error occurred while accessing the database",
-    errorCode,
-    error.details
-  )
+  const userMessage = isLegacyStandardUniquenessError
+    ? "A standard report already exists for this department and date. If this report type should allow multiple submissions per day, apply the latest database migration for scope-aware entry availability."
+    : error.message || "An error occurred while accessing the database"
+
+  throw new SupabaseDataError(userMessage, errorCode, error.details)
 }
 
 // Entry Operations

@@ -34,7 +34,9 @@
     "seed:test-users": "ts-node scripts/seed-and-test-users.ts",
     "test:is-admin-as-user": "ts-node scripts/test-is-admin-as-user.ts",
     "check:account": "ts-node scripts/check-my-account.ts",
-    "check:account:simple": "node scripts/check-account-simple.js"
+    "check:account:simple": "node scripts/check-account-simple.js",
+    "reset:role-question-scope": "NODE_ENV=development ts-node scripts/reset-role-question-scope.ts",
+    "reset:dev-database": "NODE_ENV=development ts-node scripts/reset-dev-database.ts"
   },
   "dependencies": {
     "@faker-js/faker": "^10.1.0",

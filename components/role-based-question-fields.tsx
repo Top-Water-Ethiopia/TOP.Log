@@ -356,6 +356,40 @@ export function RoleBasedQuestionFields({
         )
 
       case "checkbox":
+        if (Array.isArray(question.options) && question.options.length > 0) {
+          const currentValues = Array.isArray(value) ? value : []
+
+          return (
+            <div className="space-y-2">
+              {question.options.map((option: string) => {
+                const checkboxId = `${question.key}-${option}`
+
+                return (
+                  <div key={option} className="flex items-center space-x-2">
+                    <Checkbox
+                      id={checkboxId}
+                      checked={currentValues.includes(option)}
+                      onCheckedChange={(checked) => {
+                        if (checked) {
+                          onChange(question.key, [...currentValues, option])
+                        } else {
+                          onChange(
+                            question.key,
+                            currentValues.filter((item: string) => item !== option)
+                          )
+                        }
+                      }}
+                    />
+                    <Label htmlFor={checkboxId} className="cursor-pointer text-sm font-normal">
+                      {option}
+                    </Label>
+                  </div>
+                )
+              })}
+            </div>
+          )
+        }
+
         return (
           <div className="flex items-center space-x-2">
             <Checkbox

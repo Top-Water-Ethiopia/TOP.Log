@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef, useCallback } from "react"
+import { useState, useEffect, useRef, useCallback, useMemo } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -14,11 +14,26 @@ import { Badge } from "@/components/ui/badge"
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Separator } from "@/components/ui/separator"
-import { Plus, Trash2, CheckCircle2, AlertCircle, Loader2, Shield, Eye, EyeOff, Save, X, Users } from "lucide-react"
+import {
+  Plus,
+  Trash2,
+  CheckCircle2,
+  AlertCircle,
+  Loader2,
+  Shield,
+  Eye,
+  EyeOff,
+  Save,
+  X,
+  Users,
+  FileText,
+  ChevronRight,
+} from "lucide-react"
 import { findDuplicateValues, normalizeQuestionKey } from "@/lib/role-question-identity"
 import { isDepartmentReportQuestion, matchesProfessionQuestion } from "@/lib/reporting-model"
 import {
   ASSIGNED_AGENTS_OPTION_SOURCE_KIND,
+  getAssignedAgentsDailyLimit,
   getQuestionOptionSource,
   isSalesPromoterProfessionKey,
   MARKETING_DEPARTMENT_NAME,
@@ -26,6 +41,14 @@ import {
   normalizeSalesPromoterProfessionKey,
 } from "@/lib/marketing-agents"
 import { toast } from "sonner"
+import { useScopeEntryKinds, type ScopeEntryKind } from "@/hooks/use-entry-kinds"
+import {
+  getEntryKindLabel,
+  getEntryKindColor,
+  getEntryKindIcon,
+  getDefaultEntryKind,
+  findEntryKindConfig,
+} from "@/lib/entry-kinds"
 
 type ApiRoleQuestion = {
   id?: unknown
@@ -33,6 +56,7 @@ type ApiRoleQuestion = {
   department_id?: unknown
   department_profession_id?: unknown
   department_role?: unknown
+  entry_kind?: unknown
   question_key?: unknown
   question_label?: unknown
   question_type?: unknown
@@ -67,7 +91,7 @@ function asNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null
 }
 
-function createEmptyQuestion(displayOrder = 0): QuestionFormData {
+function createEmptyQuestion(displayOrder = 0, defaultEntryKind: string = "standard"): QuestionFormData {
   return {
     id: `temp-${Date.now()}-${Math.random()}`,
     question_key: "",
@@ -88,7 +112,37 @@ function createEmptyQuestion(displayOrder = 0): QuestionFormData {
     max_date: "",
     is_active: true,
     option_source_kind: "static",
+    max_logs_per_agent_per_day: null,
+    entry_kind: defaultEntryKind,
   }
+}
+
+export function questionTypeSupportsStaticOptions(questionType: string): boolean {
+  return (
+    questionType === "select" ||
+    questionType === "multiselect" ||
+    questionType === "radio" ||
+    questionType === "rating" ||
+    questionType === "checkbox"
+  )
+}
+
+export function filterQuestionsForEntryKind(questions: QuestionFormData[], entryKind: string): QuestionFormData[] {
+  return questions.filter((q) => {
+    if (entryKind === "standard") {
+      return !q.entry_kind || q.entry_kind === "standard"
+    }
+    return q.entry_kind === entryKind
+  })
+}
+
+export function removeQuestionFromList(questions: QuestionFormData[], id: string): QuestionFormData[] {
+  return questions
+    .filter((q) => q.id !== id)
+    .map((q, index) => ({
+      ...q,
+      display_order: index,
+    }))
 }
 
 interface Department {
@@ -127,10 +181,89 @@ interface QuestionFormData {
   max_date: string
   is_active: boolean
   option_source_kind: "static" | typeof ASSIGNED_AGENTS_OPTION_SOURCE_KIND
+  max_logs_per_agent_per_day: number | null
+  entry_kind?: string
+}
+
+function normalizeQuestionEntryKind(entryKind: string | null | undefined, fallbackEntryKind: string): string {
+  return typeof entryKind === "string" && entryKind.trim().length > 0 ? entryKind : fallbackEntryKind
+}
+
+export function sanitizeQuestionsForScope(
+  questions: QuestionFormData[],
+  entryKinds: ScopeEntryKind[],
+  fallbackEntryKind: string,
+  preferredActiveEntryKindTab?: string | null
+): { questions: QuestionFormData[]; activeEntryKindTab: string } {
+  const configuredEntryKinds = new Set(entryKinds.map((entryKind) => entryKind.entry_kind))
+  const nextActiveTab = entryKinds.find((entryKind) => entryKind.is_active && entryKind.is_default)?.entry_kind
+    || entryKinds.find((entryKind) => entryKind.is_active)?.entry_kind
+    || fallbackEntryKind
+  const preferredActiveTab =
+    preferredActiveEntryKindTab && entryKinds.some((entryKind) => entryKind.is_active && entryKind.entry_kind === preferredActiveEntryKindTab)
+      ? preferredActiveEntryKindTab
+      : null
+
+  if (entryKinds.length === 0) {
+    const normalizedQuestions =
+      questions.length > 0
+        ? questions.map((question, index) => ({
+            ...question,
+            display_order: index,
+            entry_kind: normalizeQuestionEntryKind(question.entry_kind, fallbackEntryKind),
+          }))
+        : [createEmptyQuestion(0, fallbackEntryKind)]
+
+    return {
+      questions: normalizedQuestions,
+      activeEntryKindTab: preferredActiveTab || nextActiveTab,
+    }
+  }
+
+  const filteredQuestions = questions
+    .filter((question) => configuredEntryKinds.has(normalizeQuestionEntryKind(question.entry_kind, fallbackEntryKind)))
+    .map((question, index) => ({
+      ...question,
+      display_order: index,
+      entry_kind: normalizeQuestionEntryKind(question.entry_kind, fallbackEntryKind),
+    }))
+
+  if (filteredQuestions.length === 0) {
+    return {
+      questions: [createEmptyQuestion(0, nextActiveTab)],
+      activeEntryKindTab: preferredActiveTab || nextActiveTab,
+    }
+  }
+
+  const firstQuestionTab = filteredQuestions.find(
+    (question) => question.entry_kind && configuredEntryKinds.has(question.entry_kind)
+  )?.entry_kind
+
+  return {
+    questions: filteredQuestions,
+    activeEntryKindTab: preferredActiveTab || firstQuestionTab || nextActiveTab || fallbackEntryKind,
+  }
 }
 
 type Step = "role" | "questions" | "success"
 type QuestionScope = "role" | "department"
+
+export function buildQuestionScopeFields(
+  questionScope: QuestionScope,
+  selectedDepartment: Department | null,
+  selectedDepartmentForRole: Department | null,
+  selectedDepartmentRole: DepartmentRole | null
+) {
+  if (questionScope === "role") {
+    return {
+      department_id: selectedDepartmentForRole!.id,
+      department_profession_id: selectedDepartmentRole!.id ?? null,
+      department_role: normalizeSalesPromoterProfessionKey(selectedDepartmentRole!.key),
+    }
+  }
+
+  return { department_id: selectedDepartment!.id }
+}
 
 export function RoleQuestionsCreator() {
   const router = useRouter()
@@ -150,26 +283,97 @@ export function RoleQuestionsCreator() {
   const [isLoadingExistingQuestions, setIsLoadingExistingQuestions] = useState(false)
   const [questions, setQuestions] = useState<QuestionFormData[]>([])
   const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0)
+  const [activeEntryKindTab, setActiveEntryKindTab] = useState<string>("standard")
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [createdQuestions, setCreatedQuestions] = useState<SavedQuestion[]>([])
   const [roleQuestionCount, setRoleQuestionCount] = useState(0)
   const [showPreview, setShowPreview] = useState(true)
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
+
+  // Scope-partitioned drafts: store unsaved questions per scope
+  const [scopeDrafts, setScopeDrafts] = useState<Record<string, QuestionFormData[]>>({})
+
+  // Fetch scope entry kinds for dynamic tabs
+  const isRoleScope = questionScope === "role"
+  const targetDepartmentId = isRoleScope ? selectedDepartmentForRole?.id : selectedDepartment?.id
+  const targetProfessionId = isRoleScope ? selectedDepartmentRole?.key : null
+
+  const {
+    entryKinds,
+    scope,
+    selfHealed,
+    isLoading: isLoadingEntryKinds,
+    error: entryKindsError,
+    mutate: mutateEntryKinds,
+  } = useScopeEntryKinds(targetDepartmentId || null, targetProfessionId || null)
+
+  const scopeKey = useMemo(() => {
+    if (!targetDepartmentId) return null
+    return `${targetDepartmentId}:${targetProfessionId || "department"}`
+  }, [targetDepartmentId, targetProfessionId])
+
+  // Get active entry kinds sorted
+  const activeEntryKinds = useMemo(() => {
+    return entryKinds
+      .filter((k) => k.is_active)
+      .sort((a, b) => {
+        if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order
+        return a.label.localeCompare(b.label)
+      })
+  }, [entryKinds])
+
+  // Get default entry kind
+  const defaultEntryKind = useMemo(() => {
+    const defaultConfig = activeEntryKinds.find((k) => k.is_default)
+    return defaultConfig?.entry_kind || activeEntryKinds[0]?.entry_kind || "standard"
+  }, [activeEntryKinds])
+
+  const canEditForScope = useMemo(() => {
+    if (!targetDepartmentId) return false
+    if (isLoadingEntryKinds) return false
+    if (entryKindsError) return false
+    if (activeEntryKinds.length === 0) return false
+    return true
+  }, [activeEntryKinds.length, entryKindsError, isLoadingEntryKinds, targetDepartmentId])
 
   useEffect(() => {
-    const canSubmit = questions.length > 0
-    window.dispatchEvent(new CustomEvent("role-questions:can-submit", { detail: { canSubmit } }))
-  }, [questions.length])
+    if (!scopeKey) return
+    if (isLoadingEntryKinds) return
+    const draft = scopeDrafts[scopeKey]
+    if (!draft || draft.length === 0) return
+
+    if (hasUnsavedChanges) return
+
+    const sanitized = sanitizeQuestionsForScope(draft, entryKinds, defaultEntryKind, activeEntryKindTab)
+    setQuestions(sanitized.questions)
+    setCurrentQuestionIndex(0)
+    setActiveEntryKindTab(sanitized.activeEntryKindTab)
+  }, [activeEntryKindTab, defaultEntryKind, entryKinds, hasUnsavedChanges, isLoadingEntryKinds, scopeDrafts, scopeKey])
+
+  const persistCurrentDraft = useCallback(() => {
+    if (!scopeKey) return
+    if (!hasUnsavedChanges) return
+    setScopeDrafts((prev) => ({ ...prev, [scopeKey]: questions }))
+  }, [hasUnsavedChanges, questions, scopeKey])
+
+  const confirmScopeSwitchIfDirty = useCallback(() => {
+    if (!hasUnsavedChanges) return true
+    return window.confirm("You have unsaved changes. Switch scope and keep this draft for later?")
+  }, [hasUnsavedChanges])
 
   useEffect(() => {
     if (didApplyUrlDefaultsRef.current) return
 
     const scopeParam = searchParams?.get("scope")
     const departmentIdParam = searchParams?.get("departmentId")
-    const roleIdParam = searchParams?.get("roleId")
+    const roleIdParam = searchParams?.get("roleId") || searchParams?.get("role")
 
-    if (!scopeParam) return
+    const effectiveScope =
+      scopeParam === "role" || (!scopeParam && roleIdParam) || (scopeParam === "department" && roleIdParam)
+        ? "role"
+        : "department"
 
-    if (scopeParam === "department") {
+    if (effectiveScope === "department") {
       if (isLoadingDepartments) return
       setQuestionScope("department")
       if (departmentIdParam) {
@@ -180,7 +384,7 @@ export function RoleQuestionsCreator() {
       return
     }
 
-    if (scopeParam === "role") {
+    if (effectiveScope === "role") {
       if (isLoadingDepartments) return
       setQuestionScope("role")
 
@@ -202,7 +406,7 @@ export function RoleQuestionsCreator() {
       void (async () => {
         const roles = await loadDepartmentRoles(dept.id)
         if (roleIdParam) {
-          const found = roles.find((r) => r.key === roleIdParam) || null
+          const found = roles.find((r) => r.key === roleIdParam || r.id === roleIdParam) || null
           setSelectedDepartmentRole(found)
         }
         didApplyUrlDefaultsRef.current = true
@@ -319,11 +523,14 @@ export function RoleQuestionsCreator() {
               getQuestionOptionSource(q.metadata)?.kind === ASSIGNED_AGENTS_OPTION_SOURCE_KIND
                 ? ASSIGNED_AGENTS_OPTION_SOURCE_KIND
                 : "static",
+            max_logs_per_agent_per_day: getAssignedAgentsDailyLimit(q.metadata),
+            entry_kind: (asString(q.entry_kind) as string) || "standard",
           }
         })
 
         setQuestions(mapped)
         setCurrentQuestionIndex(0)
+        setHasUnsavedChanges(false)
       } catch (error) {
         console.error("Error loading role questions:", error)
       } finally {
@@ -332,7 +539,41 @@ export function RoleQuestionsCreator() {
     }
 
     loadScopeQuestions()
-  }, [questionScope, selectedDepartmentId, selectedDepartmentForRole, selectedDepartmentRole, selectedDepartment])
+  }, [
+    questionScope,
+    selectedDepartmentId,
+    selectedDepartmentForRole,
+    selectedDepartmentRole,
+    selectedDepartment,
+  ])
+
+  useEffect(() => {
+    if (isLoadingEntryKinds || entryKinds.length === 0 || questions.length === 0) {
+      return
+    }
+
+    const sanitized = sanitizeQuestionsForScope(questions, entryKinds, defaultEntryKind, activeEntryKindTab)
+    const questionsChanged =
+      sanitized.questions.length !== questions.length ||
+      sanitized.questions.some((question, index) => {
+        const currentQuestion = questions[index]
+        return (
+          currentQuestion?.id !== question.id ||
+          currentQuestion?.entry_kind !== question.entry_kind ||
+          currentQuestion?.display_order !== question.display_order
+        )
+      })
+
+    if (questionsChanged) {
+      setQuestions(sanitized.questions)
+      setCurrentQuestionIndex(0)
+      setHasUnsavedChanges(false)
+    }
+
+    if (activeEntryKindTab !== sanitized.activeEntryKindTab) {
+      setActiveEntryKindTab(sanitized.activeEntryKindTab)
+    }
+  }, [activeEntryKindTab, defaultEntryKind, entryKinds, isLoadingEntryKinds, questions])
 
   // Initialize with one empty question only after a scope is selected
   useEffect(() => {
@@ -341,48 +582,71 @@ export function RoleQuestionsCreator() {
     if (!hasScope) return
     if (questions.length !== 0) return
 
-    setQuestions([createEmptyQuestion(0)])
+    // Use the default entry kind from active entry kinds configuration
+    const initialEntryKind: string = getDefaultEntryKind(activeEntryKinds)
+
+    // Set active tab to match default entry_kind
+    setActiveEntryKindTab(initialEntryKind)
+
+    setQuestions([createEmptyQuestion(0, initialEntryKind)])
     setCurrentQuestionIndex(0)
-  }, [questionScope, selectedDepartmentForRole, selectedDepartmentRole, selectedDepartment, questions.length])
+    setHasUnsavedChanges(false)
+  }, [
+    questionScope,
+    selectedDepartmentForRole,
+    selectedDepartmentRole,
+    selectedDepartment,
+    questions.length,
+    activeEntryKinds,
+  ])
 
   const addQuestion = () => {
-    const nextIndex = questions.length
-    setQuestions([...questions, createEmptyQuestion(nextIndex)])
-    setCurrentQuestionIndex(nextIndex)
+    if (!canEditForScope) return
+    // Use active tab's entry_kind for new question, but only if it's an active entry kind
+    const currentTabIsActive = activeEntryKinds.some((k) => k.entry_kind === activeEntryKindTab)
+    const entryKindForNewQuestion = currentTabIsActive ? activeEntryKindTab : defaultEntryKind
+    setQuestions((prev) => [...prev, createEmptyQuestion(prev.length, entryKindForNewQuestion)])
+    setCurrentQuestionIndex(filteredQuestions.length)
+    setHasUnsavedChanges(true)
   }
 
   const removeQuestion = (id: string) => {
-    const newQuestions = questions.filter((q) => q.id !== id)
-    const reordered = newQuestions.map((q, index) => ({
-      ...q,
-      display_order: index,
-    }))
+    const reordered = removeQuestionFromList(questions, id)
+    const remainingVisibleQuestions = filterQuestionsForEntryKind(reordered, activeEntryKindTab)
     setQuestions(reordered)
-    if (currentQuestionIndex >= reordered.length) {
-      setCurrentQuestionIndex(Math.max(0, reordered.length - 1))
+    setHasUnsavedChanges(true)
+    if (currentQuestionIndex >= remainingVisibleQuestions.length) {
+      setCurrentQuestionIndex(Math.max(0, remainingVisibleQuestions.length - 1))
     }
   }
 
   const updateQuestion = (id: string, updates: Partial<QuestionFormData>) => {
-    setQuestions(questions.map((q) => (q.id === id ? { ...q, ...updates } : q)))
+    setQuestions((prev) => prev.map((q) => (q.id === id ? { ...q, ...updates } : q)))
+    setHasUnsavedChanges(true)
   }
 
   const handleDepartmentSelect = (departmentId: string) => {
+    if (!confirmScopeSwitchIfDirty()) return
+    persistCurrentDraft()
     const department = departments.find((d) => d.id === departmentId)
     if (department) {
       setQuestions([])
       setCurrentQuestionIndex(0)
       setSelectedDepartment(department)
+      setHasUnsavedChanges(false)
     }
   }
 
   const handleDepartmentForRoleSelect = (departmentId: string) => {
+    if (!confirmScopeSwitchIfDirty()) return
+    persistCurrentDraft()
     const department = departments.find((d) => d.id === departmentId)
     if (department) {
       setQuestions([])
       setCurrentQuestionIndex(0)
       setSelectedDepartmentForRole(department)
       setSelectedDepartmentRole(null)
+      setHasUnsavedChanges(false)
       // Load department roles when department is selected
       void loadDepartmentRoles(department.id)
       // Update URL with departmentId
@@ -393,11 +657,14 @@ export function RoleQuestionsCreator() {
   }
 
   const handleDepartmentRoleSelect = (roleKey: string) => {
+    if (!confirmScopeSwitchIfDirty()) return
+    persistCurrentDraft()
     const role = departmentRoles.find((r) => r.key === roleKey)
     if (role) {
       setQuestions([])
       setCurrentQuestionIndex(0)
       setSelectedDepartmentRole(role)
+      setHasUnsavedChanges(false)
       // Update URL with roleId
       const params = new URLSearchParams(searchParams?.toString() || "")
       params.set("roleId", role.key)
@@ -429,6 +696,23 @@ export function RoleQuestionsCreator() {
     }
   }
 
+  // Filtered questions by entry_kind tab
+  const filteredQuestions = useMemo(() => {
+    return filterQuestionsForEntryKind(questions, activeEntryKindTab)
+  }, [questions, activeEntryKindTab])
+
+  // Count questions per tab - dynamic based on available entry kinds
+  const tabCounts = useMemo(() => {
+    const counts: Record<string, number> = {}
+    // Initialize counts for all available entry kinds
+    entryKinds.forEach((ek) => {
+      counts[ek.entry_kind] = questions.filter((q) => q.entry_kind === ek.entry_kind).length
+    })
+    // Handle legacy case where entry_kind is empty or "standard"
+    counts["standard"] = questions.filter((q) => !q.entry_kind || q.entry_kind === "standard").length
+    return counts
+  }, [questions, entryKinds])
+
   const validateQuestions = useCallback((): boolean => {
     if (questions.length === 0) {
       toast.error("Please add at least one question")
@@ -451,10 +735,7 @@ export function RoleQuestionsCreator() {
       const isAssignedAgentsQuestion = q.option_source_kind === ASSIGNED_AGENTS_OPTION_SOURCE_KIND
 
       if (
-        (q.question_type === "select" ||
-          q.question_type === "multiselect" ||
-          q.question_type === "radio" ||
-          q.question_type === "rating") &&
+        questionTypeSupportsStaticOptions(q.question_type) &&
         !isAssignedAgentsQuestion &&
         (!q.options || q.options.length === 0)
       ) {
@@ -462,22 +743,17 @@ export function RoleQuestionsCreator() {
         return false
       }
 
-      if (isAssignedAgentsQuestion && q.question_type !== "select") {
-        toast.error(`Question ${i + 1}: Assigned agent questions must use the Select question type`)
+      if (isAssignedAgentsQuestion && q.question_type !== "select" && q.question_type !== "multiselect") {
+        toast.error(`Question ${i + 1}: Assigned agent questions must use the Select or Multi-Select question type`)
         return false
       }
     }
 
-    const assignedAgentsQuestions = questions.filter(
+    const hasAssignedAgentsQuestion = questions.some(
       (question) => question.option_source_kind === ASSIGNED_AGENTS_OPTION_SOURCE_KIND
     )
 
-    if (assignedAgentsQuestions.length > 1) {
-      toast.error("Only one assigned agent question is allowed in a single question scope")
-      return false
-    }
-
-    if (assignedAgentsQuestions.length === 1) {
+    if (hasAssignedAgentsQuestion) {
       if (questionScope !== "role" || !selectedDepartmentForRole || !selectedDepartmentRole) {
         toast.error("Assigned agent questions are only supported for profession-scoped questions")
         return false
@@ -494,16 +770,23 @@ export function RoleQuestionsCreator() {
       }
     }
 
-    const effectiveKeys = questions.map(
-      (q, index) => q.question_key.trim() || normalizeQuestionKey(q.question_label) || `question_${index + 1}`
-    )
-    const duplicateKeys = findDuplicateValues(effectiveKeys)
+    const keysByEntryKind = new Map<string, string[]>()
+    questions.forEach((q, index) => {
+      const entryKind = q.entry_kind || "standard"
+      const effectiveKey = q.question_key.trim() || normalizeQuestionKey(q.question_label) || `question_${index + 1}`
+      const keys = keysByEntryKind.get(entryKind) ?? []
+      keys.push(effectiveKey)
+      keysByEntryKind.set(entryKind, keys)
+    })
 
-    if (duplicateKeys.length > 0) {
-      toast.error(
-        `Question keys must be unique in this scope. Duplicate key: ${duplicateKeys[0]}. Update the labels so they generate different keys.`
-      )
-      return false
+    for (const [entryKind, keys] of keysByEntryKind.entries()) {
+      const duplicateKeys = findDuplicateValues(keys)
+      if (duplicateKeys.length > 0) {
+        toast.error(
+          `Question keys must be unique within each report type. Duplicate key: ${duplicateKeys[0]} in ${entryKind}. Update the labels so they generate different keys.`
+        )
+        return false
+      }
     }
 
     return true
@@ -512,6 +795,10 @@ export function RoleQuestionsCreator() {
   const handleSubmit = useCallback(async () => {
     const scopeOk =
       questionScope === "role" ? !!selectedDepartmentForRole && !!selectedDepartmentRole : !!selectedDepartment
+    if (!canEditForScope) {
+      toast.error("Entry kinds are not configured for this scope. Configure entry kinds before creating questions.")
+      return
+    }
     if (!validateQuestions() || !scopeOk || !user) return
 
     try {
@@ -522,14 +809,12 @@ export function RoleQuestionsCreator() {
 
         const includeId = typeof q.id === "string" && !q.id.startsWith("temp-")
 
-        const scopeFields =
-          questionScope === "role"
-            ? {
-                department_id: selectedDepartmentForRole!.id,
-                department_profession_id: selectedDepartmentRole!.id ?? null,
-                department_role: normalizeSalesPromoterProfessionKey(selectedDepartmentRole!.key),
-              }
-            : { department_id: selectedDepartment!.id }
+        const scopeFields = buildQuestionScopeFields(
+          questionScope,
+          selectedDepartment,
+          selectedDepartmentForRole,
+          selectedDepartmentRole
+        )
 
         return {
           ...(includeId ? { id: q.id } : {}),
@@ -548,12 +833,14 @@ export function RoleQuestionsCreator() {
           display_order: q.display_order,
           validation_rules: null,
           is_active: q.is_active,
+          entry_kind: q.entry_kind || "standard",
           metadata: {
             legacy_question_key: resolvedKey,
             ...(q.option_source_kind === ASSIGNED_AGENTS_OPTION_SOURCE_KIND
               ? {
                   option_source: {
                     kind: ASSIGNED_AGENTS_OPTION_SOURCE_KIND,
+                    max_logs_per_agent_per_day: q.max_logs_per_agent_per_day ?? null,
                   },
                 }
               : {}),
@@ -580,13 +867,23 @@ export function RoleQuestionsCreator() {
       const result = await response.json()
 
       if (!response.ok) {
-        throw new Error(result.error || "Failed to save questions")
+        const detailList = Array.isArray(result?.details)
+          ? result.details
+          : typeof result?.details === "string" && result.details.trim()
+            ? [result.details]
+            : []
+
+        const errorMessage = detailList.length
+          ? `Validation failed: ${detailList.join("; ")}`
+          : result?.error || result?.message || "Failed to save questions"
+        throw new Error(errorMessage)
       }
 
       const saved = Array.isArray(result?.data) ? (result.data as SavedQuestion[]) : ([] as SavedQuestion[])
       setCreatedQuestions(saved)
       setCurrentStep("success")
       setRoleQuestionCount(saved.length)
+      setHasUnsavedChanges(false)
       toast.success(`Successfully saved ${saved.length || 0} question(s)`)
     } catch (error: unknown) {
       console.error("Error saving questions:", error)
@@ -597,6 +894,7 @@ export function RoleQuestionsCreator() {
       setIsSubmitting(false)
     }
   }, [
+    canEditForScope,
     questionScope,
     questions,
     selectedDepartment,
@@ -769,7 +1067,9 @@ export function RoleQuestionsCreator() {
                           <p className="text-sm font-medium text-blue-900">
                             {selectedDepartmentRole.label} at {selectedDepartmentForRole.name}
                           </p>
-                          <p className="text-xs text-blue-700">Questions will be assigned to this specific profession</p>
+                          <p className="text-xs text-blue-700">
+                            Questions will be assigned to this specific profession
+                          </p>
                         </div>
                       </div>
                       <Badge variant="secondary" className="bg-blue-100 text-blue-800">
@@ -811,8 +1111,8 @@ export function RoleQuestionsCreator() {
                   <div className="space-y-2">
                     <Label className="text-sm font-medium text-gray-900">Scope Type</Label>
                     <div className="flex h-11 items-center rounded-md border border-gray-300 bg-gray-50 px-3">
-                        <div className="flex items-center gap-2">
-                          <div className="h-2 w-2 rounded-full bg-blue-500" />
+                      <div className="flex items-center gap-2">
+                        <div className="h-2 w-2 rounded-full bg-blue-500" />
                         <span className="text-sm text-gray-700">Department Report</span>
                       </div>
                     </div>
@@ -987,17 +1287,23 @@ export function RoleQuestionsCreator() {
               <div className="flex items-center justify-between">
                 <div>
                   <CardTitle>Create Questions for {selectedScopeName || ""}</CardTitle>
-                  <CardDescription>{`Selected: Question ${Math.min(currentQuestionIndex + 1, questions.length)} of ${questions.length}`}</CardDescription>
+                  <CardDescription>{`Total: ${questions.length} question${questions.length !== 1 ? "s" : ""} across all categories`}</CardDescription>
                 </div>
                 <div className="flex items-center gap-2">
-                  <Badge variant="secondary">
-                    {questions.length} question{questions.length !== 1 ? "s" : ""}
-                  </Badge>
-                  <Button variant="outline" onClick={addQuestion} disabled={isSubmitting} size="default">
+                  <Button
+                    variant="outline"
+                    onClick={addQuestion}
+                    disabled={isSubmitting || !canEditForScope}
+                    size="default"
+                  >
                     <Plus className="mr-2 h-4 w-4" />
                     Add Question
                   </Button>
-                  <Button onClick={handleSubmit} disabled={isSubmitting || questions.length === 0} size="default">
+                  <Button
+                    onClick={handleSubmit}
+                    disabled={isSubmitting || questions.length === 0 || !canEditForScope}
+                    size="default"
+                  >
                     {isSubmitting ? (
                       <>
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -1015,25 +1321,131 @@ export function RoleQuestionsCreator() {
             </CardHeader>
           </Card>
 
+          {/* Entry Kind Tabs - Dynamic based on scope configuration */}
+          {isLoadingEntryKinds ? (
+            <div className="flex items-center gap-2 border-b border-gray-200 px-4 py-3">
+              <Loader2 className="h-4 w-4 animate-spin text-gray-400" />
+              <span className="text-sm text-gray-500">Loading tabs...</span>
+            </div>
+          ) : entryKindsError ? (
+            <div className="flex items-center gap-2 border-b border-red-200 bg-red-50 px-4 py-3">
+              <AlertCircle className="h-4 w-4 text-red-500" />
+              <span className="text-sm text-red-700">{entryKindsError.message || "Failed to load entry kinds"}</span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => mutateEntryKinds()}
+                disabled={isLoadingEntryKinds}
+                className="ml-2 h-auto py-1 text-xs"
+              >
+                {isLoadingEntryKinds ? (
+                  <>
+                    <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                    Retrying...
+                  </>
+                ) : (
+                  "Retry"
+                )}
+              </Button>
+            </div>
+          ) : activeEntryKinds.length === 0 ? (
+            <div className="flex items-center gap-2 border-b border-yellow-200 bg-yellow-50 px-4 py-3">
+              <AlertCircle className="h-4 w-4 text-yellow-600" />
+              <span className="text-sm text-yellow-700">No entry kinds configured for this scope</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => router.push("/admin/settings/entry-kinds")}
+                className="ml-2 h-auto py-1 text-xs"
+              >
+                Configure
+              </Button>
+            </div>
+          ) : (
+            <div className="border-b border-gray-200">
+              <div className="flex space-x-1">
+                {entryKinds.map((entryKind, index) => {
+                  const Icon = getEntryKindIcon(entryKind.entry_kind, entryKind) === "Phone" ? Users : FileText
+                  const color = getEntryKindColor(entryKind.entry_kind, entryKind)
+                  const isActive = activeEntryKindTab === entryKind.entry_kind
+                  const isInactive = !entryKind.is_active
+
+                  return (
+                    <button
+                      key={`${entryKind.entry_kind}-${index}`}
+                      onClick={() => !isInactive && setActiveEntryKindTab(entryKind.entry_kind)}
+                      disabled={isInactive}
+                      className={`flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors ${
+                        isActive
+                          ? "border-b-2 border-blue-500 text-blue-600"
+                          : isInactive
+                            ? "cursor-not-allowed text-gray-300"
+                            : "text-gray-500 hover:bg-gray-50 hover:text-gray-700"
+                      }`}
+                      title={isInactive ? "Inactive - cannot add new questions" : undefined}
+                    >
+                      <Icon
+                        className="h-4 w-4"
+                        style={{ color: isActive ? undefined : isInactive ? "#D1D5DB" : color }}
+                      />
+                      <span className={isInactive ? "line-through" : ""}>
+                        {getEntryKindLabel(entryKind.entry_kind, entryKind)}
+                      </span>
+                      {isInactive && <span className="text-xs">(Inactive)</span>}
+                      <Badge
+                        variant="secondary"
+                        className={`ml-1 text-xs ${isInactive ? "bg-gray-100 text-gray-400" : ""}`}
+                      >
+                        {questions.filter((q) => q.entry_kind === entryKind.entry_kind).length}
+                      </Badge>
+                    </button>
+                  )
+                })}
+              </div>
+            </div>
+          )}
+
           {/* Questions Form */}
           <div className="grid grid-cols-1 gap-6 lg:grid-cols-3">
             <div className="space-y-4 lg:col-span-2">
               <div className="space-y-4">
-                {questions.map((q, idx) => (
-                  <div
-                    key={q.id}
-                    className={idx === currentQuestionIndex ? "ring-primary/20 rounded-xl ring-2" : ""}
-                    onClick={() => setCurrentQuestionIndex(idx)}
-                  >
-                    <QuestionForm
-                      question={q}
-                      index={idx}
-                      onUpdate={(updates) => updateQuestion(q.id, updates)}
-                      onRemove={() => removeQuestion(q.id)}
-                      canRemove={questions.length > 1}
-                    />
-                  </div>
-                ))}
+                {filteredQuestions.length === 0 ? (
+                  <Card>
+                    <CardContent className="py-10 text-center">
+                      <div className="text-muted-foreground">
+                        <p className="text-sm">No questions in this category yet.</p>
+                        <Button
+                          variant="outline"
+                          onClick={addQuestion}
+                          className="mt-4"
+                          disabled={isSubmitting || !canEditForScope}
+                        >
+                          <Plus className="mr-2 h-4 w-4" />
+                          Add Question
+                        </Button>
+                      </div>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  filteredQuestions.map((q, idx) => (
+                    <div
+                      key={q.id}
+                      className={idx === currentQuestionIndex ? "ring-primary/20 rounded-xl ring-2" : ""}
+                      onClick={() => setCurrentQuestionIndex(idx)}
+                    >
+                      <QuestionForm
+                        question={q}
+                        index={idx}
+                        onUpdate={(updates) => updateQuestion(q.id, updates)}
+                        onRemove={() => removeQuestion(q.id)}
+                        canRemove={filteredQuestions.length > 1 || questions.length > 1}
+                        activeEntryKindTab={activeEntryKindTab}
+                        onMoveEntryKind={(newEntryKind) => updateQuestion(q.id, { entry_kind: newEntryKind })}
+                        entryKinds={entryKinds}
+                      />
+                    </div>
+                  ))
+                )}
 
                 <Card>
                   <CardContent className="pt-6">
@@ -1042,7 +1454,7 @@ export function RoleQuestionsCreator() {
                         variant="outline"
                         className="w-full sm:flex-1"
                         onClick={addQuestion}
-                        disabled={isSubmitting}
+                        disabled={isSubmitting || !canEditForScope}
                         type="button"
                       >
                         <Plus className="mr-2 h-4 w-4" />
@@ -1070,7 +1482,7 @@ export function RoleQuestionsCreator() {
                     <div className="flex items-center justify-between">
                       <div>
                         <CardTitle className="text-lg">Live Preview</CardTitle>
-                        <CardDescription>Preview active questions as users will see them</CardDescription>
+                        <CardDescription>Preview questions from active tab</CardDescription>
                       </div>
                       <Button
                         variant="ghost"
@@ -1085,10 +1497,12 @@ export function RoleQuestionsCreator() {
                   <CardContent>
                     {showPreview ? (
                       <div className="space-y-6">
-                        {questions.filter((qq) => qq.is_active).length === 0 ? (
-                          <div className="text-muted-foreground py-10 text-center text-sm">No active questions.</div>
+                        {filteredQuestions.filter((qq) => qq.is_active).length === 0 ? (
+                          <div className="text-muted-foreground py-10 text-center text-sm">
+                            No active questions in this tab.
+                          </div>
                         ) : (
-                          questions
+                          filteredQuestions
                             .filter((qq) => qq.is_active)
                             .map((qq, i) => (
                               <div key={qq.id} className="space-y-3">
@@ -1141,18 +1555,42 @@ interface QuestionFormProps {
   onUpdate: (updates: Partial<QuestionFormData>) => void
   onRemove: () => void
   canRemove: boolean
+  activeEntryKindTab?: string
+  onMoveEntryKind?: (newEntryKind: string) => void
+  entryKinds?: ScopeEntryKind[]
 }
 
-function QuestionForm({ question, index, onUpdate, onRemove, canRemove }: QuestionFormProps) {
+function QuestionForm({
+  question,
+  index,
+  onUpdate,
+  onRemove,
+  canRemove,
+  activeEntryKindTab,
+  onMoveEntryKind,
+  entryKinds = [],
+}: QuestionFormProps) {
   const [optionInput, setOptionInput] = useState("")
   const [isExpanded, setIsExpanded] = useState(true)
+  const [showMoveMenu, setShowMoveMenu] = useState(false)
   const isAssignedAgentQuestion = question.option_source_kind === ASSIGNED_AGENTS_OPTION_SOURCE_KIND
-  const showsStaticOptions =
-    (question.question_type === "select" ||
-      question.question_type === "multiselect" ||
-      question.question_type === "radio" ||
-      question.question_type === "rating") &&
-    !isAssignedAgentQuestion
+  const showsStaticOptions = questionTypeSupportsStaticOptions(question.question_type) && !isAssignedAgentQuestion
+
+  // Get entry kind config for current question
+  const entryKindConfig = useMemo(() => {
+    return entryKinds.find((k) => k.entry_kind === question.entry_kind)
+  }, [entryKinds, question.entry_kind])
+
+  // Check if current entry kind supports assigned agents
+  const supportsAssignedAgents = useMemo(() => {
+    return entryKindConfig?.supports_assigned_agent ?? false
+  }, [entryKindConfig])
+
+  // Check if current entry kind is legacy (not in active configs)
+  const isLegacy = useMemo(() => {
+    if (!question.entry_kind) return false
+    return !entryKinds.some((k) => k.entry_kind === question.entry_kind)
+  }, [entryKinds, question.entry_kind])
 
   useEffect(() => {
     if (question.options) {
@@ -1179,11 +1617,15 @@ function QuestionForm({ question, index, onUpdate, onRemove, canRemove }: Questi
     }
   }
 
+  const supportsDynamicOptionSource = question.question_type === "select" || question.question_type === "multiselect"
+
   const handleQuestionTypeChange = (value: string) => {
-    if (value === "select") {
+    if (value === "select" || value === "multiselect") {
       onUpdate({
         question_type: value,
         option_source_kind: question.option_source_kind || "static",
+        max_logs_per_agent_per_day:
+          question.option_source_kind === ASSIGNED_AGENTS_OPTION_SOURCE_KIND ? question.max_logs_per_agent_per_day : null,
         is_required: isAssignedAgentQuestion ? true : question.is_required,
       })
       return
@@ -1192,8 +1634,9 @@ function QuestionForm({ question, index, onUpdate, onRemove, canRemove }: Questi
     onUpdate({
       question_type: value,
       option_source_kind: "static",
+      max_logs_per_agent_per_day: null,
       options:
-        value === "radio" || value === "multiselect" || value === "rating"
+        value === "radio" || value === "multiselect" || value === "rating" || value === "checkbox"
           ? question.options
           : value === "select"
             ? question.options
@@ -1228,6 +1671,42 @@ function QuestionForm({ question, index, onUpdate, onRemove, canRemove }: Questi
             <Button variant="ghost" size="sm" onClick={() => setIsExpanded(!isExpanded)}>
               {isExpanded ? <X className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
             </Button>
+            {onMoveEntryKind && (
+              <div className="relative">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowMoveMenu(!showMoveMenu)}
+                  title="Move to another category"
+                >
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+                {showMoveMenu && (
+                  <div className="absolute top-full right-0 z-50 mt-1 w-48 rounded-md border bg-white p-1 shadow-lg">
+                    <p className="px-2 py-1 text-xs font-medium text-gray-500">Move to...</p>
+                    {entryKinds.map((kind) => (
+                      <button
+                        key={kind.entry_kind}
+                        className={`w-full rounded px-2 py-1 text-left text-sm hover:bg-gray-100 ${
+                          question.entry_kind === kind.entry_kind ? "bg-blue-50 text-blue-700" : ""
+                        }`}
+                        onClick={() => {
+                          onMoveEntryKind(kind.entry_kind)
+                          setShowMoveMenu(false)
+                        }}
+                        disabled={question.entry_kind === kind.entry_kind}
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="h-2 w-2 rounded-full" style={{ backgroundColor: kind.color || "#6B7280" }} />
+                          <span>{kind.label || kind.entry_kind}</span>
+                          {!kind.is_active && <span className="text-xs text-gray-400">(Inactive)</span>}
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
             {canRemove && (
               <Button variant="ghost" size="sm" onClick={onRemove}>
                 <Trash2 className="text-destructive h-4 w-4" />
@@ -1267,12 +1746,45 @@ function QuestionForm({ question, index, onUpdate, onRemove, canRemove }: Questi
             </Select>
           </div>
 
-          {question.question_type === "select" && (
+          {/* Entry Kind Badge - Display only, no editing */}
+          <div className="flex items-center gap-2">
+            <Badge
+              variant="outline"
+              className="text-xs"
+              style={{
+                borderColor: entryKindConfig?.color || "#6B7280",
+                backgroundColor: entryKindConfig?.color ? `${entryKindConfig.color}20` : "#F3F4F6",
+                color: entryKindConfig?.color || "#374151",
+              }}
+            >
+              {entryKindConfig?.label || question.entry_kind || "Standard"}
+            </Badge>
+            {isLegacy && (
+              <Badge variant="outline" className="border-orange-200 bg-orange-50 text-xs text-orange-700">
+                Legacy
+              </Badge>
+            )}
+            {entryKindConfig && !entryKindConfig.is_active && (
+              <Badge variant="outline" className="border-gray-200 bg-gray-100 text-xs text-gray-500">
+                Inactive
+              </Badge>
+            )}
+          </div>
+
+          {/* Legacy warning */}
+          {isLegacy && (
+            <div className="rounded-lg border border-orange-200 bg-orange-50 p-3 text-sm text-orange-800">
+              This question uses a legacy entry kind that is no longer configured. You can still edit and save it, but
+              consider moving it to an active category.
+            </div>
+          )}
+
+          {supportsDynamicOptionSource && (
             <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4">
               <div className="space-y-1">
-                <Label>Dropdown option source</Label>
+                <Label>Option source</Label>
                 <p className="text-muted-foreground text-xs">
-                  Choose whether this dropdown uses fixed options or loads assigned agents for a Sales Promoter.
+                  Choose whether this field uses fixed options or loads assigned agents dynamically.
                 </p>
               </div>
               <RadioGroup
@@ -1281,6 +1793,8 @@ function QuestionForm({ question, index, onUpdate, onRemove, canRemove }: Questi
                   onUpdate({
                     option_source_kind:
                       value === ASSIGNED_AGENTS_OPTION_SOURCE_KIND ? ASSIGNED_AGENTS_OPTION_SOURCE_KIND : "static",
+                    max_logs_per_agent_per_day:
+                      value === ASSIGNED_AGENTS_OPTION_SOURCE_KIND ? question.max_logs_per_agent_per_day : null,
                     is_required: value === ASSIGNED_AGENTS_OPTION_SOURCE_KIND ? true : question.is_required,
                     options: value === ASSIGNED_AGENTS_OPTION_SOURCE_KIND ? null : question.options,
                   })
@@ -1292,24 +1806,32 @@ function QuestionForm({ question, index, onUpdate, onRemove, canRemove }: Questi
                     <Label htmlFor={`question-${question.id}-source-static`} className="cursor-pointer font-medium">
                       Static options
                     </Label>
-                    <p className="text-muted-foreground text-xs">Admins manually define the dropdown choices.</p>
+                    <p className="text-muted-foreground text-xs">Admins manually define the available choices.</p>
                   </div>
                 </div>
-                <div className="flex items-start gap-3 rounded-md border border-slate-200 bg-white p-3">
+                <div
+                  className={`flex items-start gap-3 rounded-md border border-slate-200 p-3 ${
+                    supportsAssignedAgents ? "bg-white" : "cursor-not-allowed bg-slate-100 opacity-60"
+                  }`}
+                >
                   <RadioGroupItem
                     value={ASSIGNED_AGENTS_OPTION_SOURCE_KIND}
                     id={`question-${question.id}-source-assigned-agents`}
+                    disabled={!supportsAssignedAgents}
                   />
                   <div className="space-y-1">
                     <Label
                       htmlFor={`question-${question.id}-source-assigned-agents`}
-                      className="cursor-pointer font-medium"
+                      className={`font-medium ${supportsAssignedAgents ? "cursor-pointer" : "cursor-not-allowed"}`}
                     >
                       Assigned agents
                     </Label>
                     <p className="text-muted-foreground text-xs">
-                      Loads the current Sales Promoter&apos;s assigned agents at report time. This dropdown is required
-                      and does not use static options.
+                      {supportsAssignedAgents
+                        ? question.question_type === "multiselect"
+                          ? "Loads assigned agents dynamically at report time. Report users will choose one or more agents from a checkbox list."
+                          : "Loads assigned agents dynamically at report time. This field is required and does not use static options."
+                        : `This entry kind (${entryKindConfig?.label || question.entry_kind}) does not support assigned agents.`}
                     </p>
                   </div>
                 </div>
@@ -1389,6 +1911,38 @@ function QuestionForm({ question, index, onUpdate, onRemove, canRemove }: Questi
             <div className="rounded-lg border border-blue-200 bg-blue-50 p-4 text-sm text-blue-900">
               This dropdown will load assigned agents for the logged-in Sales Promoter at report time. Static options
               are disabled for this question.
+            </div>
+          ) : null}
+
+          {supportsDynamicOptionSource && isAssignedAgentQuestion ? (
+            <div className="space-y-2 rounded-lg border border-blue-200 bg-blue-50 p-4">
+              <Label htmlFor={`question-${question.id}-agent-limit`}>Max logs per agent per day</Label>
+              <Select
+                value={
+                  question.max_logs_per_agent_per_day === null
+                    ? "unlimited"
+                    : String(question.max_logs_per_agent_per_day)
+                }
+                onValueChange={(value) =>
+                  onUpdate({
+                    max_logs_per_agent_per_day: value === "unlimited" ? null : Number.parseInt(value, 10) || null,
+                  })
+                }
+              >
+                <SelectTrigger id={`question-${question.id}-agent-limit`}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="unlimited">Unlimited</SelectItem>
+                  <SelectItem value="1">1 time</SelectItem>
+                  <SelectItem value="2">2 times</SelectItem>
+                  <SelectItem value="3">3 times</SelectItem>
+                  <SelectItem value="5">5 times</SelectItem>
+                </SelectContent>
+              </Select>
+              <p className="text-muted-foreground text-xs">
+                Controls how many times the same assigned agent can be selected per day for this field.
+              </p>
             </div>
           ) : null}
 
@@ -1540,7 +2094,7 @@ function QuestionPreview({ question, isPreviewMode = false, displayIndex }: Ques
     if (question.question_type === "multiselect") {
       setPreviewValue("[]")
     } else if (question.question_type === "checkbox") {
-      setPreviewValue("false")
+      setPreviewValue(question.options && question.options.length > 0 ? "[]" : "false")
     } else {
       setPreviewValue("")
     }
@@ -1625,9 +2179,10 @@ function QuestionPreview({ question, isPreviewMode = false, displayIndex }: Ques
 
   // Parse multiselect value
   const getMultiselectValue = (): string[] => {
-    if (question.question_type === "multiselect") {
+    if (question.question_type === "multiselect" || question.question_type === "checkbox") {
       try {
-        return JSON.parse(previewValue || "[]")
+        const parsed = JSON.parse(previewValue || "[]")
+        return Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === "string") : []
       } catch {
         return []
       }
@@ -1783,29 +2338,34 @@ function QuestionPreview({ question, isPreviewMode = false, displayIndex }: Ques
         />
       )}
 
-      {question.question_type === "select" &&
+      {(question.question_type === "select" || question.question_type === "multiselect") &&
         question.option_source_kind === ASSIGNED_AGENTS_OPTION_SOURCE_KIND && (
-          <div className="rounded-lg border border-dashed border-blue-300 bg-blue-50 p-4 text-sm text-blue-900">
-            Assigned agents will load dynamically for the logged-in Sales Promoter when the report form is opened.
-          </div>
-        )}
+        <div className="rounded-lg border border-dashed border-blue-300 bg-blue-50 p-4 text-sm text-blue-900">
+          {question.question_type === "multiselect"
+            ? "Assigned agents will load dynamically as a checkbox list for the logged-in Sales Promoter when the report form is opened."
+            : "Assigned agents will load dynamically for the logged-in Sales Promoter when the report form is opened."}
+          {typeof question.max_logs_per_agent_per_day === "number"
+            ? ` Each agent can be logged up to ${question.max_logs_per_agent_per_day} time${question.max_logs_per_agent_per_day === 1 ? "" : "s"} per day for this field.`
+            : " Each agent can be logged any number of times per day for this field."}
+        </div>
+      )}
 
       {question.question_type === "select" &&
         question.option_source_kind !== ASSIGNED_AGENTS_OPTION_SOURCE_KIND &&
         question.options && (
-        <Select value={previewValue} onValueChange={handleChange} required={question.is_required}>
-          <SelectTrigger className={previewError ? "border-destructive" : ""}>
-            <SelectValue placeholder={question.placeholder || "Select an option"} />
-          </SelectTrigger>
-          <SelectContent>
-            {question.options.map((option) => (
-              <SelectItem key={option} value={option}>
-                {option}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
-      )}
+          <Select value={previewValue} onValueChange={handleChange} required={question.is_required}>
+            <SelectTrigger className={previewError ? "border-destructive" : ""}>
+              <SelectValue placeholder={question.placeholder || "Select an option"} />
+            </SelectTrigger>
+            <SelectContent>
+              {question.options.map((option) => (
+                <SelectItem key={option} value={option}>
+                  {option}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        )}
 
       {question.question_type === "radio" && question.options && (
         <RadioGroup value={previewValue} onValueChange={handleChange} required={question.is_required}>
@@ -1846,18 +2406,43 @@ function QuestionPreview({ question, isPreviewMode = false, displayIndex }: Ques
         </div>
       )}
 
-      {question.question_type === "checkbox" && (
-        <div className="flex items-center space-x-2">
-          <Checkbox
-            id="preview-checkbox"
-            checked={previewValue === "true"}
-            onCheckedChange={(checked) => handleChange(checked ? "true" : "false")}
-          />
-          <Label htmlFor="preview-checkbox" className="cursor-pointer font-normal">
-            {question.placeholder || "Yes"}
-          </Label>
-        </div>
-      )}
+      {question.question_type === "checkbox" &&
+        (question.options && question.options.length > 0 ? (
+          <div className="space-y-4">
+            {question.options.map((option) => {
+              const selectedValues = getMultiselectValue()
+              const isChecked = selectedValues.includes(option)
+
+              return (
+                <div key={option} className="flex items-center space-x-2">
+                  <Checkbox
+                    id={`preview-checkbox-${option}`}
+                    checked={isChecked}
+                    onCheckedChange={(checked) => {
+                      const current = getMultiselectValue()
+                      const newValues = checked ? [...current, option] : current.filter((v) => v !== option)
+                      handleChange(JSON.stringify(newValues))
+                    }}
+                  />
+                  <Label htmlFor={`preview-checkbox-${option}`} className="cursor-pointer font-normal">
+                    {option}
+                  </Label>
+                </div>
+              )
+            })}
+          </div>
+        ) : (
+          <div className="flex items-center space-x-2">
+            <Checkbox
+              id="preview-checkbox"
+              checked={previewValue === "true"}
+              onCheckedChange={(checked) => handleChange(checked ? "true" : "false")}
+            />
+            <Label htmlFor="preview-checkbox" className="cursor-pointer font-normal">
+              {question.placeholder || "Yes"}
+            </Label>
+          </div>
+        ))}
 
       {question.question_type === "rating" && question.options && (
         <div className="flex flex-wrap gap-2">

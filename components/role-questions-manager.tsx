@@ -33,6 +33,8 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { useToast } from "@/components/ui/use-toast"
+import { useScopeEntryKinds, type ScopeEntryKind } from "@/hooks/use-entry-kinds"
+import { getEntryKindLabel, getEntryKindColor, getEntryKindIcon, findEntryKindConfig } from "@/lib/entry-kinds"
 import {
   Plus,
   Pencil,
@@ -56,12 +58,15 @@ import {
   GripVertical,
   ChevronDown,
   ChevronUp,
+  Users,
 } from "lucide-react"
 import { QuestionTemplates, type QuestionTemplate } from "@/components/question-templates"
 import Link from "next/link"
 import { ActionMenu } from "@/components/ui/action-menu"
 import { Separator } from "@/components/ui/separator"
 import { ApiError, apiFetch, getErrorMessage } from "@/lib/api-client"
+import { matchesDepartmentRoleFilter } from "@/lib/role-question-filters"
+import { buildRoleQuestionsApiUrl } from "@/lib/role-question-urls"
 
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
 const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
@@ -79,6 +84,7 @@ interface RoleQuestion {
   department_id?: string | null
   department_profession_id?: string | null
   department_role?: string | null
+  entry_kind?: string // 'agent_call', 'daily_summary', 'standard', or undefined
   question_key: string
   question_label: string
   question_type: string
@@ -103,6 +109,11 @@ interface RoleQuestion {
 
 interface RoleQuestionWithRole extends RoleQuestion {
   role?: Role | null
+  department_profession?: {
+    id: string
+    key: string
+    label: string
+  } | null
 }
 
 type RoleQuestionsManagerProps = {
@@ -140,6 +151,103 @@ function isDepartmentGroupId(groupId: string): boolean {
   return groupId.startsWith("__department:")
 }
 
+// Helper function to group questions by entry_kind dynamically using available configs
+function groupQuestionsByEntryKind(
+  questions: RoleQuestionWithRole[],
+  entryKindConfigs: ScopeEntryKind[] = []
+): Record<string, RoleQuestionWithRole[]> {
+  const grouped: Record<string, RoleQuestionWithRole[]> = {}
+
+  // Get all unique entry kinds from configs
+  const allEntryKinds = new Set<string>()
+  entryKindConfigs.forEach((config) => allEntryKinds.add(config.entry_kind))
+  // Also add any entry kinds that appear in questions but not in configs
+  questions.forEach((q) => {
+    const kind = q.entry_kind || "standard"
+    allEntryKinds.add(kind)
+  })
+  // Ensure standard is always present as fallback
+  allEntryKinds.add("standard")
+
+  // Initialize empty arrays for all entry kinds
+  allEntryKinds.forEach((kind) => {
+    grouped[kind] = []
+  })
+
+  // Group questions by entry_kind
+  questions.forEach((q) => {
+    const kind = q.entry_kind || "standard"
+    if (!grouped[kind]) {
+      grouped[kind] = []
+    }
+    grouped[kind].push(q)
+  })
+
+  return grouped
+}
+
+// Helper function to get entry kind label and styles (config-based with fallback)
+function getEntryKindStyles(entryKind: string, entryKindConfigs: ScopeEntryKind[] = []) {
+  const config = findEntryKindConfig(entryKind, entryKindConfigs)
+  const label = getEntryKindLabel(entryKind, config)
+  const color = getEntryKindColor(entryKind, config)
+  const icon = getEntryKindIcon(entryKind, config)
+  const isInactive = config?.is_active === false
+
+  // Map icon names to actual icon components
+  const iconName = icon || "FileText"
+
+  // Generate colors based on the hex color from config
+  const baseColor = color || "#6B7280"
+  const isBlue = baseColor.includes("3B82F6") || iconName === "Phone"
+  const isGreen = baseColor.includes("10B981")
+
+  if (isInactive) {
+    return {
+      label: `${label} (Inactive)`,
+      icon: iconName,
+      borderColor: "border-l-gray-300",
+      badgeColor: "bg-gray-100 text-gray-500 border-gray-200",
+      sectionBg: "bg-gray-50/30",
+      isInactive: true,
+    }
+  }
+
+  switch (entryKind) {
+    case "agent_call":
+      return {
+        label,
+        icon: iconName,
+        borderColor: "border-l-blue-500",
+        badgeColor: "bg-blue-100 text-blue-700 border-blue-200",
+        sectionBg: "bg-blue-50/50",
+        isInactive: false,
+      }
+    case "daily_summary":
+      return {
+        label,
+        icon: iconName,
+        borderColor: "border-l-green-500",
+        badgeColor: "bg-green-100 text-green-700 border-green-200",
+        sectionBg: "bg-green-50/50",
+        isInactive: false,
+      }
+    default:
+      return {
+        label,
+        icon: iconName,
+        borderColor: isBlue ? "border-l-blue-400" : isGreen ? "border-l-green-400" : "border-l-gray-400",
+        badgeColor: isBlue
+          ? "bg-blue-50 text-blue-600 border-blue-200"
+          : isGreen
+            ? "bg-green-50 text-green-600 border-green-200"
+            : "bg-gray-100 text-gray-700 border-gray-200",
+        sectionBg: isBlue ? "bg-blue-50/30" : isGreen ? "bg-green-50/30" : "bg-gray-50/50",
+        isInactive: false,
+      }
+  }
+}
+
 export function RoleQuestionsManager({
   externalSearchQuery,
   refreshKey,
@@ -166,6 +274,12 @@ export function RoleQuestionsManager({
 
   const { user: currentUser, profile: currentProfile } = useSupabaseAuth()
   const effectiveFixedRoleId = fixedRoleId || fixedRole?.id
+
+  // Fetch scope entry kinds for config-based labels and colors
+  const targetDepartmentId = departmentId || null
+  const targetProfessionId = departmentRole || null
+  const { entryKinds, isLoading: isLoadingEntryKinds } = useScopeEntryKinds(targetDepartmentId, targetProfessionId)
+
   const [questions, setQuestions] = useState<RoleQuestionWithRole[]>([])
   const [roles, setRoles] = useState<Role[]>([])
   const [isLoading, setIsLoading] = useState(true)
@@ -395,11 +509,11 @@ export function RoleQuestionsManager({
         let questionError: unknown = null
 
         try {
-          const apiUrl = departmentId
-            ? `/api/role-questions?departmentId=${encodeURIComponent(departmentId)}${
-                departmentOnly ? "&scope=department_only" : ""
-              }`
-            : "/api/role-questions"
+          const apiUrl = buildRoleQuestionsApiUrl({
+            departmentId,
+            departmentOnly,
+            departmentRole,
+          })
           const questionsFromAPI = await apiFetch<RoleQuestionWithRole[]>(apiUrl, {
             method: "GET",
             headers: {
@@ -585,7 +699,7 @@ export function RoleQuestionsManager({
         setIsLoading(false)
       }
     },
-    [currentUser, currentProfile, isAdmin, toast, departmentId, effectiveFixedRoleId, departmentOnly]
+    [currentUser, currentProfile, isAdmin, toast, departmentId, effectiveFixedRoleId, departmentOnly, departmentRole]
   )
 
   useEffect(() => {
@@ -644,11 +758,7 @@ export function RoleQuestionsManager({
 
     // Department profession filter with legacy key fallback.
     if (departmentRole && departmentId) {
-      filtered = filtered.filter(
-        (q) =>
-          q.department_id === departmentId &&
-          (q.department_profession_id === departmentRole || q.department_role === departmentRole)
-      )
+      filtered = filtered.filter((q) => matchesDepartmentRoleFilter(q, departmentId, departmentRole))
     }
 
     // Role filter
@@ -2738,192 +2848,274 @@ export function RoleQuestionsManager({
                           </div>
                         )}
 
-                        {roleQuestions.map((question, index) => (
-                          <Card
-                            key={question.id}
-                            className="border-l-primary/20 border-l-4"
-                            onDragOver={(e) => {
-                              if (!isAdmin) return
-                              if (!dragState || dragState.roleId !== role.id) return
-                              e.preventDefault()
-                            }}
-                            onDrop={(e) => {
-                              if (!isAdmin) return
-                              if (!dragState || dragState.roleId !== role.id) return
-                              e.preventDefault()
-                              void handleDragReorderQuestion(role.id, dragState.questionId, question.id)
-                            }}
-                          >
-                            <CardContent className="pt-4">
-                              <div className="flex items-start gap-4">
-                                <div className="pt-0.5">
-                                  <button
-                                    type="button"
-                                    draggable={isAdmin && !isDepartmentGroup}
-                                    aria-label="Reorder question"
-                                    onDragStart={() => {
-                                      if (!isAdmin || isDepartmentGroup) return
-                                      setDragState({ roleId: role.id, questionId: question.id })
-                                    }}
-                                    onDragEnd={() => setDragState(null)}
-                                    className={
-                                      "bg-background text-muted-foreground hover:bg-muted focus:ring-primary inline-flex h-9 w-9 items-center justify-center rounded-md border transition-colors focus:ring-2 focus:outline-none " +
-                                      (!isAdmin
-                                        ? "cursor-not-allowed opacity-40"
-                                        : "cursor-grab active:cursor-grabbing")
-                                    }
+                        {/* Group questions by entry_kind */}
+                        {(() => {
+                          const groupedByKind = groupQuestionsByEntryKind(roleQuestions, entryKinds)
+
+                          // Get sorted entry kinds based on sort_order from configs
+                          const sortedEntryKinds = Object.keys(groupedByKind).sort((a, b) => {
+                            const configA = entryKinds.find((k) => k.entry_kind === a)
+                            const configB = entryKinds.find((k) => k.entry_kind === b)
+                            const orderA = configA?.sort_order ?? 0
+                            const orderB = configB?.sort_order ?? 0
+                            if (orderA !== orderB) return orderA - orderB
+                            return a.localeCompare(b)
+                          })
+
+                          const renderQuestionSection = (
+                            questions: RoleQuestionWithRole[],
+                            entryKind: string,
+                            sectionIndex: number
+                          ) => {
+                            // Skip empty sections if no questions at all for this role
+                            if (questions.length === 0) return null
+
+                            const styles = getEntryKindStyles(entryKind, entryKinds)
+                            const IconComponent =
+                              entryKind === "agent_call" ? Users : entryKind === "daily_summary" ? FileText : FileText
+
+                            return (
+                              <div key={entryKind} className="space-y-3">
+                                {/* Section Header */}
+                                <div
+                                  className={`flex items-center gap-3 rounded-lg border px-4 py-3 ${styles.sectionBg}`}
+                                >
+                                  <div
+                                    className={`flex h-8 w-8 items-center justify-center rounded-full ${entryKind === "agent_call" ? "bg-blue-100" : entryKind === "daily_summary" ? "bg-green-100" : "bg-gray-100"}`}
                                   >
-                                    <GripVertical className="h-4 w-4" />
-                                  </button>
+                                    <IconComponent
+                                      className={`h-4 w-4 ${entryKind === "agent_call" ? "text-blue-600" : entryKind === "daily_summary" ? "text-green-600" : "text-gray-600"}`}
+                                    />
+                                  </div>
+                                  <div className="flex-1">
+                                    <h4 className="text-sm font-semibold">{styles.label} Questions</h4>
+                                    <p className="text-muted-foreground text-xs">
+                                      {questions.length} question{questions.length !== 1 ? "s" : ""} ·{" "}
+                                      {questions.filter((q) => q.is_active).length} active
+                                    </p>
+                                  </div>
+                                  <Badge variant="outline" className={`text-xs ${styles.badgeColor}`}>
+                                    {styles.label}
+                                  </Badge>
                                 </div>
 
-                                <div className="flex-1 space-y-2">
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <Badge variant="outline" className="text-xs">
-                                      #{index + 1}
-                                    </Badge>
-                                    <span className="text-base font-semibold">{question.question_label}</span>
-                                    {question.is_required && (
-                                      <Badge variant="destructive" className="text-xs">
-                                        Required
-                                      </Badge>
-                                    )}
-                                    {!question.is_active && (
-                                      <Badge variant="secondary" className="text-xs">
-                                        Inactive
-                                      </Badge>
-                                    )}
-                                  </div>
-                                  <div className="flex flex-wrap items-center gap-2">
-                                    <code className="bg-muted rounded px-2 py-1 font-mono text-xs">
-                                      {question.question_label}
-                                    </code>
-                                    <Badge variant="secondary" className="text-xs">
-                                      {question.question_type}
-                                    </Badge>
-                                  </div>
-                                  {question.question_description && (
-                                    <p className="text-muted-foreground text-sm">{question.question_description}</p>
-                                  )}
-                                  {question.options && question.options.length > 0 && (
-                                    <div className="mt-2 flex flex-wrap gap-2">
-                                      {question.options.slice(0, 5).map((opt, idx) => (
-                                        <Badge key={idx} variant="outline" className="text-xs">
-                                          {opt}
-                                        </Badge>
-                                      ))}
-                                      {question.options.length > 5 && (
-                                        <Badge variant="outline" className="text-xs">
-                                          +{question.options.length - 5} more
-                                        </Badge>
-                                      )}
-                                    </div>
-                                  )}
-                                </div>
-                                <div className="flex items-center gap-1">
-                                  {isAdmin && (
-                                    <div className="mr-2 flex flex-col items-center">
-                                      <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-6 w-6"
-                                        disabled={isDepartmentGroup || question.display_order === 0}
-                                        onClick={() => handleReorderQuestion(role.id, question.id, "up")}
-                                      >
-                                        <ChevronUp className="h-3 w-3" />
-                                      </Button>
-                                      <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-6 w-6"
-                                        disabled={isDepartmentGroup || index === roleQuestions.length - 1}
-                                        onClick={() => handleReorderQuestion(role.id, question.id, "down")}
-                                      >
-                                        <ChevronDown className="h-3 w-3" />
-                                      </Button>
-                                    </div>
-                                  )}
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => {
-                                      setPreviewQuestion(question)
-                                      setShowPreviewModal(true)
-                                    }}
-                                    title="Preview"
-                                  >
-                                    <Eye className="h-4 w-4" />
-                                  </Button>
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    onClick={() => handleDuplicate(question)}
-                                    title="Duplicate"
-                                    disabled={
-                                      !question.role_id &&
-                                      !(departmentOnly && !!departmentId && question.department_id === departmentId)
-                                    }
-                                  >
-                                    <Copy className="h-4 w-4" />
-                                  </Button>
-                                  <ActionMenu
-                                    align="end"
-                                    trigger={
-                                      <Button variant="ghost" size="sm">
-                                        <MoreVertical className="h-4 w-4" />
-                                      </Button>
-                                    }
-                                    items={[
-                                      {
-                                        type: "item",
-                                        label: "Edit",
-                                        icon: <Pencil className="mr-2 h-4 w-4" />,
-                                        disabled:
-                                          !question.role_id &&
-                                          !(
-                                            departmentOnly &&
-                                            !!departmentId &&
-                                            question.department_id === departmentId
-                                          ),
-                                        onSelect: () => openEditDialog(question),
-                                      },
-                                      {
-                                        type: "item",
-                                        label: "Preview",
-                                        icon: <Eye className="mr-2 h-4 w-4" />,
-                                        onSelect: () => {
-                                          setPreviewQuestion(question)
-                                          setShowPreviewModal(true)
-                                        },
-                                      },
-                                      {
-                                        type: "item",
-                                        label: "Duplicate",
-                                        icon: <Copy className="mr-2 h-4 w-4" />,
-                                        disabled:
-                                          !question.role_id &&
-                                          !(
-                                            departmentOnly &&
-                                            !!departmentId &&
-                                            question.department_id === departmentId
-                                          ),
-                                        onSelect: () => handleDuplicate(question),
-                                      },
-                                      { type: "separator" },
-                                      {
-                                        type: "item",
-                                        label: "Delete",
-                                        icon: <Trash2 className="mr-2 h-4 w-4" />,
-                                        destructive: true,
-                                        onSelect: () => openDeleteDialog(question),
-                                      },
-                                    ]}
-                                  />
+                                {/* Questions in this section */}
+                                <div className="space-y-3 pl-2">
+                                  {questions.map((question, index) => (
+                                    <Card
+                                      key={question.id}
+                                      className={`${styles.borderColor} border-l-4`}
+                                      onDragOver={(e) => {
+                                        if (!isAdmin) return
+                                        if (!dragState || dragState.roleId !== role.id) return
+                                        e.preventDefault()
+                                      }}
+                                      onDrop={(e) => {
+                                        if (!isAdmin) return
+                                        if (!dragState || dragState.roleId !== role.id) return
+                                        e.preventDefault()
+                                        void handleDragReorderQuestion(role.id, dragState.questionId, question.id)
+                                      }}
+                                    >
+                                      <CardContent className="pt-4">
+                                        <div className="flex items-start gap-4">
+                                          <div className="pt-0.5">
+                                            <button
+                                              type="button"
+                                              draggable={isAdmin && !isDepartmentGroup}
+                                              aria-label="Reorder question"
+                                              onDragStart={() => {
+                                                if (!isAdmin || isDepartmentGroup) return
+                                                setDragState({ roleId: role.id, questionId: question.id })
+                                              }}
+                                              onDragEnd={() => setDragState(null)}
+                                              className={
+                                                "bg-background text-muted-foreground hover:bg-muted focus:ring-primary inline-flex h-9 w-9 items-center justify-center rounded-md border transition-colors focus:ring-2 focus:outline-none " +
+                                                (!isAdmin
+                                                  ? "cursor-not-allowed opacity-40"
+                                                  : "cursor-grab active:cursor-grabbing")
+                                              }
+                                            >
+                                              <GripVertical className="h-4 w-4" />
+                                            </button>
+                                          </div>
+
+                                          <div className="flex-1 space-y-2">
+                                            <div className="flex flex-wrap items-center gap-2">
+                                              <Badge variant="outline" className="text-xs">
+                                                #{sectionIndex + index + 1}
+                                              </Badge>
+                                              <span className="text-base font-semibold">{question.question_label}</span>
+                                              {question.is_required && (
+                                                <Badge variant="destructive" className="text-xs">
+                                                  Required
+                                                </Badge>
+                                              )}
+                                              {!question.is_active && (
+                                                <Badge variant="secondary" className="text-xs">
+                                                  Inactive
+                                                </Badge>
+                                              )}
+                                              {/* Entry Kind Badge */}
+                                              <Badge variant="outline" className={`text-xs ${styles.badgeColor}`}>
+                                                {styles.label}
+                                              </Badge>
+                                            </div>
+                                            <div className="flex flex-wrap items-center gap-2">
+                                              <code className="bg-muted rounded px-2 py-1 font-mono text-xs">
+                                                {question.question_label}
+                                              </code>
+                                              <Badge variant="secondary" className="text-xs">
+                                                {question.question_type}
+                                              </Badge>
+                                            </div>
+                                            {question.question_description && (
+                                              <p className="text-muted-foreground text-sm">
+                                                {question.question_description}
+                                              </p>
+                                            )}
+                                            {question.options && question.options.length > 0 && (
+                                              <div className="mt-2 flex flex-wrap gap-2">
+                                                {question.options.slice(0, 5).map((opt, idx) => (
+                                                  <Badge key={idx} variant="outline" className="text-xs">
+                                                    {opt}
+                                                  </Badge>
+                                                ))}
+                                                {question.options.length > 5 && (
+                                                  <Badge variant="outline" className="text-xs">
+                                                    +{question.options.length - 5} more
+                                                  </Badge>
+                                                )}
+                                              </div>
+                                            )}
+                                          </div>
+                                          <div className="flex items-center gap-1">
+                                            {isAdmin && (
+                                              <div className="mr-2 flex flex-col items-center">
+                                                <Button
+                                                  variant="ghost"
+                                                  size="icon"
+                                                  className="h-6 w-6"
+                                                  disabled={isDepartmentGroup || question.display_order === 0}
+                                                  onClick={() => handleReorderQuestion(role.id, question.id, "up")}
+                                                >
+                                                  <ChevronUp className="h-3 w-3" />
+                                                </Button>
+                                                <Button
+                                                  variant="ghost"
+                                                  size="icon"
+                                                  className="h-6 w-6"
+                                                  disabled={isDepartmentGroup || index === questions.length - 1}
+                                                  onClick={() => handleReorderQuestion(role.id, question.id, "down")}
+                                                >
+                                                  <ChevronDown className="h-3 w-3" />
+                                                </Button>
+                                              </div>
+                                            )}
+                                            <Button
+                                              variant="ghost"
+                                              size="sm"
+                                              onClick={() => {
+                                                setPreviewQuestion(question)
+                                                setShowPreviewModal(true)
+                                              }}
+                                              title="Preview"
+                                            >
+                                              <Eye className="h-4 w-4" />
+                                            </Button>
+                                            <Button
+                                              variant="ghost"
+                                              size="sm"
+                                              onClick={() => handleDuplicate(question)}
+                                              title="Duplicate"
+                                              disabled={
+                                                !question.role_id &&
+                                                !(
+                                                  (departmentOnly || !!departmentRole) &&
+                                                  !!departmentId &&
+                                                  question.department_id === departmentId
+                                                )
+                                              }
+                                            >
+                                              <Copy className="h-4 w-4" />
+                                            </Button>
+                                            <ActionMenu
+                                              align="end"
+                                              trigger={
+                                                <Button variant="ghost" size="sm">
+                                                  <MoreVertical className="h-4 w-4" />
+                                                </Button>
+                                              }
+                                              items={[
+                                                {
+                                                  type: "item",
+                                                  label: "Edit",
+                                                  icon: <Pencil className="mr-2 h-4 w-4" />,
+                                                  disabled:
+                                                    !question.role_id &&
+                                                    !(
+                                                      (departmentOnly || !!departmentRole) &&
+                                                      !!departmentId &&
+                                                      question.department_id === departmentId
+                                                    ),
+                                                  onSelect: () => openEditDialog(question),
+                                                },
+                                                {
+                                                  type: "item",
+                                                  label: "Preview",
+                                                  icon: <Eye className="mr-2 h-4 w-4" />,
+                                                  onSelect: () => {
+                                                    setPreviewQuestion(question)
+                                                    setShowPreviewModal(true)
+                                                  },
+                                                },
+                                                {
+                                                  type: "item",
+                                                  label: "Duplicate",
+                                                  icon: <Copy className="mr-2 h-4 w-4" />,
+                                                  disabled:
+                                                    !question.role_id &&
+                                                    !(
+                                                      (departmentOnly || !!departmentRole) &&
+                                                      !!departmentId &&
+                                                      question.department_id === departmentId
+                                                    ),
+                                                  onSelect: () => handleDuplicate(question),
+                                                },
+                                                { type: "separator" },
+                                                {
+                                                  type: "item",
+                                                  label: "Delete",
+                                                  icon: <Trash2 className="mr-2 h-4 w-4" />,
+                                                  destructive: true,
+                                                  onSelect: () => openDeleteDialog(question),
+                                                },
+                                              ]}
+                                            />
+                                          </div>
+                                        </div>
+                                      </CardContent>
+                                    </Card>
+                                  ))}
                                 </div>
                               </div>
-                            </CardContent>
-                          </Card>
-                        ))}
+                            )
+                          }
+
+                          // Calculate running section index for question numbering
+                          let runningIndex = 0
+
+                          return (
+                            <div className="space-y-6">
+                              {sortedEntryKinds.map((entryKind) => {
+                                const questions = groupedByKind[entryKind] || []
+                                const section = renderQuestionSection(questions, entryKind, runningIndex)
+                                runningIndex += questions.length
+                                return section
+                              })}
+                            </div>
+                          )
+                        })()}
 
                         <Card className="bg-muted/20 border-dashed">
                           <CardContent className="py-4">

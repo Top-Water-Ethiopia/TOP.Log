@@ -9,8 +9,16 @@ interface EntryFormMultistepClientProps {
   departmentName: string
   date: string
   allowedDates: string[]
-  initialExistingStandardEntryId: string | null
+  initialExistingEntryId: string | null
   initialRoleQuestions: unknown[]
+  initialQuestionsByKind?: Record<string, unknown[]>
+  initialAvailableEntryKinds?: Array<{
+    entry_kind: string
+    label?: string
+    is_default?: boolean
+    allow_multiple_per_day?: boolean
+  }>
+  role?: string | null
 }
 
 export function EntryFormMultistepClient({
@@ -18,27 +26,36 @@ export function EntryFormMultistepClient({
   departmentName,
   date,
   allowedDates,
-  initialExistingStandardEntryId,
+  initialExistingEntryId,
   initialRoleQuestions,
+  initialQuestionsByKind,
+  initialAvailableEntryKinds,
+  role,
 }: EntryFormMultistepClientProps) {
   const router = useRouter()
 
-  const buildLogsHref = useCallback((targetDate: string) => {
-    const query = new URLSearchParams()
-    query.set("departmentId", departmentId)
-    query.set("date", targetDate)
-    return `/logs?${query.toString()}`
-  }, [departmentId])
+  const buildLogsHref = useCallback(
+    (targetDate: string) => {
+      const query = new URLSearchParams()
+      query.set("departmentId", departmentId)
+      query.set("date", targetDate)
+      return `/logs?${query.toString()}`
+    },
+    [departmentId]
+  )
 
-  const buildNewLogHref = useCallback((targetDate: string) => {
-    const query = new URLSearchParams()
-    query.set("departmentId", departmentId)
-    query.set("date", targetDate)
-    return `/logs/new?${query.toString()}`
-  }, [departmentId])
+  const buildNewLogHref = useCallback(
+    (targetDate: string) => {
+      const query = new URLSearchParams()
+      query.set("departmentId", departmentId)
+      query.set("date", targetDate)
+      return `/logs/new?${query.toString()}`
+    },
+    [departmentId]
+  )
 
   const handleSave = useCallback(
-    (result?: { entryKind?: "standard" | "agent_call"; date?: string }) => {
+    (result?: { entryKind?: string; date?: string }) => {
       if (result?.entryKind === "agent_call") {
         return
       }
@@ -73,12 +90,15 @@ export function EntryFormMultistepClient({
         departmentId={departmentId}
         departmentName={departmentName}
         allowedDates={allowedDates}
-        initialExistingStandardEntryId={initialExistingStandardEntryId}
+        initialExistingEntryId={initialExistingEntryId}
         onDateChange={handleDateChange}
         onSave={handleSave}
         onCancel={handleCancel}
         stayOnAgentCallSave
         initialRoleQuestions={initialRoleQuestions}
+        initialQuestionsByKind={initialQuestionsByKind}
+        initialAvailableEntryKinds={initialAvailableEntryKinds}
+        role={role}
       />
     </div>
   )

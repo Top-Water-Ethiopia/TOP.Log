@@ -37,6 +37,7 @@ function createThenableBuilder(result: any) {
     eq: jest.fn(() => builder),
     in: jest.fn(() => builder),
     order: jest.fn(() => builder),
+    maybeSingle: jest.fn(() => Promise.resolve(result)),
     then: (resolve: any, reject: any) => Promise.resolve(result).then(resolve, reject),
   }
 
@@ -56,7 +57,7 @@ describe("/api/reporting/assigned-agents", () => {
     })
   })
 
-  it("returns only the caller's assigned agents and flags agents already reported for the date", async () => {
+  it("returns assigned agents plus per-question usage counts for the selected entry kind", async () => {
     getMarketingDepartmentById.mockResolvedValue({ id: "dept-marketing", name: "Marketing" })
     getSalesPromoterAssignment.mockResolvedValue({
       departmentId: "dept-marketing",
@@ -93,7 +94,19 @@ describe("/api/reporting/assigned-agents", () => {
 
       if (table === "captain_log_entries") {
         return createThenableBuilder({
-          data: [{ subject_agent_id: "agent-2" }],
+          data: [{ id: "entry-1" }],
+          error: null,
+        })
+      }
+
+      if (table === "custom_responses") {
+        return createThenableBuilder({
+          data: [
+            {
+              question_key: "agent_name",
+              value: { value: "agent-2", label: "Agent Two" },
+            },
+          ],
           error: null,
         })
       }
@@ -102,7 +115,7 @@ describe("/api/reporting/assigned-agents", () => {
     })
 
     const response = await routeModule.GET({
-      url: "http://localhost/api/reporting/assigned-agents?departmentId=dept-marketing&date=2026-04-03",
+      url: "http://localhost/api/reporting/assigned-agents?departmentId=dept-marketing&date=2026-04-03&entryKind=agent_visit&questionKey=agent_name",
     } as Request)
     expect(response.status).toBe(200)
 
@@ -120,9 +133,14 @@ describe("/api/reporting/assigned-agents", () => {
         name: "Agent Two",
         location: "Adama",
         phone: "0911111111",
-        alreadyReported: true,
+        alreadyReported: false,
       },
     ])
+    expect(body.usageByQuestion).toEqual({
+      agent_name: {
+        "agent-2": 1,
+      },
+    })
   })
 
   it("rejects users who are not active Marketing Sales Promoter members", async () => {

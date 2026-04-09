@@ -3,12 +3,8 @@ import { createClient } from "@/lib/supabase/server"
 import {
   isDepartmentReportQuestion,
   matchesProfessionQuestion,
-  type DepartmentProfessionIdentity,
 } from "@/lib/reporting-model"
-import {
-  getUserDepartmentProfessionAssignment,
-  userCanAnswerDepartmentQuestions,
-} from "@/lib/server/department-reporting"
+import { userCanAnswerDepartmentQuestions } from "@/lib/server/department-reporting"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
@@ -18,6 +14,7 @@ interface RoleQuestion {
   department_id: string | null
   department_profession_id: string | null
   department_role: string | null
+  entry_kind: string
   question_key: string
   question_label: string
   question_type: string
@@ -77,6 +74,7 @@ export async function GET(request: Request) {
     const forReport = searchParams.get("forReport") === "true"
     const requestedDepartmentId = searchParams.get("departmentId")
     const scope = searchParams.get("scope")
+    const entryKind = searchParams.get("entryKind")
 
     const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
     const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
@@ -103,12 +101,19 @@ export async function GET(request: Request) {
       }
     }
 
-    const makeQuestionsQuery = () =>
-      supabase
+    const makeQuestionsQuery = () => {
+      let query = supabase
         .from("role_questions")
         .select("*, department_profession:department_professions(id, key, label)")
         .order("display_order", { ascending: true })
         .limit(10000)
+
+      if (entryKind) {
+        query = query.eq("entry_kind", entryKind)
+      }
+
+      return query
+    }
 
     let questions: DbRoleQuestionRow[] = []
 
@@ -138,31 +143,18 @@ export async function GET(request: Request) {
       const scopedQuestions = ((departmentQuestions as unknown as DbRoleQuestionRow[]) || []).filter(
         (question) => question.department_id === departmentId
       )
+      const requestedRole = searchParams.get("role") || searchParams.get("professionId")
 
-      if (scope === "department_only") {
-        if (!isAdmin) {
-          return NextResponse.json({ error: "Access denied" }, { status: 403 })
-        }
-        questions = scopedQuestions.filter((question) => isDepartmentReportQuestion(question))
-      } else if (isAdmin && !forReport) {
-        questions = scopedQuestions
+      if (requestedRole) {
+        questions = scopedQuestions.filter((q) =>
+          matchesProfessionQuestion(q, departmentId, {
+            professionId: requestedRole,
+            professionKey: requestedRole,
+          })
+        )
       } else {
-        let professionAssignment: DepartmentProfessionIdentity = {}
-
-        try {
-          const assignment = await getUserDepartmentProfessionAssignment(supabase, user.id, departmentId)
-          professionAssignment = assignment || {}
-        } catch (professionError) {
-          console.error("Error loading profession assignment for role questions:", professionError)
-        }
-
-        questions = scopedQuestions.filter((question) => {
-          if (isDepartmentReportQuestion(question)) {
-            return canAnswerDepartmentQuestions
-          }
-
-          return matchesProfessionQuestion(question, departmentId, professionAssignment)
-        })
+        // Department-only: Return ONLY department-wide questions
+        questions = scopedQuestions.filter((q) => isDepartmentReportQuestion(q))
       }
     }
 

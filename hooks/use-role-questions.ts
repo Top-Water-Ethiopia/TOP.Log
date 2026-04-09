@@ -12,6 +12,7 @@ export interface RoleQuestion {
   department_id?: string | null
   department_profession_id?: string | null
   department_role?: string | null
+  entry_kind?: string
   question_key: string // Added this line
   question_label: string
   question_type:
@@ -59,7 +60,12 @@ const roleQuestionsFetcher = async (url: string): Promise<RoleQuestion[]> => {
   return Array.isArray(data) ? data : []
 }
 
-export function useRoleQuestions(initialQuestions?: RoleQuestion[], departmentId?: string) {
+export function useRoleQuestions(
+  initialQuestions?: RoleQuestion[],
+  departmentId?: string,
+  entryKind?: string | null,
+  role?: string | null
+) {
   const { user, profile } = useSupabaseAuth()
   const userId = user?.id
   const profileRoleId = profile?.role_id
@@ -67,14 +73,19 @@ export function useRoleQuestions(initialQuestions?: RoleQuestion[], departmentId
   // Build the SWR key based on dependencies
   const swrKey = useMemo(() => {
     if (!userId || !profileRoleId || !departmentId) return null
-    if (initialQuestions && initialQuestions.length > 0) return null
 
     const qs = new URLSearchParams()
     qs.set("forReport", "true")
     qs.set("departmentId", departmentId)
+    if (entryKind) {
+      qs.set("entryKind", entryKind)
+    }
+    if (role) {
+      qs.set("role", role)
+    }
 
     return `/api/role-questions?${qs.toString()}`
-  }, [userId, profileRoleId, departmentId, initialQuestions])
+  }, [userId, profileRoleId, departmentId, entryKind, role])
 
   const { data, error, isLoading } = useSWR(swrKey, roleQuestionsFetcher, {
     revalidateOnFocus: false,
@@ -110,7 +121,14 @@ export function useRoleQuestions(initialQuestions?: RoleQuestion[], departmentId
         validationRules: q.validation_rules || undefined,
         metadata: q.metadata,
         optionSourceKind: optionSource?.kind,
-        defaultValue: q.question_type === "checkbox" ? false : q.question_type === "multiselect" ? [] : undefined,
+        defaultValue:
+          q.question_type === "checkbox"
+            ? Array.isArray(q.options) && q.options.length > 0
+              ? []
+              : false
+            : q.question_type === "multiselect"
+              ? []
+              : undefined,
       }
     })
   }, [effectiveQuestions])

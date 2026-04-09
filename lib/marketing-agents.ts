@@ -4,12 +4,12 @@ export const LEGACY_SALES_PROMOTER_PROFESSION_KEY = "sales_promoter"
 export const SALES_PROMOTER_PROFESSION_LABEL = "Sales Promoter"
 export const ASSIGNED_AGENTS_OPTION_SOURCE_KIND = "assigned_agents"
 
-export type EntryKind = "standard" | "agent_call"
+export type EntryKind = string
 
-export type QuestionOptionSource =
-  | {
-      kind: typeof ASSIGNED_AGENTS_OPTION_SOURCE_KIND
-    }
+export type QuestionOptionSource = {
+  kind: typeof ASSIGNED_AGENTS_OPTION_SOURCE_KIND
+  max_logs_per_agent_per_day?: number | null
+}
 
 export type MarketingAgentSnapshot = {
   name: string
@@ -23,6 +23,9 @@ export type AssignedAgentOption = {
   location: string | null
   phone: string | null
   alreadyReported: boolean
+  usageCount?: number
+  maxLogsPerDay?: number | null
+  remainingLogsToday?: number | null
 }
 
 export type AgentResponseValue = {
@@ -45,10 +48,7 @@ export function normalizeSalesPromoterProfessionKey(key: unknown): string | null
   const normalized = getNonEmptyString(key)
   if (!normalized) return null
 
-  if (
-    normalized === SALES_PROMOTER_PROFESSION_KEY ||
-    normalized === LEGACY_SALES_PROMOTER_PROFESSION_KEY
-  ) {
+  if (normalized === SALES_PROMOTER_PROFESSION_KEY || normalized === LEGACY_SALES_PROMOTER_PROFESSION_KEY) {
     return SALES_PROMOTER_PROFESSION_KEY
   }
 
@@ -67,18 +67,35 @@ export function getQuestionOptionSource(metadata: unknown): QuestionOptionSource
 
   const kind = getNonEmptyString((optionSource as { kind?: unknown }).kind)
   if (kind === ASSIGNED_AGENTS_OPTION_SOURCE_KIND) {
-    return { kind }
+    const rawLimit = (optionSource as { max_logs_per_agent_per_day?: unknown }).max_logs_per_agent_per_day
+    const parsedLimit =
+      typeof rawLimit === "number" && Number.isInteger(rawLimit) && rawLimit > 0
+        ? rawLimit
+        : rawLimit === null
+          ? null
+          : undefined
+
+    return { kind, max_logs_per_agent_per_day: parsedLimit }
   }
 
   return null
 }
 
-export function isAssignedAgentsQuestion(question: {
-  question_type?: unknown
-  metadata?: unknown
-}): boolean {
-  return getNonEmptyString(question.question_type) === "select" &&
+export function isAssignedAgentsQuestion(question: { question_type?: unknown; metadata?: unknown }): boolean {
+  return (
+    (getNonEmptyString(question.question_type) === "select" ||
+      getNonEmptyString(question.question_type) === "multiselect") &&
     getQuestionOptionSource(question.metadata)?.kind === ASSIGNED_AGENTS_OPTION_SOURCE_KIND
+  )
+}
+
+export function getAssignedAgentsDailyLimit(metadata: unknown): number | null {
+  const source = getQuestionOptionSource(metadata)
+  if (!source || source.kind !== ASSIGNED_AGENTS_OPTION_SOURCE_KIND) {
+    return null
+  }
+
+  return typeof source.max_logs_per_agent_per_day === "number" ? source.max_logs_per_agent_per_day : null
 }
 
 export function parseAgentResponseValue(value: unknown): AgentResponseValue | null {

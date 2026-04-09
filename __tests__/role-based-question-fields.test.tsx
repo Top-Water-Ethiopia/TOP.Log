@@ -1,91 +1,75 @@
 import React from "react"
-import { render, screen } from "@testing-library/react"
+import { fireEvent, render, screen } from "@testing-library/react"
 import { RoleBasedQuestionFields } from "@/components/role-based-question-fields"
+import { validateQuestionResponse } from "@/lib/rbac/utils"
 
 describe("RoleBasedQuestionFields", () => {
-  it("uses normalized validationRules for number and date inputs", () => {
+  it("renders checkbox questions with options as a checkbox list", () => {
+    const onChange = jest.fn()
+
     render(
       <RoleBasedQuestionFields
         questions={[
           {
-            key: "score",
-            label: "Score",
-            type: "number",
+            key: "activities",
+            label: "Activities",
+            type: "checkbox",
+            options: ["Visited stores", "Collected feedback"],
             required: false,
             order: 1,
-            validationRules: {
-              min_value: 10,
-              max_value: 50,
-              step: 5,
-            },
-          },
-          {
-            key: "due-date",
-            label: "Due date",
-            type: "date",
-            required: false,
-            order: 2,
-            validationRules: {
-              min_date: "2026-04-01",
-              max_date: "2026-04-30",
-            },
           },
         ]}
-        responses={{}}
-        onChange={jest.fn()}
-        renderMode="fieldsOnly"
+        responses={{ activities: [] }}
+        onChange={onChange}
       />
     )
 
-    const numberInput = screen.getByRole("spinbutton")
-    expect(numberInput).toHaveAttribute("min", "10")
-    expect(numberInput).toHaveAttribute("max", "50")
-    expect(numberInput).toHaveAttribute("step", "5")
-    expect(screen.queryByText("/100")).not.toBeInTheDocument()
+    expect(screen.getByLabelText("Visited stores")).toBeInTheDocument()
+    expect(screen.getByLabelText("Collected feedback")).toBeInTheDocument()
 
-    const dateInput = document.querySelector('input[type="date"]') as HTMLInputElement
-    expect(dateInput).toHaveAttribute("min", "2026-04-01")
-    expect(dateInput).toHaveAttribute("max", "2026-04-30")
+    fireEvent.click(screen.getByLabelText("Visited stores"))
+
+    expect(onChange).toHaveBeenCalledWith("activities", ["Visited stores"])
   })
 
-  it("uses neutral placeholders and does not force default number bounds", () => {
+  it("renders checkbox questions without options as a single boolean toggle", () => {
+    const onChange = jest.fn()
+
     render(
       <RoleBasedQuestionFields
         questions={[
           {
-            key: "email",
-            label: "Email",
-            type: "email",
+            key: "confirmed",
+            label: "Confirmed",
+            type: "checkbox",
+            placeholder: "Check this option",
             required: false,
             order: 1,
           },
-          {
-            key: "website",
-            label: "Website",
-            type: "url",
-            required: false,
-            order: 2,
-          },
-          {
-            key: "estimate",
-            label: "Estimate",
-            type: "number",
-            required: false,
-            order: 3,
-          },
         ]}
-        responses={{}}
-        onChange={jest.fn()}
-        renderMode="fieldsOnly"
+        responses={{ confirmed: false }}
+        onChange={onChange}
       />
     )
 
-    expect(screen.getByPlaceholderText("name@example.com")).toBeInTheDocument()
-    expect(screen.getByPlaceholderText("https://example.com")).toBeInTheDocument()
+    fireEvent.click(screen.getByLabelText("Check this option"))
 
-    const numberInput = screen.getByRole("spinbutton")
-    expect(numberInput).not.toHaveAttribute("min")
-    expect(numberInput).not.toHaveAttribute("max")
-    expect(numberInput).not.toHaveAttribute("step")
+    expect(onChange).toHaveBeenCalledWith("confirmed", true)
+  })
+
+  it("validates checkbox questions with options as multi-select values", () => {
+    const question = {
+      id: "activities",
+      key: "activities",
+      label: "Activities",
+      type: "checkbox" as const,
+      options: ["Visited stores", "Collected feedback"],
+      required: true,
+      order: 1,
+      category: "profession_question",
+    }
+
+    expect(validateQuestionResponse(question as any, ["Visited stores"])).toBeNull()
+    expect(validateQuestionResponse(question as any, [])).toBe("Please select at least one option")
   })
 })

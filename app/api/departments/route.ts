@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { adminSupabase } from "@/lib/supabase/admin"
+import { normalizeSalesPromoterProfessionKey } from "@/lib/marketing-agents"
 
 export const dynamic = "force-dynamic"
 
@@ -30,6 +31,9 @@ export async function GET() {
         `
         department_id,
         role,
+        department_profession:department_professions!fk_user_department_professions_department_profession (
+          key
+        ),
         department:departments (
           id,
           name,
@@ -98,9 +102,19 @@ export async function GET() {
         description: string | null
         is_active: boolean
       }
-      role: string
+      role: string | null
+      department_profession?: {
+        key: string | null
+      } | null
     }> = []
     if (activeDepartmentRole && activeDepartmentRole.department) {
+      const professionKey =
+        typeof activeDepartmentRole.department_profession?.key === "string"
+          ? normalizeSalesPromoterProfessionKey(activeDepartmentRole.department_profession.key)
+          : typeof activeDepartmentRole.role === "string"
+            ? normalizeSalesPromoterProfessionKey(activeDepartmentRole.role)
+            : null
+
       normalized.push({
         department_id: activeDepartmentRole.department_id,
         department: {
@@ -109,7 +123,8 @@ export async function GET() {
           description: activeDepartmentRole.department.description,
           is_active: activeDepartmentRole.department.is_active,
         },
-        role: activeDepartmentRole.role,
+        role: professionKey,
+        department_profession: professionKey ? { key: professionKey } : null,
       })
     }
 
