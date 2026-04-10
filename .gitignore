@@ -29,3 +29,9 @@ next-env.d.ts.DS_Store
 next-env.d.ts
 
 .DS_Store
+# Supabase temp files
+supabase/.temp/
+
+# Test output logs
+test_output.txt
+
