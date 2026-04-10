@@ -23,7 +23,26 @@ CREATE TABLE IF NOT EXISTS role_questions (
   role_id UUID NOT NULL REFERENCES roles(id) ON DELETE CASCADE,
   question_key TEXT NOT NULL,
   question_label TEXT NOT NULL,
-  question_type TEXT NOT NULL CHECK (question_type IN ('text', 'textarea', 'select', 'multiselect', 'checkbox', 'number', 'date')),
+  question_type TEXT NOT NULL CHECK (
+    question_type IN (
+      'text',
+      'textarea',
+      'select',
+      'multiselect',
+      'checkbox',
+      'number',
+      'date',
+      'email',
+      'url',
+      'phone',
+      'time',
+      'datetime',
+      'rating',
+      'radio',
+      'file',
+      'image'
+    )
+  ),
   question_description TEXT,
   placeholder TEXT,
   options JSONB, -- For select/multiselect types: ["option1", "option2"]
@@ -161,4 +180,3 @@ FOR EACH ROW EXECUTE PROCEDURE update_timestamp();
 CREATE TRIGGER update_role_questions_timestamp
 BEFORE UPDATE ON role_questions
 FOR EACH ROW EXECUTE PROCEDURE update_timestamp();
-

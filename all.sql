@@ -319,7 +319,8 @@ create table public.role_questions (
           'datetime'::text,
           'rating'::text,
           'radio'::text,
-          'file'::text
+          'file'::text,
+          'image'::text
         ]
       )
     )

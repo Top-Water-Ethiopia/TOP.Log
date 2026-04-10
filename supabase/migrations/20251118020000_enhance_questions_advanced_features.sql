@@ -23,7 +23,7 @@ ALTER TABLE role_questions
   ADD CONSTRAINT role_questions_question_type_check 
   CHECK (question_type IN (
     'text', 'textarea', 'select', 'multiselect', 'checkbox', 'number', 'date',
-    'email', 'url', 'phone', 'time', 'datetime', 'rating', 'radio', 'file'
+    'email', 'url', 'phone', 'time', 'datetime', 'rating', 'radio', 'file', 'image'
   ));
 
 -- Add indexes for better performance
@@ -34,7 +34,6 @@ COMMENT ON COLUMN role_questions.conditional_logic IS 'JSON object defining when
 COMMENT ON COLUMN role_questions.help_text IS 'Additional help text or instructions for the question';
 COMMENT ON COLUMN role_questions.default_value IS 'Default value for the question';
 COMMENT ON COLUMN role_questions.pattern IS 'Regex pattern for text validation';
-
 
 
 

@@ -88,7 +88,7 @@ ALTER TABLE public.role_questions
   ADD CONSTRAINT role_questions_question_type_check 
   CHECK (question_type IN (
     'text', 'textarea', 'select', 'multiselect', 'checkbox', 'number', 'date',
-    'email', 'url', 'phone', 'time', 'datetime', 'rating', 'radio', 'file'
+    'email', 'url', 'phone', 'time', 'datetime', 'rating', 'radio', 'file', 'image'
   ));
 
 -- ============================================================================
@@ -168,4 +168,3 @@ FROM pg_policies
 WHERE schemaname = 'public' 
 AND tablename = 'role_questions'
 ORDER BY cmd, policyname;
-
