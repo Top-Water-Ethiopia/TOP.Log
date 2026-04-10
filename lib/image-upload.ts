@@ -2,6 +2,12 @@ import type { CloudinaryUploadAsset } from "@/lib/cloudinary"
 
 export type ImageUploadMode = "single" | "multiple"
 
+// Shared constants to prevent backend-frontend drift
+export const IMAGE_ACCEPTED_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"] as const
+
+export const IMAGE_MAX_SIZE_BYTES = 10 * 1024 * 1024 // 10MB
+export const IMAGE_MAX_FILES = 20
+
 export type AttributedCloudinaryAsset = CloudinaryUploadAsset & {
   uploadedByUserId?: string
   uploadedByDisplayName?: string

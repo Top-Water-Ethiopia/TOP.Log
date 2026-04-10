@@ -7,7 +7,9 @@ import { AlertCircle, Calendar, ExternalLink, Loader2, MapPin, Phone, Shield } f
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { RightSidePanel } from "@/components/ui/right-side-panel"
+import { ImageResponsePreview } from "@/components/image-response-preview"
 import { formatDateHuman } from "@/lib/date-restrictions"
+import { normalizeImageResponseValue } from "@/lib/image-upload"
 
 interface CustomResponse {
   question_id: string
@@ -63,6 +65,18 @@ function formatResponseValue(value: unknown): string {
   }
 
   return String(value)
+}
+
+function renderResponseValue(response: CustomResponse) {
+  const questionType = response.question_type ?? "text"
+  const { value } = response
+  const imageAssets = questionType === "image" ? normalizeImageResponseValue(value) : []
+
+  if (questionType === "image" && imageAssets.length > 0) {
+    return <ImageResponsePreview value={value} />
+  }
+
+  return formatResponseValue(value)
 }
 
 export function LogReportPreviewPanel({ canAccessAdmin, closeHref, reportId }: LogReportPreviewPanelProps) {
@@ -209,7 +223,7 @@ export function LogReportPreviewPanel({ canAccessAdmin, closeHref, reportId }: L
                 <div key={`${response.question_id}-${index}`} className="space-y-2">
                   <div className="text-sm font-semibold">{response.question_label || response.question_key}</div>
                   <div className="bg-muted/40 rounded-lg border p-3 text-sm whitespace-pre-wrap">
-                    {formatResponseValue(response.value)}
+                    {renderResponseValue(response)}
                   </div>
                 </div>
               ))}

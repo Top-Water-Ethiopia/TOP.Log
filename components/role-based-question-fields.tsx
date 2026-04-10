@@ -1,6 +1,6 @@
 "use client"
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/textarea"
@@ -14,9 +14,13 @@ import { cn } from "@/lib/utils"
 import { apiFetch } from "@/lib/api-client"
 import type { CloudinaryResourceType, CloudinaryUploadAsset } from "@/lib/cloudinary"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
+import { Upload } from "lucide-react"
 import {
   getImageUploadMode,
   normalizeImageResponseValue,
+  IMAGE_ACCEPTED_TYPES,
+  IMAGE_MAX_SIZE_BYTES,
+  IMAGE_MAX_FILES,
   type AttributedCloudinaryAsset,
   type ImageUploadMode,
 } from "@/lib/image-upload"
@@ -96,15 +100,14 @@ export function RoleBasedQuestionFields({
   renderMode = "full",
 }: RoleBasedQuestionFieldsProps) {
   const { user, profile } = useSupabaseAuth()
+  const hasQuestions = questions.length > 0
   const [uploadStates, setUploadStates] = useState<Record<string, UploadState>>({})
   const [imageUploadSlots, setImageUploadSlots] = useState<Record<string, ImageUploadSlot[]>>({})
+  const [imageDragStates, setImageDragStates] = useState<Record<string, boolean>>({})
+  const [imageAnnouncements, setImageAnnouncements] = useState<Record<string, string>>({})
   const activeImageUploadsRef = useRef<Record<string, XMLHttpRequest>>({})
   const imageUploadSlotsRef = useRef<Record<string, ImageUploadSlot[]>>({})
   const imageBlockingStateRef = useRef<Record<string, boolean>>({})
-
-  if (questions.length === 0) {
-    return null
-  }
 
   useEffect(() => {
     imageUploadSlotsRef.current = imageUploadSlots
@@ -177,7 +180,9 @@ export function RoleBasedQuestionFields({
       ...prev,
       [questionKey]: {
         isUploading: next.isUploading ?? prev[questionKey]?.isUploading ?? false,
-        error: Object.prototype.hasOwnProperty.call(next, "error") ? next.error ?? null : prev[questionKey]?.error ?? null,
+        error: Object.prototype.hasOwnProperty.call(next, "error")
+          ? (next.error ?? null)
+          : (prev[questionKey]?.error ?? null),
       },
     }))
   }, [])
@@ -254,19 +259,22 @@ export function RoleBasedQuestionFields({
     [onChange]
   )
 
-  const updateImageSlots = useCallback((questionKey: string, updater: (currentSlots: ImageUploadSlot[]) => ImageUploadSlot[]) => {
-    const currentSlots = imageUploadSlotsRef.current[questionKey] || []
-    const nextSlots = updater(currentSlots)
-    imageUploadSlotsRef.current = {
-      ...imageUploadSlotsRef.current,
-      [questionKey]: nextSlots,
-    }
-    setImageUploadSlots((prev) => ({
-      ...prev,
-      [questionKey]: nextSlots,
-    }))
-    return nextSlots
-  }, [])
+  const updateImageSlots = useCallback(
+    (questionKey: string, updater: (currentSlots: ImageUploadSlot[]) => ImageUploadSlot[]) => {
+      const currentSlots = imageUploadSlotsRef.current[questionKey] || []
+      const nextSlots = updater(currentSlots)
+      imageUploadSlotsRef.current = {
+        ...imageUploadSlotsRef.current,
+        [questionKey]: nextSlots,
+      }
+      setImageUploadSlots((prev) => ({
+        ...prev,
+        [questionKey]: nextSlots,
+      }))
+      return nextSlots
+    },
+    []
+  )
 
   const uploadImageSlot = useCallback(
     async (questionKey: string, slotId: string, file: File) => {
@@ -295,9 +303,7 @@ export function RoleBasedQuestionFields({
             if (!event.lengthComputable) return
             const nextProgress = Math.min(99, Math.round((event.loaded / event.total) * 100))
             updateImageSlots(questionKey, (currentSlots) =>
-              currentSlots.map((slot) =>
-                slot.id === slotId ? { ...slot, progressPercent: nextProgress } : slot
-              )
+              currentSlots.map((slot) => (slot.id === slotId ? { ...slot, progressPercent: nextProgress } : slot))
             )
           }
 
@@ -392,7 +398,8 @@ export function RoleBasedQuestionFields({
     async (question: any, files: FileList | File[]) => {
       const selectedFiles = Array.from(files)
       const questionKey = question.key
-      const uploadMode = ((question.imageUploadMode as ImageUploadMode | undefined) || getImageUploadMode(question.metadata))
+      const uploadMode =
+        (question.imageUploadMode as ImageUploadMode | undefined) || getImageUploadMode(question.metadata)
 
       const existingSlots = imageUploadSlots[questionKey] || []
       const currentAssets = normalizeImageResponseValue(responses[questionKey])
@@ -401,7 +408,10 @@ export function RoleBasedQuestionFields({
 
       if (selectedFiles.length > maxAdditional && uploadMode === "multiple") {
         updateUploadState(questionKey, {
-          error: maxAdditional === 0 ? "You can upload up to 20 images for this question." : `Only ${maxAdditional} more image(s) can be uploaded.`,
+          error:
+            maxAdditional === 0
+              ? "You can upload up to 20 images for this question."
+              : `Only ${maxAdditional} more image(s) can be uploaded.`,
         })
       } else {
         updateUploadState(questionKey, { error: null })
@@ -431,7 +441,9 @@ export function RoleBasedQuestionFields({
         previewUrl: URL.createObjectURL(file),
       }))
 
-      updateImageSlots(questionKey, (currentSlots) => (uploadMode === "single" ? nextSlots : [...currentSlots, ...nextSlots]))
+      updateImageSlots(questionKey, (currentSlots) =>
+        uploadMode === "single" ? nextSlots : [...currentSlots, ...nextSlots]
+      )
 
       syncImageResponse(questionKey, uploadMode === "single" ? [] : existingSlots)
 
@@ -443,7 +455,8 @@ export function RoleBasedQuestionFields({
   const renderField = (question: any, value: any, error?: string) => {
     const validationRules = (question?.validationRules || question?.validation || {}) as any
     const uploadState = uploadStates[question.key]
-    const imageUploadMode = ((question.imageUploadMode as ImageUploadMode | undefined) || getImageUploadMode(question.metadata))
+    const imageUploadMode =
+      (question.imageUploadMode as ImageUploadMode | undefined) || getImageUploadMode(question.metadata)
     const normalizedImageAssets = question.type === "image" ? normalizeImageResponseValue(value) : []
     const slots = question.type === "image" ? imageUploadSlots[question.key] || [] : []
 
@@ -928,25 +941,179 @@ export function RoleBasedQuestionFields({
         )
 
       case "image":
+        const totalImages = slots.length + normalizedImageAssets.length
+        const maxReached = totalImages >= IMAGE_MAX_FILES
+        const isDragging = !!imageDragStates[question.key]
+        const announcement = imageAnnouncements[question.key] || ""
+
+        const handleDragOver = (e: React.DragEvent) => {
+          e.preventDefault()
+          if (maxReached) return
+          setImageDragStates((prev) => ({ ...prev, [question.key]: true }))
+        }
+
+        const handleDragLeave = (e: React.DragEvent) => {
+          e.preventDefault()
+          setImageDragStates((prev) => ({ ...prev, [question.key]: false }))
+        }
+
+        const validateAndFilterFiles = (files: FileList | File[]) => {
+          const fileArray = Array.from(files)
+          const validFiles: File[] = []
+          const invalidReasons: string[] = []
+
+          for (const file of fileArray) {
+            const typeOk = IMAGE_ACCEPTED_TYPES.includes(file.type as (typeof IMAGE_ACCEPTED_TYPES)[number])
+            const sizeOk = file.size <= IMAGE_MAX_SIZE_BYTES
+
+            if (!typeOk) {
+              invalidReasons.push(`${file.name}: invalid type`)
+            } else if (!sizeOk) {
+              invalidReasons.push(`${file.name}: exceeds 10MB`)
+            } else {
+              validFiles.push(file)
+            }
+          }
+
+          return { validFiles, invalidCount: invalidReasons.length }
+        }
+
+        const processFiles = async (files: FileList | File[]) => {
+          const { validFiles, invalidCount } = validateAndFilterFiles(files)
+
+          // Report validation errors
+          if (invalidCount > 0) {
+            updateUploadState(question.key, {
+              error: `${invalidCount} file(s) skipped (invalid type or too large)`,
+            })
+          }
+
+          if (validFiles.length === 0) return
+
+          // Check max files constraint
+          const remainingSlots = IMAGE_MAX_FILES - totalImages
+          const filesToUpload = validFiles.slice(0, remainingSlots)
+          const excessCount = validFiles.length - filesToUpload.length
+
+          if (excessCount > 0) {
+            updateUploadState(question.key, {
+              error: `Only ${filesToUpload.length} of ${validFiles.length} files can be uploaded (max ${IMAGE_MAX_FILES} images)`,
+            })
+          }
+
+          if (filesToUpload.length > 0) {
+            setImageAnnouncements((prev) => ({
+              ...prev,
+              [question.key]: `${filesToUpload.length} image${filesToUpload.length === 1 ? "" : "s"} uploading`,
+            }))
+            await queueImageUploads(question, filesToUpload)
+            setImageAnnouncements((prev) => ({
+              ...prev,
+              [question.key]: `Upload complete. ${totalImages + filesToUpload.length} total images.`,
+            }))
+          }
+        }
+
+        const handleDrop = async (e: React.DragEvent) => {
+          e.preventDefault()
+          setImageDragStates((prev) => ({ ...prev, [question.key]: false }))
+          if (maxReached) return
+          const files = e.dataTransfer.files
+          if (files?.length) {
+            await processFiles(files)
+          }
+        }
+
+        const handleFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
+          const files = event.target.files
+          if (files?.length) {
+            await processFiles(files)
+            // Reset input to allow same-file reselection
+            event.target.value = ""
+          }
+        }
+
+        // Build cumulative aria-describedby (hint + error)
+        const hintId = `${question.key}-hint`
+        const errorId = `${question.key}-error`
+        const describedByIds = [hintId]
+        if (error) describedByIds.push(errorId)
+        const ariaDescribedByIds = describedByIds.join(" ")
+
         return (
           <div className="space-y-3">
-            <Input
-              id={question.key}
-              type="file"
-              multiple={imageUploadMode === "multiple"}
-              onChange={async (event) => {
-                const files = event.target.files
-                if (files?.length) {
-                  await queueImageUploads(question, files)
-                  event.target.value = ""
-                }
-              }}
-              accept="image/*"
-              aria-invalid={ariaInvalid}
-              aria-describedby={ariaDescribedBy}
-              className={error ? "border-destructive" : ""}
-            />
-            {uploadState?.error ? <p className="text-destructive text-sm">{uploadState.error}</p> : null}
+            {/* Screen reader announcement region */}
+            <div aria-live="polite" aria-atomic="true" className="sr-only">
+              {announcement}
+            </div>
+
+            {/* Upload Dropzone */}
+            <div
+              onDragOver={handleDragOver}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              className={cn(
+                "relative rounded-lg border-2 border-dashed transition-all duration-200",
+                isDragging && !maxReached
+                  ? "border-primary bg-primary/5"
+                  : "border-muted-foreground/25 hover:border-muted-foreground/50",
+                error && "border-destructive",
+                maxReached && "opacity-60"
+              )}
+            >
+              {/* sr-only Native Input */}
+              <input
+                id={`${question.key}-file-input`}
+                type="file"
+                className="sr-only"
+                multiple={imageUploadMode === "multiple"}
+                onChange={handleFileSelect}
+                accept={IMAGE_ACCEPTED_TYPES.join(",")}
+                aria-label={imageUploadMode === "multiple" ? "Upload multiple images" : "Upload an image"}
+                aria-describedby={ariaDescribedByIds}
+                aria-invalid={!!error}
+                disabled={maxReached}
+              />
+
+              {/* Visible Upload Button Area */}
+              <div className="flex flex-col items-center justify-center gap-3 p-6 text-center">
+                <button
+                  type="button"
+                  onClick={() => document.getElementById(`${question.key}-file-input`)?.click()}
+                  disabled={maxReached}
+                  className={cn(
+                    "inline-flex items-center gap-2 rounded-md px-4 py-2 text-sm font-medium transition-colors",
+                    maxReached
+                      ? "bg-muted text-muted-foreground cursor-not-allowed"
+                      : "bg-primary text-primary-foreground hover:bg-primary/90"
+                  )}
+                >
+                  <Upload className="h-4 w-4" />
+                  <span>{imageUploadMode === "multiple" ? "Upload images" : "Upload image"}</span>
+                </button>
+
+                <div id={hintId} className="space-y-1">
+                  <p className="text-muted-foreground text-xs">Drag and drop or click to browse</p>
+                  <p className="text-muted-foreground/70 text-xs">JPG, PNG, GIF, WebP up to 10MB</p>
+                </div>
+
+                {totalImages > 0 && (
+                  <p className="text-muted-foreground text-xs">
+                    {totalImages} {totalImages === 1 ? "image" : "images"} selected
+                  </p>
+                )}
+
+                {maxReached && (
+                  <p className="text-muted-foreground text-xs">Maximum {IMAGE_MAX_FILES} images reached</p>
+                )}
+              </div>
+            </div>
+
+            {uploadState?.error ? (
+              <p id={errorId} className="text-destructive text-sm">
+                {uploadState.error}
+              </p>
+            ) : null}
             {slots.length > 0 ? (
               <div className="space-y-3">
                 {slots.map((slot) => (
@@ -1062,6 +1229,10 @@ export function RoleBasedQuestionFields({
           />
         )
     }
+  }
+
+  if (!hasQuestions) {
+    return null
   }
 
   return (

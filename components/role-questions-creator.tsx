@@ -1045,7 +1045,6 @@ export function RoleQuestionsCreator() {
                   setSelectedDepartmentForRole(null)
                   setDepartmentRoles([])
                   setQuestions([])
-                  setCurrentQuestionIndex(0)
                   setRoleQuestionCount(0)
                 }}
               >
@@ -1306,7 +1305,6 @@ export function RoleQuestionsCreator() {
                   const existing = prev.length > 0 ? prev : [createEmptyQuestion(0)]
                   return [...existing, createEmptyQuestion(existing.length)]
                 })
-                setCurrentQuestionIndex(0)
                 setCurrentStep("questions")
               }}
               className="flex-1"
@@ -1321,7 +1319,6 @@ export function RoleQuestionsCreator() {
                 setSelectedDepartmentForRole(null)
                 setSelectedDepartment(null)
                 setQuestions([])
-                setCurrentQuestionIndex(0)
                 setCreatedQuestions([])
                 setCurrentStep("questions")
               }}
