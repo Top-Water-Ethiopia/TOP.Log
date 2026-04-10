@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect, useRef, useCallback, useMemo } from "react"
+import { useState, useEffect, useRef, useCallback, useMemo, useLayoutEffect } from "react"
 import { useRouter, useSearchParams } from "next/navigation"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -28,6 +28,8 @@ import {
   Users,
   FileText,
   ChevronRight,
+  ChevronUp,
+  ChevronDown,
 } from "lucide-react"
 import { findDuplicateValues, normalizeQuestionKey } from "@/lib/role-question-identity"
 import { isDepartmentReportQuestion, matchesProfessionQuestion } from "@/lib/reporting-model"
@@ -49,6 +51,7 @@ import {
   getDefaultEntryKind,
   findEntryKindConfig,
 } from "@/lib/entry-kinds"
+import { getImageUploadMode, type ImageUploadMode } from "@/lib/image-upload"
 
 type ApiRoleQuestion = {
   id?: unknown
@@ -114,6 +117,7 @@ function createEmptyQuestion(displayOrder = 0, defaultEntryKind: string = "stand
     option_source_kind: "static",
     max_logs_per_agent_per_day: null,
     entry_kind: defaultEntryKind,
+    image_upload_mode: "single",
   }
 }
 
@@ -137,12 +141,66 @@ export function filterQuestionsForEntryKind(questions: QuestionFormData[], entry
 }
 
 export function removeQuestionFromList(questions: QuestionFormData[], id: string): QuestionFormData[] {
+  const targetQuestion = questions.find((question) => question.id === id)
+  if (!targetQuestion) return questions
+
+  const targetEntryKind = targetQuestion.entry_kind || "standard"
+  const remainingInEntryKind = questions.filter(
+    (question) => question.id !== id && (question.entry_kind || "standard") === targetEntryKind
+  )
+  const reindexedById = new Map(
+    remainingInEntryKind.map((question, index) => [question.id, { ...question, display_order: index }])
+  )
+
   return questions
-    .filter((q) => q.id !== id)
-    .map((q, index) => ({
-      ...q,
-      display_order: index,
-    }))
+    .filter((question) => question.id !== id)
+    .map((question) => reindexedById.get(question.id) || { ...question })
+}
+
+type ReorderQuestionsParams = {
+  questions: QuestionFormData[]
+  entryKind: string
+  questionId: string
+  direction: "up" | "down"
+}
+
+export function reorderQuestions({
+  questions,
+  entryKind,
+  questionId,
+  direction,
+}: ReorderQuestionsParams): QuestionFormData[] {
+  const questionsInEntryKind = questions.filter((question) => (question.entry_kind || "standard") === entryKind)
+  const currentIndex = questionsInEntryKind.findIndex((question) => question.id === questionId)
+
+  if (currentIndex === -1) return questions
+
+  const nextIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1
+  if (nextIndex < 0 || nextIndex >= questionsInEntryKind.length) return questions
+
+  const reorderedSubset = questionsInEntryKind.map((question) => ({ ...question }))
+  const [movedQuestion] = reorderedSubset.splice(currentIndex, 1)
+
+  if (!movedQuestion) return questions
+
+  reorderedSubset.splice(nextIndex, 0, movedQuestion)
+
+  const reorderedById = new Map(
+    reorderedSubset.map((question, index) => [question.id, { ...question, display_order: index }])
+  )
+
+  const reorderedInSlotOrder = reorderedSubset.map((question) => reorderedById.get(question.id) || question)
+  let reorderedIndex = 0
+
+  return questions.map((question) => {
+    if ((question.entry_kind || "standard") !== entryKind) {
+      return { ...question }
+    }
+
+    const reorderedQuestion = reorderedInSlotOrder[reorderedIndex]
+    reorderedIndex += 1
+    return reorderedQuestion || { ...question }
+  })
 }
 
 interface Department {
@@ -183,6 +241,7 @@ interface QuestionFormData {
   option_source_kind: "static" | typeof ASSIGNED_AGENTS_OPTION_SOURCE_KIND
   max_logs_per_agent_per_day: number | null
   entry_kind?: string
+  image_upload_mode: ImageUploadMode
 }
 
 function normalizeQuestionEntryKind(entryKind: string | null | undefined, fallbackEntryKind: string): string {
@@ -282,13 +341,15 @@ export function RoleQuestionsCreator() {
   const [selectedDepartmentForRole, setSelectedDepartmentForRole] = useState<Department | null>(null)
   const [isLoadingExistingQuestions, setIsLoadingExistingQuestions] = useState(false)
   const [questions, setQuestions] = useState<QuestionFormData[]>([])
-  const [currentQuestionIndex, setCurrentQuestionIndex] = useState(0)
+  const [currentQuestionId, setCurrentQuestionId] = useState<string | null>(null)
   const [activeEntryKindTab, setActiveEntryKindTab] = useState<string>("standard")
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [createdQuestions, setCreatedQuestions] = useState<SavedQuestion[]>([])
   const [roleQuestionCount, setRoleQuestionCount] = useState(0)
   const [showPreview, setShowPreview] = useState(true)
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
+  const moveButtonRefs = useRef<Record<string, { up?: HTMLButtonElement | null; down?: HTMLButtonElement | null }>>({})
+  const pendingFocusRef = useRef<{ questionId: string; direction: "up" | "down" } | null>(null)
 
   // Scope-partitioned drafts: store unsaved questions per scope
   const [scopeDrafts, setScopeDrafts] = useState<Record<string, QuestionFormData[]>>({})
@@ -346,7 +407,7 @@ export function RoleQuestionsCreator() {
 
     const sanitized = sanitizeQuestionsForScope(draft, entryKinds, defaultEntryKind, activeEntryKindTab)
     setQuestions(sanitized.questions)
-    setCurrentQuestionIndex(0)
+    setCurrentQuestionId(sanitized.questions[0]?.id ?? null)
     setActiveEntryKindTab(sanitized.activeEntryKindTab)
   }, [activeEntryKindTab, defaultEntryKind, entryKinds, hasUnsavedChanges, isLoadingEntryKinds, scopeDrafts, scopeKey])
 
@@ -460,7 +521,7 @@ export function RoleQuestionsCreator() {
         if (!response.ok) {
           setRoleQuestionCount(0)
           setQuestions([createEmptyQuestion(0)])
-          setCurrentQuestionIndex(0)
+          setCurrentQuestionId(null)
           return
         }
 
@@ -488,8 +549,9 @@ export function RoleQuestionsCreator() {
         setRoleQuestionCount(scopeQuestions.length)
 
         if (scopeQuestions.length === 0) {
-          setQuestions([createEmptyQuestion(0)])
-          setCurrentQuestionIndex(0)
+          const emptyQuestion = createEmptyQuestion(0)
+          setQuestions([emptyQuestion])
+          setCurrentQuestionId(emptyQuestion.id)
           return
         }
 
@@ -525,11 +587,12 @@ export function RoleQuestionsCreator() {
                 : "static",
             max_logs_per_agent_per_day: getAssignedAgentsDailyLimit(q.metadata),
             entry_kind: (asString(q.entry_kind) as string) || "standard",
+            image_upload_mode: type === "image" ? getImageUploadMode(q.metadata) : "single",
           }
         })
 
         setQuestions(mapped)
-        setCurrentQuestionIndex(0)
+        setCurrentQuestionId(mapped[0]?.id ?? null)
         setHasUnsavedChanges(false)
       } catch (error) {
         console.error("Error loading role questions:", error)
@@ -566,7 +629,9 @@ export function RoleQuestionsCreator() {
 
     if (questionsChanged) {
       setQuestions(sanitized.questions)
-      setCurrentQuestionIndex(0)
+      setCurrentQuestionId((currentId) =>
+        sanitized.questions.some((question) => question.id === currentId) ? currentId : sanitized.questions[0]?.id ?? null
+      )
       setHasUnsavedChanges(false)
     }
 
@@ -588,8 +653,9 @@ export function RoleQuestionsCreator() {
     // Set active tab to match default entry_kind
     setActiveEntryKindTab(initialEntryKind)
 
-    setQuestions([createEmptyQuestion(0, initialEntryKind)])
-    setCurrentQuestionIndex(0)
+    const initialQuestion = createEmptyQuestion(0, initialEntryKind)
+    setQuestions([initialQuestion])
+    setCurrentQuestionId(initialQuestion.id)
     setHasUnsavedChanges(false)
   }, [
     questionScope,
@@ -605,8 +671,9 @@ export function RoleQuestionsCreator() {
     // Use active tab's entry_kind for new question, but only if it's an active entry kind
     const currentTabIsActive = activeEntryKinds.some((k) => k.entry_kind === activeEntryKindTab)
     const entryKindForNewQuestion = currentTabIsActive ? activeEntryKindTab : defaultEntryKind
-    setQuestions((prev) => [...prev, createEmptyQuestion(prev.length, entryKindForNewQuestion)])
-    setCurrentQuestionIndex(filteredQuestions.length)
+    const newQuestion = createEmptyQuestion(filteredQuestions.length, entryKindForNewQuestion)
+    setQuestions((prev) => [...prev, newQuestion])
+    setCurrentQuestionId(newQuestion.id)
     setHasUnsavedChanges(true)
   }
 
@@ -615,13 +682,24 @@ export function RoleQuestionsCreator() {
     const remainingVisibleQuestions = filterQuestionsForEntryKind(reordered, activeEntryKindTab)
     setQuestions(reordered)
     setHasUnsavedChanges(true)
-    if (currentQuestionIndex >= remainingVisibleQuestions.length) {
-      setCurrentQuestionIndex(Math.max(0, remainingVisibleQuestions.length - 1))
-    }
+    setCurrentQuestionId((currentId) => {
+      if (currentId && remainingVisibleQuestions.some((question) => question.id === currentId)) {
+        return currentId
+      }
+
+      return remainingVisibleQuestions[0]?.id ?? reordered[0]?.id ?? null
+    })
   }
 
   const updateQuestion = (id: string, updates: Partial<QuestionFormData>) => {
     setQuestions((prev) => prev.map((q) => (q.id === id ? { ...q, ...updates } : q)))
+    setHasUnsavedChanges(true)
+  }
+
+  const moveQuestion = (id: string, direction: "up" | "down") => {
+    pendingFocusRef.current = { questionId: id, direction }
+    setQuestions((prev) => reorderQuestions({ questions: prev, entryKind: activeEntryKindTab, questionId: id, direction }))
+    setCurrentQuestionId(id)
     setHasUnsavedChanges(true)
   }
 
@@ -631,7 +709,7 @@ export function RoleQuestionsCreator() {
     const department = departments.find((d) => d.id === departmentId)
     if (department) {
       setQuestions([])
-      setCurrentQuestionIndex(0)
+      setCurrentQuestionId(null)
       setSelectedDepartment(department)
       setHasUnsavedChanges(false)
     }
@@ -643,7 +721,7 @@ export function RoleQuestionsCreator() {
     const department = departments.find((d) => d.id === departmentId)
     if (department) {
       setQuestions([])
-      setCurrentQuestionIndex(0)
+      setCurrentQuestionId(null)
       setSelectedDepartmentForRole(department)
       setSelectedDepartmentRole(null)
       setHasUnsavedChanges(false)
@@ -662,7 +740,7 @@ export function RoleQuestionsCreator() {
     const role = departmentRoles.find((r) => r.key === roleKey)
     if (role) {
       setQuestions([])
-      setCurrentQuestionIndex(0)
+      setCurrentQuestionId(null)
       setSelectedDepartmentRole(role)
       setHasUnsavedChanges(false)
       // Update URL with roleId
@@ -700,6 +778,29 @@ export function RoleQuestionsCreator() {
   const filteredQuestions = useMemo(() => {
     return filterQuestionsForEntryKind(questions, activeEntryKindTab)
   }, [questions, activeEntryKindTab])
+
+  useEffect(() => {
+    if (filteredQuestions.length === 0) {
+      setCurrentQuestionId((currentId) => (currentId && questions.some((question) => question.id === currentId) ? currentId : null))
+      return
+    }
+
+    setCurrentQuestionId((currentId) =>
+      currentId && filteredQuestions.some((question) => question.id === currentId) ? currentId : filteredQuestions[0]?.id ?? null
+    )
+  }, [filteredQuestions, questions])
+
+  useLayoutEffect(() => {
+    const pendingFocus = pendingFocusRef.current
+    if (!pendingFocus) return
+
+    const button = moveButtonRefs.current[pendingFocus.questionId]?.[pendingFocus.direction]
+    if (button && !button.disabled) {
+      button.focus()
+    }
+
+    pendingFocusRef.current = null
+  }, [questions])
 
   // Count questions per tab - dynamic based on available entry kinds
   const tabCounts = useMemo(() => {
@@ -836,6 +937,7 @@ export function RoleQuestionsCreator() {
           entry_kind: q.entry_kind || "standard",
           metadata: {
             legacy_question_key: resolvedKey,
+            ...(q.question_type === "image" ? { image_upload_mode: q.image_upload_mode } : {}),
             ...(q.option_source_kind === ASSIGNED_AGENTS_OPTION_SOURCE_KIND
               ? {
                   option_source: {
@@ -1430,18 +1532,29 @@ export function RoleQuestionsCreator() {
                   filteredQuestions.map((q, idx) => (
                     <div
                       key={q.id}
-                      className={idx === currentQuestionIndex ? "ring-primary/20 rounded-xl ring-2" : ""}
-                      onClick={() => setCurrentQuestionIndex(idx)}
+                      className={q.id === currentQuestionId ? "ring-primary/20 rounded-xl ring-2" : ""}
+                      onClick={() => setCurrentQuestionId(q.id)}
                     >
                       <QuestionForm
                         question={q}
                         index={idx}
                         onUpdate={(updates) => updateQuestion(q.id, updates)}
                         onRemove={() => removeQuestion(q.id)}
+                        onMoveUp={() => moveQuestion(q.id, "up")}
+                        onMoveDown={() => moveQuestion(q.id, "down")}
+                        canMoveUp={idx > 0 && !isSubmitting}
+                        canMoveDown={idx < filteredQuestions.length - 1 && !isSubmitting}
                         canRemove={filteredQuestions.length > 1 || questions.length > 1}
+                        isSubmitting={isSubmitting}
                         activeEntryKindTab={activeEntryKindTab}
                         onMoveEntryKind={(newEntryKind) => updateQuestion(q.id, { entry_kind: newEntryKind })}
                         entryKinds={entryKinds}
+                        registerMoveButtonRef={(direction, node) => {
+                          moveButtonRefs.current[q.id] = {
+                            ...moveButtonRefs.current[q.id],
+                            [direction]: node,
+                          }
+                        }}
                       />
                     </div>
                   ))
@@ -1554,10 +1667,16 @@ interface QuestionFormProps {
   index: number
   onUpdate: (updates: Partial<QuestionFormData>) => void
   onRemove: () => void
+  onMoveUp: () => void
+  onMoveDown: () => void
+  canMoveUp: boolean
+  canMoveDown: boolean
   canRemove: boolean
+  isSubmitting: boolean
   activeEntryKindTab?: string
   onMoveEntryKind?: (newEntryKind: string) => void
   entryKinds?: ScopeEntryKind[]
+  registerMoveButtonRef: (direction: "up" | "down", node: HTMLButtonElement | null) => void
 }
 
 function QuestionForm({
@@ -1565,10 +1684,16 @@ function QuestionForm({
   index,
   onUpdate,
   onRemove,
+  onMoveUp,
+  onMoveDown,
+  canMoveUp,
+  canMoveDown,
   canRemove,
+  isSubmitting,
   activeEntryKindTab,
   onMoveEntryKind,
   entryKinds = [],
+  registerMoveButtonRef,
 }: QuestionFormProps) {
   const [optionInput, setOptionInput] = useState("")
   const [isExpanded, setIsExpanded] = useState(true)
@@ -1635,6 +1760,7 @@ function QuestionForm({
       question_type: value,
       option_source_kind: "static",
       max_logs_per_agent_per_day: null,
+      image_upload_mode: value === "image" ? question.image_upload_mode : "single",
       options:
         value === "radio" || value === "multiselect" || value === "rating" || value === "checkbox"
           ? question.options
@@ -1671,6 +1797,28 @@ function QuestionForm({
             <Button variant="ghost" size="sm" onClick={() => setIsExpanded(!isExpanded)}>
               {isExpanded ? <X className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
             </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onMoveUp}
+              disabled={!canMoveUp}
+              title="Move question up"
+              aria-label="Move question up"
+              ref={(node) => registerMoveButtonRef("up", node)}
+            >
+              <ChevronUp className="h-4 w-4" />
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={onMoveDown}
+              disabled={!canMoveDown}
+              title="Move question down"
+              aria-label="Move question down"
+              ref={(node) => registerMoveButtonRef("down", node)}
+            >
+              <ChevronDown className="h-4 w-4" />
+            </Button>
             {onMoveEntryKind && (
               <div className="relative">
                 <Button
@@ -1678,6 +1826,7 @@ function QuestionForm({
                   size="sm"
                   onClick={() => setShowMoveMenu(!showMoveMenu)}
                   title="Move to another category"
+                  disabled={isSubmitting}
                 >
                   <ChevronRight className="h-4 w-4" />
                 </Button>
@@ -1742,9 +1891,53 @@ function QuestionForm({
                 <SelectItem value="checkbox">Checkbox</SelectItem>
                 <SelectItem value="rating">Rating Scale</SelectItem>
                 <SelectItem value="file">File Upload</SelectItem>
+                <SelectItem value="image">Image Upload</SelectItem>
               </SelectContent>
             </Select>
           </div>
+
+          {question.question_type === "image" && (
+            <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <div className="space-y-1">
+                <Label>Image upload mode</Label>
+                <p className="text-muted-foreground text-xs">
+                  Choose whether this question accepts one image or multiple images.
+                </p>
+              </div>
+              <RadioGroup
+                value={question.image_upload_mode}
+                onValueChange={(value) =>
+                  onUpdate({
+                    image_upload_mode: value === "multiple" ? "multiple" : "single",
+                  })
+                }
+              >
+                <div className="flex items-start gap-3 rounded-md border border-slate-200 bg-white p-3">
+                  <RadioGroupItem value="single" id={`question-${question.id}-image-mode-single`} />
+                  <div className="space-y-1">
+                    <Label htmlFor={`question-${question.id}-image-mode-single`} className="cursor-pointer font-medium">
+                      Single image
+                    </Label>
+                    <p className="text-muted-foreground text-xs">Stores one uploaded image for this answer.</p>
+                  </div>
+                </div>
+                <div className="flex items-start gap-3 rounded-md border border-slate-200 bg-white p-3">
+                  <RadioGroupItem value="multiple" id={`question-${question.id}-image-mode-multiple`} />
+                  <div className="space-y-1">
+                    <Label
+                      htmlFor={`question-${question.id}-image-mode-multiple`}
+                      className="cursor-pointer font-medium"
+                    >
+                      Multiple images
+                    </Label>
+                    <p className="text-muted-foreground text-xs">
+                      Allows several uploaded images for this answer.
+                    </p>
+                  </div>
+                </div>
+              </RadioGroup>
+            </div>
+          )}
 
           {/* Entry Kind Badge - Display only, no editing */}
           <div className="flex items-center gap-2">
@@ -2460,9 +2653,10 @@ function QuestionPreview({ question, isPreviewMode = false, displayIndex }: Ques
         </div>
       )}
 
-      {question.question_type === "file" && (
+      {(question.question_type === "file" || question.question_type === "image") && (
         <Input
           type="file"
+          accept={question.question_type === "image" ? "image/*" : undefined}
           onChange={(e) => {
             const file = e.target.files?.[0]
             if (file) {

@@ -4,6 +4,7 @@ import { toast } from "sonner"
 import { apiFetch, getErrorMessage } from "@/lib/api-client"
 import { getQuestionCategory } from "@/lib/reporting-model"
 import { getQuestionOptionSource } from "@/lib/marketing-agents"
+import { getImageUploadMode } from "@/lib/image-upload"
 import useSWR from "swr"
 
 export interface RoleQuestion {
@@ -120,6 +121,7 @@ export function useRoleQuestions(
         order: q.display_order,
         validationRules: q.validation_rules || undefined,
         metadata: q.metadata,
+        imageUploadMode: q.question_type === "image" ? getImageUploadMode(q.metadata) : undefined,
         optionSourceKind: optionSource?.kind,
         defaultValue:
           q.question_type === "checkbox"

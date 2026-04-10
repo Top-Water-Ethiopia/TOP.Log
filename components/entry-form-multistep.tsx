@@ -18,6 +18,7 @@ import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { useRBAC } from "@/hooks/use-rbac"
 import { useRoleQuestions, type RoleQuestion } from "@/hooks/use-role-questions"
 import { RoleBasedQuestionFields } from "@/components/role-based-question-fields"
+import { ImageResponsePreview } from "@/components/image-response-preview"
 import { DateRestrictionBanner, QuickDateChips } from "@/components/features/daily-log/molecules"
 import { EntryKindDropdown } from "@/components/entry-kind-dropdown"
 import type { CustomQuestion, QuestionResponse } from "@/lib/rbac/types"
@@ -412,6 +413,7 @@ export function EntryFormMultistep({
   })
   const [customResponses, setCustomResponses] = useState<Record<string, unknown>>({})
   const [customErrors, setCustomErrors] = useState<Record<string, string>>({})
+  const [pendingUploadQuestions, setPendingUploadQuestions] = useState<Record<string, boolean>>({})
   const [dateError, setDateError] = useState<string | null>(null)
   const [liveMessage, setLiveMessage] = useState("")
   const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null)
@@ -1217,6 +1219,26 @@ export function EntryFormMultistep({
     [markAsChanged]
   )
 
+  const handleUploadPendingStateChange = useCallback((questionKey: string, hasBlockingUploads: boolean) => {
+    setPendingUploadQuestions((prev) => {
+      if (hasBlockingUploads) {
+        if (prev[questionKey]) {
+          return prev
+        }
+
+        return { ...prev, [questionKey]: true }
+      }
+
+      if (!prev[questionKey]) {
+        return prev
+      }
+
+      const next = { ...prev }
+      delete next[questionKey]
+      return next
+    })
+  }, [])
+
   const validateCustomResponses = useCallback(() => {
     if (effectiveRoleQuestions.length === 0) {
       return true
@@ -1300,6 +1322,11 @@ export function EntryFormMultistep({
   )
 
   const handleNext = () => {
+    if (isCurrentStepUploadBlocked) {
+      setLiveMessage("Finish uploading all images before continuing.")
+      return
+    }
+
     const currentIndex = currentStep - 1
     if (!validateStepByIndex(currentIndex)) {
       return
@@ -1348,6 +1375,11 @@ export function EntryFormMultistep({
     }
 
     // Moving forward: validate only the current step before jumping ahead
+    if (isCurrentStepUploadBlocked) {
+      setLiveMessage("Finish uploading all images before continuing.")
+      return
+    }
+
     const currentIndex = currentStep - 1
     if (!validateStepByIndex(currentIndex)) {
       return
@@ -1598,8 +1630,15 @@ export function EntryFormMultistep({
   }
 
   const currentStepConfig = steps[currentStep - 1]
+  const currentQuestionKey = useMemo(() => getQuestionKeyFromStepKey(currentStepConfig?.key || ""), [currentStepConfig])
+  const isCurrentStepUploadBlocked = useMemo(() => {
+    if (!currentQuestionKey) {
+      return false
+    }
+
+    return !!pendingUploadQuestions[currentQuestionKey]
+  }, [currentQuestionKey, pendingUploadQuestions])
   const currentAssignedAgentQuestion = useMemo(() => {
-    const currentQuestionKey = getQuestionKeyFromStepKey(currentStepConfig?.key || "")
     if (!currentQuestionKey) return null
     return assignedAgentQuestions.find((question) => String(question.key) === currentQuestionKey) || null
   }, [assignedAgentQuestions, currentStepConfig])
@@ -2134,6 +2173,7 @@ export function EntryFormMultistep({
                             responses={customResponses}
                             errors={customErrors}
                             onChange={handleCustomResponseChange}
+                            onUploadPendingStateChange={handleUploadPendingStateChange}
                             renderMode="fieldsOnly"
                           />
                         )}
@@ -2195,7 +2235,8 @@ export function EntryFormMultistep({
                           <div className="space-y-4">
                             {group.questions.map((question, index) => {
                               const value = customResponses[String(question.key)]
-                              const displayValue = formatQuestionResponseValue(question, value)
+                              const isImageQuestion = question.type === "image"
+                              const displayValue = isImageQuestion ? null : formatQuestionResponseValue(question, value)
 
                               const questionStepNumber = findQuestionStepNumber(steps, String(question.key))
                               const reactKey = getQuestionReactKey(question, index)
@@ -2222,9 +2263,13 @@ export function EntryFormMultistep({
                                     >
                                       {question.label}
                                     </button>
-                                    <p className="text-muted-foreground mt-2 text-sm whitespace-pre-wrap">
-                                      {displayValue}
-                                    </p>
+                                    <div className="mt-2">
+                                      {isImageQuestion ? (
+                                        <ImageResponsePreview value={value} className="max-w-3xl" />
+                                      ) : (
+                                        <p className="text-muted-foreground text-sm whitespace-pre-wrap">{displayValue}</p>
+                                      )}
+                                    </div>
                                     {previewAgent ? (
                                       <div className="text-muted-foreground mt-3 space-y-2 text-xs">
                                         {previewAgent.location ? (
@@ -2282,21 +2327,49 @@ export function EntryFormMultistep({
       </Card>
 
       {/* Navigation Buttons */}
-      <div className="flex shrink-0 items-center justify-between">
-        {currentStep === 1 ? (
-          <Button variant="outline" className="invisible gap-2" type="button" tabIndex={-1} aria-hidden="true" disabled>
-            <ArrowLeft className="h-4 w-4" />
-            Previous
-          </Button>
-        ) : (
-          <Button variant="outline" onClick={handlePrevious} className="gap-2">
-            <ArrowLeft className="h-4 w-4" />
-            Previous
-          </Button>
-        )}
+      <div className="shrink-0 space-y-2">
+        {isCurrentStepUploadBlocked ? (
+          <p className="text-destructive text-sm">Finish uploading all images before continuing.</p>
+        ) : null}
+        <div className="flex items-center justify-between">
+          {currentStep === 1 ? (
+            <Button variant="outline" className="invisible gap-2" type="button" tabIndex={-1} aria-hidden="true" disabled>
+              <ArrowLeft className="h-4 w-4" />
+              Previous
+            </Button>
+          ) : (
+            <Button variant="outline" onClick={handlePrevious} className="gap-2">
+              <ArrowLeft className="h-4 w-4" />
+              Previous
+            </Button>
+          )}
 
-        {currentStep < steps.length ? (
-          hasStandardEntryConflict ? (
+          {currentStep < steps.length ? (
+            hasStandardEntryConflict ? (
+              existingStandardEntryHref && !isEntryAvailabilityLoading ? (
+                <Button asChild className="gap-2">
+                  <Link href={existingStandardEntryHref}>
+                    <Eye className="h-4 w-4" />
+                    Open Existing Report
+                  </Link>
+                </Button>
+              ) : (
+                <Button disabled className="gap-2">
+                  <Eye className="h-4 w-4" />
+                  Open Existing Report
+                </Button>
+              )
+            ) : (
+              <Button
+                onClick={handleNext}
+                disabled={isNextDisabled || isCurrentStepUploadBlocked || isEntryAvailabilityLoading}
+                className="gap-2"
+              >
+                {currentStepConfig?.key === "date" ? "Continue" : "Next"}
+                <ArrowRight className="h-4 w-4" />
+              </Button>
+            )
+          ) : hasStandardEntryConflict ? (
             existingStandardEntryHref && !isEntryAvailabilityLoading ? (
               <Button asChild className="gap-2">
                 <Link href={existingStandardEntryHref}>
@@ -2311,35 +2384,16 @@ export function EntryFormMultistep({
               </Button>
             )
           ) : (
-            <Button onClick={handleNext} disabled={isNextDisabled || isEntryAvailabilityLoading} className="gap-2">
-              {currentStepConfig?.key === "date" ? "Continue" : "Next"}
-              <ArrowRight className="h-4 w-4" />
+            <Button
+              onClick={handleSubmit}
+              disabled={isSubmitting || !hasVisibleQuestions || noAvailableAssignedAgents}
+              className="gap-2"
+            >
+              <Save className="h-4 w-4" />
+              {submitButtonLabel}
             </Button>
-          )
-        ) : hasStandardEntryConflict ? (
-          existingStandardEntryHref && !isEntryAvailabilityLoading ? (
-            <Button asChild className="gap-2">
-              <Link href={existingStandardEntryHref}>
-                <Eye className="h-4 w-4" />
-                Open Existing Report
-              </Link>
-            </Button>
-          ) : (
-            <Button disabled className="gap-2">
-              <Eye className="h-4 w-4" />
-              Open Existing Report
-            </Button>
-          )
-        ) : (
-          <Button
-            onClick={handleSubmit}
-            disabled={isSubmitting || !hasVisibleQuestions || noAvailableAssignedAgents}
-            className="gap-2"
-          >
-            <Save className="h-4 w-4" />
-            {submitButtonLabel}
-          </Button>
-        )}
+          )}
+        </div>
       </div>
     </div>
   )

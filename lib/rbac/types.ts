@@ -344,6 +344,7 @@ export interface CustomQuestion {
   description?: string
   category?: string // For grouping questions
   order: number // Display order
+  metadata?: unknown
 }
 
 export interface RoleQuestionSet {

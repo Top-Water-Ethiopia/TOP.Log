@@ -5,6 +5,17 @@ import { EntryFormMultistep } from "@/components/entry-form-multistep"
 const mockAddEntry = jest.fn()
 const mockUseRoleQuestions = jest.fn()
 const mockFetch = jest.fn()
+const mockImageAsset = {
+  provider: "cloudinary" as const,
+  resourceType: "image" as const,
+  publicId: "captain-log/reports/sample-image",
+  secureUrl: "https://res.cloudinary.com/demo/image/upload/sample-image.jpg",
+  originalFilename: "sample-image.jpg",
+  bytes: 1024,
+  format: "jpg",
+  uploadedByDisplayName: "Sam Reporter",
+  uploadedAt: "2026-04-10T14:25:00Z",
+}
 
 jest.mock("@/contexts/supabase-log-context", () => ({
   useCaptainLog: () => ({
@@ -46,7 +57,55 @@ jest.mock("@/hooks/use-role-questions", () => ({
 }))
 
 jest.mock("@/components/role-based-question-fields", () => ({
-  RoleBasedQuestionFields: () => <div data-testid="role-question-fields">Role question fields</div>,
+  RoleBasedQuestionFields: ({
+    questions,
+    onChange,
+    onUploadPendingStateChange,
+  }: {
+    questions: Array<{ key: string; type: string; metadata?: { testPendingOnMount?: boolean } | null }>
+    onChange: (questionKey: string, value: unknown) => void
+    onUploadPendingStateChange?: (questionKey: string, hasBlockingUploads: boolean) => void
+  }) => {
+    const question = questions[0]
+
+    React.useEffect(() => {
+      if (question?.metadata?.testPendingOnMount) {
+        onUploadPendingStateChange?.(question.key, true)
+      }
+
+      return () => {
+        if (question) {
+          onUploadPendingStateChange?.(question.key, false)
+        }
+      }
+    }, [onUploadPendingStateChange, question])
+
+    return (
+      <div data-testid="role-question-fields">
+        Role question fields
+        {question ? (
+          <div>
+            <button type="button" onClick={() => onChange(question.key, "Preview text response")}>
+              set text response
+            </button>
+            {question.type === "image" ? (
+              <>
+                <button type="button" onClick={() => onChange(question.key, [mockImageAsset])}>
+                  set image response
+                </button>
+                <button type="button" onClick={() => onUploadPendingStateChange?.(question.key, true)}>
+                  set pending upload
+                </button>
+                <button type="button" onClick={() => onUploadPendingStateChange?.(question.key, false)}>
+                  clear pending upload
+                </button>
+              </>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    )
+  },
 }))
 
 jest.mock("@/components/entry-kind-dropdown", () => ({
@@ -283,6 +342,48 @@ describe("EntryFormMultistep", () => {
 
     const openLink = screen.getByRole("link", { name: "Open Existing Report" })
     expect(openLink).toHaveAttribute("href", "/reports/entry-1")
+  })
+
+  it("renders uploaded image previews in the preview step while leaving non-image answers as text", async () => {
+    renderForm([
+      {
+        id: "image-question",
+        key: "store-photo",
+        label: "Store photo",
+        title: "Store photo",
+        type: "image",
+        category: "profession_question",
+        required: false,
+        order: 1,
+      },
+      {
+        id: "notes-question",
+        key: "notes",
+        label: "Notes",
+        title: "Notes",
+        type: "textarea",
+        category: "profession_question",
+        required: false,
+        order: 2,
+      },
+    ])
+
+    await waitForPrimaryButton("Continue")
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }))
+
+    fireEvent.click(screen.getByRole("button", { name: "set image response" }))
+    fireEvent.click(screen.getByRole("button", { name: "Next" }))
+
+    fireEvent.click(screen.getByRole("button", { name: "set text response" }))
+    fireEvent.click(screen.getByRole("button", { name: "Next" }))
+
+    const imageLinks = screen.getAllByRole("link", { name: "sample-image.jpg" })
+    expect(imageLinks[0]).toHaveAttribute("href", mockImageAsset.secureUrl)
+    expect(imageLinks[0]).toHaveAttribute("target", "_blank")
+    expect(imageLinks[0]).toHaveAttribute("rel", expect.stringContaining("noopener"))
+    expect(screen.getByAltText("sample-image.jpg")).toBeInTheDocument()
+    expect(screen.getByText(/Uploaded by Sam Reporter/)).toBeInTheDocument()
+    expect(screen.getByText("Preview text response")).toBeInTheDocument()
   })
 
   it("allows another same-day entry when the selected report type is recurring", async () => {
@@ -874,6 +975,50 @@ describe("EntryFormMultistep", () => {
 
     expect(screen.getByRole("button", { name: "Next" })).toBeDisabled()
     expect(mockAddEntry).not.toHaveBeenCalled()
+  })
+
+  it("disables next while image uploads are pending and removes the helper when they clear", async () => {
+    renderForm([
+      {
+        id: "image-question",
+        key: "store-photo",
+        label: "Store photo",
+        title: "Store photo",
+        type: "image",
+        category: "profession_question",
+        required: false,
+        order: 1,
+        metadata: { testPendingOnMount: true },
+      },
+      {
+        id: "notes-question",
+        key: "notes",
+        label: "Notes",
+        title: "Notes",
+        type: "textarea",
+        category: "profession_question",
+        required: false,
+        order: 2,
+      },
+    ])
+
+    await waitForPrimaryButton("Continue")
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }))
+
+    expect(screen.getByRole("button", { name: "Next" })).toBeDisabled()
+    expect(screen.getByText("Finish uploading all images before continuing.")).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("button", { name: "Previous" }))
+    expect(screen.getByRole("button", { name: "Continue" })).toBeEnabled()
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }))
+    fireEvent.click(screen.getByRole("button", { name: "clear pending upload" }))
+
+    await waitFor(() => {
+      expect(screen.getByRole("button", { name: "Next" })).toBeEnabled()
+    })
+
+    expect(screen.queryByText("Finish uploading all images before continuing.")).not.toBeInTheDocument()
   })
 
   it("warns before cancelling when there are unsaved changes", async () => {

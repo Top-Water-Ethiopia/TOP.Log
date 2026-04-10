@@ -12,8 +12,11 @@ import { canUpdateEntryForDate } from "@/lib/date-restrictions"
 import { useRoleQuestions } from "@/hooks/use-role-questions"
 import { useRBAC } from "@/hooks/use-rbac"
 import { RoleBasedQuestionFields } from "@/components/role-based-question-fields"
+import { ImageResponsePreview } from "@/components/image-response-preview"
 import { getQuestionReactKey } from "@/lib/role-question-identity"
 import { toast } from "sonner"
+import type { CloudinaryUploadAsset } from "@/lib/cloudinary"
+import { normalizeImageResponseValue } from "@/lib/image-upload"
 
 interface EntryDetailsProps {
   date: string
@@ -77,6 +80,13 @@ export function EntryDetails({ date, departmentId, entry, isLoading, hideHeader,
     const questionType = response.questionType ?? "text"
     const { value } = response
 
+    if (questionType === "image") {
+      const assets = normalizeImageResponseValue(value)
+      if (assets.length > 0) {
+        return assets.map((asset) => asset.originalFilename).join(", ")
+      }
+    }
+
     if (value === null || value === undefined || value === "") {
       return "Not provided"
     }
@@ -95,6 +105,38 @@ export function EntryDetails({ date, departmentId, entry, isLoading, hideHeader,
     }
 
     return String(value)
+  }
+
+  const renderCustomResponseValue = (response: QuestionResponse) => {
+    const questionType = response.questionType ?? "text"
+    const { value } = response
+    const imageAssets = questionType === "image" ? normalizeImageResponseValue(value) : []
+
+    if (questionType === "image" && imageAssets.length > 0) {
+      return <ImageResponsePreview value={value} />
+    }
+
+    if (
+      questionType === "file" &&
+      value &&
+      typeof value === "object" &&
+      (value as Partial<CloudinaryUploadAsset>).provider === "cloudinary"
+    ) {
+      const asset = value as CloudinaryUploadAsset
+      return (
+        <div className="space-y-3">
+          {questionType === "image" ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={asset.secureUrl} alt={asset.originalFilename} className="max-h-64 rounded-md border object-cover" />
+          ) : null}
+          <a href={asset.secureUrl} target="_blank" rel="noreferrer" className="text-primary text-sm hover:underline">
+            {asset.originalFilename}
+          </a>
+        </div>
+      )
+    }
+
+    return <span>{formatCustomResponseValue(response)}</span>
   }
 
   // Check if entry can be edited (within 2-day window)
@@ -433,9 +475,9 @@ export function EntryDetails({ date, departmentId, entry, isLoading, hideHeader,
                     </div>
 
                     <div className="mt-4">
-                      <p className="text-muted-foreground text-sm leading-relaxed whitespace-pre-wrap">
-                        {response ? formatCustomResponseValue(response) : "Not provided"}
-                      </p>
+                      <div className="text-muted-foreground text-sm leading-relaxed whitespace-pre-wrap">
+                        {response ? renderCustomResponseValue(response) : "Not provided"}
+                      </div>
                     </div>
                   </div>
                 )
@@ -459,9 +501,9 @@ export function EntryDetails({ date, departmentId, entry, isLoading, hideHeader,
                           {index + 1}) {resp.questionLabel ?? resp.questionKey}
                         </p>
                       </div>
-                      <p className="text-muted-foreground text-sm leading-relaxed whitespace-pre-wrap">
-                        {formatCustomResponseValue(resp)}
-                      </p>
+                      <div className="text-muted-foreground text-sm leading-relaxed whitespace-pre-wrap">
+                        {renderCustomResponseValue(resp)}
+                      </div>
                     </div>
                   )
                 })}

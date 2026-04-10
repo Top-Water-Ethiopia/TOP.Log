@@ -12,6 +12,7 @@ import type {
   AccessScope,
 } from "./types"
 import { DEFAULT_QUESTION_SETS, DEFAULT_DEPARTMENTS, DEFAULT_ACCESS_SCOPES } from "./types"
+import { normalizeImageResponseValue } from "@/lib/image-upload"
 
 // ==================== PERMISSION CHECKING UTILITIES ====================
 
@@ -499,6 +500,17 @@ export function validateQuestionResponse(question: CustomQuestion | unknown, val
   if (!q || typeof q !== "object") {
     return "Invalid question format"
   }
+
+  if (q.type === "image") {
+    const imageAssets = normalizeImageResponseValue(value)
+    if (q.required && imageAssets.length === 0) {
+      return "Please upload at least one image"
+    }
+    if (!q.required && imageAssets.length === 0) {
+      return null
+    }
+  }
+
   // Required field validation
   if (q.required && (value === null || value === undefined || value === "")) {
     return "This field is required"

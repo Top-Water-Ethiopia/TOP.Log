@@ -5,6 +5,7 @@ import {
   buildQuestionScopeFields,
   filterQuestionsForEntryKind,
   questionTypeSupportsStaticOptions,
+  reorderQuestions,
   removeQuestionFromList,
   sanitizeQuestionsForScope,
 } from "@/components/role-questions-creator"
@@ -29,6 +30,43 @@ jest.mock("@/hooks/use-entry-kinds", () => ({
 // Mock fetch
 const mockFetch = jest.fn()
 global.fetch = mockFetch as any
+
+function createQuestion(
+  overrides: Partial<{
+    id: string
+    question_key: string
+    question_label: string
+    question_type: string
+    display_order: number
+    entry_kind: string
+    image_upload_mode: "single" | "multiple"
+  }> = {}
+) {
+  return {
+    id: overrides.id ?? "question-default",
+    question_key: overrides.question_key ?? "default",
+    question_label: overrides.question_label ?? "Default",
+    question_type: overrides.question_type ?? "textarea",
+    question_description: "",
+    placeholder: "",
+    options: null,
+    is_required: false,
+    display_order: overrides.display_order ?? 0,
+    min_value: null,
+    max_value: null,
+    min_length: null,
+    max_length: null,
+    pattern: "",
+    step: null,
+    min_date: "",
+    max_date: "",
+    is_active: true,
+    option_source_kind: "static" as const,
+    max_logs_per_agent_per_day: null,
+    entry_kind: overrides.entry_kind ?? "standard",
+    image_upload_mode: overrides.image_upload_mode ?? "single",
+  }
+}
 
 describe("RoleQuestionsCreator", () => {
   const mockRouter = {
@@ -230,52 +268,8 @@ describe("RoleQuestionsCreator", () => {
   it("removes deleted questions from the list and reindexes display order", () => {
     const remaining = removeQuestionFromList(
       [
-        {
-          id: "question-1",
-          question_key: "one",
-          question_label: "One",
-          question_type: "textarea",
-          question_description: "",
-          placeholder: "",
-          options: null,
-          is_required: false,
-          display_order: 0,
-          min_value: null,
-          max_value: null,
-          min_length: null,
-          max_length: null,
-          pattern: "",
-          step: null,
-          min_date: "",
-          max_date: "",
-          is_active: true,
-          option_source_kind: "static",
-          max_logs_per_agent_per_day: null,
-          entry_kind: "standard",
-        },
-        {
-          id: "question-2",
-          question_key: "two",
-          question_label: "",
-          question_type: "textarea",
-          question_description: "",
-          placeholder: "",
-          options: null,
-          is_required: false,
-          display_order: 1,
-          min_value: null,
-          max_value: null,
-          min_length: null,
-          max_length: null,
-          pattern: "",
-          step: null,
-          min_date: "",
-          max_date: "",
-          is_active: true,
-          option_source_kind: "static",
-          max_logs_per_agent_per_day: null,
-          entry_kind: "standard",
-        },
+        createQuestion({ id: "question-1", question_key: "one", question_label: "One", display_order: 0 }),
+        createQuestion({ id: "question-2", question_key: "two", question_label: "Two", display_order: 1 }),
       ],
       "question-2"
     )
@@ -283,6 +277,21 @@ describe("RoleQuestionsCreator", () => {
     expect(remaining).toHaveLength(1)
     expect(remaining[0].id).toBe("question-1")
     expect(remaining[0].display_order).toBe(0)
+  })
+
+  it("removes a question without changing other entry kind ordering", () => {
+    const remaining = removeQuestionFromList(
+      [
+        createQuestion({ id: "standard-1", question_key: "one", display_order: 0, entry_kind: "standard" }),
+        createQuestion({ id: "major-1", question_key: "major_one", display_order: 7, entry_kind: "majoractivities" }),
+        createQuestion({ id: "standard-2", question_key: "two", display_order: 1, entry_kind: "standard" }),
+      ],
+      "standard-1"
+    )
+
+    expect(remaining).toHaveLength(2)
+    expect(remaining.find((question) => question.id === "standard-2")?.display_order).toBe(0)
+    expect(remaining.find((question) => question.id === "major-1")?.display_order).toBe(7)
   })
 
   it("filters visible questions by active entry kind without counting hidden tabs", () => {
@@ -340,6 +349,69 @@ describe("RoleQuestionsCreator", () => {
 
     expect(visible).toHaveLength(1)
     expect(visible[0].id).toBe("question-2")
+  })
+
+  it("reorders questions within one entry kind and renumbers only that subset", () => {
+    const reordered = reorderQuestions({
+      questions: [
+        createQuestion({ id: "standard-1", question_key: "one", display_order: 0, entry_kind: "standard" }),
+        createQuestion({ id: "major-1", question_key: "major_one", display_order: 4, entry_kind: "majoractivities" }),
+        createQuestion({ id: "standard-2", question_key: "two", display_order: 1, entry_kind: "standard" }),
+        createQuestion({ id: "standard-3", question_key: "three", display_order: 2, entry_kind: "standard" }),
+      ],
+      entryKind: "standard",
+      questionId: "standard-2",
+      direction: "down",
+    })
+
+    expect(reordered.map((question) => question.id)).toEqual(["standard-1", "major-1", "standard-3", "standard-2"])
+    expect(reordered.filter((question) => question.entry_kind === "standard").map((question) => question.display_order)).toEqual([
+      0,
+      1,
+      2,
+    ])
+    expect(reordered.find((question) => question.id === "major-1")?.display_order).toBe(4)
+  })
+
+  it("uses current array order as the tie-breaker for duplicate display orders", () => {
+    const reordered = reorderQuestions({
+      questions: [
+        createQuestion({ id: "standard-1", question_key: "one", display_order: 0, entry_kind: "standard" }),
+        createQuestion({ id: "standard-2", question_key: "two", display_order: 0, entry_kind: "standard" }),
+        createQuestion({ id: "standard-3", question_key: "three", display_order: 1, entry_kind: "standard" }),
+      ],
+      entryKind: "standard",
+      questionId: "standard-2",
+      direction: "up",
+    })
+
+    expect(reordered.map((question) => question.id)).toEqual(["standard-2", "standard-1", "standard-3"])
+    expect(reordered.map((question) => question.display_order)).toEqual([0, 1, 2])
+  })
+
+  it("returns the original array for invalid ids or invalid boundary moves", () => {
+    const questions = [
+      createQuestion({ id: "standard-1", question_key: "one", display_order: 0, entry_kind: "standard" }),
+      createQuestion({ id: "standard-2", question_key: "two", display_order: 1, entry_kind: "standard" }),
+    ]
+
+    expect(
+      reorderQuestions({
+        questions,
+        entryKind: "standard",
+        questionId: "missing-question",
+        direction: "up",
+      })
+    ).toBe(questions)
+
+    expect(
+      reorderQuestions({
+        questions,
+        entryKind: "standard",
+        questionId: "standard-1",
+        direction: "up",
+      })
+    ).toBe(questions)
   })
 
   it("drops stale questions whose entry kind is no longer configured for the scope", () => {
