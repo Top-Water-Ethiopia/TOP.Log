@@ -19,14 +19,6 @@ export default async function Home() {
     redirect(redirectPath)
   }
 
-  // Get initial role questions (currently empty, loaded dynamically)
-  const initialRoleQuestions = await getInitialRoleQuestions()
-
-  return (
-    <ErrorBoundary>
-      <Suspense fallback={<PageSkeleton />}>
-        <HomeUpdated initialRoleQuestions={initialRoleQuestions} />
-      </Suspense>
-    </ErrorBoundary>
-  )
+  // Canonical app entrypoint: redirect / -> /logs
+  redirect("/logs")
 }

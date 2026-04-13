@@ -55,7 +55,7 @@ export default function DepartmentsLayout({ children }: { children: ReactNode })
       <header className="border-border bg-background shrink-0 border-b">
         <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:px-8">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <Link href="/" className="text-left transition-opacity duration-150 ease-in-out hover:opacity-80">
+            <Link href="/logs" className="text-left transition-opacity duration-150 ease-in-out hover:opacity-80">
               <h1 className="text-3xl font-bold tracking-tight">Logs</h1>
               <p className="text-muted-foreground mt-1 text-sm">Daily Tracker</p>
             </Link>

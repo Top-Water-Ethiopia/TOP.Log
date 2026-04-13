@@ -17,6 +17,7 @@ import { supabase } from "@/lib/supabase/client"
 import { SupabaseNav } from "@/components/supabase-nav"
 import { Building2, Shield } from "lucide-react"
 import { isFeatureEnabledClient } from "@/lib/feature-flags/client"
+import { getEffectiveDepartmentRole } from "@/lib/server/department-reporting"
 
 export default function ProfilePage() {
   const profileEnabled = isFeatureEnabledClient("PROFILE")
@@ -27,7 +28,7 @@ export default function ProfilePage() {
         <header className="border-border bg-background shrink-0 border-b">
           <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:px-8">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <Link href="/" className="text-left transition-opacity duration-150 ease-in-out hover:opacity-80">
+              <Link href="/logs" className="text-left transition-opacity duration-150 ease-in-out hover:opacity-80">
                 <h1 className="text-3xl font-bold tracking-tight">Logs</h1>
                 <p className="text-muted-foreground mt-1 text-sm">Daily Tracker</p>
               </Link>
@@ -73,6 +74,7 @@ export default function ProfilePage() {
   const [name, setName] = useState(profile?.name || "")
   const [isUpdating, setIsUpdating] = useState(false)
   const [departmentName, setDepartmentName] = useState("")
+  const [departmentRoleName, setDepartmentRoleName] = useState("")
 
   useEffect(() => {
     const loadDepartment = async () => {
@@ -97,6 +99,24 @@ export default function ProfilePage() {
 
     loadDepartment()
   }, [profile?.department_id])
+
+  useEffect(() => {
+    const loadDepartmentRole = async () => {
+      if (!user?.id || !profile?.department_id) {
+        setDepartmentRoleName("")
+        return
+      }
+
+      try {
+        const role = await getEffectiveDepartmentRole(supabase as any, user.id, profile.department_id)
+        setDepartmentRoleName(role.roleName || "")
+      } catch {
+        setDepartmentRoleName("")
+      }
+    }
+
+    void loadDepartmentRole()
+  }, [profile?.department_id, user?.id])
 
   // Function to update user profile
   const handleUpdateProfile = async (e: FormEvent) => {
@@ -125,7 +145,7 @@ export default function ProfilePage() {
         <header className="border-border bg-background shrink-0 border-b">
           <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:px-8">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <Link href="/" className="text-left transition-opacity duration-150 ease-in-out hover:opacity-80">
+              <Link href="/logs" className="text-left transition-opacity duration-150 ease-in-out hover:opacity-80">
                 <h1 className="text-3xl font-bold tracking-tight">Logs</h1>
                 <p className="text-muted-foreground mt-1 text-sm">Daily Tracker</p>
               </Link>
@@ -178,7 +198,7 @@ export default function ProfilePage() {
       <header className="border-border bg-background shrink-0 border-b">
         <div className="mx-auto max-w-7xl px-4 py-4 sm:px-6 lg:px-8">
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-            <Link href="/" className="text-left transition-opacity duration-150 ease-in-out hover:opacity-80">
+            <Link href="/logs" className="text-left transition-opacity duration-150 ease-in-out hover:opacity-80">
               <h1 className="text-3xl font-bold tracking-tight">Logs</h1>
               <p className="text-muted-foreground mt-1 text-sm">Daily Tracker</p>
             </Link>
@@ -235,6 +255,11 @@ export default function ProfilePage() {
                     <p className="text-muted-foreground text-xs">
                       Contact your administrator to change your department
                     </p>
+                  </div>
+
+                  <div className="space-y-2">
+                    <Label>Department Role</Label>
+                    <Input value={departmentRoleName || "No department role assigned"} disabled className="bg-muted/50" />
                   </div>
 
                   <Button type="submit" disabled={isUpdating}>

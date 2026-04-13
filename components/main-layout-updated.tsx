@@ -12,7 +12,7 @@ import { Skeleton } from "./ui/skeleton"
 import { useRoleQuestions } from "@/hooks/use-role-questions"
 import type { RoleQuestion } from "@/hooks/use-role-questions"
 import { toast } from "sonner"
-import { Shield, FileText, Building2 } from "lucide-react"
+import { Shield, FileText, Building2, Star, ChevronDown } from "lucide-react"
 import { useCaptainLog } from "@/contexts/supabase-log-context"
 import { useRBAC } from "@/hooks/use-rbac"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
@@ -22,8 +22,8 @@ import { canCreateEntryForDate, getToday } from "@/lib/date-restrictions"
 import { normalizeSalesPromoterProfessionKey } from "@/lib/marketing-agents"
 import { useRouter } from "next/navigation"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
-import { ChevronDown } from "lucide-react"
 import Link from "next/link"
+import { UserMenuDropdown } from "@/components/user-menu-dropdown"
 
 interface MainLayoutUpdatedProps {
   initialRoleQuestions: RoleQuestion[]
@@ -31,16 +31,28 @@ interface MainLayoutUpdatedProps {
 
 type DepartmentMembership = {
   department_id: string
-  role?: string | null
-  department_profession?: {
-    key?: string | null
-  } | null
   department: {
     id: string
     name: string
     description: string | null
     is_active: boolean
   }
+  // Effective role (new contract)
+  roleType: "profession" | "access-level" | null
+  roleKey: string | null
+  roleLabel: string | null
+  // Membership status
+  is_primary: boolean
+  membershipStatus: "active" | "inactive"
+  // Explicit capabilities (new contract)
+  canViewReports: boolean
+  canCreateReports: boolean
+  canAnswerDepartmentReports: boolean
+  // Legacy fields (backwards compatibility)
+  role?: string | null
+  department_profession?: {
+    key?: string | null
+  } | null
 }
 
 export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedProps) {
@@ -172,6 +184,12 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
   const activeDepartmentRole = useMemo(() => {
     if (!activeDepartmentId) return null
     const membership = memberships.find((m) => m.department_id === activeDepartmentId)
+    // Use new roleKey field from API (normalized on backend or use as-is)
+    const roleKey = membership?.roleKey
+    if (typeof roleKey === "string" && roleKey.trim().length > 0) {
+      return normalizeSalesPromoterProfessionKey(roleKey)
+    }
+    // Fallback to legacy fields during transition
     const professionKey = membership?.department_profession?.key
     if (typeof professionKey === "string" && professionKey.trim().length > 0) {
       return normalizeSalesPromoterProfessionKey(professionKey)
@@ -192,9 +210,17 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
   const [selectedDate, setSelectedDate] = useState<string>(getToday())
   const [viewMode, setViewMode] = useState<"landing" | "calendar" | "details" | "analytics" | "thankYou">("landing")
 
+  const activeDepartmentMembership = useMemo(() => {
+    if (!activeDepartmentId) return null
+    return memberships.find((m) => m.department_id === activeDepartmentId) || null
+  }, [activeDepartmentId, memberships])
+
   const hasRoleQuestions = roleQuestions.length > 0
+  // Use explicit canCreateReports from API, fallback to legacy logic during transition
   const canStartNewReport =
-    !!user && !!activeDepartmentId && canCreateEntries && hasRoleQuestions && !isRoleQuestionsLoading
+    !!user &&
+    !!activeDepartmentId &&
+    (activeDepartmentMembership?.canCreateReports ?? (canCreateEntries && hasRoleQuestions && !isRoleQuestionsLoading))
   const hasSubmittedReports = entriesForDepartment.length > 0
   const newReportDisabledReason = !user
     ? undefined
@@ -277,7 +303,7 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
                 <SearchDialog onSelectEntry={handleSearchSelect} entries={entriesForDepartment} />
               ) : null}
 
-              {/* New Report */}
+              {/* New Log */}
               {user && !showNoMembershipsMessage && (
                 <Button
                   size="sm"
@@ -290,17 +316,60 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
                   }}
                 >
                   <FileText className="h-4 w-4" />
-                  New Report
+                  New Log
                 </Button>
               )}
 
-              {user && !rbacLoading && hasSystemWideDeptAccess && departmentsEnabled && activeDepartmentId && (
-                <Link href={`/departments/${activeDepartmentId}`}>
-                  <Button variant="outline" size="sm" className="gap-2">
-                    <Building2 className="h-4 w-4" />
-                    My Department
-                  </Button>
-                </Link>
+              {/* Department Selector */}
+              {user && !rbacLoading && departmentsEnabled && memberships.length > 0 && (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button variant="outline" size="sm" className="gap-2">
+                      <Building2 className="h-4 w-4" />
+                      {memberships.find((m) => m.department_id === activeDepartmentId)?.department?.name ||
+                        "Department"}
+                      {memberships.find((m) => m.department_id === activeDepartmentId)?.is_primary && (
+                        <Star className="h-3 w-3 fill-amber-500 text-amber-500" />
+                      )}
+                      <ChevronDown className="h-3 w-3" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56">
+                    {memberships
+                      .filter((m) => m.membershipStatus === "active")
+                      .sort((a, b) => (b.is_primary ? 1 : 0) - (a.is_primary ? 1 : 0))
+                      .map((membership) => (
+                        <DropdownMenuItem
+                          key={membership.department_id}
+                          onClick={() => setActiveDepartmentId(membership.department_id)}
+                          className="flex items-center justify-between"
+                        >
+                          <span className="truncate">{membership.department.name}</span>
+                          {membership.is_primary && (
+                            <Star className="ml-2 h-3 w-3 shrink-0 fill-amber-500 text-amber-500" />
+                          )}
+                        </DropdownMenuItem>
+                      ))}
+                    {memberships.some((m) => m.membershipStatus === "inactive") && (
+                      <>
+                        <div className="bg-border my-1 h-px" />
+                        <div className="text-muted-foreground px-2 py-1 text-xs">Inactive</div>
+                        {memberships
+                          .filter((m) => m.membershipStatus === "inactive")
+                          .map((membership) => (
+                            <DropdownMenuItem
+                              key={membership.department_id}
+                              disabled
+                              className="flex items-center justify-between opacity-50"
+                            >
+                              <span className="truncate">{membership.department.name}</span>
+                              <span className="text-muted-foreground ml-2 text-xs">Locked</span>
+                            </DropdownMenuItem>
+                          ))}
+                      </>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
               )}
 
               {/* Admin */}
@@ -318,35 +387,11 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
               {/* Utility Items - Right side */}
               {/* <SupabaseNav /> */}
 
-              {/* User Profile Dropdown */}
-              {user && (
-                <DropdownMenu>
-                  <DropdownMenuTrigger asChild>
-                    <button className="flex items-center gap-2 rounded-lg px-3 py-2 transition-colors hover:bg-zinc-100">
-                      <div className="bg-primary flex h-8 w-8 items-center justify-center rounded-full">
-                        <span className="text-sm font-medium text-white">
-                          {userInfo?.name?.charAt(0).toUpperCase() || user?.email?.charAt(0).toUpperCase() || "U"}
-                        </span>
-                      </div>
-                      <span className="text-sm font-medium text-zinc-900">
-                        {userInfo?.name || user?.email || "User"}
-                      </span>
-                      <ChevronDown className="h-4 w-4 text-zinc-500" />
-                    </button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end" className="w-48">
-                    <DropdownMenuItem
-                      onClick={async () => {
-                        const { supabase } = await import("@/lib/supabase/client")
-                        await supabase.auth.signOut()
-                        router.push("/login")
-                      }}
-                    >
-                      Sign out
-                    </DropdownMenuItem>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              )}
+              <UserMenuDropdown
+                identifier={(user as any)?.email || (user as any)?.phone || null}
+                name={userInfo?.name || null}
+                deferUntilMounted
+              />
             </div>
           </div>
         </div>
