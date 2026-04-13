@@ -12,13 +12,18 @@ export default async function LogsLayout({ children }: LogsLayoutProps) {
   const {
     data: { user },
   } = await supabase.auth.getUser()
-  const headerState = await getLogsHeaderState(supabase, user?.id, user?.email)
+  const contact = user?.email || (user as any)?.phone || null
+  const headerState = await getLogsHeaderState(supabase, user?.id, contact)
 
   return (
     <LogsLayoutShell
+      isAuthenticated={!!user?.id}
       canAccessAdmin={headerState.canAccessAdmin}
+      canAccessLogs={headerState.canAccessLogs}
       canCreateNewLog={headerState.canCreateNewLog}
-      viewerEmail={headerState.viewerEmail}
+      logsDisabledReason={headerState.logsDisabledReason}
+      createDisabledReason={headerState.createDisabledReason}
+      viewerContact={headerState.viewerContact}
       viewerName={headerState.viewerName}
     >
       {children}

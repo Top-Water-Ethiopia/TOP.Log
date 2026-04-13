@@ -9,7 +9,11 @@ interface LogsViewerProfile {
 
 export interface LogsHeaderState {
   canAccessAdmin: boolean
+  canAccessLogs: boolean
   canCreateNewLog: boolean
+  logsDisabledReason: string | null
+  createDisabledReason: string | null
+  viewerContact: string | null
   viewerEmail: string | null
   viewerName: string | null
 }
@@ -52,41 +56,35 @@ async function fetchPrimaryDepartmentId(
     return forcedDepartmentId
   }
 
-  const { data: accessAssignments, error: accessError } = await supabase
-    .from("user_department_access_levels")
-    .select("department_id")
-    .eq("user_id", userId)
-    .order("department_id", { ascending: true })
-    .limit(1)
-
-  if (!accessError && accessAssignments?.length) {
-    return accessAssignments[0].department_id || null
-  }
-
-  const { data, error } = await supabase
-    .from("user_department_professions")
+  const { data: memberships, error } = await supabase
+    .from("user_department_memberships")
     .select("department_id")
     .eq("user_id", userId)
     .eq("is_active", true)
+    .order("is_primary", { ascending: false })
     .order("department_id", { ascending: true })
     .limit(1)
 
-  if (error || !data?.length) {
+  if (error || !memberships?.length) {
     return null
   }
 
-  return data[0].department_id || null
+  return memberships[0].department_id
 }
 
 export async function getLogsHeaderState(
   supabase: Awaited<ReturnType<typeof createClient>>,
   sessionUserId?: string,
-  sessionEmail?: string | null
+  sessionContact?: string | null
 ): Promise<LogsHeaderState> {
   const headerState: LogsHeaderState = {
     canAccessAdmin: false,
+    canAccessLogs: false,
     canCreateNewLog: false,
-    viewerEmail: sessionEmail || null,
+    logsDisabledReason: null,
+    createDisabledReason: null,
+    viewerContact: sessionContact || null,
+    viewerEmail: null,
     viewerName: null,
   }
 
@@ -102,11 +100,18 @@ export async function getLogsHeaderState(
   const primaryDepartmentId = await fetchPrimaryDepartmentId(supabase, sessionUserId, forcedDepartmentId)
 
   if (!primaryDepartmentId) {
+    headerState.canAccessLogs = false
+    headerState.logsDisabledReason = "No department access assigned"
+    headerState.createDisabledReason = "No department access assigned"
     return headerState
   }
 
   const reportStatus = await getReportStatus(supabase, sessionUserId, primaryDepartmentId)
+  headerState.canAccessLogs = true
   headerState.canCreateNewLog = !reportStatus.isFullySubmitted
+  if (!headerState.canCreateNewLog) {
+    headerState.createDisabledReason = "All allowed dates are already submitted"
+  }
 
   return headerState
 }

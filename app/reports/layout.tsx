@@ -12,13 +12,18 @@ export default async function ReportsLayout({ children }: ReportsLayoutProps) {
   const {
     data: { session },
   } = await supabase.auth.getSession()
-  const headerState = await getLogsHeaderState(supabase, session?.user?.id, session?.user?.email)
+  const contact = session?.user?.email || (session?.user as any)?.phone || null
+  const headerState = await getLogsHeaderState(supabase, session?.user?.id, contact)
 
   return (
     <ReportsLayoutShell
+      isAuthenticated={!!session?.user?.id}
       canAccessAdmin={headerState.canAccessAdmin}
+      canAccessLogs={headerState.canAccessLogs}
       canCreateNewLog={headerState.canCreateNewLog}
-      viewerEmail={headerState.viewerEmail}
+      logsDisabledReason={headerState.logsDisabledReason}
+      createDisabledReason={headerState.createDisabledReason}
+      viewerContact={headerState.viewerContact}
       viewerName={headerState.viewerName}
     >
       {children}
