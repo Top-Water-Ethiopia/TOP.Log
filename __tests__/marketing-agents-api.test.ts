@@ -62,17 +62,17 @@ describe("/api/admin/marketing-agents", () => {
 
   it("GET returns active Sales Promoters and their assigned agents", async () => {
     __adminMock.from.mockImplementation((table: string) => {
-      if (table === "user_department_professions") {
+      if (table === "user_department_memberships") {
         return createThenableBuilder({
           data: [
             {
               user_id: "user-1",
-              role: "sales_promoter",
-              department_role_id: "profession-1",
-              department_profession: {
+              membership_type: "profession",
+              role_id: "profession-1",
+              role: {
                 id: "profession-1",
-                key: "sales_promoter",
-                label: "Sales Promoter",
+                name: "sales-promoter",
+                display_name: "Sales Promoter",
               },
             },
           ],

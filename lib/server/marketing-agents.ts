@@ -1,5 +1,5 @@
 import type { SupabaseClient } from "@supabase/supabase-js"
-import type { Database } from "@/lib/supabase/database.types"
+import type { Database } from "@/lib/supabase.types"
 import {
   MARKETING_DEPARTMENT_NAME,
   isMarketingDepartmentName,
@@ -7,6 +7,7 @@ import {
   normalizeSalesPromoterProfessionKey,
   type MarketingAgentSnapshot,
 } from "@/lib/marketing-agents"
+import { pickJoinedRow } from "@/lib/utils"
 
 type SupabaseLike = Pick<SupabaseClient<Database>, "from">
 
@@ -64,25 +65,25 @@ export async function getSalesPromoterAssignment(
   departmentId: string
 ): Promise<SalesPromoterAssignment | null> {
   const { data, error } = await supabase
-    .from("user_department_professions")
+    .from("user_department_memberships")
     .select(
       `
       department_id,
-      role,
-      department_role_id,
+      role_id,
       department:departments (
         id,
         name
       ),
-      department_profession:department_professions!fk_user_department_professions_department_profession (
+      role:roles (
         id,
-        key,
-        label
+        name,
+        display_name
       )
     `
     )
     .eq("user_id", userId)
     .eq("department_id", departmentId)
+    .eq("membership_type", "profession")
     .eq("is_active", true)
     .maybeSingle()
 
@@ -90,14 +91,15 @@ export async function getSalesPromoterAssignment(
     throw error
   }
 
-  const professionKey =
-    typeof data?.department_profession?.key === "string"
-      ? normalizeSalesPromoterProfessionKey(data.department_profession.key)
-      : typeof data?.role === "string"
-        ? normalizeSalesPromoterProfessionKey(data.role)
-        : null
+  if (!data || !data.role) {
+    return null
+  }
 
-  const departmentName = typeof data?.department?.name === "string" ? data.department.name : null
+  const role = pickJoinedRow(data.role)
+  const department = pickJoinedRow(data.department)
+
+  const professionKey = role?.name ? normalizeSalesPromoterProfessionKey(role.name) : null
+  const departmentName = department?.name ?? null
 
   if (!data?.department_id || !professionKey || !departmentName) {
     return null
@@ -110,9 +112,9 @@ export async function getSalesPromoterAssignment(
   return {
     departmentId: data.department_id,
     departmentName,
-    professionId: typeof data?.department_profession?.id === "string" ? data.department_profession.id : null,
+    professionId: data.role_id,
     professionKey,
-    professionLabel: typeof data?.department_profession?.label === "string" ? data.department_profession.label : null,
+    professionLabel: role?.display_name ?? null,
   }
 }
 

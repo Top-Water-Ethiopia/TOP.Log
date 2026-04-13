@@ -49,17 +49,35 @@ export async function GET(_request: Request, { params }: { params: Promise<{ dep
     const { departmentId } = await params
 
     const { data: roles, error } = await adminSupabase
-      .from("department_professions")
-      .select("*")
+      .from("roles")
+      .select(
+        "id, name, display_name, description, department_id, sort_order, is_active, is_default, created_at, updated_at"
+      )
+      .eq("type", "profession")
+      .eq("scope", "department")
       .eq("department_id", departmentId)
       .order("sort_order", { ascending: true })
-      .order("key", { ascending: true })
+      .order("name", { ascending: true })
 
     if (error) {
       return NextResponse.json({ error: "Failed to fetch roles", message: error.message }, { status: 500 })
     }
 
-    return NextResponse.json({ data: roles || [] })
+    // Map database fields to frontend DepartmentRole interface
+    const mappedRoles = (roles || []).map((r) => ({
+      id: r.id,
+      name: r.name,
+      display_name: r.display_name,
+      description: r.description,
+      department_id: r.department_id,
+      sort_order: r.sort_order,
+      is_active: r.is_active,
+      is_default: r.is_default,
+      created_at: r.created_at,
+      updated_at: r.updated_at,
+    }))
+
+    return NextResponse.json({ data: mappedRoles })
   } catch (error) {
     return NextResponse.json(
       { error: "Failed to fetch roles", message: error instanceof Error ? error.message : "Unknown error" },
@@ -92,10 +110,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ dep
     const normalizedKey = key.toLowerCase()
 
     const { data: existing, error: existingError } = await adminSupabase
-      .from("department_professions")
-      .select("key")
-      .eq("key", normalizedKey)
+      .from("roles")
+      .select("name")
+      .eq("name", normalizedKey)
       .eq("department_id", departmentId)
+      .eq("type", "profession")
+      .eq("scope", "department")
       .limit(1)
 
     if (existingError) {
@@ -109,23 +129,21 @@ export async function POST(request: Request, { params }: { params: Promise<{ dep
       return NextResponse.json({ error: "A role with this name already exists" }, { status: 409 })
     }
 
-    const insertPayload: {
-      key: string
-      label: string
-      description: string | null
-      department_id: string
-      sort_order?: number
-    } = {
-      key: normalizedKey,
-      label: body.label?.trim() || normalizedKey,
+    const insertPayload = {
+      type: "profession" as const,
+      scope: "department" as const,
+      name: normalizedKey,
+      display_name: body.label?.trim() || normalizedKey,
       description,
       department_id: departmentId,
     }
 
     const { data: role, error } = await adminSupabase
-      .from("department_professions")
+      .from("roles")
       .insert(insertPayload)
-      .select("*")
+      .select(
+        "id, name, display_name, description, department_id, sort_order, is_active, is_default, created_at, updated_at"
+      )
       .single()
 
     if (error) {
@@ -170,10 +188,12 @@ export async function PUT(request: Request, { params }: { params: Promise<{ depa
     const normalizedKey = key.toLowerCase()
 
     const { data: existingRole, error: existingRoleError } = await adminSupabase
-      .from("department_professions")
-      .select("department_id, key")
-      .eq("key", id)
+      .from("roles")
+      .select("id, department_id, name")
+      .eq("name", id)
       .eq("department_id", departmentId)
+      .eq("type", "profession")
+      .eq("scope", "department")
       .maybeSingle()
 
     if (existingRoleError) {
@@ -185,11 +205,13 @@ export async function PUT(request: Request, { params }: { params: Promise<{ depa
     }
 
     const { data: existing, error: existingError } = await adminSupabase
-      .from("department_professions")
-      .select("key")
-      .eq("key", normalizedKey)
+      .from("roles")
+      .select("name")
+      .eq("name", normalizedKey)
       .eq("department_id", departmentId)
-      .neq("key", id)
+      .eq("type", "profession")
+      .eq("scope", "department")
+      .neq("id", existingRole.id)
       .limit(1)
 
     if (existingError) {
@@ -203,24 +225,20 @@ export async function PUT(request: Request, { params }: { params: Promise<{ depa
       return NextResponse.json({ error: "A role with this name already exists" }, { status: 409 })
     }
 
-    const updatePayload: {
-      key: string
-      label: string
-      description: string | null
-      updated_at: string
-    } = {
-      key: normalizedKey,
-      label: body.label?.trim() || normalizedKey,
+    const updatePayload = {
+      name: normalizedKey,
+      display_name: body.label?.trim() || normalizedKey,
       description,
       updated_at: new Date().toISOString(),
     }
 
     const { data: role, error } = await adminSupabase
-      .from("department_professions")
+      .from("roles")
       .update(updatePayload)
-      .eq("key", id)
-      .eq("department_id", departmentId)
-      .select("*")
+      .eq("id", existingRole.id)
+      .select(
+        "id, name, display_name, description, department_id, sort_order, is_active, is_default, created_at, updated_at"
+      )
       .single()
 
     if (error) {
@@ -252,10 +270,12 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ d
     }
 
     const { data: role, error: roleError } = await adminSupabase
-      .from("department_professions")
-      .select("id, department_id, key")
-      .eq("key", id)
+      .from("roles")
+      .select("id, department_id, name")
+      .eq("name", id)
       .eq("department_id", departmentId)
+      .eq("type", "profession")
+      .eq("scope", "department")
       .maybeSingle()
 
     if (roleError) {
@@ -266,11 +286,14 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ d
       return NextResponse.json({ error: "Role not found" }, { status: 404 })
     }
 
+    // Check for active memberships using this role
     const { data: assignments } = await adminSupabase
-      .from("user_department_professions")
+      .from("user_department_memberships")
       .select("id")
       .eq("department_id", departmentId)
-      .eq("role", id)
+      .eq("role_id", role.id)
+      .eq("membership_type", "profession")
+      .eq("is_active", true)
       .limit(1)
 
     if (assignments && assignments.length > 0) {
@@ -280,11 +303,12 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ d
       )
     }
 
+    // Check for role questions linked to this role
     const { data: questions } = await adminSupabase
       .from("role_questions")
       .select("id")
       .eq("department_id", departmentId)
-      .or(`department_profession_id.eq.${role.id},department_role.eq.${id}`)
+      .eq("role_id", role.id)
       .limit(1)
 
     if (questions && questions.length > 0) {
@@ -294,11 +318,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ d
       )
     }
 
-    const { error } = await adminSupabase
-      .from("department_professions")
-      .delete()
-      .eq("key", id)
-      .eq("department_id", departmentId)
+    const { error } = await adminSupabase.from("roles").delete().eq("id", role.id)
 
     if (error) {
       return NextResponse.json({ error: "Failed to delete role", message: error.message }, { status: 500 })

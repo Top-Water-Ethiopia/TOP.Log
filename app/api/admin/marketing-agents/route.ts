@@ -4,7 +4,7 @@ import { adminSupabase } from "@/lib/supabase/admin"
 import { normalizeEthiopianPhone } from "@/lib/auth/identifier"
 import { isSalesPromoterProfessionKey, normalizeSalesPromoterProfessionKey } from "@/lib/marketing-agents"
 import { getMarketingDepartment, getSalesPromoterAssignment } from "@/lib/server/marketing-agents"
-import type { Database } from "@/lib/supabase/database.types"
+import type { Database } from "@/lib/supabase.types"
 
 export const dynamic = "force-dynamic"
 
@@ -38,40 +38,34 @@ function getOptionalString(value: unknown): string | null {
 }
 
 async function fetchSalesPromoters(departmentId: string): Promise<SalesPromoterOption[]> {
-  const { data: assignments, error: assignmentsError } = await adminSupabase
-    .from("user_department_professions")
+  const { data: memberships, error: membershipError } = await adminSupabase
+    .from("user_department_memberships")
     .select(
       `
       user_id,
-      role,
-      department_role_id,
-      department_profession:department_professions!fk_user_department_professions_department_profession (
+      role:roles (
         id,
-        key,
-        label
+        name,
+        display_name
       )
     `
     )
     .eq("department_id", departmentId)
+    .eq("membership_type", "profession")
     .eq("is_active", true)
 
-  if (assignmentsError) {
-    throw assignmentsError
+  if (membershipError) {
+    throw membershipError
   }
 
-  const filteredAssignments = (assignments || []).filter((assignment) => {
-    const professionKey =
-      typeof assignment.department_profession?.key === "string"
-        ? normalizeSalesPromoterProfessionKey(assignment.department_profession.key)
-        : typeof assignment.role === "string"
-          ? normalizeSalesPromoterProfessionKey(assignment.role)
-          : null
-
+  const filteredMemberships = (memberships || []).filter((membership) => {
+    const roleResult = Array.isArray(membership.role) ? membership.role[0] : membership.role
+    const professionKey = roleResult?.name ? normalizeSalesPromoterProfessionKey(roleResult.name) : null
     return isSalesPromoterProfessionKey(professionKey)
   })
 
-  const userIds = filteredAssignments
-    .map((assignment) => assignment.user_id)
+  const userIds = filteredMemberships
+    .map((m) => m.user_id)
     .filter((value): value is string => typeof value === "string" && value.length > 0)
 
   const uniqueUserIds = Array.from(new Set(userIds))
@@ -94,31 +88,25 @@ async function fetchSalesPromoters(departmentId: string): Promise<SalesPromoterO
   const profileMap = new Map((profiles || []).map((profile) => [profile.user_id, profile]))
   const authMap = new Map((authUsersResult.data.users || []).map((user) => [user.id, user]))
 
-  return filteredAssignments
-    .map((assignment) => {
-      const professionKey =
-        typeof assignment.department_profession?.key === "string"
-          ? normalizeSalesPromoterProfessionKey(assignment.department_profession.key)
-          : typeof assignment.role === "string"
-            ? normalizeSalesPromoterProfessionKey(assignment.role)
-            : null
+  return filteredMemberships
+    .map((m) => {
+      const roleResult = Array.isArray(m.role) ? m.role[0] : m.role
+      const professionKey = roleResult?.name ? normalizeSalesPromoterProfessionKey(roleResult.name) : null
 
-      if (!professionKey || typeof assignment.user_id !== "string") {
+      if (!professionKey || typeof m.user_id !== "string") {
         return null
       }
 
-      const profile = profileMap.get(assignment.user_id)
-      const authUser = authMap.get(assignment.user_id)
+      const profile = profileMap.get(m.user_id)
+      const authUser = authMap.get(m.user_id)
 
       return {
-        user_id: assignment.user_id,
+        user_id: m.user_id,
         name: typeof profile?.name === "string" ? profile.name : null,
         email: typeof authUser?.email === "string" ? authUser.email : null,
-        profession_id:
-          typeof assignment.department_profession?.id === "string" ? assignment.department_profession.id : null,
+        profession_id: roleResult?.id || null,
         profession_key: professionKey,
-        profession_label:
-          typeof assignment.department_profession?.label === "string" ? assignment.department_profession.label : null,
+        profession_label: roleResult?.display_name || null,
       } satisfies SalesPromoterOption
     })
     .filter((value): value is SalesPromoterOption => Boolean(value))

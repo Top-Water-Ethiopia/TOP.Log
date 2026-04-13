@@ -54,10 +54,11 @@ export async function DELETE(
     const { departmentId, userId } = await params
 
     const { data: existing, error: existingError } = await adminSupabase
-      .from("user_department_professions")
+      .from("user_department_memberships")
       .select("id")
       .eq("department_id", departmentId)
       .eq("user_id", userId)
+      .eq("membership_type", "profession")
       .maybeSingle()
 
     if (existingError) {
@@ -69,7 +70,7 @@ export async function DELETE(
     }
 
     if (hardDelete) {
-      const { error } = await adminSupabase.from("user_department_professions").delete().eq("id", existing.id)
+      const { error } = await adminSupabase.from("user_department_memberships").delete().eq("id", existing.id)
 
       if (error) {
         return NextResponse.json(
@@ -82,14 +83,14 @@ export async function DELETE(
     }
 
     const { data, error } = await adminSupabase
-      .from("user_department_professions")
+      .from("user_department_memberships")
       .update({
         is_active: false,
         updated_by: adminUserId,
         updated_at: new Date().toISOString(),
       } as any)
       .eq("id", existing.id)
-      .select("id, user_id, department_id, role_id:department_role_id, is_active, created_at, updated_at")
+      .select("id, user_id, department_id, role_id, is_active, created_at, updated_at")
       .single()
 
     if (error) {
