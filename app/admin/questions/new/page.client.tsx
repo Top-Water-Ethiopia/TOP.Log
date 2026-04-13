@@ -19,7 +19,7 @@ export default function NewRoleQuestionsPageInner() {
 
   const scope = searchParams?.get("scope")
   const departmentId = searchParams?.get("departmentId")
-  const role = searchParams?.get("role")
+  const role = searchParams?.get("roleId") || searchParams?.get("role")
   const tab = searchParams?.get("tab")
 
   const isDepartmentScope = scope === "department"

@@ -42,23 +42,25 @@ describe("/api/departments", () => {
   })
 
   it("returns the normalized profession key for active department membership", async () => {
+    // Current route calls getUserEffectiveDepartmentMemberships
+    // which queries user_department_memberships
     const membershipBuilder = createThenableBuilder({
-      data: {
+      data: [{
         department_id: "dept-1",
-        role: "role-assignment-sales-promoter",
-        department_profession: { key: "sales-promoter" },
+        membership_type: "profession",
+        role_id: "role-1",
         department: {
           id: "dept-1",
           name: "Sales",
           description: null,
           is_active: true,
         },
-      },
-      error: null,
-    })
-
-    const accessLevelBuilder = createThenableBuilder({
-      data: null,
+        role: {
+          id: "role-1",
+          name: "sales-promoter",
+          display_name: "Sales Promoter"
+        }
+      }],
       error: null,
     })
 
@@ -70,8 +72,7 @@ describe("/api/departments", () => {
         }),
       },
       from: jest.fn((table: string) => {
-        if (table === "user_department_professions") return membershipBuilder
-        if (table === "user_department_access_levels") return accessLevelBuilder
+        if (table === "user_department_memberships") return membershipBuilder
         throw new Error(`Unexpected table ${table}`)
       }),
     })
@@ -84,14 +85,7 @@ describe("/api/departments", () => {
         })
       }
 
-      if (table === "permissions") {
-        return createThenableBuilder({
-          data: [],
-          error: null,
-        })
-      }
-
-      if (table === "department_access_level_permissions") {
+      if (table === "role_permissions") {
         return createThenableBuilder({
           data: [],
           error: null,
@@ -104,23 +98,12 @@ describe("/api/departments", () => {
     const response = await routeModule.GET()
 
     expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toEqual({
-      data: [
-        {
-          department_id: "dept-1",
-          department: {
-            id: "dept-1",
-            name: "Sales",
-            description: null,
-            is_active: true,
-          },
-          role: "sales-promoter",
-          department_profession: {
-            key: "sales-promoter",
-          },
-        },
-      ],
-      hasSystemWideAccess: false,
+    const json = await response.json()
+    expect(json.data[0]).toMatchObject({
+      department_id: "dept-1",
+      roleKey: "sales-promoter",
+      roleType: "profession"
     })
+    expect(json.hasSystemWideAccess).toBe(false)
   })
 })

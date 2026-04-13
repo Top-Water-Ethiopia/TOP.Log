@@ -224,7 +224,11 @@ export default function AdminRoleQuestionsDepartmentPage() {
 
         <div className="flex items-center gap-2">
           <Link
-            href={`/admin/questions/new?scope=${departmentRole ? "role" : "department"}&departmentId=${encodeURIComponent(departmentId)}${departmentRole ? `&roleId=${encodeURIComponent(departmentRole)}` : ""}&tab=${departmentRole ? "professions" : "department_reports"}`}
+            href={`/admin/questions/new?scope=${
+              departmentRole && departmentRole !== "undefined" ? "role" : "dept_report"
+            }&departmentId=${encodeURIComponent(departmentId)}${
+              departmentRole && departmentRole !== "undefined" ? `&role=${encodeURIComponent(departmentRole)}` : ""
+            }&tab=${departmentRole && departmentRole !== "undefined" ? "professions" : "department_reports"}`}
           >
             <Button className="gap-2">Create Multiple Questions</Button>
           </Link>

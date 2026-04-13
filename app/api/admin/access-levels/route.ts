@@ -12,8 +12,9 @@ export async function GET(request: Request) {
     }
 
     const { data, error } = await adminSupabase
-      .from("department_access_levels")
+      .from("roles")
       .select("id, name, display_name, description, level, is_active")
+      .eq("type", "access_level")
       .order("level", { ascending: true })
 
     if (error) {

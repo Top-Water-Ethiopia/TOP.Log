@@ -46,7 +46,7 @@ export async function GET(request: Request) {
     }
 
     const { data: perms, error } = await adminSupabase
-      .from("permissions")
+      .from("role_permissions")
       .select("*")
       .eq("role_id", roleId)
       .order("resource", { ascending: true })
@@ -124,23 +124,21 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: "Role not found" }, { status: 404 })
     }
 
-    const { error: deleteError } = await adminSupabase.from("permissions").delete().eq("role_id", roleId)
+    // Clear existing role_permissions
+    const { error: deleteError } = await adminSupabase.from("role_permissions").delete().eq("role_id", roleId)
 
     if (deleteError) {
       console.error("Error clearing permissions:", deleteError)
       return NextResponse.json({ error: "Failed to update permissions", message: deleteError.message }, { status: 500 })
     }
 
-    const nowIso = new Date().toISOString()
     if (parsed.length > 0) {
-      const { error: insertError } = await adminSupabase.from("permissions").insert(
-        parsed.map((parsed) => ({
+      const { error: insertError } = await adminSupabase.from("role_permissions").insert(
+        parsed.map((p) => ({
           role_id: roleId,
-          resource: parsed.resource,
-          action: parsed.action,
-          conditions: null,
-          created_at: nowIso,
-          updated_at: nowIso,
+          resource: p.resource,
+          action: p.action,
+          effect: "allow" as const, // Standard effect for this API
         }))
       )
 
@@ -154,7 +152,7 @@ export async function PUT(request: Request) {
     }
 
     const { data: updated, error: fetchError } = await adminSupabase
-      .from("permissions")
+      .from("role_permissions")
       .select("*")
       .eq("role_id", roleId)
       .order("resource", { ascending: true })

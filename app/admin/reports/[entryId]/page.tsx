@@ -38,6 +38,7 @@ interface UserProfile {
   email: string
   role_name: string
   department_name: string | null
+  effective_department_role_name?: string | null
 }
 
 interface EnrichedEntry {
@@ -176,6 +177,7 @@ export default function AdminReportDetailsPage() {
   const email = entry.user_profile?.email || ""
   const roleName = entry.user_profile?.role_name || ""
   const departmentName = entry.user_profile?.department_name || ""
+  const departmentRoleName = entry.user_profile?.effective_department_role_name || ""
 
   const dateLabel = (() => {
     try {
@@ -259,6 +261,7 @@ export default function AdminReportDetailsPage() {
           </CardHeader>
           <CardContent className="flex flex-wrap gap-2">
             {roleName ? <Badge variant="secondary">{roleName}</Badge> : null}
+            {departmentRoleName ? <Badge variant="secondary">{departmentRoleName}</Badge> : null}
             {departmentName ? <Badge variant="secondary">{departmentName}</Badge> : null}
           </CardContent>
         </Card>

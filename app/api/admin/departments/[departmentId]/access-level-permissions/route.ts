@@ -16,38 +16,46 @@ export async function GET(request: Request, { params }: { params: Promise<{ depa
       return NextResponse.json({ error: "departmentId is required" }, { status: 400 })
     }
 
-    // Option A: access level permissions are global (not department-scoped).
-    // This endpoint remains for backward compatibility but returns the global catalog.
+    // Access level permissions are now managed via role_permissions (global).
     const { data, error } = await adminSupabase
-      .from("department_access_level_permissions")
+      .from("role_permissions")
       .select(
         `
         id,
-        access_level_id,
-        resource,
-        action,
-        effect,
-        created_at,
-        updated_at,
-        department_access_levels (
+        role_id,
+        permission_definitions!inner (
+          id,
+          resource,
+          action
+        ),
+        roles!inner (
           name,
-          display_name,
-          level
+          display_name
         )
       `
       )
-      .order("resource", { ascending: true })
-      .order("action", { ascending: true })
+      .eq("roles.type", "access_level")
+      .order("permission_definitions(resource)", { ascending: true })
+      .order("permission_definitions(action)", { ascending: true })
       .limit(10000)
 
     if (error) {
       return NextResponse.json(
-        { error: "Failed to load department access level permissions", message: error.message },
+        { error: "Failed to load role permissions", message: error.message },
         { status: 500 }
       )
     }
 
-    return NextResponse.json({ data: data || [] })
+    const transformed = (data || []).map((p: any) => ({
+      id: p.id,
+      access_level_id: p.role_id,
+      resource: p.permission_definitions?.resource,
+      action: p.permission_definitions?.action,
+      effect: "allow",
+      department_access_levels: p.roles
+    }))
+
+    return NextResponse.json({ data: transformed })
   } catch (error) {
     return NextResponse.json(
       {

@@ -11,19 +11,20 @@ function normalizeEffect(raw: unknown) {
   return null
 }
 
-async function validateAccessLevel(accessLevelId: string) {
+async function validateAccessLevel(roleId: string) {
   const { data, error } = await adminSupabase
-    .from("department_access_levels")
+    .from("roles")
     .select("name, is_active")
-    .eq("id", accessLevelId)
+    .eq("id", roleId)
+    .eq("type", "access_level")
     .maybeSingle()
 
   if (error) {
-    return { ok: false as const, error: "Failed to validate access level", message: error.message }
+    return { ok: false as const, error: "Failed to validate role", message: error.message }
   }
 
   if (!data) {
-    return { ok: false as const, error: "Invalid access level" }
+    return { ok: false as const, error: "Invalid access level role" }
   }
 
   return { ok: true as const, isActive: !!data.is_active, name: data.name }
@@ -37,19 +38,17 @@ export async function GET(request: Request) {
     }
 
     const { data, error } = await adminSupabase
-      .from("department_access_level_permissions")
+      .from("role_permissions")
       .select(
         `
         id,
-        access_level_id,
+        role_id,
         permission_definition_id,
-        effect,
         created_at,
         updated_at,
-        department_access_levels (
+        roles (
           name,
-          display_name,
-          level
+          display_name
         ),
         permission_definitions (
           id,
@@ -65,12 +64,19 @@ export async function GET(request: Request) {
 
     if (error) {
       return NextResponse.json(
-        { error: "Failed to load access level permissions", message: error.message },
+        { error: "Failed to load role permissions", message: error.message },
         { status: 500 }
       )
     }
 
-    return NextResponse.json({ data: data || [] })
+    // Map roles to match expectations if needed
+    const mappedData = (data || []).map((p: any) => ({
+      ...p,
+      access_level_id: p.role_id,
+      department_access_levels: p.roles
+    }))
+
+    return NextResponse.json({ data: mappedData })
   } catch (error) {
     return NextResponse.json(
       {
@@ -131,9 +137,9 @@ export async function POST(request: Request) {
     }
 
     const { data: existing, error: existingError } = await adminSupabase
-      .from("department_access_level_permissions")
+      .from("role_permissions")
       .select("id")
-      .eq("access_level_id", access_level_id)
+      .eq("role_id", access_level_id)
       .eq("permission_definition_id", permission_definition_id)
       .limit(1)
       .maybeSingle()
@@ -146,22 +152,19 @@ export async function POST(request: Request) {
     }
 
     if (existing?.id) {
+      // In role_permissions, we don't have 'effect', it's just presence/absence
+      // If it exists, we just return it
       const { data, error } = await adminSupabase
-        .from("department_access_level_permissions")
-        .update({ effect, updated_at: new Date().toISOString() })
-        .eq("id", existing.id)
-        .select(
-          `
+        .from("role_permissions")
+        .select(`
           id,
-          access_level_id,
+          role_id,
           permission_definition_id,
-          effect,
           created_at,
           updated_at,
-          department_access_levels (
+          roles (
             name,
-            display_name,
-            level
+            display_name
           ),
           permission_definitions (
             id,
@@ -170,40 +173,43 @@ export async function POST(request: Request) {
             description,
             scope
           )
-        `
-        )
+        `)
+        .eq("id", existing.id)
         .single()
 
       if (error) {
         return NextResponse.json(
-          { error: "Failed to update access level permission", message: error.message },
+          { error: "Failed to fetch role permission", message: error.message },
           { status: 500 }
         )
       }
 
-      return NextResponse.json({ data })
+      return NextResponse.json({ 
+        data: {
+          ...data,
+          access_level_id: data.role_id,
+          department_access_levels: data.roles
+        } 
+      })
     }
 
     const { data, error } = await adminSupabase
-      .from("department_access_level_permissions")
+      .from("role_permissions")
       .insert({
-        access_level_id,
+        role_id: access_level_id,
         permission_definition_id,
-        effect,
         updated_at: new Date().toISOString(),
       })
       .select(
         `
         id,
-        access_level_id,
+        role_id,
         permission_definition_id,
-        effect,
         created_at,
         updated_at,
-        department_access_levels (
+        roles (
           name,
-          display_name,
-          level
+          display_name
         ),
         permission_definitions (
           id,
@@ -219,12 +225,18 @@ export async function POST(request: Request) {
     if (error) {
       const status = error.code === "23505" ? 409 : 500
       return NextResponse.json(
-        { error: "Failed to create access level permission", message: error.message },
+        { error: "Failed to create role permission", message: error.message },
         { status }
       )
     }
 
-    return NextResponse.json({ data }, { status: 201 })
+    return NextResponse.json({ 
+      data: {
+        ...data,
+        access_level_id: data.role_id,
+        department_access_levels: data.roles
+      } 
+    }, { status: 201 })
   } catch (error) {
     return NextResponse.json(
       {
@@ -250,7 +262,7 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: "id is required" }, { status: 400 })
     }
 
-    const { error } = await adminSupabase.from("department_access_level_permissions").delete().eq("id", id)
+    const { error } = await adminSupabase.from("role_permissions").delete().eq("id", id)
 
     if (error) {
       return NextResponse.json(

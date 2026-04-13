@@ -16,6 +16,7 @@ import {
 } from "@/lib/marketing-agents"
 import { adminSupabase } from "@/lib/supabase/admin"
 import { createClient } from "@/lib/supabase/server"
+import { verifyPermissionFromRequest } from "@/lib/rbac/server"
 
 // Normalize entry kind to lowercase
 function normalizeEntryKind(value: string | null | undefined): string {
@@ -26,14 +27,23 @@ function normalizeEntryKind(value: string | null | undefined): string {
 // Load valid entry kinds for a scope from database
 async function loadScopeEntryKinds(
   departmentId: string,
-  departmentProfessionKey?: string | null
+  params: { scopeType: "dept_wide_personal" | "profession_personal" | "dept_report"; professionRoleId?: string | null }
 ): Promise<Array<{ entry_kind: string; is_active: boolean }>> {
   try {
+    const scopeType = params.scopeType
+    const professionRoleId = params.professionRoleId ?? null
+
     const query = (adminSupabase as any)
       .from("scope_entry_kinds")
       .select("entry_kind, is_active")
       .eq("department_id", departmentId)
-      .eq("department_profession_id", departmentProfessionKey || null)
+      .eq("scope_type", scopeType)
+
+    if (scopeType === "profession_personal") {
+      query.eq("profession_role_id", professionRoleId)
+    } else {
+      query.is("department_profession_id", null)
+    }
 
     const { data, error } = await query
 
@@ -59,9 +69,15 @@ async function collectEntryKindErrors(questions: any[]): Promise<{ errors: strin
     const scope = getQuestionScope(question)
     if (!scope) return
 
-    const deptId = scope.kind === "department" ? scope.id : scope.departmentId
-    const profKey = scope.kind === "profession" ? scope.departmentProfessionKey : null
-    const scopeKey = `${deptId}:${profKey || "null"}`
+    const deptId = scope.kind === "profession" ? scope.departmentId : scope.id
+    const scopeType =
+      scope.kind === "profession"
+        ? "profession_personal"
+        : scope.kind === "dept_wide_personal"
+          ? "dept_wide_personal"
+          : "dept_report"
+    const professionRoleId = scope.kind === "profession" ? scope.departmentProfessionId : null
+    const scopeKey = `${deptId}:${scopeType}:${professionRoleId || "null"}`
     scopeKeys.add(scopeKey)
   })
 
@@ -70,9 +86,11 @@ async function collectEntryKindErrors(questions: any[]): Promise<{ errors: strin
 
   await Promise.all(
     Array.from(scopeKeys).map(async (scopeKey) => {
-      const [deptId, profKey] = scopeKey.split(":")
-      const professionKey = profKey === "null" ? null : profKey
-      const kinds = await loadScopeEntryKinds(deptId, professionKey)
+      const [deptId, scopeType, professionRoleId] = scopeKey.split(":")
+      const kinds = await loadScopeEntryKinds(deptId, {
+        scopeType: (scopeType as any) || "dept_wide_personal",
+        professionRoleId: professionRoleId === "null" ? null : professionRoleId,
+      })
       // Accept both active and inactive entry kinds (legacy support)
       scopeValidKinds.set(scopeKey, new Set(kinds.map((k) => k.entry_kind.toLowerCase())))
     })
@@ -83,9 +101,15 @@ async function collectEntryKindErrors(questions: any[]): Promise<{ errors: strin
     const scope = getQuestionScope(question)
     if (!scope) return question
 
-    const deptId = scope.kind === "department" ? scope.id : scope.departmentId
-    const profKey = scope.kind === "profession" ? scope.departmentProfessionKey : null
-    const scopeKey = `${deptId}:${profKey || "null"}`
+    const deptId = scope.kind === "profession" ? scope.departmentId : scope.id
+    const scopeType =
+      scope.kind === "profession"
+        ? "profession_personal"
+        : scope.kind === "dept_wide_personal"
+          ? "dept_wide_personal"
+          : "dept_report"
+    const professionRoleId = scope.kind === "profession" ? scope.departmentProfessionId : null
+    const scopeKey = `${deptId}:${scopeType}:${professionRoleId || "null"}`
 
     const validKinds = scopeValidKinds.get(scopeKey)
     const rawEntryKind = question.entry_kind || "standard"
@@ -137,13 +161,13 @@ function getQuestionScope(question: any):
       departmentProfessionId: string | null
       departmentProfessionKey: string | null
     }
-  | { kind: "department"; id: string }
+  | { kind: "dept_report" | "dept_wide_personal"; id: string }
   | null {
   const scope = resolveRoleQuestionScope(question)
   if (!scope) return null
 
-  if (scope.kind === "department") {
-    return { kind: "department", id: scope.departmentId }
+  if (scope.kind === "dept_report" || scope.kind === "dept_wide_personal") {
+    return { kind: scope.kind, id: scope.departmentId }
   }
 
   if (!scope.departmentId) {
@@ -159,9 +183,9 @@ function getQuestionScope(question: any):
 }
 
 function getScopeCacheKey(scope: NonNullable<ReturnType<typeof getQuestionScope>>): string {
-  if (scope.kind === "department") {
+  if (scope.kind !== "profession") {
     return getRoleQuestionScopeCacheKey({
-      kind: "department",
+      kind: scope.kind,
       departmentId: scope.id,
     })
   }
@@ -214,7 +238,10 @@ function collectDuplicateKeyErrors(questions: any[]): string[] {
   return errors
 }
 
-function getScopedLegacyQuestionKey(entryKind: string | null | undefined, legacyQuestionKey: string | null): string | null {
+function getScopedLegacyQuestionKey(
+  entryKind: string | null | undefined,
+  legacyQuestionKey: string | null
+): string | null {
   if (!legacyQuestionKey) return null
   return `${normalizeEntryKind(entryKind || "standard")}:${legacyQuestionKey}`
 }
@@ -246,11 +273,21 @@ async function collectOptionSourceErrors(questions: any[]): Promise<string[]> {
       const [deptId, profKey] = scopeKey.split(":")
       const professionKey = profKey === "null" ? null : profKey
 
-      const { data: entryKinds, error } = await (adminSupabase as any)
+      // Query using new target fields (scope_type and profession_role_id)
+      const query = (adminSupabase as any)
         .from("scope_entry_kinds")
         .select("entry_kind, supports_assigned_agent")
         .eq("department_id", deptId)
-        .eq("department_profession_id", professionKey || null)
+
+      if (professionKey) {
+        // Profession scope: use profession_role_id with scope_type filter
+        query.eq("scope_type", "profession_personal").eq("profession_role_id", professionKey)
+      } else {
+        // Department-wide scope
+        query.is("profession_role_id", null)
+      }
+
+      const { data: entryKinds, error } = await query
 
       if (error) {
         console.error(`Error loading scope entry kinds for ${scopeKey}:`, error)
@@ -310,11 +347,11 @@ async function collectOptionSourceErrors(questions: any[]): Promise<string[]> {
 
 export async function POST(request: Request) {
   try {
-    // Temporarily disabled for testing - TODO: Add proper permission check
-    // const auth = await verifyPermissionFromRequest(request, "departments.read")
-    // if (!auth.ok) {
-    //   return NextResponse.json({ error: auth.error }, { status: auth.status })
-    // }
+    // Verify admin permission
+    const auth = await verifyPermissionFromRequest(request, "admin.system")
+    if (!auth.ok) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status })
+    }
 
     // Get user for audit fields
     const supabase = await createClient()
@@ -371,10 +408,16 @@ export async function POST(request: Request) {
       const scope = getQuestionScope(question)
       const entryKind = question.entry_kind || "standard"
       return {
-        department_id: scope?.kind === "department" ? scope.id : (scope?.departmentId ?? null),
+        department_id: scope?.kind === "profession" ? scope.departmentId : (scope?.id ?? null),
         department_profession_id: scope?.kind === "profession" ? scope.departmentProfessionId : null,
         department_role:
           scope?.kind === "profession" ? normalizeSalesPromoterProfessionKey(scope.departmentProfessionKey) : null,
+        question_scope_type:
+          scope?.kind === "profession"
+            ? "profession_personal"
+            : scope?.kind === "dept_wide_personal"
+              ? "dept_wide_personal"
+              : "dept_report",
         entry_kind: entryKind,
         question_label: question.question_label.trim(),
         question_type: question.question_type,
@@ -443,11 +486,11 @@ export async function POST(request: Request) {
 
 export async function PUT(request: Request) {
   try {
-    // Temporarily disabled for testing - TODO: Add proper permission check
-    // const auth = await verifyPermissionFromRequest(request, "departments.read")
-    // if (!auth.ok) {
-    //   return NextResponse.json({ error: auth.error }, { status: auth.status })
-    // }
+    // Verify admin permission
+    const auth = await verifyPermissionFromRequest(request, "admin.system")
+    if (!auth.ok) {
+      return NextResponse.json({ error: auth.error }, { status: auth.status })
+    }
 
     // Get user for audit fields
     const supabase = await createClient()
@@ -533,15 +576,15 @@ export async function PUT(request: Request) {
       const parts = scopeKey.split(":")
       const kind = parts[0]
       const scope:
-        | { kind: "department"; id: string }
+        | { kind: "dept_report" | "dept_wide_personal"; id: string }
         | {
             kind: "profession"
             departmentId: string
             departmentProfessionId: string | null
             departmentProfessionKey: string | null
           } =
-        kind === "department"
-          ? { kind: "department", id: parts[1] }
+        kind === "dept_report" || kind === "dept_wide_personal"
+          ? { kind: kind as any, id: parts[1] }
           : {
               kind: "profession",
               departmentId: parts[1],
@@ -550,8 +593,8 @@ export async function PUT(request: Request) {
             }
       const scopeQuestions = normalizedQuestions.filter((q: any) => {
         const qScope = getQuestionScope(q)
-        if (kind === "department") {
-          return qScope?.kind === "department" && qScope?.id === parts[1]
+        if (kind === "dept_report" || kind === "dept_wide_personal") {
+          return qScope?.kind === kind && qScope?.id === parts[1]
         } else {
           return (
             qScope?.kind === "profession" &&
@@ -562,7 +605,7 @@ export async function PUT(request: Request) {
         }
       })
 
-      const targetDepartmentId = scope.kind === "department" ? scope.id : scope.departmentId
+      const targetDepartmentId = scope.kind === "profession" ? scope.departmentId : scope.id
       const { data: existingRows, error: existingError } = await adminSupabase
         .from("role_questions")
         .select("id, metadata, entry_kind, department_id, department_profession_id, department_role")
@@ -581,8 +624,8 @@ export async function PUT(request: Request) {
       ;((existingRows || []) as any[])
         .filter((row) => {
           const rowScope = getQuestionScope(row)
-          if (scope.kind === "department") {
-            return rowScope?.kind === "department" && rowScope.id === scope.id
+          if (scope.kind !== "profession") {
+            return rowScope?.kind === scope.kind && rowScope.id === scope.id
           }
 
           return (
@@ -597,7 +640,10 @@ export async function PUT(request: Request) {
             existingById.set(row.id, row)
             const legacyKey = row.metadata?.legacy_question_key
             if (typeof legacyKey === "string" && legacyKey.trim()) {
-              existingByLegacyKey.set(getScopedLegacyQuestionKey(row.entry_kind, legacyKey.trim()) || legacyKey.trim(), row)
+              existingByLegacyKey.set(
+                getScopedLegacyQuestionKey(row.entry_kind, legacyKey.trim()) || legacyKey.trim(),
+                row
+              )
             }
           }
         })
@@ -639,7 +685,9 @@ export async function PUT(request: Request) {
           typeof question.id === "string" && question.id
             ? existingById.get(question.id)
             : legacyQuestionKey
-              ? existingByLegacyKey.get(getScopedLegacyQuestionKey(question.entry_kind, legacyQuestionKey) || legacyQuestionKey)
+              ? existingByLegacyKey.get(
+                  getScopedLegacyQuestionKey(question.entry_kind, legacyQuestionKey) || legacyQuestionKey
+                )
               : undefined
 
         const resolvedId = typeof question.id === "string" && question.id ? question.id : resolvedExisting?.id
@@ -650,10 +698,16 @@ export async function PUT(request: Request) {
 
         const base = {
           id: resolvedId ?? randomUUID(),
-          department_id: scope.kind === "department" ? scope.id : scope.departmentId,
+          department_id: scope.kind === "profession" ? scope.departmentId : scope.id,
           department_profession_id: scope.kind === "profession" ? scope.departmentProfessionId : null,
           department_role:
             scope.kind === "profession" ? normalizeSalesPromoterProfessionKey(scope.departmentProfessionKey) : null,
+          question_scope_type:
+            scope.kind === "profession"
+              ? "profession_personal"
+              : scope.kind === "dept_wide_personal"
+                ? "dept_wide_personal"
+                : "dept_report",
           entry_kind: entryKind,
           question_label: question.question_label.trim(),
           question_type: question.question_type,

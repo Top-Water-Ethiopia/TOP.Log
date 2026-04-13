@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
 import { AdminSidebar } from "@/components/admin-sidebar"
 import { Button } from "@/components/ui/button"
@@ -11,16 +12,24 @@ import { useRBAC } from "@/hooks/use-rbac"
 export default function AdminLayout({ children }: { children: ReactNode }) {
   const { user } = useSupabaseAuth()
   const { canAccessAdmin, rbacLoading } = useRBAC()
+  const router = useRouter()
   const [headerMode, setHeaderMode] = useState<"checking" | "show" | "hide">("checking")
 
   useEffect(() => {
-    if (!user || rbacLoading) {
+    if (rbacLoading) {
       setHeaderMode("checking")
       return
     }
 
+    if (!user) {
+      // Unauthenticated users redirect to login
+      router.replace("/login")
+      return
+    }
+
     if (!canAccessAdmin) {
-      setHeaderMode("show")
+      // Non-admin users redirect to logs
+      router.replace("/logs")
       return
     }
 
@@ -43,6 +52,20 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
 
     run()
   }, [user, rbacLoading, canAccessAdmin, headerMode])
+
+  // Guard: wait for RBAC to resolve before rendering admin UI
+  if (rbacLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="text-muted-foreground flex items-center gap-2 text-sm">
+          <div className="border-primary h-4 w-4 animate-spin rounded-full border-2 border-t-transparent" />
+          <span>Loading...</span>
+        </div>
+      </div>
+    )
+  }
+
+  // Redirects for unauthenticated/unauthorized are handled in useEffect above
 
   return (
     <SidebarProvider>

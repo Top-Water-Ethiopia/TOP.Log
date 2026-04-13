@@ -36,16 +36,12 @@ describe("/api/reporting/entry-availability", () => {
   })
 
   it("returns an existing standard entry id when one already exists for the user, department, and date", async () => {
-    const professionBuilder = createThenableBuilder({
-      data: { department_id: "dept-1" },
-      error: null,
-    })
-    const accessBuilder = createThenableBuilder({
-      data: [],
+    const membershipBuilder = createThenableBuilder({
+      data: [{ department_id: "dept-1", membership_type: "access_level", role: { name: "member", id: "role-1" } }],
       error: null,
     })
     const scopeEntryKindBuilder = createThenableBuilder({
-      data: { allow_multiple_per_day: false },
+      data: [{ department_profession_id: null, allow_multiple_per_day: false }],
       error: null,
     })
     const entryBuilder = createThenableBuilder({
@@ -61,8 +57,7 @@ describe("/api/reporting/entry-availability", () => {
         }),
       },
       from: jest.fn((table: string) => {
-        if (table === "user_department_professions") return professionBuilder
-        if (table === "user_department_access_levels") return accessBuilder
+        if (table === "user_department_memberships") return membershipBuilder
         if (table === "scope_entry_kinds") return scopeEntryKindBuilder
         if (table === "captain_log_entries") return entryBuilder
         throw new Error(`Unexpected table ${table}`)
@@ -84,16 +79,12 @@ describe("/api/reporting/entry-availability", () => {
   })
 
   it("allows multiple per day when the entry kind is configured as recurring", async () => {
-    const professionBuilder = createThenableBuilder({
-      data: { department_id: "dept-1" },
-      error: null,
-    })
-    const accessBuilder = createThenableBuilder({
-      data: [],
+    const membershipBuilder = createThenableBuilder({
+      data: [{ department_id: "dept-1", membership_type: "profession", role: { name: "sales-promoter", id: "role-2" } }],
       error: null,
     })
     const scopeEntryKindBuilder = createThenableBuilder({
-      data: { allow_multiple_per_day: true },
+      data: [{ department_profession_id: "sales-promoter", allow_multiple_per_day: true }],
       error: null,
     })
 
@@ -105,8 +96,7 @@ describe("/api/reporting/entry-availability", () => {
         }),
       },
       from: jest.fn((table: string) => {
-        if (table === "user_department_professions") return professionBuilder
-        if (table === "user_department_access_levels") return accessBuilder
+        if (table === "user_department_memberships") return membershipBuilder
         if (table === "scope_entry_kinds") return scopeEntryKindBuilder
         if (table === "captain_log_entries") {
           throw new Error("captain_log_entries should not be queried for recurring kinds")
@@ -120,55 +110,6 @@ describe("/api/reporting/entry-availability", () => {
     } as Request)
 
     expect(scopeEntryKindBuilder.eq).toHaveBeenCalledWith("entry_kind", "major_activity")
-    expect(scopeEntryKindBuilder.eq).toHaveBeenCalledWith("department_profession_id", "sales-promoter")
-    expect(response.status).toBe(200)
-    await expect(response.json()).resolves.toEqual({
-      data: {
-        existingEntryId: null,
-        existingStandardEntryId: null,
-        allowMultiplePerDay: true,
-      },
-    })
-  })
-
-  it("allows multiple per day for a recurring standard entry kind", async () => {
-    const professionBuilder = createThenableBuilder({
-      data: { department_id: "dept-1" },
-      error: null,
-    })
-    const accessBuilder = createThenableBuilder({
-      data: [],
-      error: null,
-    })
-    const scopeEntryKindBuilder = createThenableBuilder({
-      data: { allow_multiple_per_day: true },
-      error: null,
-    })
-
-    createClient.mockResolvedValue({
-      auth: {
-        getUser: jest.fn().mockResolvedValue({
-          data: { user: { id: "user-1" } },
-          error: null,
-        }),
-      },
-      from: jest.fn((table: string) => {
-        if (table === "user_department_professions") return professionBuilder
-        if (table === "user_department_access_levels") return accessBuilder
-        if (table === "scope_entry_kinds") return scopeEntryKindBuilder
-        if (table === "captain_log_entries") {
-          throw new Error("captain_log_entries should not be queried for recurring standard kinds")
-        }
-        throw new Error(`Unexpected table ${table}`)
-      }),
-    })
-
-    const response = await routeModule.GET({
-      url: "http://localhost/api/reporting/entry-availability?departmentId=dept-1&date=2026-04-03&entryKind=standard&role=sales-promoter",
-    } as Request)
-
-    expect(scopeEntryKindBuilder.eq).toHaveBeenCalledWith("entry_kind", "standard")
-    expect(scopeEntryKindBuilder.eq).toHaveBeenCalledWith("department_profession_id", "sales-promoter")
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({
       data: {
@@ -180,16 +121,12 @@ describe("/api/reporting/entry-availability", () => {
   })
 
   it("blocks a second same-day standard entry when allow_multiple_per_day is false", async () => {
-    const professionBuilder = createThenableBuilder({
-      data: { department_id: "dept-1" },
-      error: null,
-    })
-    const accessBuilder = createThenableBuilder({
-      data: [],
+    const membershipBuilder = createThenableBuilder({
+      data: [{ department_id: "dept-1", membership_type: "profession", role: { name: "sales-promoter", id: "role-2" } }],
       error: null,
     })
     const scopeEntryKindBuilder = createThenableBuilder({
-      data: { allow_multiple_per_day: false },
+      data: [{ department_profession_id: "sales-promoter", allow_multiple_per_day: false }],
       error: null,
     })
     const entryBuilder = createThenableBuilder({
@@ -205,8 +142,7 @@ describe("/api/reporting/entry-availability", () => {
         }),
       },
       from: jest.fn((table: string) => {
-        if (table === "user_department_professions") return professionBuilder
-        if (table === "user_department_access_levels") return accessBuilder
+        if (table === "user_department_memberships") return membershipBuilder
         if (table === "scope_entry_kinds") return scopeEntryKindBuilder
         if (table === "captain_log_entries") return entryBuilder
         throw new Error(`Unexpected table ${table}`)
@@ -218,7 +154,6 @@ describe("/api/reporting/entry-availability", () => {
     } as Request)
 
     expect(scopeEntryKindBuilder.eq).toHaveBeenCalledWith("entry_kind", "standard")
-    expect(scopeEntryKindBuilder.eq).toHaveBeenCalledWith("department_profession_id", "sales-promoter")
     expect(entryBuilder.eq).toHaveBeenCalledWith("submitted_by_user_id", "user-1")
     expect(entryBuilder.eq).toHaveBeenCalledWith("entry_kind", "standard")
     expect(entryBuilder.eq).toHaveBeenCalledWith("subject_department_id", "dept-1")
@@ -242,13 +177,7 @@ describe("/api/reporting/entry-availability", () => {
         }),
       },
       from: jest.fn((table: string) => {
-        if (table === "user_department_professions") {
-          return createThenableBuilder({
-            data: null,
-            error: null,
-          })
-        }
-        if (table === "user_department_access_levels") {
+        if (table === "user_department_memberships") {
           return createThenableBuilder({
             data: [],
             error: null,

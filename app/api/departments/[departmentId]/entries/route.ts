@@ -1,10 +1,11 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { adminSupabase } from "@/lib/supabase/admin"
+import { verifyPermissionForDepartmentFromRequest } from "@/lib/rbac/server"
 
 export const dynamic = "force-dynamic"
 
-export async function GET(_request: Request, { params }: { params: Promise<{ departmentId: string }> }) {
+export async function GET(request: Request, { params }: { params: Promise<{ departmentId: string }> }) {
   try {
     const supabase = await createClient()
     const {
@@ -21,51 +22,18 @@ export async function GET(_request: Request, { params }: { params: Promise<{ dep
       return NextResponse.json({ error: "Department ID is required" }, { status: 400 })
     }
 
-    // --- ACCESS CONTROL START ---
-    // Check system-wide permissions first
-    const { data: profile } = await adminSupabase
-      .from("user_profiles")
-      .select("role_id")
-      .eq("user_id", user.id)
-      .single()
+    const membersReadAuth = await verifyPermissionForDepartmentFromRequest(
+      request,
+      "departments.members.read",
+      departmentId
+    )
+    const departmentsReadAuth = membersReadAuth.ok
+      ? null
+      : await verifyPermissionForDepartmentFromRequest(request, "departments.read", departmentId)
 
-    let systemWideAllowed = false
-    if (profile) {
-      const { data: permissions } = await adminSupabase
-        .from("permissions")
-        .select("resource, action")
-        .eq("role_id", profile.role_id)
-
-      const permissionNames = permissions?.map((p) => `${p.resource}.${p.action}`) || []
-      systemWideAllowed =
-        permissionNames.includes("departments.members.read") ||
-        permissionNames.includes("departments.read") ||
-        permissionNames.includes("admin.system")
-    }
-
-    // Check department-scoped access levels
-    const { data: accessLevel } = await adminSupabase
-      .from("user_department_access_levels")
-      .select("id")
-      .eq("user_id", user.id)
-      .eq("department_id", departmentId)
-      .maybeSingle()
-
-    // Also check if they are in user_department_professions as a fallback for legacy compatibility
-    const { data: roleMembership } = await adminSupabase
-      .from("user_department_professions")
-      .select("id")
-      .eq("user_id", user.id)
-      .eq("department_id", departmentId)
-      .eq("is_active", true)
-      .maybeSingle()
-
-    const hasAccess = systemWideAllowed || accessLevel !== null || roleMembership !== null
-
-    if (!hasAccess) {
+    if (!membersReadAuth.ok && !departmentsReadAuth?.ok) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 })
     }
-    // --- ACCESS CONTROL END ---
 
     // Fetch entries that represent this department.
     // New rows use subject_department_id; the migration backfills legacy rows.

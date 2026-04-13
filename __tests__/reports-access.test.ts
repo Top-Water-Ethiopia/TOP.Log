@@ -75,7 +75,16 @@ function makeSupabaseMock(accessLevelName: string | null) {
     from: jest.fn((table: string) => {
       if (table === "captain_log_entries") return captainLogEntriesChain
       if (table === "user_profiles") return userProfilesChain
-      if (table === "user_department_access_levels") return departmentAccessChain
+      if (table === "user_department_memberships") {
+        return {
+          select: jest.fn().mockReturnThis(),
+          eq: jest.fn().mockReturnThis(),
+          maybeSingle: jest.fn().mockResolvedValue({
+            data: accessLevelName ? { role: { name: accessLevelName } } : null,
+            error: null,
+          })
+        }
+      }
       throw new Error(`Unexpected table ${table}`)
     }),
   }

@@ -200,9 +200,9 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: "Permission not found" }, { status: 404 })
     }
 
-    // Delete from role permissions (legacy table)
+    // Delete from unified role permissions
     const { error: deleteAssignmentsError } = await adminSupabase
-      .from("permissions")
+      .from("role_permissions")
       .delete()
       .eq("resource", def.resource)
       .eq("action", def.action)
@@ -211,20 +211,6 @@ export async function DELETE(request: Request) {
       console.error("Error deleting permission assignments:", deleteAssignmentsError)
       return NextResponse.json(
         { error: "Failed to delete permission assignments", message: deleteAssignmentsError.message },
-        { status: 500 }
-      )
-    }
-
-    // Delete from department access level permissions (new table with FK)
-    const { error: deleteDeptAssignmentsError } = await adminSupabase
-      .from("department_access_level_permissions")
-      .delete()
-      .eq("permission_definition_id", def.id)
-
-    if (deleteDeptAssignmentsError) {
-      console.error("Error deleting department permission assignments:", deleteDeptAssignmentsError)
-      return NextResponse.json(
-        { error: "Failed to delete department permission assignments", message: deleteDeptAssignmentsError.message },
         { status: 500 }
       )
     }

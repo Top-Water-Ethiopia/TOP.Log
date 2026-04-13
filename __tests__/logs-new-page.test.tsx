@@ -6,8 +6,7 @@ const mockRedirect = jest.fn((url: string) => {
 })
 
 const mockCreateClient = jest.fn()
-const mockGetUserDepartmentProfessionAssignment = jest.fn()
-const mockUserCanAnswerDepartmentQuestions = jest.fn()
+const mockGetEffectiveDepartmentRole = jest.fn()
 
 jest.mock("next/navigation", () => ({
   redirect: (url: string) => mockRedirect(url),
@@ -18,8 +17,7 @@ jest.mock("@/lib/supabase/server", () => ({
 }))
 
 jest.mock("@/lib/server/department-reporting", () => ({
-  getUserDepartmentProfessionAssignment: (...args: unknown[]) => mockGetUserDepartmentProfessionAssignment(...args),
-  userCanAnswerDepartmentQuestions: (...args: unknown[]) => mockUserCanAnswerDepartmentQuestions(...args),
+  getEffectiveDepartmentRole: (...args: unknown[]) => mockGetEffectiveDepartmentRole(...args),
 }))
 
 jest.mock("@/app/logs/new/client", () => {
@@ -83,15 +81,13 @@ function createQueryBuilder(rows: Row[]) {
 
 function createSupabaseMock({
   userId = "user-1",
-  professionAssignments = [],
-  accessAssignments = [],
+  memberships = [],
   questionRows = [],
   entryRows = [],
   scopeEntryKinds = [],
 }: {
   userId?: string
-  professionAssignments?: Row[]
-  accessAssignments?: Row[]
+  memberships?: Row[]
   questionRows?: Row[]
   entryRows?: Row[]
   scopeEntryKinds?: Row[]
@@ -104,12 +100,8 @@ function createSupabaseMock({
       }),
     },
     from: jest.fn((table: string) => {
-      if (table === "user_department_professions") {
-        return createQueryBuilder(professionAssignments)
-      }
-
-      if (table === "user_department_access_levels") {
-        return createQueryBuilder(accessAssignments)
+      if (table === "user_department_memberships") {
+        return createQueryBuilder(memberships)
       }
 
       if (table === "role_questions") {
@@ -144,6 +136,7 @@ function getRenderedClientProps() {
     initialQuestionsByKind?: Record<string, Array<{ id: string }>>
     initialAvailableEntryKinds?: Array<{ entry_kind: string; is_default?: boolean }>
     role: string | null
+    effectiveRoleName?: string | null
   }
 }
 
@@ -182,18 +175,29 @@ function makeQuestion({
 describe("/logs/new page", () => {
   beforeEach(() => {
     jest.clearAllMocks()
-    mockGetUserDepartmentProfessionAssignment.mockResolvedValue(null)
-    mockUserCanAnswerDepartmentQuestions.mockResolvedValue(false)
+    mockGetEffectiveDepartmentRole.mockResolvedValue({
+      roleType: null,
+      roleKey: null,
+      roleName: null,
+      professionId: null,
+      professionKey: null,
+      professionName: null,
+      accessLevelId: null,
+      accessLevelName: null,
+      accessLevelDisplayName: null,
+      canAnswerDepartmentReports: false,
+    })
   })
 
   it("allows a contributor with profession assignment to access logs/new page", async () => {
     mockCreateClient.mockResolvedValue(
       createSupabaseMock({
-        professionAssignments: [
+        memberships: [
           {
             user_id: "user-1",
             department_id: "dept-1",
-            role: "sales-promoter",
+            membership_type: "profession",
+            role_id: "profession-1",
             is_active: true,
             department: { id: "dept-1", name: "Sales" },
           },
@@ -201,9 +205,17 @@ describe("/logs/new page", () => {
         questionRows: [],
       })
     )
-    mockGetUserDepartmentProfessionAssignment.mockResolvedValue({
+    mockGetEffectiveDepartmentRole.mockResolvedValue({
+      roleType: "profession",
+      roleKey: "sales-promoter",
+      roleName: "Sales Promoter",
       professionId: "profession-1",
       professionKey: "sales-promoter",
+      professionName: "Sales Promoter",
+      accessLevelId: null,
+      accessLevelName: null,
+      accessLevelDisplayName: null,
+      canAnswerDepartmentReports: false,
     })
 
     const element = await NewLogPage({
@@ -222,11 +234,12 @@ describe("/logs/new page", () => {
   it("shows only profession questions to a contributor without department report permission", async () => {
     mockCreateClient.mockResolvedValue(
       createSupabaseMock({
-        professionAssignments: [
+        memberships: [
           {
             user_id: "user-1",
             department_id: "dept-1",
-            role: "software-engineer",
+            membership_type: "profession",
+            role_id: "profession-1",
             is_active: true,
             department: { id: "dept-1", name: "Engineering" },
           },
@@ -242,11 +255,18 @@ describe("/logs/new page", () => {
         ],
       })
     )
-    mockGetUserDepartmentProfessionAssignment.mockResolvedValue({
+    mockGetEffectiveDepartmentRole.mockResolvedValue({
+      roleType: "profession",
+      roleKey: "software-engineer",
+      roleName: "Software Engineer",
       professionId: "profession-1",
       professionKey: "software-engineer",
+      professionName: "Software Engineer",
+      accessLevelId: null,
+      accessLevelName: null,
+      accessLevelDisplayName: null,
+      canAnswerDepartmentReports: false,
     })
-    mockUserCanAnswerDepartmentQuestions.mockResolvedValue(false)
 
     const element = await NewLogPage({
       searchParams: Promise.resolve({ departmentId: "dept-1", date: "2026-04-02" }),
@@ -262,11 +282,12 @@ describe("/logs/new page", () => {
   it("preserves custom entry-kind question groups for the new-log client", async () => {
     mockCreateClient.mockResolvedValue(
       createSupabaseMock({
-        professionAssignments: [
+        memberships: [
           {
             user_id: "user-1",
             department_id: "dept-1",
-            role: "sales-promoter",
+            membership_type: "profession",
+            role_id: "profession-1",
             is_active: true,
             department: { id: "dept-1", name: "Sales" },
           },
@@ -284,11 +305,18 @@ describe("/logs/new page", () => {
         ],
       })
     )
-    mockGetUserDepartmentProfessionAssignment.mockResolvedValue({
+    mockGetEffectiveDepartmentRole.mockResolvedValue({
+      roleType: "profession",
+      roleKey: "sales-promoter",
+      roleName: "Sales Promoter",
       professionId: "profession-1",
       professionKey: "sales-promoter",
+      professionName: "Sales Promoter",
+      accessLevelId: null,
+      accessLevelName: null,
+      accessLevelDisplayName: null,
+      canAnswerDepartmentReports: false,
     })
-    mockUserCanAnswerDepartmentQuestions.mockResolvedValue(false)
 
     const element = await NewLogPage({
       searchParams: Promise.resolve({ departmentId: "dept-1", date: "2026-04-08" }),
@@ -303,11 +331,12 @@ describe("/logs/new page", () => {
   it("prefers the resolved profession assignment over a special membership role token", async () => {
     mockCreateClient.mockResolvedValue(
       createSupabaseMock({
-        professionAssignments: [
+        memberships: [
           {
             user_id: "user-1",
             department_id: "dept-1",
-            role: "role-assignment-sales-promoter",
+            membership_type: "profession",
+            role_id: "profession-1",
             is_active: true,
             department: { id: "dept-1", name: "Sales" },
           },
@@ -322,11 +351,18 @@ describe("/logs/new page", () => {
         ],
       })
     )
-    mockGetUserDepartmentProfessionAssignment.mockResolvedValue({
+    mockGetEffectiveDepartmentRole.mockResolvedValue({
+      roleType: "profession",
+      roleKey: "sales-promoter",
+      roleName: "Sales Promoter",
       professionId: "profession-1",
       professionKey: "sales-promoter",
+      professionName: "Sales Promoter",
+      accessLevelId: null,
+      accessLevelName: null,
+      accessLevelDisplayName: null,
+      canAnswerDepartmentReports: false,
     })
-    mockUserCanAnswerDepartmentQuestions.mockResolvedValue(false)
 
     const element = await NewLogPage({
       searchParams: Promise.resolve({ departmentId: "dept-1", date: "2026-04-08" }),
@@ -342,11 +378,12 @@ describe("/logs/new page", () => {
   it("shows department and profession questions to an explicitly allowed department lead", async () => {
     mockCreateClient.mockResolvedValue(
       createSupabaseMock({
-        professionAssignments: [
+        memberships: [
           {
             user_id: "user-1",
             department_id: "dept-1",
-            role: "software-engineer",
+            membership_type: "profession",
+            role_id: "profession-1",
             is_active: true,
             department: { id: "dept-1", name: "Engineering" },
           },
@@ -362,11 +399,18 @@ describe("/logs/new page", () => {
         ],
       })
     )
-    mockGetUserDepartmentProfessionAssignment.mockResolvedValue({
+    mockGetEffectiveDepartmentRole.mockResolvedValue({
+      roleType: "profession",
+      roleKey: "software-engineer",
+      roleName: "Software Engineer",
       professionId: "profession-1",
       professionKey: "software-engineer",
+      professionName: "Software Engineer",
+      accessLevelId: "access-1",
+      accessLevelName: "department-lead",
+      accessLevelDisplayName: "Department Lead",
+      canAnswerDepartmentReports: true,
     })
-    mockUserCanAnswerDepartmentQuestions.mockResolvedValue(true)
 
     const element = await NewLogPage({
       searchParams: Promise.resolve({ departmentId: "dept-1", date: "2026-04-02" }),
@@ -378,13 +422,68 @@ describe("/logs/new page", () => {
     expect(props.initialRoleQuestions.map((question) => question.id)).toEqual(["department-q", "profession-q"])
   })
 
+  it("shows a department lead label without forcing a profession scope when no profession assignment exists", async () => {
+    mockCreateClient.mockResolvedValue(
+      createSupabaseMock({
+        memberships: [
+          {
+            user_id: "user-1",
+            department_id: "dept-1",
+            membership_type: "access_level",
+            role_id: "access-1",
+            is_active: true,
+            department: { id: "dept-1", name: "Operations" },
+          },
+        ],
+        questionRows: [makeQuestion({ id: "department-q", displayOrder: 1 })],
+        scopeEntryKinds: [
+          {
+            department_id: "dept-1",
+            department_profession_id: null,
+            entry_kind: "standard",
+            label: "Standard",
+            is_default: true,
+            allow_multiple_per_day: false,
+            is_active: true,
+          },
+        ],
+      })
+    )
+    mockGetEffectiveDepartmentRole.mockResolvedValue({
+      roleType: "access-level",
+      roleKey: "department-lead",
+      roleName: "Department Lead",
+      professionId: null,
+      professionKey: null,
+      professionName: null,
+      accessLevelId: "access-1",
+      accessLevelName: "department-lead",
+      accessLevelDisplayName: "Department Lead",
+      canAnswerDepartmentReports: true,
+    })
+
+    const element = await NewLogPage({
+      searchParams: Promise.resolve({ departmentId: "dept-1", date: "2026-04-02" }),
+    })
+
+    render(element)
+
+    const props = getRenderedClientProps()
+    expect(props.role).toBeNull()
+    expect(props.effectiveRoleName).toBe("Department Lead")
+    expect(props.initialRoleQuestions.map((question) => question.id)).toEqual(["department-q"])
+  })
+
   it("honors an authorized departmentId when the user has access in that department", async () => {
     mockCreateClient.mockResolvedValue(
       createSupabaseMock({
-        accessAssignments: [
+        memberships: [
           {
             user_id: "user-1",
             department_id: "dept-2",
+            membership_type: "access_level",
+            role_id: "access-1",
+            is_active: true,
             department: { id: "dept-2", name: "Sales" },
           },
         ],
@@ -406,7 +505,7 @@ describe("/logs/new page", () => {
   it("redirects unauthorized department requests back to the resolved allowed department", async () => {
     mockCreateClient.mockResolvedValue(
       createSupabaseMock({
-        professionAssignments: [
+        memberships: [
           {
             user_id: "user-1",
             department_id: "dept-1",
@@ -430,7 +529,7 @@ describe("/logs/new page", () => {
   it("canonicalizes the route when departmentId is missing by redirecting to the resolved department and date", async () => {
     mockCreateClient.mockResolvedValue(
       createSupabaseMock({
-        professionAssignments: [
+        memberships: [
           {
             user_id: "user-1",
             department_id: "dept-1",
@@ -454,11 +553,12 @@ describe("/logs/new page", () => {
   it("passes the initial existing standard entry id for duplicate standard report dates", async () => {
     mockCreateClient.mockResolvedValue(
       createSupabaseMock({
-        professionAssignments: [
+        memberships: [
           {
             user_id: "user-1",
             department_id: "dept-1",
-            role: "software-engineer",
+            membership_type: "profession",
+            role_id: "profession-1",
             is_active: true,
             department: { id: "dept-1", name: "Engineering" },
           },
@@ -488,11 +588,12 @@ describe("/logs/new page", () => {
   it("uses the configured default entry kind instead of hardcoding standard", async () => {
     mockCreateClient.mockResolvedValue(
       createSupabaseMock({
-        professionAssignments: [
+        memberships: [
           {
             user_id: "user-1",
             department_id: "dept-1",
-            role: "sales-promoter",
+            membership_type: "profession",
+            role_id: "profession-1",
             is_active: true,
             department: { id: "dept-1", name: "Marketing" },
           },
@@ -548,11 +649,18 @@ describe("/logs/new page", () => {
         ],
       })
     )
-    mockGetUserDepartmentProfessionAssignment.mockResolvedValue({
+    mockGetEffectiveDepartmentRole.mockResolvedValue({
+      roleType: "profession",
+      roleKey: "sales-promoter",
+      roleName: "Sales Promoter",
       professionId: "profession-1",
       professionKey: "sales-promoter",
+      professionName: "Sales Promoter",
+      accessLevelId: null,
+      accessLevelName: null,
+      accessLevelDisplayName: null,
+      canAnswerDepartmentReports: false,
     })
-    mockUserCanAnswerDepartmentQuestions.mockResolvedValue(false)
 
     const element = await NewLogPage({
       searchParams: Promise.resolve({ departmentId: "dept-1", date: "2026-04-02" }),

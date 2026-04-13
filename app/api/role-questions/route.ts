@@ -2,6 +2,7 @@ import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import {
   isDepartmentReportQuestion,
+  isDepartmentWidePersonalQuestion,
   matchesProfessionQuestion,
 } from "@/lib/reporting-model"
 import { userCanAnswerDepartmentQuestions } from "@/lib/server/department-reporting"
@@ -75,6 +76,7 @@ export async function GET(request: Request) {
     const requestedDepartmentId = searchParams.get("departmentId")
     const scope = searchParams.get("scope")
     const entryKind = searchParams.get("entryKind")
+    const questionSystem = searchParams.get("questionSystem") // 'personal' | 'dept_report' (optional)
 
     const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
     const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
@@ -104,7 +106,7 @@ export async function GET(request: Request) {
     const makeQuestionsQuery = () => {
       let query = supabase
         .from("role_questions")
-        .select("*, department_profession:department_professions(id, key, label)")
+        .select("*, department_profession:roles(id, key:name, label:display_name)")
         .order("display_order", { ascending: true })
         .limit(10000)
 
@@ -153,8 +155,14 @@ export async function GET(request: Request) {
           })
         )
       } else {
-        // Department-only: Return ONLY department-wide questions
-        questions = scopedQuestions.filter((q) => isDepartmentReportQuestion(q))
+        // Department-only: depends on system:
+        // - personal logging: dept_wide_personal
+        // - department reporting/admin: dept_report (legacy default)
+        const effectiveSystem = questionSystem === "personal" ? "personal" : forReport ? "personal" : "dept_report"
+        questions =
+          effectiveSystem === "personal"
+            ? scopedQuestions.filter((q) => isDepartmentWidePersonalQuestion(q))
+            : scopedQuestions.filter((q) => isDepartmentReportQuestion(q))
       }
     }
 

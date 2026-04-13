@@ -30,13 +30,12 @@ export async function GET(request: Request, { params }: { params: Promise<{ acce
     }
 
     const { data, error } = await adminSupabase
-      .from("department_access_level_permissions")
+      .from("role_permissions")
       .select(
         `
         id,
-        access_level_id,
+        role_id,
         permission_definition_id,
-        effect,
         created_at,
         updated_at,
         permission_definitions (
@@ -48,7 +47,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ acce
         )
       `
       )
-      .eq("access_level_id", accessLevelId)
+      .eq("role_id", accessLevelId)
       .order("created_at", { ascending: true })
 
     if (error) {
@@ -59,13 +58,14 @@ export async function GET(request: Request, { params }: { params: Promise<{ acce
     }
 
     // Transform data to include resource/action at top level for backwards compatibility
-    const rows = (data || []) as AccessLevelPermissionRow[]
-    const transformed = rows.map((item) => {
+    const transformed = (data || []).map((item: any) => {
       const pd = Array.isArray(item.permission_definitions)
         ? item.permission_definitions[0]
         : item.permission_definitions
       return {
         ...item,
+        access_level_id: item.role_id,
+        effect: "allow", // Default effect for role_permissions
         resource: pd?.resource,
         action: pd?.action,
         description: pd?.description,
@@ -119,18 +119,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ acc
     }
 
     const { data, error } = await adminSupabase
-      .from("department_access_level_permissions")
+      .from("role_permissions")
       .insert({
-        access_level_id: accessLevelId,
+        role_id: accessLevelId,
         permission_definition_id,
-        effect,
       })
       .select(
         `
         id,
-        access_level_id,
+        role_id,
         permission_definition_id,
-        effect,
         created_at,
         updated_at,
         permission_definitions (
@@ -158,6 +156,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ acc
       | undefined
     const transformed = {
       ...data,
+      access_level_id: data?.role_id,
+      effect: "allow",
       resource: pd?.resource,
       action: pd?.action,
       description: pd?.description,
@@ -192,10 +192,10 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ a
     }
 
     const { error } = await adminSupabase
-      .from("department_access_level_permissions")
+      .from("role_permissions")
       .delete()
       .eq("id", permissionId)
-      .eq("access_level_id", accessLevelId)
+      .eq("role_id", accessLevelId)
 
     if (error) {
       return NextResponse.json(

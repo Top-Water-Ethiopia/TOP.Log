@@ -262,19 +262,25 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: "Cannot delete system roles" }, { status: 403 })
     }
 
-    // Check if role has users assigned
+    // Check if role has users assigned (system roles)
     const { data: users, error: usersError } = await adminSupabase
       .from("user_profiles")
+      .select("user_id")
+      .eq("role_id", id)
+      .limit(1)
+
+    // Check if role has users assigned (department roles)
+    const { data: memberships, error: membershipsError } = await adminSupabase
+      .from("user_department_memberships")
       .select("id")
       .eq("role_id", id)
       .limit(1)
 
-    if (usersError) {
-      console.error("Error checking users:", usersError)
-      // Continue with deletion attempt
+    if (usersError || membershipsError) {
+      console.error("Error checking role assignments:", usersError || membershipsError)
     }
 
-    if (users && users.length > 0) {
+    if ((users && users.length > 0) || (memberships && memberships.length > 0)) {
       return NextResponse.json(
         { error: "Cannot delete role. It has users assigned. Please reassign users first." },
         { status: 409 }

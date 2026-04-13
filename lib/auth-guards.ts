@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
+import { getUserEffectiveDepartmentMemberships } from "@/lib/server/department-reporting"
 import type { User } from "@supabase/supabase-js"
 
 /**
@@ -36,27 +37,32 @@ export async function checkAdminPermissions(roleId: string | null): Promise<bool
 
   const supabase = await createClient()
   const { data: adminPerm } = await supabase
-    .from("permissions")
+    .from("role_permissions")
     .select("id")
     .eq("role_id", roleId)
     .eq("resource", "admin")
     .eq("action", "system")
+    .eq("effect", "allow")
     .limit(1)
 
   return !!(adminPerm && adminPerm.length > 0)
 }
 
 /**
- * Checks if user has any active department memberships
+ * Checks if user has any effective department memberships
+ * (profession assignment OR access-level with department_questions.answer permission)
  */
 export async function checkDepartmentMembership(userId: string): Promise<boolean> {
   const supabase = await createClient()
-  const { data: deptRole } = await supabase
-    .from("user_department_professions")
-    .select("department_id")
-    .eq("user_id", userId)
-    .eq("is_active", true)
-    .limit(1)
+  const memberships = await getUserEffectiveDepartmentMemberships(supabase, userId)
+  return memberships.length > 0
+}
 
-  return !!(deptRole && deptRole.length > 0)
+/**
+ * Checks if user has membership in a specific department
+ */
+export async function checkSpecificDepartmentMembership(userId: string, departmentId: string): Promise<boolean> {
+  const supabase = await createClient()
+  const memberships = await getUserEffectiveDepartmentMemberships(supabase, userId)
+  return memberships.some((m) => m.departmentId === departmentId)
 }

@@ -22,16 +22,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ depa
 
     await params
 
-    const { data: permissionDefinition } = await adminSupabase
-      .from("permission_definitions")
-      .select("id")
-      .eq("resource", "department_questions")
-      .eq("action", "answer")
-      .single()
-
     const { data: accessLevels, error: accessLevelsError } = await adminSupabase
-      .from("department_access_levels")
+      .from("roles")
       .select("id, name, display_name, description, level, is_active")
+      .eq("type", "access_level")
       .eq("is_active", true)
       .order("level", { ascending: false })
 
@@ -42,14 +36,11 @@ export async function GET(request: Request, { params }: { params: Promise<{ depa
       )
     }
 
-    if (!permissionDefinition?.id) {
-      return NextResponse.json({ data: { accessLevels: accessLevels || [], allowedAccessLevels: [] } })
-    }
-
     const { data: existingRows, error: existingError } = await adminSupabase
-      .from("department_access_level_permissions")
-      .select("access_level_id")
-      .eq("permission_definition_id", permissionDefinition.id)
+      .from("role_permissions")
+      .select("role_id")
+      .eq("resource", "department_questions")
+      .eq("action", "answer")
       .eq("effect", "allow")
       .limit(10000)
 
@@ -60,7 +51,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ depa
       )
     }
 
-    const allowedAccessLevelIds = new Set((existingRows || []).map((row) => row.access_level_id))
+    const allowedAccessLevelIds = new Set((existingRows || []).map((row) => row.role_id))
     const allowedAccessLevels = (accessLevels || [])
       .filter((level) => allowedAccessLevelIds.has(level.id))
       .map((level) => level.name)
@@ -99,8 +90,9 @@ export async function PUT(request: Request, { params }: { params: Promise<{ depa
     )
 
     const { data: allAccessLevels, error: allAccessLevelsError } = await adminSupabase
-      .from("department_access_levels")
+      .from("roles")
       .select("id, name")
+      .eq("type", "access_level")
       .eq("is_active", true)
 
     if (allAccessLevelsError || !allAccessLevels) {
@@ -116,25 +108,15 @@ export async function PUT(request: Request, { params }: { params: Promise<{ depa
       )
     }
 
-    const { data: permissionDefinition } = await adminSupabase
-      .from("permission_definitions")
-      .select("id")
-      .eq("resource", "department_questions")
-      .eq("action", "answer")
-      .single()
-
-    if (!permissionDefinition?.id) {
-      return NextResponse.json({ error: "Permission definition not found" }, { status: 500 })
-    }
-
     const { data: existingRows, error: existingError } = await adminSupabase
-      .from("department_access_level_permissions")
-      .select("id, access_level_id")
+      .from("role_permissions")
+      .select("id, role_id")
       .in(
-        "access_level_id",
+        "role_id",
         allAccessLevels.map((level) => level.id)
       )
-      .eq("permission_definition_id", permissionDefinition.id)
+      .eq("resource", "department_questions")
+      .eq("action", "answer")
       .eq("effect", "allow")
       .limit(10000)
 
@@ -145,19 +127,19 @@ export async function PUT(request: Request, { params }: { params: Promise<{ depa
       )
     }
 
-    const existingAccessLevelIds = new Set((existingRows || []).map((row) => row.access_level_id))
+    const existingAccessLevelIds = new Set((existingRows || []).map((row) => row.role_id))
     const allowedAccessLevelIds = new Set(
       allAccessLevels.filter((level) => allowedAccessLevels.includes(level.name)).map((level) => level.id)
     )
 
     const toAdd = Array.from(allowedAccessLevelIds).filter((id) => !existingAccessLevelIds.has(id))
     const toRemove = (existingRows || [])
-      .filter((row) => !allowedAccessLevelIds.has(row.access_level_id))
+      .filter((row) => !allowedAccessLevelIds.has(row.role_id))
       .map((row) => row.id)
 
     if (toRemove.length > 0) {
       const { error: deleteError } = await adminSupabase
-        .from("department_access_level_permissions")
+        .from("role_permissions")
         .delete()
         .in("id", toRemove)
 
@@ -167,14 +149,12 @@ export async function PUT(request: Request, { params }: { params: Promise<{ depa
     }
 
     if (toAdd.length > 0) {
-      const { error: insertError } = await adminSupabase.from("department_access_level_permissions").insert(
+      const { error: insertError } = await adminSupabase.from("role_permissions").insert(
         toAdd.map((accessLevelId) => ({
-          access_level_id: accessLevelId,
-          permission_definition_id: permissionDefinition.id,
-          effect: "allow",
-          created_by: auth.userId,
-          updated_by: auth.userId,
-          updated_at: new Date().toISOString(),
+          role_id: accessLevelId,
+          resource: "department_questions",
+          action: "answer",
+          effect: "allow"
         }))
       )
 

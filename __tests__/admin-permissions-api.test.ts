@@ -81,10 +81,20 @@ function makeCreateClientMockWithAdmin() {
     single: jest.fn().mockResolvedValue({ data: { role_id: ADMIN_ROLE_ID }, error: null }),
   }
 
+  const permissionsChain = {
+    select: jest.fn().mockReturnThis(),
+    eq: jest.fn().mockReturnThis(),
+    limit: jest.fn().mockResolvedValue({
+      data: [{ id: "perm-admin-system" }],
+      error: null,
+    }),
+  }
+
   const supabaseMock = {
     auth: { getUser: jest.fn().mockResolvedValue({ data: { user: { id: userId } }, error: null }) },
     from: jest.fn((table: string) => {
       if (table === "user_profiles") return userProfilesChain
+      if (table === "permissions") return permissionsChain
       throw new Error(`Unexpected table ${table}`)
     }),
   }

@@ -3,6 +3,7 @@ import { adminSupabase } from "@/lib/supabase/admin"
 import { verifyPermission } from "@/lib/rbac/server"
 import type { UserWithProfile, PaginatedUsersResponse } from "@/lib/supabase/admin.types"
 import { normalizeEthiopianPhone } from "@/lib/auth/identifier"
+import { canViewDepartmentLogs } from "@/lib/logs/visibility"
 
 // Enable dynamic route behavior
 // This ensures we get fresh data on each request
@@ -39,8 +40,8 @@ async function clearUserOwnershipReferences(userId: string) {
   const updates: Array<{ table: string; column: string }> = [
     { table: "departments", column: "created_by" },
     { table: "departments", column: "updated_by" },
-    { table: "user_department_professions", column: "created_by" },
-    { table: "user_department_professions", column: "updated_by" },
+    { table: "user_department_memberships", column: "created_by" },
+    { table: "user_department_memberships", column: "updated_by" },
   ]
 
   for (const u of updates) {
@@ -87,13 +88,13 @@ async function deleteUserDependentRecords(userId: string) {
   }
 
   try {
-    const { error } = await adminSupabase.from("user_department_professions").delete().eq("user_id", userId)
+    const { error } = await adminSupabase.from("user_department_memberships").delete().eq("user_id", userId)
 
     if (error) {
-      console.warn("Failed to delete user department professions for user:", error)
+      console.warn("Failed to delete user department memberships for user:", error)
     }
   } catch (e) {
-    console.warn("Failed to delete user department professions for user:", e)
+    console.warn("Failed to delete user department memberships for user:", e)
   }
 
   try {
@@ -537,70 +538,51 @@ export async function GET(request: Request) {
       .map((profile: any) => profile.user_id)
       .filter((userId: string | null) => typeof userId === "string" && userId.trim().length > 0)
 
-    let professionAssignments: Array<{
-      user_id: string | null
-      role_id: string | null
-      is_active: boolean | null
-      role?: { name?: string | null } | null
-    }> = []
+    let professionByUserId = new Map<string, { role_id: string | null; role_name: string | null }>()
 
     if (profileUserIds.length > 0) {
-      const { data: departmentRolesData, error: departmentRolesError } = await adminSupabase
-        .from("user_department_professions")
-        .select("user_id, role, department_role_id, is_active, updated_at")
+      const { data: membershipData, error: membershipError } = await adminSupabase
+        .from("user_department_memberships")
+        .select(
+          `
+          user_id,
+          role_id,
+          is_active,
+          updated_at,
+          role:roles (
+            id,
+            name,
+            display_name,
+            type
+          )
+        `
+        )
         .in("user_id", profileUserIds)
         .order("is_active", { ascending: false })
         .order("updated_at", { ascending: false })
 
-      if (departmentRolesError) {
-        console.error("Error fetching department roles:", departmentRolesError)
+      if (membershipError) {
+        console.error("Error fetching department memberships:", membershipError)
       } else {
-        const rows = (departmentRolesData || []) as unknown as DepartmentRoleData[]
-        const professionIds = Array.from(
-          new Set(rows.map((item) => item.department_role_id).filter((id): id is string => typeof id === "string"))
-        )
-        const professionKeys = Array.from(
-          new Set(rows.map((item) => item.role).filter((key): key is string => typeof key === "string" && !!key))
-        )
+        const rows = (membershipData || []) as any[]
+        for (const row of rows) {
+          const userId = row.user_id
+          if (!userId || professionByUserId.has(userId)) continue
 
-        const professionFilters = [
-          professionIds.length > 0 ? `id.in.(${professionIds.join(",")})` : null,
-          professionKeys.length > 0 ? `key.in.(${professionKeys.join(",")})` : null,
-        ].filter(Boolean)
-
-        const { data: professionRows, error: professionError } =
-          professionFilters.length > 0
-            ? await adminSupabase
-                .from("department_professions")
-                .select("id, key, label")
-                .or(professionFilters.join(","))
-            : { data: [], error: null }
-
-        if (professionError) {
-          console.error("Error fetching department profession labels:", professionError)
+          // If we have multiple types, we can prioritize or just show the primary one
+          // For the legacy 'profession_role_name' field, we'll use the main profession/role
+          const roleResult = Array.isArray(row.role) ? row.role[0] : row.role
+          
+          professionByUserId.set(userId, {
+            role_id: row.role_id,
+            role_name: roleResult?.display_name || roleResult?.name || null,
+          })
         }
-
-        const labelById = new Map((professionRows || []).map((item) => [item.id, item.label]))
-        const labelByKey = new Map((professionRows || []).map((item) => [item.key, item.label]))
-
-        professionAssignments = (departmentRolesData || []).map((item: DepartmentRoleData) => ({
-          user_id: item.user_id,
-          role_id: item.role,
-          is_active: item.is_active,
-          role: { name: labelById.get(item.department_role_id || "") || labelByKey.get(item.role) || null },
-        }))
       }
     }
 
-    const professionByUserId = new Map<string, { role_id: string | null; role_name: string | null }>()
-    for (const assignment of professionAssignments) {
-      if (!assignment?.user_id || !assignment.is_active) continue
-      if (professionByUserId.has(assignment.user_id)) continue
-      professionByUserId.set(assignment.user_id, {
-        role_id: assignment.role_id ?? null,
-        role_name: assignment.role?.name ?? null,
-      })
-    }
+    // Access assignments are now unified in user_department_memberships
+    const accessRoleByUserId = new Map<string, string | null>()
 
     // Get auth data for all users in one go
     const {
@@ -617,6 +599,8 @@ export async function GET(request: Request) {
     const usersWithAuth: UserWithProfile[] = profiles.map((profile: any) => {
       const authUser = authUsersMap.get(profile.user_id)
       const profession = profile.user_id ? professionByUserId.get(profile.user_id) : null
+      const accessRoleName = profile.user_id ? accessRoleByUserId.get(profile.user_id) : null
+      const effectiveDepartmentRoleName = profession?.role_name ?? accessRoleName ?? null
 
       return {
         id: profile.user_id,
@@ -634,7 +618,8 @@ export async function GET(request: Request) {
           role_id: profile.role_id,
           role_name: profile.roles?.name || "user",
           profession_role_id: profession?.role_id ?? null,
-          profession_role_name: profession?.role_name ?? null,
+          profession_role_name: effectiveDepartmentRoleName,
+          effective_department_role_name: effectiveDepartmentRoleName,
           is_active: profile.is_active,
           created_at: profile.created_at,
           last_login: profile.last_login,

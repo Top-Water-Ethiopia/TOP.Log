@@ -81,16 +81,17 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       }
 
       const { data: departmentAccess } = await supabase
-        .from("user_department_access_levels")
+        .from("user_department_memberships")
         .select(
           `
-          access_level:department_access_levels (
+          access_level:roles (
             name
           )
         `
         )
         .eq("user_id", user.id)
         .eq("department_id", reportDepartmentId)
+        .eq("membership_type", "access_level")
         .maybeSingle()
 
       const accessLevelName = (departmentAccess?.access_level as { name?: string } | null)?.name || null

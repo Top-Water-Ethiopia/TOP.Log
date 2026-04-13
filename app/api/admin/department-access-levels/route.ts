@@ -12,8 +12,10 @@ export async function GET(request: Request) {
     }
 
     const { data, error } = await adminSupabase
-      .from("department_access_levels")
-      .select("*")
+      .from("roles")
+      .select("id, name, display_name, description, level, is_active, created_at, updated_at")
+      .eq("type", "access_level")
+      .eq("scope", "system")
       .order("level", { ascending: true })
 
     if (error) {
@@ -50,14 +52,16 @@ export async function POST(request: Request) {
     }
 
     const { data, error } = await adminSupabase
-      .from("department_access_levels")
+      .from("roles")
       .insert({
+        type: "access_level",
+        scope: "system",
         name,
         display_name,
         description: description || null,
         level,
       })
-      .select()
+      .select("id, name, display_name, description, level, is_active, created_at, updated_at")
       .single()
 
     if (error) {
@@ -105,10 +109,12 @@ export async function PUT(request: Request) {
     if (is_active !== undefined) updates.is_active = is_active
 
     const { data, error } = await adminSupabase
-      .from("department_access_levels")
+      .from("roles")
       .update(updates)
       .eq("id", id)
-      .select()
+      .eq("type", "access_level")
+      .eq("scope", "system")
+      .select("id, name, display_name, description, level, is_active, created_at, updated_at")
       .maybeSingle()
 
     if (error) {
@@ -148,7 +154,31 @@ export async function DELETE(request: Request) {
       return NextResponse.json({ error: "id is required" }, { status: 400 })
     }
 
-    const { error } = await adminSupabase.from("department_access_levels").delete().eq("id", id)
+    // Check for active memberships using this role
+    const { data: assignments, error: assignmentsError } = await adminSupabase
+      .from("user_department_memberships")
+      .select("id")
+      .eq("role_id", id)
+      .eq("is_active", true)
+      .limit(1)
+
+    if (assignmentsError) {
+      console.error("Error checking role assignments:", assignmentsError)
+    }
+
+    if (assignments && assignments.length > 0) {
+      return NextResponse.json(
+        { error: "Cannot delete access level. It has users assigned. Please reassign users first." },
+        { status: 409 }
+      )
+    }
+
+    const { error } = await adminSupabase
+      .from("roles")
+      .delete()
+      .eq("id", id)
+      .eq("type", "access_level")
+      .eq("scope", "system")
     if (error) {
       return NextResponse.json(
         { error: "Failed to delete department access level", message: error.message },
