@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState, useMemo } from "react"
+import { useEffect, useState, useMemo, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -12,7 +12,7 @@ import { Badge } from "@/components/ui/badge"
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert"
 import { Separator } from "@/components/ui/separator"
 import { useToast } from "@/components/ui/use-toast"
-import { useScopeEntryKinds, type ScopeEntryKind } from "@/hooks/use-entry-kinds"
+import { useScopeEntryKindsV2, type ScopeEntryKind } from "@/hooks/use-entry-kinds"
 import {
   getEntryKindLabel,
   getEntryKindEditorTitle,
@@ -45,6 +45,7 @@ interface DepartmentProfession {
   key: string
   label: string
   department_id: string
+  is_active: boolean
 }
 
 export default function EntryKindsConfigPage() {
@@ -54,7 +55,8 @@ export default function EntryKindsConfigPage() {
   const [departments, setDepartments] = useState<Department[]>([])
   const [isLoadingDepartments, setIsLoadingDepartments] = useState(true)
   const [selectedDepartment, setSelectedDepartment] = useState<string>("")
-  const [selectedProfession, setSelectedProfession] = useState<string>("")
+  const [selectedSystem, setSelectedSystem] = useState<"personal" | "dept_report">("personal")
+  const [selectedProfession, setSelectedProfession] = useState<string>("_dept_wide_personal_")
   const [professions, setProfessions] = useState<DepartmentProfession[]>([])
   const [isLoadingProfessions, setIsLoadingProfessions] = useState(false)
   const [isSaving, setIsSaving] = useState(false)
@@ -80,12 +82,29 @@ export default function EntryKindsConfigPage() {
   const [editedConfigs, setEditedConfigs] = useState<ScopeEntryKind[]>([])
   const [hasChanges, setHasChanges] = useState(false)
 
-  // Fetch scope entry kinds
+  const effectiveScopeType =
+    selectedSystem === "dept_report"
+      ? ("dept_report" as const)
+      : selectedProfession === "_dept_wide_personal_"
+        ? ("dept_wide_personal" as const)
+        : ("profession_personal" as const)
+
+  const effectiveProfessionRoleId =
+    effectiveScopeType === "profession_personal"
+      ? selectedProfession === "_dept_wide_personal_"
+        ? null
+        : selectedProfession
+      : null
+
+  // Fetch scope entry kinds (new model)
   const {
     entryKinds,
     isLoading: isLoadingConfigs,
     mutate,
-  } = useScopeEntryKinds(selectedDepartment || null, selectedProfession || null)
+  } = useScopeEntryKindsV2(selectedDepartment || null, {
+    scopeType: effectiveScopeType,
+    professionRoleId: effectiveProfessionRoleId,
+  })
 
   useEffect(() => {
     const loadDepartments = async () => {
@@ -122,12 +141,15 @@ export default function EntryKindsConfigPage() {
   useEffect(() => {
     if (!selectedDepartment) {
       setProfessions([])
-      setSelectedProfession("")
+      setSelectedProfession("_dept_wide_personal_")
       return
     }
 
     const loadProfessions = async () => {
       try {
+        // Prevent showing stale professions from a previous department while loading
+        setProfessions([])
+        setSelectedProfession("_dept_wide_personal_")
         setIsLoadingProfessions(true)
         const response = await fetch(
           `/api/admin/departments/${encodeURIComponent(selectedDepartment)}/profession-roles`,
@@ -147,16 +169,18 @@ export default function EntryKindsConfigPage() {
 
         const rows = Array.isArray(data) ? (data as unknown[]) : []
 
-        setProfessions(
-          rows
-            .filter((r): r is Record<string, unknown> => typeof r === "object" && r !== null)
-            .filter((r) => r.is_active !== false)
-            .map((r) => ({
-              key: String(r.key ?? ""),
-              label: String(r.label ?? ""),
-              department_id: String(r.department_id ?? selectedDepartment),
-            }))
-        )
+        const loadedProfessions = rows
+          .filter((r): r is Record<string, unknown> => typeof r === "object" && r !== null)
+          .map((r) => ({
+            key: String(r.id ?? ""),
+            label: String(r.display_name ?? ""),
+            department_id: String(r.department_id ?? selectedDepartment),
+            is_active: r.is_active !== false,
+          }))
+          .filter((p) => p.key !== "")
+          .filter((p) => p.department_id === selectedDepartment)
+
+        setProfessions(loadedProfessions)
       } catch (error) {
         toast({
           title: "Error",
@@ -171,16 +195,26 @@ export default function EntryKindsConfigPage() {
     void loadProfessions()
   }, [selectedDepartment, toast])
 
+  const visibleProfessions = useMemo(
+    () => professions.filter((p) => p.department_id === selectedDepartment),
+    [professions, selectedDepartment]
+  )
+
   useEffect(() => {
     setEditedConfigs([])
     setHasChanges(false)
     setValidationError(null)
     setDeactivationBlock(null)
-  }, [selectedDepartment, selectedProfession])
+    initializedScopeKey.current = "" // Reset so init effect runs with fresh data
+  }, [selectedDepartment, selectedProfession, selectedSystem])
 
-  // Initialize edited configs when entry kinds load
+  // Initialize edited configs when entry kinds load (only once per scope change)
+  const initializedScopeKey = useRef<string>("")
+
+  const currentScopeKey = `${selectedDepartment}|${selectedSystem}|${selectedProfession}`
+
   useEffect(() => {
-    if (entryKinds.length > 0 && editedConfigs.length === 0) {
+    if (entryKinds.length > 0 && initializedScopeKey.current !== currentScopeKey) {
       // Deduplicate by entry_kind to prevent React key warnings
       const seen = new Set<string>()
       const deduplicated = entryKinds.filter((config) => {
@@ -189,8 +223,9 @@ export default function EntryKindsConfigPage() {
         return true
       })
       setEditedConfigs(deduplicated)
+      initializedScopeKey.current = currentScopeKey
     }
-  }, [entryKinds, editedConfigs.length])
+  }, [entryKinds, currentScopeKey])
 
   // Validation
   const validation = useMemo(() => {
@@ -201,16 +236,18 @@ export default function EntryKindsConfigPage() {
       return { valid: true, error: null }
     }
 
-    if (active.length === 0) {
+    const requiresActive = effectiveScopeType !== "profession_personal"
+
+    if (requiresActive && active.length === 0) {
       return { valid: false, error: "At least one entry kind must be active" }
     }
 
-    if (defaults.length !== 1) {
+    if (active.length > 0 && defaults.length !== 1) {
       return { valid: false, error: "Exactly one active entry kind must be set as default" }
     }
 
     return { valid: true, error: null }
-  }, [editedConfigs])
+  }, [editedConfigs, effectiveScopeType])
 
   const handleToggleActive = (index: number) => {
     const config = editedConfigs[index]
@@ -315,7 +352,8 @@ export default function EntryKindsConfigPage() {
         credentials: "include",
         body: JSON.stringify({
           departmentId: selectedDepartment,
-          departmentProfessionId: selectedProfession || null,
+          scopeType: effectiveScopeType,
+          professionRoleId: effectiveProfessionRoleId,
           configs: editedConfigs.map((c) => ({
             id: c.id,
             entry_kind: c.entry_kind,
@@ -418,7 +456,8 @@ export default function EntryKindsConfigPage() {
         credentials: "include",
         body: JSON.stringify({
           departmentId: selectedDepartment,
-          departmentProfessionId: selectedProfession || null,
+          scopeType: effectiveScopeType,
+          professionRoleId: effectiveProfessionRoleId,
           config: {
             entry_kind: newEntryKind.entry_kind,
             label: newEntryKind.label || newEntryKind.entry_kind,
@@ -510,8 +549,8 @@ export default function EntryKindsConfigPage() {
       {/* Scope Selection */}
       <Card className="mb-6">
         <CardHeader>
-          <CardTitle>Select Scope</CardTitle>
-          <CardDescription>Choose the department and optionally a profession to configure</CardDescription>
+          <CardTitle>Configuration Mode</CardTitle>
+          <CardDescription>Personal entry kinds are separate from department report entry kinds</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
@@ -532,30 +571,58 @@ export default function EntryKindsConfigPage() {
             </div>
 
             <div className="space-y-2">
-              <Label htmlFor="profession">Profession (Optional)</Label>
+              <Label htmlFor="system">System</Label>
               <Select
-                value={selectedProfession}
-                onValueChange={(value) => setSelectedProfession(value === "_department_wide_" ? "" : value)}
-                disabled={!selectedDepartment || isLoadingProfessions}
+                value={selectedSystem}
+                onValueChange={(v) => setSelectedSystem(v as any)}
+                disabled={!selectedDepartment}
               >
                 <SelectTrigger>
-                  <SelectValue
-                    placeholder={
-                      selectedDepartment ? "Department-wide (no specific profession)" : "Select department first"
-                    }
-                  />
+                  <SelectValue placeholder={selectedDepartment ? "Select system" : "Select department first"} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="_department_wide_">Department-wide</SelectItem>
-                  {professions.map((prof) => (
-                    <SelectItem key={prof.key} value={prof.key}>
-                      {prof.label}
-                    </SelectItem>
-                  ))}
+                  <SelectItem value="personal">Personal logging</SelectItem>
+                  <SelectItem value="dept_report">Department reporting</SelectItem>
                 </SelectContent>
               </Select>
             </div>
           </div>
+
+          {selectedSystem === "personal" && (
+            <div className="space-y-2">
+              <Label htmlFor="profession">Personal Scope</Label>
+              <Select
+                value={selectedProfession}
+                onValueChange={setSelectedProfession}
+                disabled={!selectedDepartment || isLoadingProfessions}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder={selectedDepartment ? "Dept-wide personal" : "Select department first"} />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="_dept_wide_personal_">Dept-wide personal</SelectItem>
+                  {visibleProfessions.map((prof) => (
+                    <SelectItem key={prof.key} value={prof.key}>
+                      <span className={prof.is_active ? "" : "text-muted-foreground italic"}>
+                        {prof.is_active ? prof.label : `(Archived) ${prof.label}`}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-muted-foreground text-xs">
+                Personal logging uses: profession override → dept-wide personal. Department reporting uses a separate
+                configuration and never mixes with personal scopes.
+              </p>
+            </div>
+          )}
+
+          {selectedSystem === "dept_report" && (
+            <p className="text-muted-foreground text-xs">
+              Department reporting uses department-report entry kinds only. If none are configured, department reports
+              should fail with a clear error.
+            </p>
+          )}
         </CardContent>
       </Card>
 
@@ -630,129 +697,129 @@ export default function EntryKindsConfigPage() {
                       key={`${config.entry_kind}-${index}`}
                       className={`rounded-lg border p-4 ${config.is_active ? "bg-white" : "bg-gray-50 opacity-75"}`}
                     >
-                    <div className="flex items-start gap-4">
-                      {/* Drag Handle */}
-                      <div className="flex flex-col gap-1 pt-1">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6"
-                          disabled={index === 0}
-                          onClick={() => handleMoveOrder(index, "up")}
-                        >
-                          <ChevronUp className="h-4 w-4" />
-                        </Button>
-                        <GripVertical className="text-muted-foreground h-4 w-4" />
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="h-6 w-6"
-                          disabled={index === editedConfigs.length - 1}
-                          onClick={() => handleMoveOrder(index, "down")}
-                        >
-                          <ChevronDown className="h-4 w-4" />
-                        </Button>
-                      </div>
-
-                      {/* Icon & System Key */}
-                      <div className="bg-muted flex h-10 w-10 items-center justify-center rounded-full">
-                        {getIconComponent(config.icon || "FileText")}
-                      </div>
-
-                      {/* Content */}
-                      <div className="flex-1 space-y-3">
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold">{editorTitle.title}</span>
-                          <span className="text-muted-foreground text-xs">{editorTitle.keyLabel}</span>
-                          {config.is_active && config.is_default && <Badge variant="default">Default</Badge>}
-                          {!config.is_active && <Badge variant="secondary">Inactive</Badge>}
+                      <div className="flex items-start gap-4">
+                        {/* Drag Handle */}
+                        <div className="flex flex-col gap-1 pt-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            disabled={index === 0}
+                            onClick={() => handleMoveOrder(index, "up")}
+                          >
+                            <ChevronUp className="h-4 w-4" />
+                          </Button>
+                          <GripVertical className="text-muted-foreground h-4 w-4" />
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-6 w-6"
+                            disabled={index === editedConfigs.length - 1}
+                            onClick={() => handleMoveOrder(index, "down")}
+                          >
+                            <ChevronDown className="h-4 w-4" />
+                          </Button>
                         </div>
 
-                        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                          <div className="space-y-1">
-                            <Label className="text-xs">Display Label</Label>
-                            <Input
-                              value={config.label}
-                              onChange={(e) => handleUpdateLabel(index, e.target.value)}
-                              placeholder={SYSTEM_ENTRY_KIND_DEFAULTS[config.entry_kind]?.label}
-                            />
-                          </div>
-
-                          <div className="space-y-1">
-                            <Label className="text-xs">Description</Label>
-                            <Input
-                              value={config.description || ""}
-                              onChange={(e) => handleUpdateDescription(index, e.target.value)}
-                              placeholder={SYSTEM_ENTRY_KIND_DEFAULTS[config.entry_kind]?.description}
-                            />
-                          </div>
+                        {/* Icon & System Key */}
+                        <div className="bg-muted flex h-10 w-10 items-center justify-center rounded-full">
+                          {getIconComponent(config.icon || "FileText")}
                         </div>
 
-                        <div className="flex items-center gap-4">
+                        {/* Content */}
+                        <div className="flex-1 space-y-3">
                           <div className="flex items-center gap-2">
-                            <Label className="text-xs">Color</Label>
-                            <input
-                              type="color"
-                              value={config.color || "#6B7280"}
-                              onChange={(e) => handleUpdateColor(index, e.target.value)}
-                              className="h-8 w-8 rounded border p-0"
-                            />
+                            <span className="font-semibold">{editorTitle.title}</span>
+                            <span className="text-muted-foreground text-xs">{editorTitle.keyLabel}</span>
+                            {config.is_active && config.is_default && <Badge variant="default">Default</Badge>}
+                            {!config.is_active && <Badge variant="secondary">Inactive</Badge>}
+                          </div>
+
+                          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                            <div className="space-y-1">
+                              <Label className="text-xs">Display Label</Label>
+                              <Input
+                                value={config.label}
+                                onChange={(e) => handleUpdateLabel(index, e.target.value)}
+                                placeholder={SYSTEM_ENTRY_KIND_DEFAULTS[config.entry_kind]?.label}
+                              />
+                            </div>
+
+                            <div className="space-y-1">
+                              <Label className="text-xs">Description</Label>
+                              <Input
+                                value={config.description || ""}
+                                onChange={(e) => handleUpdateDescription(index, e.target.value)}
+                                placeholder={SYSTEM_ENTRY_KIND_DEFAULTS[config.entry_kind]?.description}
+                              />
+                            </div>
                           </div>
 
                           <div className="flex items-center gap-4">
                             <div className="flex items-center gap-2">
-                              <Switch
-                                checked={config.is_active}
-                                onCheckedChange={() => handleToggleActive(index)}
-                                id={`active-${config.entry_kind}`}
+                              <Label className="text-xs">Color</Label>
+                              <input
+                                type="color"
+                                value={config.color || "#6B7280"}
+                                onChange={(e) => handleUpdateColor(index, e.target.value)}
+                                className="h-8 w-8 rounded border p-0"
                               />
-                              <Label htmlFor={`active-${config.entry_kind}`} className="text-sm">
-                                Active
-                              </Label>
                             </div>
 
-                            {config.is_active && (
+                            <div className="flex items-center gap-4">
                               <div className="flex items-center gap-2">
                                 <Switch
-                                  checked={config.is_default}
-                                  onCheckedChange={() => handleSetDefault(index)}
-                                  id={`default-${config.entry_kind}`}
+                                  checked={config.is_active}
+                                  onCheckedChange={() => handleToggleActive(index)}
+                                  id={`active-${config.entry_kind}`}
                                 />
-                                <Label htmlFor={`default-${config.entry_kind}`} className="text-sm">
-                                  Default
+                                <Label htmlFor={`active-${config.entry_kind}`} className="text-sm">
+                                  Active
                                 </Label>
                               </div>
-                            )}
 
-                            <div className="flex items-center gap-2">
-                              <Switch
-                                checked={config.supports_assigned_agent}
-                                onCheckedChange={() =>
-                                  handleUpdateSupportsAssignedAgent(index, !config.supports_assigned_agent)
-                                }
-                                id={`supports-assigned-${config.entry_kind}`}
-                              />
-                              <Label htmlFor={`supports-assigned-${config.entry_kind}`} className="text-sm">
-                                Supports Assigned Agents
-                              </Label>
-                            </div>
+                              {config.is_active && (
+                                <div className="flex items-center gap-2">
+                                  <Switch
+                                    checked={config.is_default}
+                                    onCheckedChange={() => handleSetDefault(index)}
+                                    id={`default-${config.entry_kind}`}
+                                  />
+                                  <Label htmlFor={`default-${config.entry_kind}`} className="text-sm">
+                                    Default
+                                  </Label>
+                                </div>
+                              )}
 
-                            <div className="flex items-center gap-2">
-                              <Switch
-                                checked={config.allow_multiple_per_day ?? false}
-                                onCheckedChange={() =>
-                                  handleUpdateAllowMultiplePerDay(index, !(config.allow_multiple_per_day ?? false))
-                                }
-                                id={`allow-multiple-${config.entry_kind}`}
-                              />
-                              <Label htmlFor={`allow-multiple-${config.entry_kind}`} className="text-sm">
-                                Allow Multiple Per Day
-                              </Label>
+                              <div className="flex items-center gap-2">
+                                <Switch
+                                  checked={config.supports_assigned_agent}
+                                  onCheckedChange={() =>
+                                    handleUpdateSupportsAssignedAgent(index, !config.supports_assigned_agent)
+                                  }
+                                  id={`supports-assigned-${config.entry_kind}`}
+                                />
+                                <Label htmlFor={`supports-assigned-${config.entry_kind}`} className="text-sm">
+                                  Supports Assigned Agents
+                                </Label>
+                              </div>
+
+                              <div className="flex items-center gap-2">
+                                <Switch
+                                  checked={config.allow_multiple_per_day ?? false}
+                                  onCheckedChange={() =>
+                                    handleUpdateAllowMultiplePerDay(index, !(config.allow_multiple_per_day ?? false))
+                                  }
+                                  id={`allow-multiple-${config.entry_kind}`}
+                                />
+                                <Label htmlFor={`allow-multiple-${config.entry_kind}`} className="text-sm">
+                                  Allow Multiple Per Day
+                                </Label>
+                              </div>
                             </div>
                           </div>
                         </div>
                       </div>
-                    </div>
                     </div>
                   )
                 })}

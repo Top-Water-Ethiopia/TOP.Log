@@ -1,9 +1,11 @@
 import { NextResponse } from "next/server"
 import { adminSupabase } from "@/lib/supabase/admin"
-import { verifyPermissionFromRequest } from "@/lib/rbac/server"
+import { verifyPermission, verifyPermissionForDepartmentFromRequest } from "@/lib/rbac/server"
 import { createClient } from "@/lib/supabase/server"
 
 export const dynamic = "force-dynamic"
+
+type ScopeType = "dept_wide_personal" | "profession_personal" | "dept_report"
 
 // Default colors and icons for system entry kinds
 const SYSTEM_ENTRY_KIND_DEFAULTS: Record<string, { label: string; color: string; icon: string; description: string }> =
@@ -34,37 +36,19 @@ async function userCanAccessDepartment(
   userId: string,
   departmentId: string
 ) {
-  const [{ data: professionAssignment, error: professionError }, { data: accessAssignments, error: accessError }] =
-    await Promise.all([
-      supabase
-        .from("user_department_professions")
-        .select("department_id")
-        .eq("user_id", userId)
-        .eq("department_id", departmentId)
-        .eq("is_active", true)
-        .limit(1)
-        .maybeSingle(),
-      supabase
-        .from("user_department_access_levels")
-        .select("department_id")
-        .eq("user_id", userId)
-        .eq("department_id", departmentId)
-        .limit(1),
-    ])
+  const { data: memberships, error: membershipError } = await supabase
+    .from("user_department_memberships")
+    .select("department_id")
+    .eq("user_id", userId)
+    .eq("department_id", departmentId)
+    .eq("is_active", true)
+    .limit(1)
 
-  if (professionError) {
-    console.error("Error checking profession assignment:", professionError)
+  if (membershipError) {
+    console.error("Error checking department membership:", membershipError)
   }
 
-  if (professionAssignment?.department_id === departmentId) {
-    return true
-  }
-
-  if (accessError) {
-    console.error("Error checking access assignments:", accessError)
-  }
-
-  return (accessAssignments || []).some((assignment) => assignment.department_id === departmentId)
+  return (memberships || []).length > 0
 }
 
 // GET - List scope entry kinds with self-healing
@@ -80,28 +64,30 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "Not authenticated" }, { status: 401 })
     }
 
+    const adminCheck = await verifyPermission("admin.system")
+
     // Get query parameters
     const url = new URL(request.url)
     const departmentId = url.searchParams.get("departmentId")
-    const departmentProfessionId = url.searchParams.get("departmentProfessionId")
+    const departmentProfessionId = url.searchParams.get("departmentProfessionId") // legacy
+    const scopeTypeParam = url.searchParams.get("scopeType")
+    const professionRoleIdParam = url.searchParams.get("professionRoleId")
 
     if (!departmentId) {
       return NextResponse.json({ error: "departmentId is required" }, { status: 400 })
     }
 
-    // Check permissions: either admin/manage OR department member access
-    let hasPermission = false
-    const permCheck = await verifyPermissionFromRequest(request, "departments.manage")
-    if (permCheck.ok) {
-      hasPermission = true
-    } else {
-      const adminCheck = await verifyPermissionFromRequest(request, "admin.system")
-      if (adminCheck.ok) {
-        hasPermission = true
-      } else {
-        // Fallback: check if user has access to this department
-        hasPermission = await userCanAccessDepartment(supabase, user.id, departmentId)
-      }
+    const permCheck = adminCheck.ok
+      ? ({ ok: true } as const)
+      : await verifyPermissionForDepartmentFromRequest(request, "departments.manage", departmentId)
+    const readCheck = permCheck.ok
+      ? null
+      : await verifyPermissionForDepartmentFromRequest(request, "departments.read", departmentId)
+
+    let hasPermission = permCheck.ok || readCheck?.ok
+
+    if (!hasPermission) {
+      hasPermission = await userCanAccessDepartment(supabase, user.id, departmentId)
     }
 
     if (!hasPermission) {
@@ -113,8 +99,20 @@ export async function GET(request: Request) {
     // Query for existing configs
     let query = (adminSupabase as any).from("scope_entry_kinds").select("*").eq("department_id", departmentId)
 
-    if (departmentProfessionId) {
-      // departmentProfessionId is TEXT (profession key), not UUID
+    const scopeType = (scopeTypeParam as ScopeType | null) ?? null
+
+    if (scopeType) {
+      query = query.eq("scope_type", scopeType)
+      if (scopeType === "profession_personal") {
+        if (!professionRoleIdParam) {
+          return NextResponse.json({ error: "professionRoleId is required for profession_personal" }, { status: 400 })
+        }
+        query = query.eq("profession_role_id", professionRoleIdParam)
+      } else {
+        query = query.is("department_profession_id", null)
+      }
+    } else if (departmentProfessionId) {
+      // departmentProfessionId is legacy TEXT (profession key), not UUID
       query = query.eq("department_profession_id", departmentProfessionId)
     } else {
       query = query.is("department_profession_id", null)
@@ -134,7 +132,12 @@ export async function GET(request: Request) {
     let selfHealed = false
     let configs = existingConfigs
 
-    if (!configs || configs.length === 0) {
+    const canSelfHeal =
+      scopeType == null
+        ? departmentProfessionId == null // legacy: only dept-wide
+        : scopeType === "dept_wide_personal" // new: only personal dept-wide
+
+    if (canSelfHeal && (!configs || configs.length === 0)) {
       try {
         const defaults = SYSTEM_ENTRY_KIND_DEFAULTS.standard
         const { data: newConfig, error: insertError } = await (adminSupabase as any)
@@ -142,6 +145,7 @@ export async function GET(request: Request) {
           .insert({
             department_id: departmentId,
             department_profession_id: departmentProfessionId || null,
+            scope_type: scopeType ?? "dept_wide_personal",
             entry_kind: "standard",
             label: defaults.label,
             description: defaults.description,
@@ -166,6 +170,7 @@ export async function GET(request: Request) {
               .select("*")
               .eq("department_id", departmentId)
               .eq("department_profession_id", departmentProfessionId || null)
+              .eq("scope_type", scopeType ?? "dept_wide_personal")
 
             if (retryError) {
               console.error("Error re-querying after conflict:", retryError)
@@ -205,7 +210,7 @@ export async function GET(request: Request) {
       return a.label.localeCompare(b.label)
     })
 
-    const scope = departmentProfessionId ? "profession" : "department"
+    const scope = scopeType === "profession_personal" || departmentProfessionId ? "profession" : "department"
 
     return NextResponse.json({
       data: configs || [],
@@ -227,21 +232,19 @@ export async function GET(request: Request) {
 // PUT - Bulk update scope entry kinds
 export async function PUT(request: Request) {
   try {
-    // Verify permission (admin or departments.manage)
-    const auth = await verifyPermissionFromRequest(request, "departments.manage")
-    if (!auth.ok) {
-      // Try admin permission as fallback
-      const adminAuth = await verifyPermissionFromRequest(request, "admin.system")
-      if (!adminAuth.ok) {
-        return NextResponse.json({ error: auth.error }, { status: auth.status })
-      }
-    }
-
     const body = await request.json()
-    const { departmentId, departmentProfessionId, configs } = body
+    const { departmentId, departmentProfessionId, configs, scopeType: scopeTypeBody, professionRoleId } = body
 
     if (!departmentId) {
       return NextResponse.json({ error: "departmentId is required" }, { status: 400 })
+    }
+
+    const adminCheck = await verifyPermission("admin.system")
+    if (!adminCheck.ok) {
+      const auth = await verifyPermissionForDepartmentFromRequest(request, "departments.manage", departmentId)
+      if (!auth.ok) {
+        return NextResponse.json({ error: auth.error }, { status: auth.status })
+      }
     }
 
     if (!configs || !Array.isArray(configs)) {
@@ -255,15 +258,25 @@ export async function PUT(request: Request) {
     } = await supabase.auth.getUser()
     const userId = user?.id
 
-    // Validation: Check for at least one active
+    const scopeType = (scopeTypeBody as ScopeType | undefined) ?? null
+
+    // Validation rules:
+    // - dept_wide_personal + dept_report: require at least one active + exactly one default among active
+    // - profession_personal: allow empty (all inactive); if any active, require exactly one default among active
+    // - legacy dept-wide: require at least one active + exactly one default among active
+    // - legacy profession: allow empty; if any active, require exactly one default among active
     const activeConfigs = configs.filter((c: { is_active: boolean }) => c.is_active)
-    if (activeConfigs.length === 0) {
+    const defaultConfigs = activeConfigs.filter((c: { is_default: boolean }) => c.is_default)
+
+    const requiresActive = scopeType
+      ? scopeType !== "profession_personal"
+      : departmentProfessionId == null // legacy dept-wide
+
+    if (requiresActive && activeConfigs.length === 0) {
       return NextResponse.json({ error: "At least one entry kind must be active" }, { status: 400 })
     }
 
-    // Validation: Check for exactly one default among active
-    const defaultConfigs = activeConfigs.filter((c: { is_default: boolean }) => c.is_default)
-    if (defaultConfigs.length !== 1) {
+    if (activeConfigs.length > 0 && defaultConfigs.length !== 1) {
       return NextResponse.json(
         { error: "Exactly one entry kind must be marked as default among active ones" },
         { status: 400 }
@@ -282,13 +295,24 @@ export async function PUT(request: Request) {
 
         if (existing?.is_active && !config.is_active) {
           // Being deactivated - check for active questions
-          const { count, error: countError } = await (adminSupabase as any)
+          let countQuery = (adminSupabase as any)
             .from("role_questions")
             .select("*", { count: "exact", head: true })
             .eq("department_id", departmentId)
-            .eq("department_profession_id", departmentProfessionId || null)
             .eq("entry_kind", config.entry_kind)
             .eq("is_active", true)
+
+          if (scopeType === "dept_report") {
+            // Department report questions are department-scoped (no profession) and tagged as dept_report
+            countQuery = countQuery.is("department_profession_id", null).eq("question_scope_type", "dept_report")
+          } else if (scopeType === "profession_personal") {
+            countQuery = countQuery.eq("department_profession_id", professionRoleId)
+          } else {
+            // Legacy + dept-wide personal
+            countQuery = countQuery.eq("department_profession_id", departmentProfessionId || null)
+          }
+
+          const { count, error: countError } = await countQuery
 
           if (countError) {
             console.error("Error counting questions:", countError)
@@ -312,12 +336,44 @@ export async function PUT(request: Request) {
       }
     }
 
+    if (scopeType) {
+      if (scopeType === "profession_personal" && !professionRoleId) {
+        return NextResponse.json({ error: "professionRoleId is required for profession_personal" }, { status: 400 })
+      }
+      if (scopeType === "dept_report" && professionRoleId) {
+        return NextResponse.json({ error: "professionRoleId is not allowed for dept_report" }, { status: 400 })
+      }
+
+      const normalizedConfigs = configs.map((config: any) => ({
+        ...config,
+        color: config.color || SYSTEM_ENTRY_KIND_DEFAULTS[config.entry_kind]?.color || "#6B7280",
+        icon: config.icon || SYSTEM_ENTRY_KIND_DEFAULTS[config.entry_kind]?.icon || "FileText",
+      }))
+
+      const { data, error } = await (adminSupabase as any).rpc("update_scope_entry_kinds_bulk", {
+        p_department_id: departmentId,
+        p_scope_type: scopeType,
+        p_profession_role_id: professionRoleId || null,
+        p_configs: normalizedConfigs,
+        p_updated_by: userId || null,
+      })
+
+      if (error) {
+        console.error("Error bulk updating scope entry kinds:", error)
+        return NextResponse.json({ error: "Failed to update scope entry kinds", message: error.message }, { status: 500 })
+      }
+
+      const results = Array.isArray(data) ? data : []
+      return NextResponse.json({ data: results })
+    }
+
     // Perform upserts for each config
     const results = []
     for (const config of configs) {
       const upsertData = {
         department_id: departmentId,
         department_profession_id: departmentProfessionId || null,
+        scope_type: departmentProfessionId ? "profession_personal" : "dept_wide_personal",
         entry_kind: config.entry_kind,
         label: config.label,
         description: config.description || null,
@@ -390,25 +446,33 @@ export async function PUT(request: Request) {
 // POST - Create a new custom entry kind
 export async function POST(request: Request) {
   try {
-    // Verify permission (admin or departments.manage)
-    const auth = await verifyPermissionFromRequest(request, "departments.manage")
-    if (!auth.ok) {
-      // Try admin permission as fallback
-      const adminAuth = await verifyPermissionFromRequest(request, "admin.system")
-      if (!adminAuth.ok) {
-        return NextResponse.json({ error: auth.error }, { status: auth.status })
-      }
-    }
-
     const body = await request.json()
-    const { departmentId, departmentProfessionId, config } = body
+    const { departmentId, departmentProfessionId, config, scopeType: scopeTypeBody, professionRoleId } = body
 
     if (!departmentId) {
       return NextResponse.json({ error: "departmentId is required" }, { status: 400 })
     }
 
+    const adminCheck = await verifyPermission("admin.system")
+    if (!adminCheck.ok) {
+      const auth = await verifyPermissionForDepartmentFromRequest(request, "departments.manage", departmentId)
+      if (!auth.ok) {
+        return NextResponse.json({ error: auth.error }, { status: auth.status })
+      }
+    }
+
     if (!config || !config.entry_kind) {
       return NextResponse.json({ error: "config with entry_kind is required" }, { status: 400 })
+    }
+
+    const scopeType = (scopeTypeBody as ScopeType | undefined) ?? null
+    if (scopeType) {
+      if (scopeType === "profession_personal" && !professionRoleId) {
+        return NextResponse.json({ error: "professionRoleId is required for profession_personal" }, { status: 400 })
+      }
+      if (scopeType === "dept_report" && professionRoleId) {
+        return NextResponse.json({ error: "professionRoleId is not allowed for dept_report" }, { status: 400 })
+      }
     }
 
     // Normalize key to lowercase
@@ -427,13 +491,24 @@ export async function POST(request: Request) {
     }
 
     // Check for uniqueness within scope
-    const { data: existing, error: checkError } = await (adminSupabase as any)
+    let checkQuery = (adminSupabase as any)
       .from("scope_entry_kinds")
       .select("id")
       .eq("department_id", departmentId)
-      .eq("department_profession_id", departmentProfessionId || null)
       .eq("entry_kind", normalizedKey)
-      .maybeSingle()
+
+    if (scopeType) {
+      checkQuery = checkQuery.eq("scope_type", scopeType)
+      if (scopeType === "profession_personal") {
+        checkQuery = checkQuery.eq("profession_role_id", professionRoleId)
+      } else {
+        checkQuery = checkQuery.is("department_profession_id", null)
+      }
+    } else {
+      checkQuery = checkQuery.eq("department_profession_id", departmentProfessionId || null)
+    }
+
+    const { data: existing, error: checkError } = await checkQuery.maybeSingle()
 
     if (checkError) {
       console.error("Error checking for existing entry kind:", checkError)
@@ -459,7 +534,9 @@ export async function POST(request: Request) {
       .from("scope_entry_kinds")
       .insert({
         department_id: departmentId,
-        department_profession_id: departmentProfessionId || null,
+        department_profession_id: scopeType ? null : departmentProfessionId || null,
+        scope_type: scopeType ?? (departmentProfessionId ? "profession_personal" : "dept_wide_personal"),
+        profession_role_id: scopeType === "profession_personal" ? professionRoleId : null,
         entry_kind: normalizedKey,
         label: config.label || normalizedKey,
         description: config.description || null,

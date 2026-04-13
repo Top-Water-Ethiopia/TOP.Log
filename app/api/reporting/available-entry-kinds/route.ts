@@ -1,9 +1,14 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { resolveRoleQuestionScope } from "@/lib/reporting-model"
+import { resolveEntryKinds } from "@/lib/entry-kinds/resolve"
 
 export const runtime = "nodejs"
 export const dynamic = "force-dynamic"
+
+function looksLikeUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
+}
 
 export async function GET(request: Request) {
   try {
@@ -19,30 +24,42 @@ export async function GET(request: Request) {
 
     const { searchParams } = new URL(request.url)
     const departmentId = searchParams.get("departmentId")
-    const professionId = searchParams.get("professionId") || searchParams.get("role")
+    const requestedRole = searchParams.get("professionId") || searchParams.get("role")
 
     if (!departmentId) {
       return NextResponse.json({ error: "departmentId is required" }, { status: 400 })
     }
 
-    const configQuery = (supabase as any)
-      .from("scope_entry_kinds")
-      .select("*")
+    // Resolve all active roles for the user in this department
+    const { data: userMemberships } = await supabase
+      .from("user_department_memberships")
+      .select("role:roles(id, name)")
+      .eq("user_id", user.id)
       .eq("department_id", departmentId)
       .eq("is_active", true)
 
-    if (professionId) {
-      configQuery.eq("department_profession_id", professionId)
-    } else {
-      configQuery.is("department_profession_id", null)
-    }
+    const userRoles = new Set<string>()
+    if (requestedRole) userRoles.add(requestedRole)
+    
+    userMemberships?.forEach((m: any) => {
+      const role = Array.isArray(m.role) ? m.role[0] : m.role
+      if (role?.name) userRoles.add(role.name)
+      if (role?.id) userRoles.add(role.id)
+    })
+    const previewProfessionRoleId = requestedRole && looksLikeUuid(requestedRole) ? requestedRole : null
 
-    // 1. Fetch active entry kind configurations (labels, colors, etc.) for the current scope.
-    const { data: configs, error: configError } = await configQuery
-
-    if (configError) {
-      console.error("Error fetching entry kind configs:", configError)
-      // Fallback to empty configs if this fails, we can still show basic labels
+    let resolvedConfigs: any[] = []
+    try {
+      const resolved = await resolveEntryKinds({
+        system: "personal",
+        departmentId,
+        userId: user.id,
+        professionRoleId: previewProfessionRoleId,
+      })
+      resolvedConfigs = resolved.data
+    } catch (e) {
+      // For personal logging, missing config should not hard-fail the endpoint.
+      console.error("Error resolving entry kinds:", e)
     }
 
     // 2. Fetch active questions to determine reachability
@@ -66,10 +83,14 @@ export async function GET(request: Request) {
         const scope = resolveRoleQuestionScope(q)
         if (!scope) return
 
-        if (scope.kind === "department") {
+        if (scope.kind === "dept_wide_personal") {
           reachableKinds.add(q.entry_kind)
-        } else if (professionId && scope.kind === "profession") {
-          if (scope.departmentProfessionId === professionId || scope.departmentProfessionKey === professionId) {
+        } else if (userRoles.size > 0 && scope.kind === "profession") {
+          const matches =
+            (scope.departmentProfessionId && userRoles.has(scope.departmentProfessionId)) ||
+            (scope.departmentProfessionKey && userRoles.has(scope.departmentProfessionKey))
+
+          if (matches) {
             reachableKinds.add(q.entry_kind)
           }
         }
@@ -77,7 +98,7 @@ export async function GET(request: Request) {
     }
 
     // 3. Combine configs with reachability
-    const available = (configs || [])
+    const available = (resolvedConfigs || [])
       .filter((config: any) => reachableKinds.has(config.entry_kind))
       .map((config: any) => ({
         entry_kind: config.entry_kind,

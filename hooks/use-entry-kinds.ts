@@ -57,3 +57,31 @@ export function useScopeEntryKinds(departmentId: string | null, departmentProfes
     mutate,
   }
 }
+
+export type ScopeEntryKindScopeType = "dept_wide_personal" | "profession_personal" | "dept_report"
+
+export function useScopeEntryKindsV2(
+  departmentId: string | null,
+  params: { scopeType: ScopeEntryKindScopeType; professionRoleId?: string | null }
+) {
+  const shouldFetch = departmentId != null
+  const url = shouldFetch
+    ? `/api/admin/scope-entry-kinds?departmentId=${encodeURIComponent(departmentId!)}&scopeType=${encodeURIComponent(
+        params.scopeType
+      )}${params.professionRoleId ? `&professionRoleId=${encodeURIComponent(params.professionRoleId)}` : ""}`
+    : null
+
+  const { data, error, isLoading, mutate } = useSWR<ScopeEntryKindsResponse>(url, fetcher, {
+    revalidateOnFocus: false,
+    shouldRetryOnError: false,
+  })
+
+  return {
+    entryKinds: data?.data || [],
+    scope: data?.scope || "department",
+    selfHealed: data?.self_healed || false,
+    isLoading,
+    error,
+    mutate,
+  }
+}

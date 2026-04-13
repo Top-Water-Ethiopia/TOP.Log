@@ -9,6 +9,7 @@ type RoleQuestionScopeLike = {
   department_id?: unknown
   department_profession_id?: unknown
   department_role?: unknown
+  question_scope_type?: unknown
 }
 
 export type DepartmentProfessionIdentity = {
@@ -18,7 +19,7 @@ export type DepartmentProfessionIdentity = {
 
 export type RoleQuestionScope =
   | {
-      kind: "department"
+      kind: "dept_report" | "dept_wide_personal"
       departmentId: string
     }
   | {
@@ -38,6 +39,7 @@ export function resolveRoleQuestionScope(question: RoleQuestionScopeLike): RoleQ
   const departmentId = getNonEmptyString(question.department_id)
   const departmentProfessionId = getNonEmptyString(question.department_profession_id)
   const departmentProfessionKey = normalizeSalesPromoterProfessionKey(question.department_role)
+  const scopeType = getNonEmptyString(question.question_scope_type)
 
   if (departmentProfessionId || departmentProfessionKey) {
     return {
@@ -50,7 +52,7 @@ export function resolveRoleQuestionScope(question: RoleQuestionScopeLike): RoleQ
 
   if (departmentId) {
     return {
-      kind: "department",
+      kind: scopeType === "dept_wide_personal" ? "dept_wide_personal" : "dept_report",
       departmentId,
     }
   }
@@ -59,15 +61,23 @@ export function resolveRoleQuestionScope(question: RoleQuestionScopeLike): RoleQ
 }
 
 export function getRoleQuestionScopeCacheKey(scope: RoleQuestionScope): string {
-  if (scope.kind === "department") {
-    return `department:${scope.departmentId}`
+  if (scope.kind === "dept_report") {
+    return `dept_report:${scope.departmentId}`
+  }
+
+  if (scope.kind === "dept_wide_personal") {
+    return `dept_wide_personal:${scope.departmentId}`
   }
 
   return `profession:${scope.departmentId ?? "unknown"}:${scope.departmentProfessionId ?? "unknown"}:${scope.departmentProfessionKey ?? "unknown"}`
 }
 
 export function isDepartmentReportQuestion(question: RoleQuestionScopeLike): boolean {
-  return resolveRoleQuestionScope(question)?.kind === "department"
+  return resolveRoleQuestionScope(question)?.kind === "dept_report"
+}
+
+export function isDepartmentWidePersonalQuestion(question: RoleQuestionScopeLike): boolean {
+  return resolveRoleQuestionScope(question)?.kind === "dept_wide_personal"
 }
 
 /**
@@ -101,7 +111,9 @@ export function matchesProfessionQuestion(
 }
 
 export function getQuestionCategory(question: RoleQuestionScopeLike): string {
-  return isDepartmentReportQuestion(question) ? "department_report" : "profession_question"
+  if (isDepartmentReportQuestion(question)) return "department_report"
+  if (isDepartmentWidePersonalQuestion(question)) return "dept_wide_personal"
+  return "profession_question"
 }
 
 export function deriveReportKindFromResponses(

@@ -12,37 +12,19 @@ async function userCanAccessDepartment(
   userId: string,
   departmentId: string
 ) {
-  const [{ data: professionAssignment, error: professionError }, { data: accessAssignments, error: accessError }] =
-    await Promise.all([
-      supabase
-        .from("user_department_professions")
-        .select("department_id")
-        .eq("user_id", userId)
-        .eq("department_id", departmentId)
-        .eq("is_active", true)
-        .limit(1)
-        .maybeSingle(),
-      supabase
-        .from("user_department_access_levels")
-        .select("department_id")
-        .eq("user_id", userId)
-        .eq("department_id", departmentId)
-        .limit(1),
-    ])
+  const { data: memberships, error: membershipError } = await supabase
+    .from("user_department_memberships")
+    .select("department_id")
+    .eq("user_id", userId)
+    .eq("department_id", departmentId)
+    .eq("is_active", true)
+    .limit(1)
 
-  if (professionError) {
-    throw professionError
+  if (membershipError) {
+    throw membershipError
   }
 
-  if (professionAssignment?.department_id === departmentId) {
-    return true
-  }
-
-  if (accessError) {
-    throw accessError
-  }
-
-  return (accessAssignments || []).some((assignment) => assignment.department_id === departmentId)
+  return (memberships || []).length > 0
 }
 
 export async function GET(request: Request) {
@@ -101,20 +83,34 @@ export async function GET(request: Request) {
     }
     console.log(`[entry-availability] Access granted, querying captain_log_entries...`)
 
-    const scopeConfigQuery = (supabase as any)
+    // Resolve all active roles for the user in this department
+    const { data: userMemberships } = await supabase
+      .from("user_department_memberships")
+      .select("membership_type, role:roles(id, name)")
+      .eq("user_id", user.id)
+      .eq("department_id", departmentId)
+      .eq("is_active", true)
+
+    const userRoles = new Set<string>()
+    if (role) userRoles.add(role)
+    
+    let userProfessionName: string | null = null
+    userMemberships?.forEach((m: any) => {
+      const r = Array.isArray(m.role) ? m.role[0] : m.role
+      if (r?.name) {
+        userRoles.add(r.name)
+        if (m.membership_type === 'profession') userProfessionName = r.name
+      }
+      if (r?.id) userRoles.add(r.id)
+    })
+
+    // Fetch all configurations for this entry kind in this department
+    const { data: configs, error: scopeConfigError } = await (supabase as any)
       .from("scope_entry_kinds")
-      .select("allow_multiple_per_day")
+      .select("department_profession_id, allow_multiple_per_day")
       .eq("department_id", departmentId)
       .eq("entry_kind", entryKind)
-      .limit(1)
-
-    if (role) {
-      scopeConfigQuery.eq("department_profession_id", role)
-    } else {
-      scopeConfigQuery.is("department_profession_id", null)
-    }
-
-    const { data: scopeConfig, error: scopeConfigError } = await scopeConfigQuery.maybeSingle()
+      .eq("is_active", true)
 
     if (scopeConfigError) {
       console.error("[entry-availability] Scope config query error:", scopeConfigError)
@@ -124,7 +120,31 @@ export async function GET(request: Request) {
       )
     }
 
-    const allowMultiplePerDay = scopeConfig?.allow_multiple_per_day === true
+    // Determine allowMultiplePerDay based on most specific config found
+    // 1. Check profession priority
+    let allowMultiplePerDay = false
+    const configMap = new Map<string | null, boolean>(
+      (configs || []).map((c: any) => [c.department_profession_id, c.allow_multiple_per_day === true])
+    )
+
+    if (userProfessionName && configMap.has(userProfessionName)) {
+      allowMultiplePerDay = configMap.get(userProfessionName) === true
+    } else if (role && configMap.has(role)) {
+      allowMultiplePerDay = configMap.get(role) === true
+    } else {
+      // Check any other role the user has
+      for (const rName of Array.from(userRoles)) {
+        if (configMap.has(rName)) {
+          allowMultiplePerDay = configMap.get(rName) === true
+          break
+        }
+      }
+
+      // Fallback to department-wide if no role matches
+      if (!allowMultiplePerDay && configMap.has(null)) {
+        allowMultiplePerDay = configMap.get(null) === true
+      }
+    }
 
     if (allowMultiplePerDay) {
       return NextResponse.json({
