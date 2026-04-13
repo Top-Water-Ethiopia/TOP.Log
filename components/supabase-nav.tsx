@@ -21,7 +21,6 @@ import {
   UserIcon,
   LogOutIcon,
   ChevronDownIcon,
-  LockIcon,
   CheckCircleIcon,
   AlertCircleIcon,
   InfoIcon,
@@ -29,10 +28,6 @@ import {
   Sun,
   LayoutDashboard,
 } from "lucide-react"
-
-// Role IDs from schema
-const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
-const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
 
 export function SupabaseNav() {
   const { user, profile, logout, isLoading } = useSupabaseAuth()
@@ -84,26 +79,13 @@ export function SupabaseNav() {
       })
     }
 
-    if (isAdmin) {
+    if (canAccessAdmin) {
       items.push({
         type: "item",
         asChild: true,
         node: (
           <Link href="/admin" className="flex items-center">
             <LayoutDashboard className="mr-2 h-4 w-4" />
-            <span>Admin Dashboard</span>
-          </Link>
-        ),
-      })
-    }
-
-    if (canAccessAdmin && !isAdmin) {
-      items.push({
-        type: "item",
-        asChild: true,
-        node: (
-          <Link href="/admin" className="flex items-center">
-            <LockIcon className="mr-2 h-4 w-4" />
             <span>Admin Dashboard</span>
           </Link>
         ),

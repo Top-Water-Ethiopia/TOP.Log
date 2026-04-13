@@ -13,7 +13,19 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { toast } from "sonner"
-import { CalendarDays, ChevronLeft, ChevronRight, ArrowLeft, ExternalLink, Edit2, Check, X } from "lucide-react"
+import {
+  CalendarDays,
+  ChevronLeft,
+  ChevronRight,
+  ArrowLeft,
+  ExternalLink,
+  Edit2,
+  Check,
+  X,
+  FileText,
+  History,
+  HelpCircle,
+} from "lucide-react"
 import { isFeatureEnabledClient } from "@/lib/feature-flags/client"
 import { Textarea } from "@/components/ui/textarea"
 import {
@@ -48,6 +60,16 @@ type MemberRow = {
     department_id: string | null
     is_active: boolean
   } | null
+}
+
+type UserMembership = {
+  department_id: string
+  roleType: "profession" | "access-level" | null
+  roleKey: string | null
+  roleLabel: string | null
+  canViewReports: boolean
+  canCreateReports: boolean
+  canAnswerDepartmentReports: boolean
 }
 
 type EntryRow = {
@@ -138,6 +160,10 @@ export default function DepartmentDetailsPage() {
   const [editName, setEditName] = useState("")
   const [editDescription, setEditDescription] = useState("")
   const [isUpdating, setIsUpdating] = useState(false)
+
+  // User's effective membership in this department (for action buttons)
+  const [userMembership, setUserMembership] = useState<UserMembership | null>(null)
+  const [loadingUserMembership, setLoadingUserMembership] = useState(true)
 
   // Initialize edit fields when department is loaded
   useEffect(() => {
@@ -289,9 +315,25 @@ export default function DepartmentDetailsPage() {
       }
     }
 
+    const loadUserMembership = async () => {
+      try {
+        setLoadingUserMembership(true)
+        const res = await fetch("/api/departments")
+        const json = await res.json().catch(() => ({}))
+        if (res.ok) {
+          const memberships = (json.data || []) as UserMembership[]
+          const membership = memberships.find((m) => m.department_id === id)
+          setUserMembership(membership || null)
+        }
+      } finally {
+        setLoadingUserMembership(false)
+      }
+    }
+
     loadDepartment()
     loadMembers()
     loadEntries()
+    loadUserMembership()
   }, [
     userId,
     departmentsEnabled,
@@ -382,6 +424,26 @@ export default function DepartmentDetailsPage() {
   return (
     <div className="space-y-6">
       <div className="group relative">
+        {/* Action Buttons */}
+        <div className="mb-4 flex flex-wrap gap-2">
+          {!loadingUserMembership && userMembership?.canCreateReports && (
+            <Link href={`/logs/new?departmentId=${departmentId}`}>
+              <Button size="sm" className="gap-2">
+                <FileText className="h-4 w-4" />
+                New Report
+              </Button>
+            </Link>
+          )}
+          {!loadingUserMembership && userMembership?.canViewReports && (
+            <Link href={`/logs?departmentId=${departmentId}`}>
+              <Button variant="outline" size="sm" className="gap-2">
+                <History className="h-4 w-4" />
+                View Reports
+              </Button>
+            </Link>
+          )}
+        </div>
+
         {isEditingName ? (
           <div className="flex items-center gap-2">
             <Input
@@ -491,9 +553,13 @@ export default function DepartmentDetailsPage() {
       </div>
 
       <Tabs defaultValue="reports">
-        <TabsList className="grid w-full max-w-md grid-cols-2">
+        <TabsList className="grid w-full max-w-md grid-cols-3">
           <TabsTrigger value="reports">Reports</TabsTrigger>
           <TabsTrigger value="members">Members</TabsTrigger>
+          <TabsTrigger value="questions" className="gap-1">
+            <HelpCircle className="h-4 w-4" />
+            Questions
+          </TabsTrigger>
         </TabsList>
 
         <TabsContent value="reports" className="space-y-4">
@@ -910,6 +976,62 @@ export default function DepartmentDetailsPage() {
                 </Card>
               ))}
             </div>
+          )}
+        </TabsContent>
+
+        <TabsContent value="questions" className="space-y-4">
+          {loadingUserMembership ? (
+            <Card>
+              <CardHeader>
+                <Skeleton className="h-5 w-40 bg-gray-200/70 dark:bg-gray-800" />
+                <Skeleton className="h-4 w-56 bg-gray-200/60 dark:bg-gray-800" />
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {[...Array(3)].map((_, i) => (
+                  <Skeleton key={i} className="h-16 w-full bg-gray-200/60 dark:bg-gray-800" />
+                ))}
+              </CardContent>
+            </Card>
+          ) : !userMembership?.canAnswerDepartmentReports ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>No access to questions</CardTitle>
+                <CardDescription>You don&apos;t have permission to view department report questions.</CardDescription>
+              </CardHeader>
+            </Card>
+          ) : (
+            <Card>
+              <CardHeader>
+                <CardTitle className="flex items-center gap-2">
+                  <HelpCircle className="h-5 w-5" />
+                  Report Questions
+                </CardTitle>
+                <CardDescription>
+                  Questions you will answer when submitting reports for this department.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="text-muted-foreground text-sm">
+                  <p className="mb-2">
+                    <strong>Your role:</strong>{" "}
+                    {userMembership?.roleLabel || userMembership?.roleKey || "Department Member"}
+                  </p>
+                  <p>
+                    Report questions are configured by administrators and will appear when you create a new report.
+                    Contact your administrator if you have questions about the reporting requirements.
+                  </p>
+                </div>
+                {userMembership?.roleType === "profession" && (
+                  <div className="bg-muted/50 rounded-lg border p-4">
+                    <p className="text-sm">
+                      <strong>Profession-specific questions:</strong> As a{" "}
+                      {userMembership.roleLabel || userMembership.roleKey}, you will see both department-wide and
+                      profession-specific questions when creating reports.
+                    </p>
+                  </div>
+                )}
+              </CardContent>
+            </Card>
           )}
         </TabsContent>
       </Tabs>

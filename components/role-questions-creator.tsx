@@ -32,7 +32,11 @@ import {
   ChevronDown,
 } from "lucide-react"
 import { findDuplicateValues, normalizeQuestionKey } from "@/lib/role-question-identity"
-import { isDepartmentReportQuestion, matchesProfessionQuestion } from "@/lib/reporting-model"
+import {
+  isDepartmentReportQuestion,
+  isDepartmentWidePersonalQuestion,
+  matchesProfessionQuestion,
+} from "@/lib/reporting-model"
 import {
   ASSIGNED_AGENTS_OPTION_SOURCE_KIND,
   getAssignedAgentsDailyLimit,
@@ -43,7 +47,7 @@ import {
   normalizeSalesPromoterProfessionKey,
 } from "@/lib/marketing-agents"
 import { toast } from "sonner"
-import { useScopeEntryKinds, type ScopeEntryKind } from "@/hooks/use-entry-kinds"
+import { useScopeEntryKindsV2, type ScopeEntryKind } from "@/hooks/use-entry-kinds"
 import {
   getEntryKindLabel,
   getEntryKindColor,
@@ -51,7 +55,15 @@ import {
   getDefaultEntryKind,
   findEntryKindConfig,
 } from "@/lib/entry-kinds"
-import { getImageUploadMode, type ImageUploadMode } from "@/lib/image-upload"
+import {
+  getImageUploadMode,
+  type ImageUploadMode,
+  getImageMaxSizeBytes,
+  IMAGE_SIZE_OPTIONS,
+  DEFAULT_IMAGE_MAX_SIZE_BYTES,
+} from "@/lib/image-upload"
+import { getFileUploadMode, type FileUploadMode } from "@/lib/upload-config"
+import { getFileMaxSizeBytes, FILE_SIZE_OPTIONS, DEFAULT_FILE_MAX_SIZE_BYTES } from "@/lib/upload-types"
 
 type ApiRoleQuestion = {
   id?: unknown
@@ -118,6 +130,9 @@ function createEmptyQuestion(displayOrder = 0, defaultEntryKind: string = "stand
     max_logs_per_agent_per_day: null,
     entry_kind: defaultEntryKind,
     image_upload_mode: "single",
+    image_max_size_bytes: DEFAULT_IMAGE_MAX_SIZE_BYTES,
+    file_upload_mode: "single",
+    file_max_size_bytes: DEFAULT_FILE_MAX_SIZE_BYTES,
   }
 }
 
@@ -242,6 +257,9 @@ interface QuestionFormData {
   max_logs_per_agent_per_day: number | null
   entry_kind?: string
   image_upload_mode: ImageUploadMode
+  image_max_size_bytes: number
+  file_upload_mode: FileUploadMode
+  file_max_size_bytes: number
 }
 
 function normalizeQuestionEntryKind(entryKind: string | null | undefined, fallbackEntryKind: string): string {
@@ -255,11 +273,13 @@ export function sanitizeQuestionsForScope(
   preferredActiveEntryKindTab?: string | null
 ): { questions: QuestionFormData[]; activeEntryKindTab: string } {
   const configuredEntryKinds = new Set(entryKinds.map((entryKind) => entryKind.entry_kind))
-  const nextActiveTab = entryKinds.find((entryKind) => entryKind.is_active && entryKind.is_default)?.entry_kind
-    || entryKinds.find((entryKind) => entryKind.is_active)?.entry_kind
-    || fallbackEntryKind
+  const nextActiveTab =
+    entryKinds.find((entryKind) => entryKind.is_active && entryKind.is_default)?.entry_kind ||
+    entryKinds.find((entryKind) => entryKind.is_active)?.entry_kind ||
+    fallbackEntryKind
   const preferredActiveTab =
-    preferredActiveEntryKindTab && entryKinds.some((entryKind) => entryKind.is_active && entryKind.entry_kind === preferredActiveEntryKindTab)
+    preferredActiveEntryKindTab &&
+    entryKinds.some((entryKind) => entryKind.is_active && entryKind.entry_kind === preferredActiveEntryKindTab)
       ? preferredActiveEntryKindTab
       : null
 
@@ -305,7 +325,7 @@ export function sanitizeQuestionsForScope(
 }
 
 type Step = "role" | "questions" | "success"
-type QuestionScope = "role" | "department"
+type QuestionScope = "role" | "dept_wide_personal" | "dept_report"
 
 export function buildQuestionScopeFields(
   questionScope: QuestionScope,
@@ -318,10 +338,16 @@ export function buildQuestionScopeFields(
       department_id: selectedDepartmentForRole!.id,
       department_profession_id: selectedDepartmentRole!.id ?? null,
       department_role: normalizeSalesPromoterProfessionKey(selectedDepartmentRole!.key),
+      question_scope_type: "profession_personal",
     }
   }
 
-  return { department_id: selectedDepartment!.id }
+  return {
+    department_id: selectedDepartment!.id,
+    department_profession_id: null,
+    department_role: null,
+    question_scope_type: questionScope === "dept_wide_personal" ? "dept_wide_personal" : "dept_report",
+  }
 }
 
 export function RoleQuestionsCreator() {
@@ -357,7 +383,14 @@ export function RoleQuestionsCreator() {
   // Fetch scope entry kinds for dynamic tabs
   const isRoleScope = questionScope === "role"
   const targetDepartmentId = isRoleScope ? selectedDepartmentForRole?.id : selectedDepartment?.id
-  const targetProfessionId = isRoleScope ? selectedDepartmentRole?.key : null
+  const targetProfessionRoleId = isRoleScope ? selectedDepartmentRole?.id : null
+
+  const effectiveScopeType =
+    questionScope === "role"
+      ? ("profession_personal" as const)
+      : questionScope === "dept_wide_personal"
+        ? ("dept_wide_personal" as const)
+        : ("dept_report" as const)
 
   const {
     entryKinds,
@@ -366,12 +399,15 @@ export function RoleQuestionsCreator() {
     isLoading: isLoadingEntryKinds,
     error: entryKindsError,
     mutate: mutateEntryKinds,
-  } = useScopeEntryKinds(targetDepartmentId || null, targetProfessionId || null)
+  } = useScopeEntryKindsV2(targetDepartmentId || null, {
+    scopeType: effectiveScopeType,
+    professionRoleId: effectiveScopeType === "profession_personal" ? targetProfessionRoleId : null,
+  })
 
   const scopeKey = useMemo(() => {
     if (!targetDepartmentId) return null
-    return `${targetDepartmentId}:${targetProfessionId || "department"}`
-  }, [targetDepartmentId, targetProfessionId])
+    return `${targetDepartmentId}:${effectiveScopeType}:${targetProfessionRoleId || "null"}`
+  }, [effectiveScopeType, targetDepartmentId, targetProfessionRoleId])
 
   // Get active entry kinds sorted
   const activeEntryKinds = useMemo(() => {
@@ -427,16 +463,22 @@ export function RoleQuestionsCreator() {
 
     const scopeParam = searchParams?.get("scope")
     const departmentIdParam = searchParams?.get("departmentId")
-    const roleIdParam = searchParams?.get("roleId") || searchParams?.get("role")
+    const rawRoleIdParam = searchParams?.get("roleId") || searchParams?.get("role")
+    const roleIdParam =
+      rawRoleIdParam && rawRoleIdParam !== "undefined" && rawRoleIdParam !== "null" ? rawRoleIdParam : null
 
     const effectiveScope =
-      scopeParam === "role" || (!scopeParam && roleIdParam) || (scopeParam === "department" && roleIdParam)
-        ? "role"
-        : "department"
+      scopeParam === "dept_wide_personal" || scopeParam === "dept_report" || scopeParam === "role"
+        ? scopeParam
+        : scopeParam === "department"
+          ? "dept_report"
+          : !scopeParam && roleIdParam
+            ? "role"
+            : "dept_report"
 
-    if (effectiveScope === "department") {
+    if (effectiveScope === "dept_report" || effectiveScope === "dept_wide_personal") {
       if (isLoadingDepartments) return
-      setQuestionScope("department")
+      setQuestionScope(effectiveScope as any)
       if (departmentIdParam) {
         const dept = departments.find((d) => d.id === departmentIdParam) || null
         setSelectedDepartment(dept)
@@ -542,7 +584,9 @@ export function RoleQuestionsCreator() {
                 professionKey: targetRoleKey,
               })
             }
-            return isDepartmentReportQuestion(q)
+            return questionScope === "dept_wide_personal"
+              ? isDepartmentWidePersonalQuestion(q)
+              : isDepartmentReportQuestion(q)
           })
           .sort((a, b) => (asNumber(a?.display_order) ?? 0) - (asNumber(b?.display_order) ?? 0))
 
@@ -588,6 +632,9 @@ export function RoleQuestionsCreator() {
             max_logs_per_agent_per_day: getAssignedAgentsDailyLimit(q.metadata),
             entry_kind: (asString(q.entry_kind) as string) || "standard",
             image_upload_mode: type === "image" ? getImageUploadMode(q.metadata) : "single",
+            image_max_size_bytes: type === "image" ? getImageMaxSizeBytes(q.metadata) : DEFAULT_IMAGE_MAX_SIZE_BYTES,
+            file_upload_mode: type === "file" ? getFileUploadMode(q.metadata) : "single",
+            file_max_size_bytes: type === "file" ? getFileMaxSizeBytes(q.metadata) : DEFAULT_FILE_MAX_SIZE_BYTES,
           }
         })
 
@@ -602,13 +649,7 @@ export function RoleQuestionsCreator() {
     }
 
     loadScopeQuestions()
-  }, [
-    questionScope,
-    selectedDepartmentId,
-    selectedDepartmentForRole,
-    selectedDepartmentRole,
-    selectedDepartment,
-  ])
+  }, [questionScope, selectedDepartmentId, selectedDepartmentForRole, selectedDepartmentRole, selectedDepartment])
 
   useEffect(() => {
     if (isLoadingEntryKinds || entryKinds.length === 0 || questions.length === 0) {
@@ -630,7 +671,9 @@ export function RoleQuestionsCreator() {
     if (questionsChanged) {
       setQuestions(sanitized.questions)
       setCurrentQuestionId((currentId) =>
-        sanitized.questions.some((question) => question.id === currentId) ? currentId : sanitized.questions[0]?.id ?? null
+        sanitized.questions.some((question) => question.id === currentId)
+          ? currentId
+          : (sanitized.questions[0]?.id ?? null)
       )
       setHasUnsavedChanges(false)
     }
@@ -698,7 +741,9 @@ export function RoleQuestionsCreator() {
 
   const moveQuestion = (id: string, direction: "up" | "down") => {
     pendingFocusRef.current = { questionId: id, direction }
-    setQuestions((prev) => reorderQuestions({ questions: prev, entryKind: activeEntryKindTab, questionId: id, direction }))
+    setQuestions((prev) =>
+      reorderQuestions({ questions: prev, entryKind: activeEntryKindTab, questionId: id, direction })
+    )
     setCurrentQuestionId(id)
     setHasUnsavedChanges(true)
   }
@@ -761,7 +806,16 @@ export function RoleQuestionsCreator() {
       if (!response.ok) throw new Error("Failed to load department roles")
 
       const result = await response.json()
-      const data = Array.isArray(result?.data) ? (result.data as DepartmentRole[]) : []
+      const raw = Array.isArray(result?.data) ? result.data : []
+      const data: DepartmentRole[] = raw.map((r: Record<string, unknown>) => ({
+        id: r.id as string | undefined,
+        key: (r.name as string) ?? "",
+        label: (r.display_name as string) ?? (r.name as string) ?? "",
+        sort_order: (r.sort_order as number) ?? 0,
+        is_active: !!r.is_active,
+        is_default: !!r.is_default,
+        department_id: r.department_id as string | undefined,
+      }))
       const activeRoles = data.filter((role) => role.is_active)
       setDepartmentRoles(activeRoles)
       return activeRoles
@@ -781,12 +835,16 @@ export function RoleQuestionsCreator() {
 
   useEffect(() => {
     if (filteredQuestions.length === 0) {
-      setCurrentQuestionId((currentId) => (currentId && questions.some((question) => question.id === currentId) ? currentId : null))
+      setCurrentQuestionId((currentId) =>
+        currentId && questions.some((question) => question.id === currentId) ? currentId : null
+      )
       return
     }
 
     setCurrentQuestionId((currentId) =>
-      currentId && filteredQuestions.some((question) => question.id === currentId) ? currentId : filteredQuestions[0]?.id ?? null
+      currentId && filteredQuestions.some((question) => question.id === currentId)
+        ? currentId
+        : (filteredQuestions[0]?.id ?? null)
     )
   }, [filteredQuestions, questions])
 
@@ -937,7 +995,12 @@ export function RoleQuestionsCreator() {
           entry_kind: q.entry_kind || "standard",
           metadata: {
             legacy_question_key: resolvedKey,
-            ...(q.question_type === "image" ? { image_upload_mode: q.image_upload_mode } : {}),
+            ...(q.question_type === "image"
+              ? { image_upload_mode: q.image_upload_mode, image_max_size_bytes: q.image_max_size_bytes }
+              : {}),
+            ...(q.question_type === "file"
+              ? { file_upload_mode: q.file_upload_mode, file_max_size_bytes: q.file_max_size_bytes }
+              : {}),
             ...(q.option_source_kind === ASSIGNED_AGENTS_OPTION_SOURCE_KIND
               ? {
                   option_source: {
@@ -1038,7 +1101,7 @@ export function RoleQuestionsCreator() {
               <Select
                 value={questionScope}
                 onValueChange={(val) => {
-                  const next = val === "department" ? "department" : "role"
+                  const next = val === "dept_wide_personal" || val === "dept_report" ? (val as any) : "role"
                   setQuestionScope(next)
                   setSelectedDepartment(null)
                   setSelectedDepartmentRole(null)
@@ -1055,7 +1118,13 @@ export function RoleQuestionsCreator() {
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="department">
+                  <SelectItem value="dept_wide_personal">
+                    <div className="flex items-center gap-2">
+                      <div className="h-2 w-2 rounded-full bg-gray-500" />
+                      Department-wide (Personal)
+                    </div>
+                  </SelectItem>
+                  <SelectItem value="dept_report">
                     <div className="flex items-center gap-2">
                       <div className="h-2 w-2 rounded-full bg-blue-500" />
                       Department Report
@@ -1070,9 +1139,11 @@ export function RoleQuestionsCreator() {
                 </SelectContent>
               </Select>
               <p className="text-xs leading-relaxed text-gray-500">
-                {questionScope === "department"
+                {questionScope === "dept_report"
                   ? "Questions answered on behalf of the department by authorized department leaders"
-                  : "Questions will be assigned to specific professions within a department"}
+                  : questionScope === "dept_wide_personal"
+                    ? "Questions answered by all members of a department as part of personal logging"
+                    : "Questions will be assigned to specific professions within a department"}
               </p>
             </div>
           </div>
@@ -1181,7 +1252,7 @@ export function RoleQuestionsCreator() {
                 )}
               </div>
             ) : (
-              /* Department-based selection */
+              /* Department-based selection (dept-wide personal OR dept-report) */
               <div className="space-y-3">
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <div className="space-y-2">
@@ -1213,8 +1284,12 @@ export function RoleQuestionsCreator() {
                     <Label className="text-sm font-medium text-gray-900">Scope Type</Label>
                     <div className="flex h-11 items-center rounded-md border border-gray-300 bg-gray-50 px-3">
                       <div className="flex items-center gap-2">
-                        <div className="h-2 w-2 rounded-full bg-blue-500" />
-                        <span className="text-sm text-gray-700">Department Report</span>
+                        <div
+                          className={`h-2 w-2 rounded-full ${questionScope === "dept_report" ? "bg-blue-500" : "bg-gray-500"}`}
+                        />
+                        <span className="text-sm text-gray-700">
+                          {questionScope === "dept_report" ? "Department Report" : "Department-wide (Personal)"}
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -1230,7 +1305,9 @@ export function RoleQuestionsCreator() {
                         <div>
                           <p className="text-sm font-medium text-green-900">{selectedDepartment.name}</p>
                           <p className="text-xs text-green-700">
-                            Questions answered on behalf of the department by authorized department leaders
+                            {questionScope === "dept_report"
+                              ? "Questions answered on behalf of the department by authorized department leaders"
+                              : "Questions answered by all department members as part of personal logging"}
                           </p>
                         </div>
                       </div>
@@ -1260,7 +1337,7 @@ export function RoleQuestionsCreator() {
     const targetName =
       questionScope === "role"
         ? selectedDepartmentRole?.label
-        : questionScope === "department"
+        : questionScope === "dept_report" || questionScope === "dept_wide_personal"
           ? selectedDepartment?.name
           : null
 
@@ -1341,7 +1418,7 @@ export function RoleQuestionsCreator() {
   const selectedScopeName =
     questionScope === "role"
       ? selectedDepartmentRole?.label
-      : questionScope === "department"
+      : questionScope === "dept_report" || questionScope === "dept_wide_personal"
         ? selectedDepartment?.name
         : null
 
@@ -1747,7 +1824,9 @@ function QuestionForm({
         question_type: value,
         option_source_kind: question.option_source_kind || "static",
         max_logs_per_agent_per_day:
-          question.option_source_kind === ASSIGNED_AGENTS_OPTION_SOURCE_KIND ? question.max_logs_per_agent_per_day : null,
+          question.option_source_kind === ASSIGNED_AGENTS_OPTION_SOURCE_KIND
+            ? question.max_logs_per_agent_per_day
+            : null,
         is_required: isAssignedAgentQuestion ? true : question.is_required,
       })
       return
@@ -1758,6 +1837,9 @@ function QuestionForm({
       option_source_kind: "static",
       max_logs_per_agent_per_day: null,
       image_upload_mode: value === "image" ? question.image_upload_mode : "single",
+      image_max_size_bytes: value === "image" ? question.image_max_size_bytes : DEFAULT_IMAGE_MAX_SIZE_BYTES,
+      file_upload_mode: value === "file" ? question.file_upload_mode : "single",
+      file_max_size_bytes: value === "file" ? question.file_max_size_bytes : DEFAULT_FILE_MAX_SIZE_BYTES,
       options:
         value === "radio" || value === "multiselect" || value === "rating" || value === "checkbox"
           ? question.options
@@ -1894,45 +1976,148 @@ function QuestionForm({
           </div>
 
           {question.question_type === "image" && (
-            <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4">
-              <div className="space-y-1">
-                <Label>Image upload mode</Label>
-                <p className="text-muted-foreground text-xs">
-                  Choose whether this question accepts one image or multiple images.
-                </p>
+            <div className="space-y-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <Label>Image upload mode</Label>
+                  <p className="text-muted-foreground text-xs">
+                    Choose whether this question accepts one image or multiple images.
+                  </p>
+                </div>
+                <RadioGroup
+                  value={question.image_upload_mode}
+                  onValueChange={(value) =>
+                    onUpdate({
+                      image_upload_mode: value === "multiple" ? "multiple" : "single",
+                    })
+                  }
+                >
+                  <div className="flex items-start gap-3 rounded-md border border-slate-200 bg-white p-3">
+                    <RadioGroupItem value="single" id={`question-${question.id}-image-mode-single`} />
+                    <div className="space-y-1">
+                      <Label
+                        htmlFor={`question-${question.id}-image-mode-single`}
+                        className="cursor-pointer font-medium"
+                      >
+                        Single image
+                      </Label>
+                      <p className="text-muted-foreground text-xs">Stores one uploaded image for this answer.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3 rounded-md border border-slate-200 bg-white p-3">
+                    <RadioGroupItem value="multiple" id={`question-${question.id}-image-mode-multiple`} />
+                    <div className="space-y-1">
+                      <Label
+                        htmlFor={`question-${question.id}-image-mode-multiple`}
+                        className="cursor-pointer font-medium"
+                      >
+                        Multiple images
+                      </Label>
+                      <p className="text-muted-foreground text-xs">Allows several uploaded images for this answer.</p>
+                    </div>
+                  </div>
+                </RadioGroup>
               </div>
-              <RadioGroup
-                value={question.image_upload_mode}
-                onValueChange={(value) =>
-                  onUpdate({
-                    image_upload_mode: value === "multiple" ? "multiple" : "single",
-                  })
-                }
-              >
-                <div className="flex items-start gap-3 rounded-md border border-slate-200 bg-white p-3">
-                  <RadioGroupItem value="single" id={`question-${question.id}-image-mode-single`} />
-                  <div className="space-y-1">
-                    <Label htmlFor={`question-${question.id}-image-mode-single`} className="cursor-pointer font-medium">
-                      Single image
-                    </Label>
-                    <p className="text-muted-foreground text-xs">Stores one uploaded image for this answer.</p>
-                  </div>
+
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <Label>Maximum image size</Label>
+                  <p className="text-muted-foreground text-xs">Set the maximum allowed image size for uploads.</p>
                 </div>
-                <div className="flex items-start gap-3 rounded-md border border-slate-200 bg-white p-3">
-                  <RadioGroupItem value="multiple" id={`question-${question.id}-image-mode-multiple`} />
-                  <div className="space-y-1">
-                    <Label
-                      htmlFor={`question-${question.id}-image-mode-multiple`}
-                      className="cursor-pointer font-medium"
-                    >
-                      Multiple images
-                    </Label>
-                    <p className="text-muted-foreground text-xs">
-                      Allows several uploaded images for this answer.
-                    </p>
-                  </div>
+                <Select
+                  value={String(question.image_max_size_bytes)}
+                  onValueChange={(value) =>
+                    onUpdate({
+                      image_max_size_bytes: Number(value),
+                    })
+                  }
+                >
+                  <SelectTrigger className="w-full bg-white">
+                    <SelectValue placeholder="Select max image size" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {IMAGE_SIZE_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={String(option.value)}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          )}
+
+          {question.question_type === "file" && (
+            <div className="space-y-4 rounded-lg border border-slate-200 bg-slate-50 p-4">
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <Label>File upload mode</Label>
+                  <p className="text-muted-foreground text-xs">
+                    Choose whether this question accepts one file or multiple files.
+                  </p>
                 </div>
-              </RadioGroup>
+                <RadioGroup
+                  value={question.file_upload_mode}
+                  onValueChange={(value) =>
+                    onUpdate({
+                      file_upload_mode: value === "multiple" ? "multiple" : "single",
+                    })
+                  }
+                >
+                  <div className="flex items-start gap-3 rounded-md border border-slate-200 bg-white p-3">
+                    <RadioGroupItem value="single" id={`question-${question.id}-file-mode-single`} />
+                    <div className="space-y-1">
+                      <Label
+                        htmlFor={`question-${question.id}-file-mode-single`}
+                        className="cursor-pointer font-medium"
+                      >
+                        Single file
+                      </Label>
+                      <p className="text-muted-foreground text-xs">Stores one uploaded file for this answer.</p>
+                    </div>
+                  </div>
+                  <div className="flex items-start gap-3 rounded-md border border-slate-200 bg-white p-3">
+                    <RadioGroupItem value="multiple" id={`question-${question.id}-file-mode-multiple`} />
+                    <div className="space-y-1">
+                      <Label
+                        htmlFor={`question-${question.id}-file-mode-multiple`}
+                        className="cursor-pointer font-medium"
+                      >
+                        Multiple files
+                      </Label>
+                      <p className="text-muted-foreground text-xs">
+                        Allows several uploaded files for this answer (up to 5).
+                      </p>
+                    </div>
+                  </div>
+                </RadioGroup>
+              </div>
+
+              <div className="space-y-3">
+                <div className="space-y-1">
+                  <Label>Maximum file size</Label>
+                  <p className="text-muted-foreground text-xs">Set the maximum allowed file size for uploads.</p>
+                </div>
+                <Select
+                  value={String(question.file_max_size_bytes)}
+                  onValueChange={(value) =>
+                    onUpdate({
+                      file_max_size_bytes: Number(value),
+                    })
+                  }
+                >
+                  <SelectTrigger className="w-full bg-white">
+                    <SelectValue placeholder="Select max file size" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {FILE_SIZE_OPTIONS.map((option) => (
+                      <SelectItem key={option.value} value={String(option.value)}>
+                        {option.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
           )}
 
@@ -2530,15 +2715,15 @@ function QuestionPreview({ question, isPreviewMode = false, displayIndex }: Ques
 
       {(question.question_type === "select" || question.question_type === "multiselect") &&
         question.option_source_kind === ASSIGNED_AGENTS_OPTION_SOURCE_KIND && (
-        <div className="rounded-lg border border-dashed border-blue-300 bg-blue-50 p-4 text-sm text-blue-900">
-          {question.question_type === "multiselect"
-            ? "Assigned agents will load dynamically as a checkbox list for the logged-in Sales Promoter when the report form is opened."
-            : "Assigned agents will load dynamically for the logged-in Sales Promoter when the report form is opened."}
-          {typeof question.max_logs_per_agent_per_day === "number"
-            ? ` Each agent can be logged up to ${question.max_logs_per_agent_per_day} time${question.max_logs_per_agent_per_day === 1 ? "" : "s"} per day for this field.`
-            : " Each agent can be logged any number of times per day for this field."}
-        </div>
-      )}
+          <div className="rounded-lg border border-dashed border-blue-300 bg-blue-50 p-4 text-sm text-blue-900">
+            {question.question_type === "multiselect"
+              ? "Assigned agents will load dynamically as a checkbox list for the logged-in Sales Promoter when the report form is opened."
+              : "Assigned agents will load dynamically for the logged-in Sales Promoter when the report form is opened."}
+            {typeof question.max_logs_per_agent_per_day === "number"
+              ? ` Each agent can be logged up to ${question.max_logs_per_agent_per_day} time${question.max_logs_per_agent_per_day === 1 ? "" : "s"} per day for this field.`
+              : " Each agent can be logged any number of times per day for this field."}
+          </div>
+        )}
 
       {question.question_type === "select" &&
         question.option_source_kind !== ASSIGNED_AGENTS_OPTION_SOURCE_KIND &&

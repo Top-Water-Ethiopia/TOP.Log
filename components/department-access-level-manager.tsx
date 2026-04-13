@@ -8,7 +8,8 @@ import { Separator } from "@/components/ui/separator"
 import { apiFetch } from "@/lib/api-client"
 import { useDepartmentPermissions } from "@/hooks/use-rbac"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
-import { Building2, Shield, X, Key } from "lucide-react"
+import { Building2, Shield, X, Key, Power } from "lucide-react"
+import { Switch } from "@/components/ui/switch"
 
 interface DepartmentAccessLevel {
   id: string
@@ -24,6 +25,7 @@ interface UserDepartmentAccessLevel {
   user_id: string
   department_id: string
   access_level_id: string
+  is_active: boolean
   department: {
     id: string
     name: string
@@ -52,6 +54,7 @@ export function DepartmentAccessLevelManager({
   const [userAssignments, setUserAssignments] = useState<UserDepartmentAccessLevel[]>([])
   const [loadingAccessLevels, setLoadingAccessLevels] = useState(true)
   const [loadingAssignments, setLoadingAssignments] = useState(false)
+  const [updatingStatus, setUpdatingStatus] = useState(false)
   const { user: authUser, session, isLoading: isAuthLoading } = useSupabaseAuth()
 
   const { permissions: deptPermissionsMap } = useDepartmentPermissions(departmentId)
@@ -123,6 +126,7 @@ export function DepartmentAccessLevelManager({
 
   const currentAssignment = userAssignments[0]
   const selectedAccessLevelId = currentAssignment?.access_level_id || ""
+  const isAssignmentActive = currentAssignment?.is_active ?? true
   const loading = loadingAccessLevels || loadingAssignments
 
   // Find the currently selected access level details
@@ -215,6 +219,56 @@ export function DepartmentAccessLevelManager({
           </div>
         )}
       </div>
+
+      {/* Status Toggle */}
+      {currentAssignment && (
+        <div className="space-y-3">
+          <Label className="flex items-center gap-2 text-sm font-semibold tracking-wide text-slate-700 uppercase">
+            <Power className="h-4 w-4 text-slate-500" />
+            Access Status
+          </Label>
+          <div className="flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50/50 p-3">
+            <Switch
+              checked={isAssignmentActive}
+              disabled={updatingStatus || !currentAssignment}
+              onCheckedChange={async (checked) => {
+                if (!userId || !departmentId || !currentAssignment) return
+                setUpdatingStatus(true)
+                try {
+                  await apiFetch(`/api/admin/users/${userId}/department-access-levels`, {
+                    method: "PUT",
+                    headers: { "Content-Type": "application/json" },
+                    body: JSON.stringify({
+                      department_id: departmentId,
+                      is_active: checked,
+                    }),
+                  })
+                  // Refresh assignments
+                  const response = await apiFetch<{ data: UserDepartmentAccessLevel[] }>(
+                    `/api/admin/users/${userId}/department-access-levels`
+                  )
+                  if (response.data) {
+                    setUserAssignments(response.data.filter((a) => a.department_id === departmentId))
+                  }
+                } catch (error) {
+                  console.error("Failed to update access level status:", error)
+                } finally {
+                  setUpdatingStatus(false)
+                }
+              }}
+            />
+            <span className={`text-sm ${isAssignmentActive ? "text-green-700" : "text-slate-500"}`}>
+              {isAssignmentActive ? "Active" : "Inactive"}
+            </span>
+            {updatingStatus && <span className="text-xs text-slate-400">Updating...</span>}
+          </div>
+          <p className="text-xs text-slate-500">
+            {isAssignmentActive
+              ? "User can access department resources based on this access level."
+              : "User's access is temporarily disabled. They will not be able to access department resources."}
+          </p>
+        </div>
+      )}
 
       {/* Enhanced Permissions Preview */}
       {deptPermissions.length > 0 && currentAssignment && (

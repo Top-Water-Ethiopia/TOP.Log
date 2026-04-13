@@ -75,6 +75,7 @@ interface EntryFormMultistepProps {
     is_default?: boolean
     allow_multiple_per_day?: boolean
   }>
+  effectiveRoleName?: string | null
 }
 
 type AssignedAgentUsageMap = Record<string, Record<string, number>>
@@ -282,6 +283,7 @@ export function EntryFormMultistep({
   initialRoleQuestions,
   initialQuestionsByKind,
   initialAvailableEntryKinds,
+  effectiveRoleName,
 }: EntryFormMultistepProps) {
   const { addEntry } = useCaptainLog()
   const { isAuthenticated, user } = useAuth()
@@ -1772,6 +1774,11 @@ export function EntryFormMultistep({
         <div>
           <h2 className="text-foreground text-3xl font-bold">Daily Log Entry</h2>
           <p className="text-muted-foreground mt-2 text-sm">Reporting for {normalizedDepartmentName}</p>
+          {effectiveRoleName ? (
+            <div className="mt-2">
+              <Badge variant="secondary">{effectiveRoleName}</Badge>
+            </div>
+          ) : null}
           <p className="text-muted-foreground mt-1 text-base">{formatDate(selectedDate)}</p>
         </div>
         <Button variant="outline" size="sm" onClick={handleCancelClick} className="gap-2">

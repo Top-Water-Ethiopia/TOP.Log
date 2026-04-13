@@ -52,19 +52,20 @@ async function fetchAccessibleDepartmentIds(
   supabase: Awaited<ReturnType<typeof createClient>>,
   userId: string
 ): Promise<string[]> {
-  const [{ data: professionDepartments }, { data: accessLevelDepartments }] = await Promise.all([
-    supabase
-      .from("user_department_professions")
-      .select("department_id")
-      .eq("user_id", userId)
-      .eq("is_active", true),
-    supabase.from("user_department_access_levels").select("department_id").eq("user_id", userId),
-  ])
+  const { data: memberships, error } = await supabase
+    .from("user_department_memberships")
+    .select("department_id")
+    .eq("user_id", userId)
+    .eq("is_active", true)
+
+  if (error) {
+    return []
+  }
 
   return Array.from(
     new Set(
-      [...(professionDepartments || []), ...(accessLevelDepartments || [])]
-        .map((department) => department.department_id)
+      (memberships || [])
+        .map((m) => m.department_id)
         .filter((departmentId): departmentId is string => typeof departmentId === "string" && departmentId.length > 0)
     )
   )
@@ -293,31 +294,27 @@ async function fetchViewerDepartmentProfession(
   userId: string,
   departmentId: string
 ): Promise<ViewerDepartmentProfession | null> {
-  const { data, error } = await supabase
-    .from("user_department_professions")
+  const { data: membership, error } = await supabase
+    .from("user_department_memberships")
     .select(
       `
-      role,
-      department_profession:department_professions!fk_user_department_professions_department_profession (
-        key
+      role:roles (
+        name
       )
     `
     )
     .eq("user_id", userId)
     .eq("department_id", departmentId)
+    .eq("membership_type", "profession")
     .eq("is_active", true)
     .maybeSingle()
 
-  if (error || !data) {
+  if (error || !membership) {
     return null
   }
 
-  const professionKey =
-    typeof data.department_profession?.key === "string"
-      ? normalizeSalesPromoterProfessionKey(data.department_profession.key)
-      : typeof data.role === "string"
-        ? normalizeSalesPromoterProfessionKey(data.role)
-        : null
+  const roleResult = Array.isArray(membership.role) ? membership.role[0] : membership.role
+  const professionKey = roleResult?.name ? normalizeSalesPromoterProfessionKey(roleResult.name) : null
 
   return {
     profession_key: professionKey,
@@ -336,27 +333,30 @@ async function fetchViewerDepartmentAccess(
     }
   }
 
-  const { data, error } = await supabase
-    .from("user_department_access_levels")
+  const { data: membership, error } = await supabase
+    .from("user_department_memberships")
     .select(
       `
-      access_level:department_access_levels (
+      role:roles (
         name
       )
     `
     )
     .eq("user_id", userId)
     .eq("department_id", departmentId)
+    .eq("membership_type", "access_level")
+    .eq("is_active", true)
     .maybeSingle()
 
-  if (error || !data) {
+  if (error || !membership) {
     return {
       access_level_name: null,
       can_view_department_logs: false,
     }
   }
 
-  const accessLevelName = ((data.access_level as { name?: string } | null)?.name || null)?.trim() || null
+  const roleResult = Array.isArray(membership.role) ? membership.role[0] : membership.role
+  const accessLevelName = roleResult?.name?.trim() || null
 
   return {
     access_level_name: accessLevelName,
@@ -443,9 +443,7 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
   const hasFilters = !!pageState.date || (!isBasicUser && !!pageState.departmentId)
   const calendarDaySummaries = pageState.view === "calendar" ? summarizeCalendarDays(monthLogs) : []
   const selectedDateLogs =
-    pageState.view === "calendar" && pageState.date
-    ? monthLogs.filter((log) => log.date === pageState.date)
-    : []
+    pageState.view === "calendar" && pageState.date ? monthLogs.filter((log) => log.date === pageState.date) : []
   const previewCloseHref = buildLogsPageHref({
     view: pageState.view,
     date: pageState.date,
@@ -537,16 +535,16 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
             </div>
 
             {pageState.date ? (
-          <LogsList
-            logs={selectedDateLogs}
-            emptyTitle="No logs for this date"
-            emptyDescription="Pick another date on the calendar to review a different day."
-            previewView="calendar"
-            previewDate={pageState.date}
-            previewDepartmentId={pageState.departmentId}
-            previewMonth={pageState.month}
-          />
-        ) : (
+              <LogsList
+                logs={selectedDateLogs}
+                emptyTitle="No logs for this date"
+                emptyDescription="Pick another date on the calendar to review a different day."
+                previewView="calendar"
+                previewDate={pageState.date}
+                previewDepartmentId={pageState.departmentId}
+                previewMonth={pageState.month}
+              />
+            ) : (
               <Card>
                 <CardContent className="py-10 text-center">
                   <p className="text-muted-foreground text-sm">
@@ -574,7 +572,7 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
             previewPage={pageState.page}
           />
 
-          {(listResult.hasMore || pageState.page > 1) ? (
+          {listResult.hasMore || pageState.page > 1 ? (
             <div className="flex items-center justify-between">
               <Button variant="outline" size="sm" disabled={pageState.page <= 1} asChild={pageState.page > 1}>
                 {pageState.page > 1 ? (

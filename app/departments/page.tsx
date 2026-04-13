@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button"
 import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
 import { toast } from "sonner"
+import { Lock, Star } from "lucide-react"
 import { isFeatureEnabledClient } from "@/lib/feature-flags/client"
 
 type Department = {
@@ -21,8 +22,20 @@ type Department = {
 
 type Membership = {
   department_id: string
-  role: string
   department: Department
+  // Effective role (new contract)
+  roleType: "profession" | "access-level" | null
+  roleKey: string | null
+  roleLabel: string | null
+  // Membership status
+  is_primary: boolean
+  membershipStatus: "active" | "inactive"
+  // Explicit capabilities (new contract)
+  canViewReports: boolean
+  canCreateReports: boolean
+  canAnswerDepartmentReports: boolean
+  // Legacy fields (backwards compatibility)
+  role?: string
 }
 
 export default function DepartmentsPage() {
@@ -87,7 +100,8 @@ export default function DepartmentsPage() {
         }
         const rows = (json.data || []) as Membership[]
         setMemberships(rows)
-        const active = rows.filter((m) => m.department?.is_active)
+        // Only auto-redirect if there's exactly one ACTIVE membership
+        const active = rows.filter((m) => m.membershipStatus === "active")
         if (active.length === 1) {
           router.replace(`/departments/${active[0].department.id}`)
         }
@@ -99,8 +113,18 @@ export default function DepartmentsPage() {
     load()
   }, [userId, departmentsEnabled, router, isLoading, rbacLoading])
 
-  const activeMemberships = useMemo(() => {
-    return memberships.filter((m) => m.department?.is_active)
+  // Sort: primary first, then active, then alphabetically
+  const sortedMemberships = useMemo(() => {
+    return [...memberships].sort((a, b) => {
+      // Primary first
+      if (a.is_primary && !b.is_primary) return -1
+      if (!a.is_primary && b.is_primary) return 1
+      // Then active
+      if (a.membershipStatus === "active" && b.membershipStatus === "inactive") return -1
+      if (a.membershipStatus === "inactive" && b.membershipStatus === "active") return 1
+      // Then alphabetically
+      return a.department.name.localeCompare(b.department.name)
+    })
   }, [memberships])
 
   if (!departmentsEnabled) {
@@ -171,7 +195,7 @@ export default function DepartmentsPage() {
             </Card>
           ))}
         </div>
-      ) : activeMemberships.length === 0 ? (
+      ) : sortedMemberships.length === 0 ? (
         <Card>
           <CardHeader>
             <CardTitle>No departments</CardTitle>
@@ -182,22 +206,54 @@ export default function DepartmentsPage() {
         </Card>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {activeMemberships.map((m) => (
-            <Link key={m.department.id} href={`/departments/${m.department.id}`} className="block">
-              <Card className="border border-gray-200 shadow-sm transition-shadow hover:shadow-md">
+          {sortedMemberships.map((m) => {
+            const isInactive = m.membershipStatus === "inactive"
+            const cardContent = (
+              <Card
+                className={`border shadow-sm transition-shadow ${isInactive ? "border-gray-200 bg-gray-50/50" : "border-gray-200 hover:shadow-md"}`}
+              >
                 <CardHeader>
                   <CardTitle className="flex items-center justify-between gap-3">
-                    <span className="truncate">{m.department.name}</span>
-                    <Badge variant="secondary" className="shrink-0">
-                      {m.role}
-                    </Badge>
+                    <span className={`truncate ${isInactive ? "text-gray-500" : ""}`}>{m.department.name}</span>
+                    <div className="flex shrink-0 items-center gap-2">
+                      {m.is_primary && (
+                        <Badge variant="default" className="bg-amber-500 hover:bg-amber-600">
+                          <Star className="mr-1 h-3 w-3" />
+                          Primary
+                        </Badge>
+                      )}
+                      <Badge
+                        variant={isInactive ? "outline" : "secondary"}
+                        className={isInactive ? "border-dashed text-gray-500" : ""}
+                      >
+                        {m.roleLabel || m.role || "Member"}
+                      </Badge>
+                    </div>
                   </CardTitle>
-                  <CardDescription className="line-clamp-2">{m.department.description || ""}</CardDescription>
+                  <CardDescription className={`line-clamp-2 ${isInactive ? "text-gray-400" : ""}`}>
+                    {m.department.description || ""}
+                  </CardDescription>
+                  {isInactive && (
+                    <div className="mt-2 flex items-center gap-2 text-sm text-gray-500">
+                      <Lock className="h-4 w-4" />
+                      <span>Locked — contact admin to reactivate</span>
+                    </div>
+                  )}
                 </CardHeader>
                 <CardContent />
               </Card>
-            </Link>
-          ))}
+            )
+
+            return isInactive ? (
+              <div key={m.department.id} className="block cursor-not-allowed">
+                {cardContent}
+              </div>
+            ) : (
+              <Link key={m.department.id} href={`/departments/${m.department.id}`} className="block">
+                {cardContent}
+              </Link>
+            )
+          })}
         </div>
       )}
     </div>

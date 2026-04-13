@@ -5,9 +5,9 @@ import { isDepartmentReportQuestion, matchesProfessionQuestion } from "@/lib/rep
 import { getDefaultEntryKind as getConfiguredDefaultEntryKind } from "@/lib/entry-kinds"
 import { normalizeSalesPromoterProfessionKey } from "@/lib/marketing-agents"
 import {
-  getUserDepartmentProfessionAssignment,
-  userCanAnswerDepartmentQuestions,
+  getEffectiveDepartmentRole,
 } from "@/lib/server/department-reporting"
+import { pickJoinedRow } from "@/lib/utils"
 import { EntryFormMultistepClient } from "./client"
 
 interface SearchParams {
@@ -90,58 +90,36 @@ async function fetchUserDepartment(
   userId: string
 ): Promise<UserDepartment | null> {
   const { data: membership, error: membershipError } = await supabase
-    .from("user_department_professions")
+    .from("user_department_memberships")
     .select(
       `
       department_id,
-      role,
       department:departments (
         id,
+        name
+      ),
+      role:roles (
         name
       )
     `
     )
     .eq("user_id", userId)
     .eq("is_active", true)
+    .order("is_primary", { ascending: false })
+    .limit(1)
     .maybeSingle()
 
   if (membershipError) {
-    console.error("Error fetching user department profession:", membershipError)
+    console.error("Error fetching user department membership:", membershipError)
   }
 
   if (membership) {
+    const role = pickJoinedRow(membership.role)
+    const department = pickJoinedRow(membership.department)
     return {
       id: membership.department_id,
-      name: membership.department?.name ?? "Unknown",
-      role: membership.role || null,
-    }
-  }
-
-  const { data: accessAssignments, error: accessError } = await supabase
-    .from("user_department_access_levels")
-    .select(
-      `
-      department_id,
-      department:departments (
-        id,
-        name
-      )
-    `
-    )
-    .eq("user_id", userId)
-    .order("department_id", { ascending: true })
-    .limit(1)
-
-  if (accessError) {
-    console.error("Error fetching user department access level:", accessError)
-  }
-
-  const accessAssignment = accessAssignments?.[0]
-  if (accessAssignment) {
-    return {
-      id: accessAssignment.department_id,
-      name: accessAssignment.department?.name ?? "Unknown",
-      role: null,
+      name: department?.name ?? "Unknown",
+      role: role?.name || null,
     }
   }
 
@@ -151,12 +129,8 @@ async function fetchUserDepartment(
     .eq("user_id", userId)
     .maybeSingle()
 
-  if (profileError) {
-    console.error("Error fetching user profile department:", profileError)
-    return null
-  }
-
-  if (!profile?.department_id) {
+  if (profileError || !profile?.department_id) {
+    if (profileError) console.error("Error fetching user profile department:", profileError)
     return null
   }
 
@@ -166,12 +140,8 @@ async function fetchUserDepartment(
     .eq("id", profile.department_id)
     .maybeSingle()
 
-  if (departmentError) {
-    console.error("Error fetching department details:", departmentError)
-    return null
-  }
-
-  if (!department) {
+  if (departmentError || !department) {
+    if (departmentError) console.error("Error fetching department details:", departmentError)
     return null
   }
 
@@ -187,63 +157,38 @@ async function fetchAuthorizedDepartment(
   userId: string,
   departmentId: string
 ): Promise<UserDepartment | null> {
-  const [{ data: membership, error: membershipError }, { data: accessAssignments, error: accessError }] =
-    await Promise.all([
-      supabase
-        .from("user_department_professions")
-        .select(
-          `
-          department_id,
-          role,
-          department:departments (
-            id,
-            name
-          )
-        `
-        )
-        .eq("user_id", userId)
-        .eq("department_id", departmentId)
-        .eq("is_active", true)
-        .maybeSingle(),
-      supabase
-        .from("user_department_access_levels")
-        .select(
-          `
-          department_id,
-          department:departments (
-            id,
-            name
-          )
-        `
-        )
-        .eq("user_id", userId)
-        .eq("department_id", departmentId)
-        .order("department_id", { ascending: true })
-        .limit(1),
-    ])
+  const { data: membership, error: membershipError } = await supabase
+    .from("user_department_memberships")
+    .select(
+      `
+      department_id,
+      department:departments (
+        id,
+        name
+      ),
+      role:roles (
+        name
+      )
+    `
+    )
+    .eq("user_id", userId)
+    .eq("department_id", departmentId)
+    .eq("is_active", true)
+    .order("membership_type", { ascending: false }) // 'profession' > 'access_level' alphabetically
+    .limit(1)
+    .maybeSingle()
 
   if (membershipError) {
-    console.error("Error checking requested department profession access:", membershipError)
+    console.error("Error checking requested department membership access:", membershipError)
   }
 
   if (membership) {
+    const role = pickJoinedRow(membership.role)
+    const department = pickJoinedRow(membership.department)
     return {
       id: membership.department_id,
-      name: membership.department?.name ?? "Unknown",
-      role: membership.role || null,
-    }
-  }
-
-  if (accessError) {
-    console.error("Error checking requested department access level:", accessError)
-  }
-
-  const accessAssignment = accessAssignments?.[0]
-  if (accessAssignment) {
-    return {
-      id: accessAssignment.department_id,
-      name: accessAssignment.department?.name ?? "Unknown",
-      role: null,
+      name: department?.name ?? "Unknown",
+      role: role?.name || null,
     }
   }
 
@@ -268,21 +213,27 @@ async function fetchRoleQuestionsByKind(
     return trimmed ? trimmed : null
   }
 
-  const [{ data: questionRows, error: questionsError }, professionAssignmentResult, departmentPermissionResult] =
-    await Promise.all([
+  const [{ data: questionRows, error: questionsError }, effectiveDepartmentRole] = await Promise.all([
       supabase
         .from("role_questions")
         .select("*")
         .eq("department_id", departmentId)
         .eq("is_active", true)
         .order("display_order", { ascending: true }),
-      getUserDepartmentProfessionAssignment(supabase, userId, departmentId).catch((error) => {
-        console.error("Error fetching profession assignment for report questions:", error)
-        return null
-      }),
-      userCanAnswerDepartmentQuestions(supabase, userId, departmentId).catch((error) => {
-        console.error("Error checking department question access:", error)
-        return false
+      getEffectiveDepartmentRole(supabase, userId, departmentId).catch((error) => {
+        console.error("Error fetching effective department role for report questions:", error)
+        return {
+          roleType: null,
+          roleKey: null,
+          roleName: null,
+          professionId: null,
+          professionKey: null,
+          professionName: null,
+          accessLevelId: null,
+          accessLevelName: null,
+          accessLevelDisplayName: null,
+          canAnswerDepartmentReports: false,
+        }
       }),
     ])
 
@@ -293,10 +244,10 @@ async function fetchRoleQuestionsByKind(
 
   const questions = ((questionRows as DepartmentQuestionRow[] | null) || []).filter((question) => {
     if (isDepartmentReportQuestion(question)) {
-      return departmentPermissionResult
+      return effectiveDepartmentRole.canAnswerDepartmentReports
     }
 
-    return matchesProfessionQuestion(question, departmentId, professionAssignmentResult || {})
+    return matchesProfessionQuestion(question, departmentId, effectiveDepartmentRole)
   })
 
   // Group by entry_kind
@@ -445,11 +396,25 @@ export default async function NewLogPage({ searchParams }: { searchParams: Promi
     redirect(`/logs/new${canonicalQuery}`)
   }
 
-  const professionAssignment = await getUserDepartmentProfessionAssignment(supabase, userId, department.id).catch((error) => {
-    console.error("Error resolving profession assignment for new log page:", error)
-    return null
+  const effectiveDepartmentRole = await getEffectiveDepartmentRole(supabase, userId, department.id).catch((error) => {
+    console.error("Error resolving effective department role for new log page:", error)
+    return {
+      roleType: null,
+      roleKey: null,
+      roleName: null,
+      professionId: null,
+      professionKey: null,
+      professionName: null,
+      accessLevelId: null,
+      accessLevelName: null,
+      accessLevelDisplayName: null,
+      canAnswerDepartmentReports: false,
+    }
   })
-  const resolvedRole = resolveClientRole(department.role, professionAssignment?.professionKey)
+  const resolvedRole = resolveClientRole(
+    department.role,
+    effectiveDepartmentRole.roleType === "profession" ? effectiveDepartmentRole.professionKey : null
+  )
 
   const { data: scopeEntryKinds } = await (supabase as any)
     .from("scope_entry_kinds")
@@ -517,6 +482,7 @@ export default async function NewLogPage({ searchParams }: { searchParams: Promi
       initialQuestionsByKind={questionsByKind}
       initialAvailableEntryKinds={initialAvailableEntryKinds}
       role={resolvedRole}
+      effectiveRoleName={effectiveDepartmentRole.roleName}
     />
   )
 }

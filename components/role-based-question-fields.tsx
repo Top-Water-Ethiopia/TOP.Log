@@ -19,11 +19,14 @@ import {
   getImageUploadMode,
   normalizeImageResponseValue,
   IMAGE_ACCEPTED_TYPES,
-  IMAGE_MAX_SIZE_BYTES,
   IMAGE_MAX_FILES,
   type AttributedCloudinaryAsset,
   type ImageUploadMode,
+  getImageMaxSizeBytes,
 } from "@/lib/image-upload"
+import { getFileUploadMode, FILE_MAX_FILES } from "@/lib/upload-config"
+import { getFileMaxSizeBytes } from "@/lib/upload-types"
+import { FileUploadField } from "@/components/file-upload-field"
 
 type UploadState = {
   isUploading: boolean
@@ -35,6 +38,15 @@ type ImageUploadSlot = {
   status: "pending" | "success" | "error"
   progressPercent: number
   previewUrl?: string
+  asset?: AttributedCloudinaryAsset
+  error?: string
+}
+
+type FileUploadSlot = {
+  id: string
+  file: File
+  status: "pending" | "success" | "error"
+  progressPercent: number
   asset?: AttributedCloudinaryAsset
   error?: string
 }
@@ -103,15 +115,21 @@ export function RoleBasedQuestionFields({
   const hasQuestions = questions.length > 0
   const [uploadStates, setUploadStates] = useState<Record<string, UploadState>>({})
   const [imageUploadSlots, setImageUploadSlots] = useState<Record<string, ImageUploadSlot[]>>({})
+  const [fileUploadSlots, setFileUploadSlots] = useState<Record<string, FileUploadSlot[]>>({})
   const [imageDragStates, setImageDragStates] = useState<Record<string, boolean>>({})
   const [imageAnnouncements, setImageAnnouncements] = useState<Record<string, string>>({})
   const activeImageUploadsRef = useRef<Record<string, XMLHttpRequest>>({})
   const imageUploadSlotsRef = useRef<Record<string, ImageUploadSlot[]>>({})
+  const fileUploadSlotsRef = useRef<Record<string, FileUploadSlot[]>>({})
   const imageBlockingStateRef = useRef<Record<string, boolean>>({})
 
   useEffect(() => {
     imageUploadSlotsRef.current = imageUploadSlots
   }, [imageUploadSlots])
+
+  useEffect(() => {
+    fileUploadSlotsRef.current = fileUploadSlots
+  }, [fileUploadSlots])
 
   useEffect(() => {
     return () => {
@@ -187,18 +205,33 @@ export function RoleBasedQuestionFields({
     }))
   }, [])
 
+  const getUploaderDisplayName = useCallback(() => {
+    if (typeof profile?.name === "string" && profile.name.trim().length > 0) return profile.name.trim()
+    if (typeof user?.email === "string" && user.email.trim().length > 0) return user.email.trim()
+    return "Unknown User"
+  }, [profile?.name, user?.email])
+
   const uploadAsset = useCallback(
-    async (questionKey: string, questionType: "file" | "image", file: File) => {
+    async (
+      questionKey: string,
+      questionType: "file" | "image",
+      file: File,
+      signal?: AbortSignal,
+      onProgress?: (percent: number) => void
+    ): Promise<AttributedCloudinaryAsset> => {
+      console.log("[uploadAsset] Starting upload:", questionKey, questionType, file.name)
       updateUploadState(questionKey, { isUploading: true, error: null })
 
       try {
+        console.log("[uploadAsset] Fetching signature...")
         const signaturePayload = await apiFetch<SignedUploadResponse>("/api/uploads/cloudinary/sign", {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
-            resourceType: questionType === "image" ? "image" : "auto",
+            resourceType: questionType === "image" ? "image" : "raw",
           }),
         })
+        console.log("[uploadAsset] Got signature:", signaturePayload.data.cloudName)
 
         const signed = signaturePayload.data
         const formData = new FormData()
@@ -208,44 +241,109 @@ export function RoleBasedQuestionFields({
         formData.append("signature", signed.signature)
         formData.append("folder", signed.folder)
 
-        const uploadResponse = await fetch(
-          `https://api.cloudinary.com/v1_1/${encodeURIComponent(signed.cloudName)}/${signed.resourceType}/upload`,
-          {
-            method: "POST",
-            body: formData,
+        // Use XMLHttpRequest for progress tracking
+        console.log("[uploadAsset] Starting XHR upload to Cloudinary...")
+        const asset = await new Promise<AttributedCloudinaryAsset>((resolve, reject) => {
+          const xhr = new XMLHttpRequest()
+          let lastEmittedPercent = -1
+
+          // Track upload progress
+          xhr.upload.onprogress = (event) => {
+            if (!onProgress) return
+            if (!event.lengthComputable || event.total <= 0) return
+
+            const percent = Math.round((event.loaded / event.total) * 100)
+            // Throttle: only emit when percentage changes
+            if (percent !== lastEmittedPercent) {
+              lastEmittedPercent = percent
+              onProgress(Math.min(100, Math.max(0, percent)))
+            }
           }
-        )
 
-        const uploaded = (await uploadResponse.json().catch(() => null)) as CloudinaryUploadResponse | null
-        if (!uploadResponse.ok || !uploaded?.secure_url || !uploaded.public_id) {
-          throw new Error("Upload failed")
-        }
+          // Handle abort signal
+          const abortHandler = () => {
+            xhr.abort()
+          }
+          signal?.addEventListener("abort", abortHandler)
 
-        const asset: CloudinaryUploadAsset = {
-          provider: "cloudinary",
-          resourceType: signed.resourceType,
-          publicId: uploaded.public_id,
-          secureUrl: uploaded.secure_url,
-          originalFilename: uploaded.original_filename || file.name,
-          bytes: uploaded.bytes ?? file.size,
-          format: uploaded.format ?? null,
-        }
+          xhr.onload = () => {
+            signal?.removeEventListener("abort", abortHandler)
+            console.log("[uploadAsset] XHR onload:", xhr.status)
 
-        onChange(questionKey, asset)
-        updateUploadState(questionKey, { isUploading: false, error: null })
+            if (signal?.aborted) {
+              reject(new Error("Upload canceled"))
+              return
+            }
+
+            if (xhr.status < 200 || xhr.status >= 300) {
+              console.error("[uploadAsset] XHR failed with status:", xhr.status, xhr.responseText)
+              reject(new Error("Upload failed"))
+              return
+            }
+
+            let uploaded: CloudinaryUploadResponse | null = null
+            try {
+              uploaded = JSON.parse(xhr.responseText) as CloudinaryUploadResponse
+            } catch {
+              reject(new Error("Upload failed"))
+              return
+            }
+
+            if (!uploaded?.secure_url || !uploaded.public_id) {
+              reject(new Error("Upload failed"))
+              return
+            }
+
+            const result: AttributedCloudinaryAsset = {
+              provider: "cloudinary",
+              resourceType: signed.resourceType,
+              publicId: uploaded.public_id,
+              secureUrl: uploaded.secure_url,
+              originalFilename: uploaded.original_filename || file.name,
+              bytes: uploaded.bytes ?? file.size,
+              format: uploaded.format ?? null,
+              uploadedByUserId: user?.id,
+              uploadedByDisplayName: getUploaderDisplayName(),
+              uploadedAt: new Date().toISOString(),
+            }
+            resolve(result)
+          }
+
+          xhr.onerror = () => {
+            signal?.removeEventListener("abort", abortHandler)
+            console.error("[uploadAsset] XHR onerror")
+            reject(new Error("Upload failed"))
+          }
+
+          xhr.onabort = () => {
+            signal?.removeEventListener("abort", abortHandler)
+            console.log("[uploadAsset] XHR onabort")
+            reject(new Error("Upload canceled"))
+          }
+
+          xhr.open(
+            "POST",
+            `https://api.cloudinary.com/v1_1/${encodeURIComponent(signed.cloudName)}/${signed.resourceType}/upload`
+          )
+          xhr.send(formData)
+        })
+
+        return asset
       } catch (error) {
+        console.error("[uploadAsset] Error:", error)
+        if (error instanceof Error && error.name === "AbortError") {
+          updateUploadState(questionKey, { error: null })
+          throw new Error("Upload canceled")
+        }
         const message = error instanceof Error ? error.message : "Upload failed"
-        updateUploadState(questionKey, { isUploading: false, error: message })
+        updateUploadState(questionKey, { error: message })
+        throw error
+      } finally {
+        updateUploadState(questionKey, { isUploading: false })
       }
     },
-    [onChange, updateUploadState]
+    [updateUploadState, user?.id, getUploaderDisplayName]
   )
-
-  const getUploaderDisplayName = useCallback(() => {
-    if (typeof profile?.name === "string" && profile.name.trim().length > 0) return profile.name.trim()
-    if (typeof user?.email === "string" && user.email.trim().length > 0) return user.email.trim()
-    return "Unknown User"
-  }, [profile?.name, user?.email])
 
   const syncImageResponse = useCallback(
     (questionKey: string, slots: ImageUploadSlot[]) => {
@@ -268,6 +366,23 @@ export function RoleBasedQuestionFields({
         [questionKey]: nextSlots,
       }
       setImageUploadSlots((prev) => ({
+        ...prev,
+        [questionKey]: nextSlots,
+      }))
+      return nextSlots
+    },
+    []
+  )
+
+  const updateFileSlots = useCallback(
+    (questionKey: string, updater: (currentSlots: FileUploadSlot[]) => FileUploadSlot[]) => {
+      const currentSlots = fileUploadSlotsRef.current[questionKey] || []
+      const nextSlots = updater(currentSlots)
+      fileUploadSlotsRef.current = {
+        ...fileUploadSlotsRef.current,
+        [questionKey]: nextSlots,
+      }
+      setFileUploadSlots((prev) => ({
         ...prev,
         [questionKey]: nextSlots,
       }))
@@ -881,70 +996,29 @@ export function RoleBasedQuestionFields({
           </div>
         )
 
-      case "file":
-        const asset = isCloudinaryAsset(value) ? value : null
+      case "file": {
+        const fileUploadMode = getFileUploadMode(question.metadata)
+        const fileMaxSizeBytes = getFileMaxSizeBytes(question.metadata)
         return (
-          <div className="space-y-2">
-            <Input
-              id={question.key}
-              type="file"
-              onChange={async (event) => {
-                const file = event.target.files?.[0]
-                if (file) {
-                  await uploadAsset(question.key, question.type, file)
-                  event.target.value = ""
-                }
-              }}
-              accept={question.type === "image" ? "image/*" : undefined}
-              aria-invalid={ariaInvalid}
-              aria-describedby={ariaDescribedBy}
-              disabled={uploadState?.isUploading}
-              className={error ? "border-destructive" : ""}
-            />
-            {uploadState?.isUploading ? <p className="text-muted-foreground text-sm">Uploading...</p> : null}
-            {uploadState?.error ? <p className="text-destructive text-sm">{uploadState.error}</p> : null}
-            {asset ? (
-              <div className="space-y-2">
-                {question.type === "image" ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={asset.secureUrl}
-                    alt={asset.originalFilename}
-                    className="max-h-48 rounded-md border object-cover"
-                  />
-                ) : null}
-                <div className="flex items-center gap-3 text-sm">
-                  <a
-                    href={asset.secureUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="text-primary underline-offset-4 hover:underline"
-                  >
-                    {asset.originalFilename}
-                  </a>
-                  <button
-                    type="button"
-                    className="text-muted-foreground hover:text-foreground text-xs"
-                    onClick={() => {
-                      onChange(question.key, null)
-                      updateUploadState(question.key, { error: null })
-                    }}
-                  >
-                    Remove
-                  </button>
-                </div>
-              </div>
-            ) : value && typeof value === "string" ? (
-              <p className="text-muted-foreground text-sm">Selected: {value}</p>
-            ) : null}
-          </div>
+          <FileUploadField
+            questionKey={question.key}
+            value={value}
+            mode={fileUploadMode}
+            maxFiles={FILE_MAX_FILES}
+            maxSizeBytes={fileMaxSizeBytes}
+            uploadState={uploadStates[question.key]}
+            onChange={(assets) => onChange(question.key, assets)}
+            onUpload={(file, signal, onProgress) => uploadAsset(question.key, "file", file, signal, onProgress)}
+          />
         )
+      }
 
       case "image":
         const totalImages = slots.length + normalizedImageAssets.length
         const maxReached = totalImages >= IMAGE_MAX_FILES
         const isDragging = !!imageDragStates[question.key]
         const announcement = imageAnnouncements[question.key] || ""
+        const imageMaxSizeBytes = getImageMaxSizeBytes(question.metadata)
 
         const handleDragOver = (e: React.DragEvent) => {
           e.preventDefault()
@@ -964,12 +1038,13 @@ export function RoleBasedQuestionFields({
 
           for (const file of fileArray) {
             const typeOk = IMAGE_ACCEPTED_TYPES.includes(file.type as (typeof IMAGE_ACCEPTED_TYPES)[number])
-            const sizeOk = file.size <= IMAGE_MAX_SIZE_BYTES
+            const sizeOk = file.size <= imageMaxSizeBytes
 
             if (!typeOk) {
               invalidReasons.push(`${file.name}: invalid type`)
             } else if (!sizeOk) {
-              invalidReasons.push(`${file.name}: exceeds 10MB`)
+              const maxMB = (imageMaxSizeBytes / 1024 / 1024).toFixed(0)
+              invalidReasons.push(`${file.name}: exceeds ${maxMB}MB`)
             } else {
               validFiles.push(file)
             }
@@ -1094,7 +1169,9 @@ export function RoleBasedQuestionFields({
 
                 <div id={hintId} className="space-y-1">
                   <p className="text-muted-foreground text-xs">Drag and drop or click to browse</p>
-                  <p className="text-muted-foreground/70 text-xs">JPG, PNG, GIF, WebP up to 10MB</p>
+                  <p className="text-muted-foreground/70 text-xs">
+                    JPG, PNG, GIF, WebP up to {(imageMaxSizeBytes / 1024 / 1024).toFixed(0)}MB
+                  </p>
                 </div>
 
                 {totalImages > 0 && (

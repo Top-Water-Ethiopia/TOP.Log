@@ -52,33 +52,21 @@ async function main() {
   const removedRoleQuestions = await deleteByIds("role_questions", roleQuestionIds)
   const removedScopeEntryKinds = await deleteByIds("scope_entry_kinds", scopeEntryKindIds)
 
-  let removedUserDepartmentProfessions = 0
-  let removedUserDepartmentAccessLevels = 0
+  let removedUserDepartmentMemberships = 0
   let removedMarketingAgents = 0
-  let removedDepartmentProfessions = 0
+  let removedRolesCount = 0
   let removedDepartmentsCount = 0
   let nulledUserProfiles = 0
-  let nulledRoles = 0
 
   if (removeDepartmentIds.length > 0) {
-    const { data: userDepartmentProfessions, error: udpError } = await (adminSupabase as any)
-      .from("user_department_professions")
+    const { data: userMemberships, error: membershipError } = await (adminSupabase as any)
+      .from("user_department_memberships")
       .select("id")
       .in("department_id", removeDepartmentIds)
-    if (udpError) throw new Error(`Failed to load user_department_professions: ${udpError.message}`)
-    removedUserDepartmentProfessions = await deleteByIds(
-      "user_department_professions",
-      (userDepartmentProfessions || []).map((row) => row.id)
-    )
-
-    const { data: userDepartmentAccessLevels, error: udalError } = await (adminSupabase as any)
-      .from("user_department_access_levels")
-      .select("id")
-      .in("department_id", removeDepartmentIds)
-    if (udalError) throw new Error(`Failed to load user_department_access_levels: ${udalError.message}`)
-    removedUserDepartmentAccessLevels = await deleteByIds(
-      "user_department_access_levels",
-      (userDepartmentAccessLevels || []).map((row) => row.id)
+    if (membershipError) throw new Error(`Failed to load user_department_memberships: ${membershipError.message}`)
+    removedUserDepartmentMemberships = await deleteByIds(
+      "user_department_memberships",
+      (userMemberships || []).map((row) => row.id)
     )
 
     const { data: marketingAgents, error: marketingAgentsError } = await (adminSupabase as any)
@@ -98,23 +86,14 @@ async function main() {
     if (userProfilesError) throw new Error(`Failed to null user_profiles.department_id: ${userProfilesError.message}`)
     nulledUserProfiles = removeDepartmentIds.length
 
-    const { error: rolesError } = await (adminSupabase as any)
+    const { data: departmentRoles, error: rolesError } = await (adminSupabase as any)
       .from("roles")
-      .update({ department_id: null })
-      .in("department_id", removeDepartmentIds)
-    if (rolesError) throw new Error(`Failed to null roles.department_id: ${rolesError.message}`)
-    nulledRoles = removeDepartmentIds.length
-
-    const { data: departmentProfessions, error: departmentProfessionsError } = await (adminSupabase as any)
-      .from("department_professions")
       .select("id")
       .in("department_id", removeDepartmentIds)
-    if (departmentProfessionsError) {
-      throw new Error(`Failed to load department_professions: ${departmentProfessionsError.message}`)
-    }
-    removedDepartmentProfessions = await deleteByIds(
-      "department_professions",
-      (departmentProfessions || []).map((row) => row.id)
+    if (rolesError) throw new Error(`Failed to load roles: ${rolesError.message}`)
+    removedRolesCount = await deleteByIds(
+      "roles",
+      (departmentRoles || []).map((row) => row.id)
     )
 
     const { error: departmentsDeleteError } = await (adminSupabase as any)
@@ -141,13 +120,11 @@ async function main() {
         removedEntries,
         removedRoleQuestions,
         removedScopeEntryKinds,
-        removedUserDepartmentProfessions,
-        removedUserDepartmentAccessLevels,
+        removedUserDepartmentMemberships,
         removedMarketingAgents,
-        removedDepartmentProfessions,
+        removedRolesCount,
         removedDepartmentsCount,
         nulledUserProfiles,
-        nulledRoles,
       },
       null,
       2

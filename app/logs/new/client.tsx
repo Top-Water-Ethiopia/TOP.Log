@@ -19,6 +19,7 @@ interface EntryFormMultistepClientProps {
     allow_multiple_per_day?: boolean
   }>
   role?: string | null
+  effectiveRoleName?: string | null
 }
 
 export function EntryFormMultistepClient({
@@ -31,6 +32,7 @@ export function EntryFormMultistepClient({
   initialQuestionsByKind,
   initialAvailableEntryKinds,
   role,
+  effectiveRoleName,
 }: EntryFormMultistepClientProps) {
   const router = useRouter()
 
@@ -99,6 +101,7 @@ export function EntryFormMultistepClient({
         initialQuestionsByKind={initialQuestionsByKind}
         initialAvailableEntryKinds={initialAvailableEntryKinds}
         role={role}
+        effectiveRoleName={effectiveRoleName}
       />
     </div>
   )

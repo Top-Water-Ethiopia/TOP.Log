@@ -23,12 +23,12 @@ export async function getInitialRoleQuestions(): Promise<RoleQuestion[]> {
   
   // Get user's primary department
   const { data: deptRole } = await supabase
-    .from("user_department_professions")
+    .from("user_department_memberships")
     .select("department_id")
     .eq("user_id", user.id)
     .eq("is_active", true)
-    .limit(1)
-    .single()
+    .eq("is_primary", true)
+    .maybeSingle()
     
   if (!deptRole) return []
   

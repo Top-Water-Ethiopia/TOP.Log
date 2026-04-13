@@ -4,7 +4,12 @@ import "./globals.css"
 import { Providers } from "@/components/providers"
 import { Inter } from "next/font/google"
 
-const inter = Inter({ subsets: ["latin"], variable: "--font-inter" })
+const inter = Inter({
+  subsets: ["latin"],
+  variable: "--font-inter",
+  display: "swap",
+  adjustFontFallback: true,
+})
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
