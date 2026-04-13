@@ -36,7 +36,8 @@
     "check:account": "ts-node scripts/check-my-account.ts",
     "check:account:simple": "node scripts/check-account-simple.js",
     "reset:role-question-scope": "NODE_ENV=development ts-node scripts/reset-role-question-scope.ts",
-    "reset:dev-database": "NODE_ENV=development ts-node scripts/reset-dev-database.ts"
+    "reset:dev-database": "NODE_ENV=development ts-node scripts/reset-dev-database.ts",
+    "report:scope-entry-kinds-migration": "NODE_ENV=development ts-node scripts/report-scope-entry-kinds-migration.ts"
   },
   "dependencies": {
     "@faker-js/faker": "^10.1.0",

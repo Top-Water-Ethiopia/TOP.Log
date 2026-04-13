@@ -1,11 +1,20 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { adminSupabase } from "@/lib/supabase/admin"
+import { canViewDepartmentLogs } from "@/lib/logs/visibility"
 
 export const dynamic = "force-dynamic"
 
 const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
 const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
+
+function pickJoinedRow<T>(value: T | T[] | null | undefined): T | null {
+  if (Array.isArray(value)) {
+    return value[0] ?? null
+  }
+
+  return value ?? null
+}
 
 export async function GET(_request: Request, { params }: { params: Promise<{ entryId: string }> }) {
   try {
@@ -109,8 +118,41 @@ export async function GET(_request: Request, { params }: { params: Promise<{ ent
     const subjectProfessionId =
       typeof (entry as any).subject_profession_id === "string" ? (entry as any).subject_profession_id : null
     const { data: subjectProfessionRow } = subjectProfessionId
-      ? await adminSupabase.from("department_professions").select("label").eq("id", subjectProfessionId).single()
+      ? await adminSupabase.from("roles").select("display_name, name").eq("id", subjectProfessionId).single()
       : ({ data: null } as any)
+
+    const { data: memberships } = await adminSupabase
+      .from("user_department_memberships")
+      .select(`
+        membership_type,
+        role:roles (
+          id,
+          name,
+          display_name,
+          type
+        )
+      `)
+      .eq("user_id", submittedByUserId)
+      .eq("is_active", true)
+
+    let professionRoleResult: any = null
+    let accessRoleResult: any = null
+
+    for (const m of (memberships || [])) {
+      const roleResult = Array.isArray(m.role) ? m.role[0] : m.role
+      if (m.membership_type === "profession" && !professionRoleResult) {
+        professionRoleResult = roleResult
+      } else if (m.membership_type === "access_level" && !accessRoleResult) {
+        accessRoleResult = roleResult
+      }
+    }
+
+    const accessLevelName = accessRoleResult?.name || null
+
+    const effectiveDepartmentRoleName =
+      professionRoleResult?.display_name ||
+      professionRoleResult?.name ||
+      (canViewDepartmentLogs(accessLevelName) ? accessRoleResult?.display_name || accessRoleResult?.name || null : null)
 
     const { data: customResponses } = await adminSupabase
       .from("custom_responses")
@@ -128,11 +170,12 @@ export async function GET(_request: Request, { params }: { params: Promise<{ ent
               email,
               role_name: roleRow?.name || "Unknown",
               department_name: deptRow?.name || null,
+              effective_department_role_name: effectiveDepartmentRoleName,
             }
           : null,
         subject: {
           department_name: deptRow?.name || null,
-          profession_name: subjectProfessionRow?.label || null,
+          profession_name: subjectProfessionRow?.display_name || subjectProfessionRow?.name || null,
         },
         custom_responses: (customResponses as any[]) || [],
       },

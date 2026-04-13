@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { adminSupabase } from "@/lib/supabase/admin"
+import { canViewDepartmentLogs } from "@/lib/logs/visibility"
 
 // Enable dynamic route behavior
 // This ensures we get fresh data on each request
@@ -138,10 +139,10 @@ export async function GET() {
     // Fetch ALL professional roles (for dropdown)
     // Use adminSupabase to bypass RLS and get department roles
     const { data: allRoles, error: allRolesError } = await adminSupabase
-      .from("department_professions")
-      .select("id, key, label")
+      .from("roles")
+      .select("id, name, display_name")
+      .eq("type", "profession")
       .eq("is_active", true)
-      .order("department_id, sort_order")
 
     if (allRolesError) {
       console.error("Error fetching all roles:", allRolesError)
@@ -158,45 +159,58 @@ export async function GET() {
       console.error("Error fetching all departments:", allDeptsError)
     }
 
-    const roleMap = new Map((allRoles as any[])?.map((r) => [r.id, r.label]) || [])
+    const roleMap = new Map((allRoles as any[])?.map((r) => [r.id, r.display_name || r.name]) || [])
     const deptMap = new Map((allDepartments as any[])?.map((d) => [d.id, d.name]) || [])
 
     const allUserIds = (allUsers as any[])?.map((u) => u.user_id).filter(Boolean) || []
-    const { data: professionRows, error: professionsError } =
-      allUserIds.length > 0
-        ? await adminSupabase
-            .from("user_department_professions")
-            .select(
-              "user_id, department_id, role, department_role_id, department_profession:department_professions!fk_user_department_professions_department_profession(label)"
-            )
-            .in("user_id", allUserIds)
-            .eq("is_active", true)
-        : { data: [], error: null }
-
-    if (professionsError) {
-      console.error("Error fetching user department roles:", professionsError)
-    }
-
     const professionByUserId = new Map<
       string,
       { department_id: string | null; role_id: string | null; role_key: string | null; role_name: string | null }
     >()
-    ;(professionRows as any[])?.forEach((row) => {
-      const userId = typeof row?.user_id === "string" ? row.user_id : null
-      if (!userId) return
 
-      const departmentId = typeof row?.department_id === "string" ? row.department_id : null
-      const roleId = typeof row?.department_role_id === "string" ? row.department_role_id : null
-      const roleKey = typeof row?.role === "string" ? row.role : null
-      const roleName = typeof row?.department_profession?.label === "string" ? row.department_profession.label : null
+    if (allUserIds.length > 0) {
+      const { data: membershipData, error: membershipError } = await adminSupabase
+        .from("user_department_memberships")
+        .select(
+          `
+          user_id,
+          department_id,
+          role_id,
+          membership_type,
+          role:roles (
+            id,
+            name,
+            display_name,
+            type
+          )
+        `
+        )
+        .in("user_id", allUserIds)
+        .eq("is_active", true)
 
-      professionByUserId.set(userId, {
-        department_id: departmentId,
-        role_id: roleId,
-        role_key: roleKey,
-        role_name: roleName,
-      })
-    })
+      if (membershipError) {
+        console.error("Error fetching memberships:", membershipError)
+      } else {
+        const rows = (membershipData || []) as any[]
+        for (const row of rows) {
+          const userId = row.user_id
+          if (!userId || professionByUserId.has(userId)) continue
+
+          const roleResult = Array.isArray(row.role) ? row.role[0] : row.role
+          if (row.membership_type === "profession") {
+            professionByUserId.set(userId, {
+              department_id: row.department_id,
+              role_id: row.role_id,
+              role_key: roleResult?.name || null,
+              role_name: roleResult?.display_name || roleResult?.name || null,
+            })
+          }
+        }
+      }
+    }
+
+    const accessRoleByUserId = new Map<string, { department_id: string | null; role_name: string | null }>()
+    // Consolidated above - we could extract access levels here if needed but for now we skip redundant queries
 
     const normalizedUsers =
       (allUsers as any[])?.map((u) => ({
@@ -207,7 +221,10 @@ export async function GET() {
         department_name: deptMap.get(u.department_id) || null,
         department_id: u.department_id || null,
         profession_role_id: professionByUserId.get(u.user_id)?.role_id || null,
-        profession_role_name: professionByUserId.get(u.user_id)?.role_name || null,
+        profession_role_name:
+          professionByUserId.get(u.user_id)?.role_name || accessRoleByUserId.get(u.user_id)?.role_name || null,
+        effective_department_role_name:
+          professionByUserId.get(u.user_id)?.role_name || accessRoleByUserId.get(u.user_id)?.role_name || null,
       })) || []
 
     // If no entries, return empty result with filter options
@@ -282,7 +299,6 @@ export async function GET() {
               .select("department_id")
               .in("department_id", entryDeptIds)
               .is("department_profession_id", null)
-              .is("department_role", null)
               .eq("is_active", true)
           : Promise.resolve({ data: [], error: null }),
         entryProfessionIds.length > 0
@@ -324,7 +340,10 @@ export async function GET() {
           ? entry.subject_profession_id
           : professionByUserId.get(entry.user_id)?.role_id || null
       const professionName =
-        roleMap.get(professionId || "") || professionByUserId.get(entry.user_id)?.role_name || null
+        roleMap.get(professionId || "") ||
+        professionByUserId.get(entry.user_id)?.role_name ||
+        accessRoleByUserId.get(entry.user_id)?.role_name ||
+        null
       const departmentId =
         typeof (entry as any)?.subject_department_id === "string"
           ? (entry as any).subject_department_id
@@ -340,6 +359,7 @@ export async function GET() {
         custom_responses: responsesMap.get(entry.id) || [],
         profession_role_id: professionId,
         profession_role_name: professionName,
+        effective_department_role_name: professionName,
         total_questions: deptQuestionCount + roleQuestionCount,
       }
     })

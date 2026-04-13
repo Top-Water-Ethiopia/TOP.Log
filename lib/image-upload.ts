@@ -1,29 +1,25 @@
 import type { CloudinaryUploadAsset } from "@/lib/cloudinary"
+import { IMAGE_ACCEPTED_TYPES, IMAGE_MAX_SIZE_BYTES, IMAGE_MAX_FILES } from "@/lib/upload-config"
+// Import types/functions for internal use + re-export for consumers
+import type { AttributedCloudinaryAsset } from "@/lib/upload-types"
+import {
+  isAttributedCloudinaryAsset,
+  isAttributedCloudinaryAssetArray,
+  formatUploadTimestamp,
+} from "@/lib/upload-types"
 
 export type ImageUploadMode = "single" | "multiple"
 
-// Shared constants to prevent backend-frontend drift
-export const IMAGE_ACCEPTED_TYPES = ["image/jpeg", "image/png", "image/gif", "image/webp"] as const
+// Re-export constants from upload-config.ts for backward compatibility
+export { IMAGE_ACCEPTED_TYPES, IMAGE_MAX_SIZE_BYTES, IMAGE_MAX_FILES }
 
-export const IMAGE_MAX_SIZE_BYTES = 10 * 1024 * 1024 // 10MB
-export const IMAGE_MAX_FILES = 20
-
-export type AttributedCloudinaryAsset = CloudinaryUploadAsset & {
-  uploadedByUserId?: string
-  uploadedByDisplayName?: string
-  uploadedAt?: string
-}
-
-export function isAttributedCloudinaryAsset(value: unknown): value is AttributedCloudinaryAsset {
-  if (!value || typeof value !== "object") return false
-
-  const candidate = value as Partial<AttributedCloudinaryAsset>
-  return candidate.provider === "cloudinary" && typeof candidate.secureUrl === "string"
-}
-
-export function isAttributedCloudinaryAssetArray(value: unknown): value is AttributedCloudinaryAsset[] {
-  return Array.isArray(value) && value.every((item) => isAttributedCloudinaryAsset(item))
-}
+// Re-export shared types from upload-types.ts for backward compatibility
+export type { AttributedCloudinaryAsset } from "@/lib/upload-types"
+export {
+  isAttributedCloudinaryAsset,
+  isAttributedCloudinaryAssetArray,
+  formatUploadTimestamp,
+} from "@/lib/upload-types"
 
 export function normalizeImageResponseValue(value: unknown): AttributedCloudinaryAsset[] {
   if (isAttributedCloudinaryAssetArray(value)) {
@@ -50,4 +46,23 @@ export function getImageUploadMode(metadata: unknown): ImageUploadMode {
 
   const mode = (metadata as { image_upload_mode?: unknown }).image_upload_mode
   return mode === "multiple" ? "multiple" : "single"
+}
+
+// Default max image size is 10MB (matches hardcoded IMAGE_MAX_SIZE_BYTES)
+export const DEFAULT_IMAGE_MAX_SIZE_BYTES = 10 * 1024 * 1024
+
+// Valid image size options for admin UI (in bytes)
+export const IMAGE_SIZE_OPTIONS = [
+  { label: "5 MB", value: 5 * 1024 * 1024 },
+  { label: "10 MB", value: 10 * 1024 * 1024 },
+  { label: "25 MB", value: 25 * 1024 * 1024 },
+] as const
+
+export function getImageMaxSizeBytes(metadata: unknown): number {
+  if (!metadata || typeof metadata !== "object") return DEFAULT_IMAGE_MAX_SIZE_BYTES
+  const size = (metadata as { image_max_size_bytes?: unknown }).image_max_size_bytes
+  if (typeof size === "number" && size > 0 && size <= 25 * 1024 * 1024) {
+    return size
+  }
+  return DEFAULT_IMAGE_MAX_SIZE_BYTES
 }
