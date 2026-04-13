@@ -41,8 +41,6 @@ export function SupabaseNav() {
 
   const isSupabaseConfigured = !!process.env.NEXT_PUBLIC_SUPABASE_URL
 
-  const isAdmin = profile?.role_id === ADMIN_ROLE_ID || profile?.role_id === SYSTEM_ADMIN_ROLE_ID
-
   useEffect(() => {
     setMounted(true)
   }, [])
