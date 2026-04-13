@@ -7,18 +7,39 @@ import { useRBAC } from "@/hooks/use-rbac"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Label } from "@/components/ui/label"
+import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Skeleton } from "@/components/ui/skeleton"
 import { useToast } from "@/components/ui/use-toast"
 import { ToastAction } from "@/components/ui/toast"
 import { ActionMenu, type ActionMenuItem } from "@/components/ui/action-menu"
-import { MoreVertical, Pencil, Search, Trash2, UserCheck, UserX } from "lucide-react"
+import {
+  MoreVertical,
+  Pencil,
+  Search,
+  Star,
+  Trash2,
+  UserCheck,
+  UserX,
+  History,
+  ArrowRightLeft,
+  X as XIcon,
+} from "lucide-react"
 import { RightSidePanel } from "@/components/ui/right-side-panel"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Switch } from "@/components/ui/switch"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import useSWR from "swr"
 import { ApiError, apiFetch, getErrorMessage } from "@/lib/api-client"
+import type {
+  MembershipHistoryItem,
+  MembershipHistoryResponse,
+  MembershipHistorySummary,
+} from "@/lib/memberships/history"
 
 type DepartmentRoleRow = {
+  id: string
   key: string
   label: string
   sort_order: number
@@ -46,21 +67,32 @@ type MembershipRow = {
   id: string
   user_id: string
   department_id: string
-  role: string
+  membership_type: "profession" | "access_level"
+  role_id: string
   is_active: boolean
+  is_primary: boolean
   created_at: string
   updated_at: string
-  user: {
-    user_id: string
-    email: string | null
-    name: string | null
+  role: {
+    id: string
+    type: "profession" | "access_level"
+    name: string
+    display_name: string
+    level?: number
   }
+  user?: { name: string | null; email: string | null }
 }
 
 type AllMembershipRow = {
   user_id: string | null
   department_id: string | null
-  role: string | null
+  membership_type: "profession" | "access_level"
+  role_id: string
+  role: {
+    id: string
+    name: string
+    display_name: string
+  }
   is_active: boolean
   user: {
     user_id: string | null
@@ -72,6 +104,62 @@ type AllMembershipRow = {
     name: string | null
     is_active: boolean | null
   }
+}
+
+type GroupedHistoryEvents = {
+  label: string
+  items: MembershipHistoryItem[]
+}
+
+type PersonRow = {
+  id: string
+  user_id: string
+  user?: { name: string | null; email: string | null }
+  is_active: boolean
+  is_primary: boolean
+  primaryMembership: MembershipRow
+  memberships: MembershipRow[]
+  searchableRoles: string[]
+}
+
+function getHistoryGroupLabel(timestamp: string | null) {
+  if (!timestamp) return "Date unavailable"
+  const parsed = new Date(timestamp)
+  if (Number.isNaN(parsed.getTime())) return "Date unavailable"
+
+  return new Intl.DateTimeFormat("en-US", {
+    month: "long",
+    day: "numeric",
+    year: "numeric",
+  }).format(parsed)
+}
+
+function getSeverityClasses(severity: MembershipHistoryItem["severity"]) {
+  switch (severity) {
+    case "high":
+      return {
+        badge: "destructive" as const,
+        card: "border-red-200 bg-red-50/40",
+      }
+    case "medium":
+      return {
+        badge: "default" as const,
+        card: "border-slate-200 bg-white",
+      }
+    default:
+      return {
+        badge: "outline" as const,
+        card: "border-slate-200 bg-slate-50/40",
+      }
+  }
+}
+
+function getMembershipPriority(membership: MembershipRow) {
+  if (membership.membership_type === "profession" && membership.is_primary) return 0
+  if (membership.membership_type === "profession" && membership.is_active) return 1
+  if (membership.membership_type === "profession") return 2
+  if (membership.is_active) return 3
+  return 4
 }
 
 export function DepartmentMembersPanel({ departmentId }: { departmentId: string | null }) {
@@ -143,11 +231,66 @@ export function DepartmentMembersPanel({ departmentId }: { departmentId: string 
   )
   const [removingUserId, setRemovingUserId] = useState<string | null>(null)
   const [memberToDeactivate, setMemberToDeactivate] = useState<MembershipRow | null>(null)
+  const [deactivateReason, setDeactivateReason] = useState("")
   const [memberToHardDelete, setMemberToHardDelete] = useState<MembershipRow | null>(null)
   const [hardDeleteConfirmText, setHardDeleteConfirmText] = useState("")
+  const [memberToViewHistory, setMemberToViewHistory] = useState<MembershipRow | null>(null)
+  const [historySummary, setHistorySummary] = useState<MembershipHistorySummary | null>(null)
+  const [historyEvents, setHistoryEvents] = useState<MembershipHistoryItem[]>([])
+  const [historyNextCursor, setHistoryNextCursor] = useState<string | null>(null)
+  const [historyLoading, setHistoryLoading] = useState(false)
+  const [historyLoadingMore, setHistoryLoadingMore] = useState(false)
+  const [memberToMove, setMemberToMove] = useState<MembershipRow | null>(null)
+  const [moveTargetDepartmentId, setMoveTargetDepartmentId] = useState("")
+  const [moveNewRole, setMoveNewRole] = useState("")
+  const [moveReason, setMoveReason] = useState("")
+  const [allDepartments, setAllDepartments] = useState<{ id: string; name: string }[]>([])
+  const [targetDeptRoles, setTargetDeptRoles] = useState<DepartmentRoleRow[]>([])
+  const [targetDeptRolesLoading, setTargetDeptRolesLoading] = useState(false)
+  const [moveLoading, setMoveLoading] = useState(false)
   const [searchQuery, setSearchQuery] = useState("")
 
   const lastMembershipsErrorRef = useRef<string | null>(null)
+
+  const groupedHistoryEvents = useMemo<GroupedHistoryEvents[]>(() => {
+    const groups = new Map<string, MembershipHistoryItem[]>()
+
+    historyEvents.forEach((event) => {
+      const label = getHistoryGroupLabel(event.timestamp)
+      const existing = groups.get(label) || []
+      existing.push(event)
+      groups.set(label, existing)
+    })
+
+    return Array.from(groups.entries()).map(([label, items]) => ({ label, items }))
+  }, [historyEvents])
+
+  // Fetch roles for the target department when moving a member
+  useEffect(() => {
+    if (!moveTargetDepartmentId) {
+      setTargetDeptRoles([])
+      setMoveNewRole("")
+      return
+    }
+
+    const fetchTargetRoles = async () => {
+      setTargetDeptRolesLoading(true)
+      try {
+        const response = await apiFetch<{ data: DepartmentRoleRow[] }>(
+          `/api/admin/departments/${moveTargetDepartmentId}/profession-roles`
+        )
+        if (response.data) {
+          setTargetDeptRoles(response.data.filter((r) => r.is_active))
+        }
+      } catch (err) {
+        console.error("[MoveDialog] Failed to fetch target department roles:", err)
+      } finally {
+        setTargetDeptRolesLoading(false)
+      }
+    }
+
+    fetchTargetRoles()
+  }, [moveTargetDepartmentId])
 
   useEffect(() => {
     const assignRole = searchParams.get("assignRole")
@@ -291,30 +434,22 @@ export function DepartmentMembersPanel({ departmentId }: { departmentId: string 
           if (!current) return current
           const rows = Array.isArray(current?.data) ? current.data : []
           return {
-            data: rows.map((row) =>
-              row.user_id === restoredUserId ? { ...row, is_active: true, updated_at: nowIso } : row
-            ),
+            data: rows.map((row) => (row.id === m.id ? { ...row, is_active: true, updated_at: nowIso } : row)),
           }
         },
         { revalidate: false }
       )
 
       await apiFetch<{
-        data: {
-          id: string
-          user_id: string
-          department_id: string
-          role: string
-          is_active: boolean
-          created_at: string
-          updated_at: string
-        }
+        data: MembershipRow
       }>(`/api/admin/departments/${departmentId}/memberships`, {
-        method: "POST",
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          membership_id: m.id,
           user_id: restoredUserId,
           is_active: true,
+          last_updated_at: m.updated_at,
         }),
       })
 
@@ -340,7 +475,7 @@ export function DepartmentMembersPanel({ departmentId }: { departmentId: string 
     }
   }
 
-  const deactivateMember = async () => {
+  const deactivateMember = async (reason?: string) => {
     if (!memberToDeactivate) return
     if (!departmentId) return
 
@@ -349,6 +484,7 @@ export function DepartmentMembersPanel({ departmentId }: { departmentId: string 
     try {
       setRemovingUserId(memberToDeactivate.user_id)
       const nowIso = new Date().toISOString()
+      const membershipId = memberToDeactivate.id
       const removedUserId = memberToDeactivate.user_id
       const removedDisplayName = memberToDeactivate.user?.name || memberToDeactivate.user?.email || removedUserId
 
@@ -357,16 +493,25 @@ export function DepartmentMembersPanel({ departmentId }: { departmentId: string 
           if (!current) return current
           const rows = Array.isArray(current?.data) ? current.data : []
           return {
-            data: rows.map((m) => (m.user_id === removedUserId ? { ...m, is_active: false, updated_at: nowIso } : m)),
+            data: rows.map((m) => (m.id === membershipId ? { ...m, is_active: false, updated_at: nowIso } : m)),
           }
         },
         { revalidate: false }
       )
 
-      await apiFetch<{ data: unknown }>(
-        `/api/admin/departments/${departmentId}/memberships/${memberToDeactivate.user_id}`,
-        { method: "DELETE" }
-      )
+      await apiFetch<{ data: unknown }>(`/api/admin/departments/${departmentId}/memberships`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          membership_id: membershipId,
+          user_id: removedUserId,
+          is_active: false,
+          last_updated_at: memberToDeactivate.updated_at,
+          reason,
+        }),
+      })
+
+      setDeactivateReason("")
 
       toast({
         title: "Deactivated",
@@ -385,7 +530,7 @@ export function DepartmentMembersPanel({ departmentId }: { departmentId: string 
                     const rows = Array.isArray(current?.data) ? current.data : []
                     return {
                       data: rows.map((m) =>
-                        m.user_id === removedUserId ? { ...m, is_active: true, updated_at: nowIso } : m
+                        m.id === membershipId ? { ...m, is_active: true, updated_at: nowIso } : m
                       ),
                     }
                   },
@@ -397,7 +542,8 @@ export function DepartmentMembersPanel({ departmentId }: { departmentId: string 
                     id: string
                     user_id: string
                     department_id: string
-                    role: string
+                    role_id: string
+                    membership_type: string
                     is_active: boolean
                     created_at: string
                     updated_at: string
@@ -407,6 +553,8 @@ export function DepartmentMembersPanel({ departmentId }: { departmentId: string 
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({
                     user_id: removedUserId,
+                    role_id: memberToDeactivate.role_id,
+                    membership_type: memberToDeactivate.membership_type,
                     is_active: true,
                   }),
                 })
@@ -452,20 +600,178 @@ export function DepartmentMembersPanel({ departmentId }: { departmentId: string 
     }
   }
 
-  const people = useMemo(() => {
-    const all = [...memberships].sort((a, b) => {
+  const setMemberAsPrimary = async (m: MembershipRow) => {
+    if (!departmentId) return
+
+    const prevMembershipsResponse = membershipsResponse
+
+    try {
+      setRemovingUserId(m.user_id)
+      const nowIso = new Date().toISOString()
+
+      // Optimistic update: set this member as primary, remove primary from others
+      mutateMemberships(
+        (current) => {
+          if (!current) return current
+          const rows = Array.isArray(current?.data) ? current.data : []
+          return {
+            data: rows.map((row) => {
+              if (row.user_id === m.user_id) {
+                return { ...row, is_primary: true, updated_at: nowIso }
+              }
+              // Remove primary from other active memberships
+              if (row.is_primary && row.is_active) {
+                return { ...row, is_primary: false, updated_at: nowIso }
+              }
+              return row
+            }),
+          }
+        },
+        { revalidate: false }
+      )
+
+      await apiFetch<{
+        data: MembershipRow
+      }>(`/api/admin/departments/${departmentId}/memberships`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          membership_id: m.id,
+          user_id: m.user_id,
+          is_primary: true,
+          last_updated_at: m.updated_at,
+        }),
+      })
+
+      toast({
+        title: "Primary Set",
+        description: `${m.user?.name || m.user?.email || m.user_id} is now the primary member`,
+      })
+    } catch (error: unknown) {
+      if (prevMembershipsResponse) {
+        mutateMemberships(prevMembershipsResponse, { revalidate: false })
+      } else {
+        mutateMemberships()
+      }
+
+      toast({
+        title: "Error",
+        description: getErrorMessage(error, "Failed to set primary member"),
+        variant: "destructive",
+      })
+    } finally {
+      setRemovingUserId(null)
+      mutateMemberships()
+    }
+  }
+
+  const fetchHistory = async (m: MembershipRow) => {
+    if (!departmentId) return
+    setMemberToViewHistory(m)
+    setHistoryLoading(true)
+    setHistorySummary(null)
+    setHistoryEvents([])
+    setHistoryNextCursor(null)
+    try {
+      const json = await apiFetch<MembershipHistoryResponse>(
+        `/api/admin/departments/${departmentId}/memberships/${m.user_id}/history`
+      )
+      setHistorySummary(json.summary)
+      setHistoryEvents(json.events || [])
+      setHistoryNextCursor(json.nextCursor || null)
+    } catch (error: unknown) {
+      toast({
+        title: "Error",
+        description: getErrorMessage(error, "Failed to load history"),
+        variant: "destructive",
+      })
+      setHistoryEvents([])
+      setHistorySummary({
+        status: m.is_active ? "active" : "inactive",
+        isPrimary: !!m.is_primary,
+        role: m.role.display_name,
+        lastChangedAt: null,
+        lastChangedLabel: "Date unavailable",
+      })
+    } finally {
+      setHistoryLoading(false)
+    }
+  }
+
+  const loadMoreHistory = async () => {
+    if (!departmentId || !memberToViewHistory || !historyNextCursor) return
+
+    setHistoryLoadingMore(true)
+    try {
+      const json = await apiFetch<MembershipHistoryResponse>(
+        `/api/admin/departments/${departmentId}/memberships/${memberToViewHistory.user_id}/history?cursor=${encodeURIComponent(historyNextCursor)}`
+      )
+
+      setHistoryEvents((current) => {
+        const seen = new Set(current.map((event) => event.id))
+        const merged = [...current]
+        json.events.forEach((event) => {
+          if (!seen.has(event.id)) {
+            merged.push(event)
+          }
+        })
+        return merged
+      })
+      setHistoryNextCursor(json.nextCursor || null)
+    } catch (error: unknown) {
+      toast({
+        title: "Error",
+        description: getErrorMessage(error, "Failed to load more history"),
+        variant: "destructive",
+      })
+    } finally {
+      setHistoryLoadingMore(false)
+    }
+  }
+
+  const people = useMemo<PersonRow[]>(() => {
+    const grouped = new Map<string, MembershipRow[]>()
+
+    memberships.forEach((membership) => {
+      const existing = grouped.get(membership.user_id) || []
+      existing.push(membership)
+      grouped.set(membership.user_id, existing)
+    })
+
+    const rows = Array.from(grouped.entries()).map(([userId, userMemberships]) => {
+      const sortedMemberships = [...userMemberships].sort((a, b) => {
+        const priority = getMembershipPriority(a) - getMembershipPriority(b)
+        if (priority !== 0) return priority
+        return new Date(b.updated_at).getTime() - new Date(a.updated_at).getTime()
+      })
+
+      const primaryMembership = sortedMemberships[0]
+
+      return {
+        id: userId,
+        user_id: userId,
+        user: primaryMembership.user,
+        is_active: sortedMemberships.some((membership) => membership.is_active),
+        is_primary: sortedMemberships.some((membership) => membership.is_primary && membership.is_active),
+        primaryMembership,
+        memberships: sortedMemberships,
+        searchableRoles: sortedMemberships.map((membership) => membership.role.display_name),
+      }
+    })
+
+    rows.sort((a, b) => {
       const an = a.user?.name || a.user?.email || a.user_id
       const bn = b.user?.name || b.user?.email || b.user_id
       return an.localeCompare(bn)
     })
 
-    if (!searchQuery.trim()) return all
+    if (!searchQuery.trim()) return rows
     const q = searchQuery.toLowerCase()
-    return all.filter((m) => {
-      const name = (m.user?.name || "").toLowerCase()
-      const email = (m.user?.email || "").toLowerCase()
-      const role = m.role.toLowerCase()
-      return name.includes(q) || email.includes(q) || role.includes(q)
+    return rows.filter((person) => {
+      const name = (person.user?.name || "").toLowerCase()
+      const email = (person.user?.email || "").toLowerCase()
+      const roles = person.searchableRoles.join(" ").toLowerCase()
+      return name.includes(q) || email.includes(q) || roles.includes(q)
     })
   }, [memberships, searchQuery])
 
@@ -627,6 +933,76 @@ export function DepartmentMembersPanel({ departmentId }: { departmentId: string 
     fetchAccessLevels()
   }, [])
 
+  // Fetch all departments for move dialog
+  useEffect(() => {
+    if (!memberToMove) return
+    const fetchDepartments = async () => {
+      try {
+        const response = await apiFetch<{
+          data: Array<{ department_id: string; department?: { name?: string } | null }>
+        }>("/api/departments")
+        if (response.data) {
+          const departments = response.data.map((m) => ({
+            id: m.department_id,
+            name: m.department?.name || "Unnamed Department",
+          }))
+          setAllDepartments(departments.filter((d) => d.id !== departmentId))
+        }
+      } catch (err) {
+        console.error("[MoveDialog] Failed to fetch departments:", err)
+      }
+    }
+    fetchDepartments()
+  }, [memberToMove, departmentId])
+
+  const moveMember = async () => {
+    if (!memberToMove || !departmentId) return
+    if (!moveTargetDepartmentId || !moveNewRole) {
+      toast({
+        title: "Error",
+        description: "Please select a target department and role",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setMoveLoading(true)
+    try {
+      await apiFetch(`/api/admin/departments/${departmentId}/memberships`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          action: "move",
+          user_id: memberToMove.user_id,
+          target_department_id: moveTargetDepartmentId,
+          new_role: moveNewRole,
+          reason: moveReason || undefined,
+          last_updated_at: memberToMove.updated_at,
+        }),
+      })
+
+      toast({
+        title: "Member moved",
+        description: `${memberToMove.user?.name || memberToMove.user?.email || memberToMove.user_id} has been moved to the new department`,
+      })
+
+      // Close dialog and reset
+      setMemberToMove(null)
+      setMoveTargetDepartmentId("")
+      setMoveNewRole("")
+      setMoveReason("")
+      mutateMemberships()
+    } catch (error: unknown) {
+      toast({
+        title: "Error",
+        description: getErrorMessage(error, "Failed to move member"),
+        variant: "destructive",
+      })
+    } finally {
+      setMoveLoading(false)
+    }
+  }
+
   // Preselect access level when editing
   useEffect(() => {
     if (!showAssignDialog) return
@@ -665,25 +1041,44 @@ export function DepartmentMembersPanel({ departmentId }: { departmentId: string 
       const isEditing = !!existingMembership
       const moveFrom = selectedActive ? activeMembershipElsewhere : null
 
+      // Build proper Role object from selectedRole key
+      const selectedRoleObj = departmentRoles.find((r) => r.key === selectedRole)
+      const roleObject: MembershipRow["role"] = selectedRoleObj
+        ? {
+            id: `temp-role-${selectedRole}`,
+            type: "profession",
+            name: selectedRoleObj.key,
+            display_name: selectedRoleObj.label,
+          }
+        : existingMembership?.role || {
+            id: `temp-role-${selectedRole}`,
+            type: "profession",
+            name: selectedRole,
+            display_name: selectedRole,
+          }
+
       const optimisticMembership: MembershipRow = existingMembership
         ? {
             ...existingMembership,
-            role: selectedRole,
+            role: roleObject,
             is_active: selectedActive,
+            is_primary: existingMembership.is_primary,
             updated_at: nowIso,
           }
         : {
             id: `temp-${selectedUserId}`,
             user_id: selectedUserId,
             department_id: deptId,
-            role: selectedRole,
+            membership_type: "profession",
+            role_id: roleObject.id,
+            role: roleObject,
             is_active: selectedActive,
+            is_primary: false,
             created_at: nowIso,
             updated_at: nowIso,
             user: {
-              user_id: selectedUserId,
-              email: selectedUser?.email || null,
               name: selectedUser?.name || null,
+              email: selectedUser?.email || null,
             },
           }
 
@@ -733,7 +1128,7 @@ export function DepartmentMembersPanel({ departmentId }: { departmentId: string 
                   ? {
                       ...m,
                       id: savedMembership.id,
-                      role: savedMembership.role,
+                      role: savedMembership.role.display_name,
                       is_active: savedMembership.is_active,
                       created_at: savedMembership.created_at,
                       updated_at: savedMembership.updated_at,
@@ -766,13 +1161,13 @@ export function DepartmentMembersPanel({ departmentId }: { departmentId: string 
 
       const roleLabelByKey = new Map(departmentRoles.map((r) => [r.key, r.label]))
       const prevRoleLabel = existingMembership
-        ? roleLabelByKey.get(existingMembership.role) || existingMembership.role
+        ? roleLabelByKey.get(existingMembership.role.name) || existingMembership.role.display_name
         : null
       const nextRoleLabel = roleLabelByKey.get(selectedRole) || selectedRole
 
       const changes: string[] = []
       if (isEditing && existingMembership) {
-        if (existingMembership.role !== selectedRole) {
+        if (existingMembership.role.name !== selectedRole) {
           changes.push(`Department role: ${prevRoleLabel} → ${nextRoleLabel}`)
         }
         if (existingMembership.is_active !== selectedActive) {
@@ -910,7 +1305,9 @@ export function DepartmentMembersPanel({ departmentId }: { departmentId: string 
                           <TableCell className="font-medium">{name}</TableCell>
                           <TableCell className="text-muted-foreground">{email}</TableCell>
                           <TableCell>{dept}</TableCell>
-                          <TableCell>{m.role ? <Badge variant="secondary">{m.role}</Badge> : "-"}</TableCell>
+                          <TableCell>
+                            {m.role ? <Badge variant="secondary">{m.role.display_name}</Badge> : "-"}
+                          </TableCell>
                           <TableCell>
                             {m.is_active ? (
                               <Badge variant="secondary">Active</Badge>
@@ -1003,103 +1400,173 @@ export function DepartmentMembersPanel({ departmentId }: { departmentId: string 
                   </TableCell>
                 </TableRow>
               ) : (
-                people.map((m) => (
-                  <TableRow key={m.id} className="transition-colors hover:bg-gray-50 dark:hover:bg-gray-800">
-                    <TableCell className="px-6 py-4">
-                      <div className="flex items-center gap-3">
-                        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-200 text-xs font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-300">
-                          {(m.user?.name || "U")
-                            .split(" ")
-                            .map((n) => n[0])
-                            .join("")
-                            .slice(0, 2)
-                            .toUpperCase()}
-                        </div>
-                        <div>
-                          <div
-                            className={`font-medium text-gray-900 dark:text-gray-100 ${!m.is_active ? "line-through" : ""}`}
-                          >
-                            {m.user?.name || "Unknown"}
+                people.map((person) => {
+                  const m = person.primaryMembership
+
+                  return (
+                    <TableRow key={person.id} className="transition-colors hover:bg-gray-50 dark:hover:bg-gray-800">
+                      <TableCell className="px-6 py-4">
+                        <div className="flex items-center gap-3">
+                          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gray-200 text-xs font-medium text-gray-600 dark:bg-gray-700 dark:text-gray-300">
+                            {(person.user?.name || "U")
+                              .split(" ")
+                              .map((n) => n[0])
+                              .join("")
+                              .slice(0, 2)
+                              .toUpperCase()}
                           </div>
-                          <div className="text-sm text-gray-500 dark:text-gray-400">{m.user?.email || m.user_id}</div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <div
+                                className={`font-medium text-gray-900 dark:text-gray-100 ${!person.is_active ? "line-through" : ""}`}
+                              >
+                                {person.user?.name || "Unknown"}
+                              </div>
+                              {!person.is_active ? (
+                                <Badge
+                                  variant="outline"
+                                  className="border-amber-300 bg-amber-50 font-medium text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300"
+                                >
+                                  Deactivated
+                                </Badge>
+                              ) : null}
+                            </div>
+                            <div className="text-sm text-gray-500 dark:text-gray-400">
+                              {person.user?.email || person.user_id}
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    </TableCell>
-                    <TableCell className="px-6 py-4">
-                      <div className="flex items-center gap-2">
-                        <Badge variant={m.is_active ? "secondary" : "outline"}>{m.role}</Badge>
-                        {!m.is_active && (
-                          <Badge variant="outline" className="border-dashed">
-                            Inactive
-                          </Badge>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell className="px-6 py-4 text-right">
-                      <ActionMenu
-                        trigger={
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            disabled={!!removingUserId && removingUserId === m.user_id}
-                          >
-                            <MoreVertical className="h-4 w-4" />
-                          </Button>
-                        }
-                        items={
-                          [
-                            {
-                              type: "label",
-                              label: m.user?.name || m.user?.email || "Member",
-                            },
-                            { type: "separator" },
-                            {
-                              type: "item",
-                              label: "Edit",
-                              icon: <Pencil className="mr-2 h-4 w-4" />,
-                              onSelect: () => {
-                                setShowAssignDialog(true)
-                                setSelectedUserId(m.user_id)
-                                setEditingMembershipUserId(m.user_id)
-                                setSelectedRole(m.role)
-                                setOriginalDepartmentRoleKey(m.role)
-                                setSelectedActive(m.is_active)
-                                setUserQuery(m.user?.email || m.user?.name || "")
-                                setSearchResults([])
-                                setAssignPanelMode("form")
+                      </TableCell>
+                      <TableCell className="px-6 py-4">
+                        <div className="flex flex-wrap items-center gap-2">
+                          {person.memberships.map((membership) => (
+                            <Badge
+                              key={membership.id}
+                              variant={membership.is_active ? "secondary" : "outline"}
+                              className={
+                                membership.membership_type === "access_level"
+                                  ? "border-blue-200 bg-blue-50 text-blue-700"
+                                  : ""
+                              }
+                            >
+                              {membership.role.display_name}
+                              {membership.membership_type === "access_level" ? " Access" : ""}
+                            </Badge>
+                          ))}
+                          {person.is_active ? (
+                            <Badge variant="default" className="bg-emerald-500 text-white hover:bg-emerald-600">
+                              ● Active
+                            </Badge>
+                          ) : (
+                            <Badge
+                              variant="outline"
+                              className="border-red-300 bg-red-50 text-red-700 dark:border-red-800 dark:bg-red-950/40 dark:text-red-300"
+                            >
+                              ● Inactive
+                            </Badge>
+                          )}
+                          {person.is_primary && person.is_active && (
+                            <Badge variant="default" className="bg-amber-500 hover:bg-amber-600">
+                              ⭐ Primary
+                            </Badge>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell className="px-6 py-4 text-right">
+                        <ActionMenu
+                          trigger={
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              disabled={!!removingUserId && removingUserId === m.user_id}
+                            >
+                              <MoreVertical className="h-4 w-4" />
+                            </Button>
+                          }
+                          items={
+                            [
+                              {
+                                type: "label",
+                                label: person.user?.name || person.user?.email || "Member",
                               },
-                            },
-                            m.is_active
-                              ? {
-                                  type: "item",
-                                  label: "Deactivate",
-                                  icon: <UserX className="mr-2 h-4 w-4" />,
-                                  destructive: true,
-                                  onSelect: () => confirmDeactivateMember(m),
-                                }
-                              : {
-                                  type: "item",
-                                  label: "Activate",
-                                  icon: <UserCheck className="mr-2 h-4 w-4" />,
-                                  onSelect: () => activateMember(m),
+                              { type: "separator" },
+                              {
+                                type: "item",
+                                label: "Edit",
+                                icon: <Pencil className="mr-2 h-4 w-4" />,
+                                onSelect: () => {
+                                  setShowAssignDialog(true)
+                                  setSelectedUserId(person.user_id)
+                                  setEditingMembershipUserId(person.user_id)
+                                  setSelectedRole(m.role.name)
+                                  setOriginalDepartmentRoleKey(m.role.name)
+                                  setSelectedActive(m.is_active)
+                                  setUserQuery(person.user?.email || person.user?.name || "")
+                                  setSearchResults([])
+                                  setAssignPanelMode("form")
                                 },
-                            { type: "separator" },
-                            {
-                              type: "item",
-                              label: "Permanently delete",
-                              icon: <Trash2 className="mr-2 h-4 w-4" />,
-                              destructive: true,
-                              onSelect: () => {
-                                setMemberToHardDelete(m)
-                                setHardDeleteConfirmText("")
                               },
-                            },
-                          ] satisfies ActionMenuItem[]
-                        }
-                      />
-                    </TableCell>
-                  </TableRow>
-                ))
+                              m.is_active
+                                ? {
+                                    type: "item",
+                                    label: "Deactivate",
+                                    icon: <UserX className="mr-2 h-4 w-4" />,
+                                    destructive: true,
+                                    onSelect: () => confirmDeactivateMember(m),
+                                  }
+                                : {
+                                    type: "item",
+                                    label: "Activate",
+                                    icon: <UserCheck className="mr-2 h-4 w-4" />,
+                                    onSelect: () => activateMember(m),
+                                  },
+                              { type: "separator" },
+                              ...(!m.is_primary && m.is_active
+                                ? [
+                                    {
+                                      type: "item" as const,
+                                      label: "Set as Primary",
+                                      icon: <Star className="mr-2 h-4 w-4" />,
+                                      onSelect: () => setMemberAsPrimary(m),
+                                    },
+                                    { type: "separator" as const },
+                                  ]
+                                : []),
+                              { type: "separator" },
+                              {
+                                type: "item",
+                                label: "Move to department",
+                                icon: <ArrowRightLeft className="mr-2 h-4 w-4" />,
+                                onSelect: () => {
+                                  setMemberToMove(m)
+                                  setMoveTargetDepartmentId("")
+                                  setMoveNewRole(m.role.name)
+                                  setMoveReason("")
+                                },
+                              },
+                              {
+                                type: "item",
+                                label: "View history",
+                                icon: <History className="mr-2 h-4 w-4" />,
+                                onSelect: () => fetchHistory(m),
+                              },
+                              {
+                                type: "item",
+                                label: "Permanently delete",
+                                icon: <Trash2 className="mr-2 h-4 w-4" />,
+                                destructive: true,
+                                onSelect: () => {
+                                  setMemberToHardDelete(m)
+                                  setHardDeleteConfirmText("")
+                                },
+                              },
+                            ] satisfies ActionMenuItem[]
+                          }
+                        />
+                      </TableCell>
+                    </TableRow>
+                  )
+                })
               )}
             </TableBody>
           </Table>
@@ -1107,15 +1574,257 @@ export function DepartmentMembersPanel({ departmentId }: { departmentId: string 
       </div>
 
       <RightSidePanel
+        open={showAssignDialog}
+        onOpenChange={(open) => {
+          setShowAssignDialog(open)
+          if (!open) {
+            setSelectedUserId(null)
+            setEditingMembershipUserId(null)
+            setSelectedUser(null)
+            setUserQuery("")
+            setSearchResults([])
+            setAssignPanelMode("form")
+          }
+        }}
+        title={
+          assignPanelMode === "confirm_move"
+            ? "Move active membership?"
+            : assignPanelMode === "confirm_department_role_change"
+              ? "Confirm role change?"
+              : editingMembershipUserId
+                ? "Edit member"
+                : "Assign user"
+        }
+        description={
+          assignPanelMode === "confirm_move"
+            ? "This user is active in another department. Continuing will move their active membership to this department."
+            : assignPanelMode === "confirm_department_role_change"
+              ? "This will change this member's department role."
+              : editingMembershipUserId
+                ? "Update this member's role and active status for this department."
+                : "Select a user and choose their role in this department."
+        }
+        footer={
+          assignPanelMode === "confirm_move" ? (
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setAssignPanelMode("form")} disabled={saving}>
+                Back
+              </Button>
+              <Button onClick={saveMembership} disabled={saving}>
+                Continue
+              </Button>
+            </div>
+          ) : assignPanelMode === "confirm_department_role_change" ? (
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setAssignPanelMode("form")} disabled={saving}>
+                Back
+              </Button>
+              <Button onClick={saveMembership} disabled={saving}>
+                Continue
+              </Button>
+            </div>
+          ) : (
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setShowAssignDialog(false)} disabled={saving}>
+                Cancel
+              </Button>
+              <Button onClick={handleSaveClick} disabled={saving || checkingActiveMembership}>
+                Save
+              </Button>
+            </div>
+          )
+        }
+      >
+        <div className="space-y-4 pt-4">
+          {assignPanelMode === "confirm_move" ? (
+            <div className="space-y-3">
+              <div className="bg-muted/20 rounded-md border p-4">
+                <div className="text-sm font-semibold">Confirm move</div>
+                <div className="text-muted-foreground mt-1 text-sm">
+                  {activeMembershipElsewhere
+                    ? `This user is currently active in "${activeMembershipElsewhere.department_name || activeMembershipElsewhere.department_id}". Continuing will deactivate their membership there and activate them in this department.`
+                    : "This user is currently active in another department. Continuing will deactivate their membership there and activate them in this department."}
+                </div>
+              </div>
+              <div className="text-muted-foreground text-xs">
+                Your selected role settings will be saved along with this change.
+              </div>
+            </div>
+          ) : assignPanelMode === "confirm_department_role_change" ? (
+            <div className="space-y-3">
+              <div className="bg-muted/20 rounded-md border p-4">
+                <div className="text-sm font-semibold">Confirm department role change</div>
+                <div className="text-muted-foreground mt-1 text-sm">
+                  {(() => {
+                    const roleLabelByKey = new Map(departmentRoles.map((r) => [r.key, r.label]))
+                    const prevLabel = roleLabelByKey.get(originalDepartmentRoleKey) || originalDepartmentRoleKey || ""
+                    const nextLabel = roleLabelByKey.get(selectedRole) || selectedRole
+                    return `Department role: ${prevLabel} → ${nextLabel}`
+                  })()}
+                </div>
+              </div>
+              <div className="text-muted-foreground text-xs">Your changes will be applied after saving.</div>
+            </div>
+          ) : (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <div className="text-sm font-medium">User</div>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <Input
+                      value={userQuery}
+                      onChange={(e) => setUserQuery(e.target.value)}
+                      placeholder="Search by email, name, or username"
+                      className={userQuery ? "pr-8" : undefined}
+                      disabled={!!editingMembershipUserId}
+                    />
+                    {userQuery && !editingMembershipUserId && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setUserQuery("")
+                          setSelectedUserId(null)
+                          setSelectedUser(null)
+                          setSearchResults([])
+                        }}
+                        className="text-muted-foreground hover:text-foreground absolute inset-y-0 right-2 my-auto flex h-4 w-4 items-center justify-center rounded-full focus:outline-none"
+                        aria-label="Clear user search"
+                      >
+                        <XIcon className="h-3 w-3" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+                {!!editingMembershipUserId && (
+                  <div className="text-muted-foreground text-xs">
+                    User cannot be changed when editing a member. Close this panel and use Assign user to add a
+                    different member.
+                  </div>
+                )}
+                {!editingMembershipUserId && searchLoading && userQuery.trim() && (
+                  <div className="text-muted-foreground text-xs">Searching...</div>
+                )}
+                {!editingMembershipUserId && searchResults.length > 0 && (
+                  <div className="max-h-48 overflow-auto rounded-md border">
+                    {searchResults.map((u) => (
+                      <button
+                        key={u.user_id}
+                        type="button"
+                        className={`hover:bg-muted w-full px-3 py-2 text-left text-sm ${
+                          selectedUserId === u.user_id ? "bg-muted" : ""
+                        }`}
+                        onClick={() => {
+                          setSelectedUserId(u.user_id)
+                          setSelectedUser(u)
+                        }}
+                      >
+                        <div className="font-medium">{u.name || "Unknown"}</div>
+                        <div className="text-muted-foreground">{u.email || u.user_id}</div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                {!editingMembershipUserId && selectedUserId && (
+                  <div className="text-muted-foreground text-xs">Selected user_id: {selectedUserId}</div>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <div className="text-sm font-medium">Department role</div>
+                <Select value={selectedRole} onValueChange={setSelectedRole}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select role" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {departmentRoles.map((r) => (
+                      <SelectItem key={r.id} value={r.key}>
+                        {r.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {deptRolesLoading && <div className="text-muted-foreground text-xs">Loading roles...</div>}
+              </div>
+
+              <div className="space-y-2">
+                <div className="text-sm font-medium">Access control</div>
+                <Select
+                  value={selectedAccessLevelId}
+                  onValueChange={setSelectedAccessLevelId}
+                  disabled={loadingAccessLevels}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder={loadingAccessLevels ? "Loading..." : "Select access level"} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {accessLevels.map((al) => (
+                      <SelectItem key={al.id} value={al.id}>
+                        {al.display_name || al.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {loadingAccessLevels && <div className="text-muted-foreground text-xs">Loading access levels...</div>}
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="text-sm font-medium">Active</div>
+                  <div className="text-muted-foreground text-xs">
+                    Inactive removes access without deleting history.
+                    {selectedActive ? (
+                      checkingActiveMembership ? (
+                        <span className="mt-2 flex items-center gap-2">
+                          <span className="bg-muted text-foreground inline-flex items-center gap-2 rounded-full px-2 py-0.5 text-[11px] font-semibold">
+                            <span className="h-3 w-3 animate-spin rounded-full border-2 border-current border-t-transparent" />
+                            Checking membership
+                          </span>
+                          <span className="text-muted-foreground text-[11px]">
+                            Looking for other active departments…
+                          </span>
+                        </span>
+                      ) : activeMembershipElsewhere ? (
+                        <span className="mt-2 block rounded-md border border-red-500 bg-red-50 p-2 font-semibold text-red-700">
+                          {`This user is currently active in "${activeMembershipElsewhere.department_name || activeMembershipElsewhere.department_id}". Saving will deactivate their membership there and activate them in this department.`}
+                        </span>
+                      ) : (
+                        <span className="mt-2 block">
+                          A user can only be active in one department at a time; activating here will deactivate their
+                          other active membership.
+                        </span>
+                      )
+                    ) : (
+                      ""
+                    )}
+                  </div>
+                </div>
+                <Switch checked={selectedActive} onCheckedChange={setSelectedActive} />
+              </div>
+            </div>
+          )}
+        </div>
+      </RightSidePanel>
+
+      <RightSidePanel
         open={!!memberToDeactivate}
         onOpenChange={(open) => {
-          if (!open) setMemberToDeactivate(null)
+          if (!open) {
+            setMemberToDeactivate(null)
+            setDeactivateReason("")
+          }
         }}
         title="Deactivate member"
         description="This will deactivate access to this department. You can re-enable later."
         footer={
           <div className="flex justify-end gap-2">
-            <Button variant="outline" onClick={() => setMemberToDeactivate(null)} disabled={!!removingUserId}>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setMemberToDeactivate(null)
+                setDeactivateReason("")
+              }}
+              disabled={!!removingUserId}
+            >
               Cancel
             </Button>
             <Button
@@ -1126,12 +1835,13 @@ export function DepartmentMembersPanel({ departmentId }: { departmentId: string 
                 if (!memberToDeactivate) return
                 setMemberToHardDelete(memberToDeactivate)
                 setMemberToDeactivate(null)
+                setDeactivateReason("")
               }}
             >
               <Trash2 className="mr-2 h-4 w-4" />
               Permanently delete
             </Button>
-            <Button variant="default" disabled={!!removingUserId} onClick={deactivateMember}>
+            <Button variant="default" disabled={!!removingUserId} onClick={() => deactivateMember(deactivateReason)}>
               <UserX className="mr-2 h-4 w-4" />
               Deactivate
             </Button>
@@ -1150,7 +1860,244 @@ export function DepartmentMembersPanel({ departmentId }: { departmentId: string 
               {memberToDeactivate?.user?.email || memberToDeactivate?.user_id || ""}
             </div>
           </div>
+          <div className="space-y-2">
+            <Label htmlFor="deactivate-reason" className="text-sm font-medium">
+              Reason (optional)
+            </Label>
+            <Textarea
+              id="deactivate-reason"
+              placeholder="e.g., End of contract, Role change, Temporary leave..."
+              value={deactivateReason}
+              onChange={(e) => setDeactivateReason(e.target.value)}
+              className="min-h-[80px] resize-none"
+            />
+            <p className="text-muted-foreground text-xs">
+              This will be recorded in the audit log for future reference.
+            </p>
+          </div>
           <div className="text-muted-foreground text-xs">Deactivating does not delete history; it removes access.</div>
+        </div>
+      </RightSidePanel>
+
+      <RightSidePanel
+        open={!!memberToViewHistory}
+        onOpenChange={(open) => {
+          if (!open) {
+            setMemberToViewHistory(null)
+            setHistorySummary(null)
+            setHistoryEvents([])
+            setHistoryNextCursor(null)
+          }
+        }}
+        title="Membership history"
+        description={
+          memberToViewHistory
+            ? `Audit log for ${memberToViewHistory.user?.name || memberToViewHistory.user?.email || memberToViewHistory.user_id}`
+            : ""
+        }
+        footer={
+          <Button
+            variant="outline"
+            onClick={() => {
+              setMemberToViewHistory(null)
+              setHistorySummary(null)
+              setHistoryEvents([])
+              setHistoryNextCursor(null)
+            }}
+          >
+            Close
+          </Button>
+        }
+      >
+        <div className="space-y-4 pt-4">
+          {historyLoading ? (
+            <div className="space-y-3">
+              {[...Array(3)].map((_, i) => (
+                <div key={i} className="space-y-2 rounded-md border p-3">
+                  <Skeleton className="h-4 w-24" />
+                  <Skeleton className="h-3 w-full" />
+                </div>
+              ))}
+            </div>
+          ) : (
+            <>
+              <div className="rounded-md border bg-slate-50/70 p-4">
+                <div className="mb-3 text-sm font-semibold">Current state</div>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <div className="text-muted-foreground text-xs tracking-wide uppercase">Status</div>
+                    <div className="font-medium capitalize">{historySummary?.status || "inactive"}</div>
+                  </div>
+                  <div>
+                    <div className="text-muted-foreground text-xs tracking-wide uppercase">Primary</div>
+                    <div className="font-medium">{historySummary?.isPrimary ? "Yes" : "No"}</div>
+                  </div>
+                  <div>
+                    <div className="text-muted-foreground text-xs tracking-wide uppercase">Role</div>
+                    <div className="font-medium">{historySummary?.role || "Not available"}</div>
+                  </div>
+                  <div>
+                    <div className="text-muted-foreground text-xs tracking-wide uppercase">Last changed</div>
+                    <div className="font-medium">{historySummary?.lastChangedLabel || "Date unavailable"}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="space-y-3">
+                <div className="text-sm font-semibold">History</div>
+                {historyEvents.length === 0 ? (
+                  <div className="text-muted-foreground rounded-md border border-dashed py-8 text-center">
+                    <div className="font-medium">No history yet</div>
+                    <div className="mt-1 text-sm">This membership has no recorded changes.</div>
+                  </div>
+                ) : (
+                  <>
+                    {groupedHistoryEvents.map((group) => (
+                      <div key={group.label} className="space-y-3">
+                        <div className="text-muted-foreground text-xs font-semibold tracking-wide uppercase">
+                          {group.label}
+                        </div>
+                        {group.items.map((event) => {
+                          const severity = getSeverityClasses(event.severity)
+                          return (
+                            <div key={event.id} className={`space-y-2 rounded-md border p-3 ${severity.card}`}>
+                              <div className="flex items-start justify-between gap-3">
+                                <div className="space-y-2">
+                                  <Badge variant={severity.badge}>{event.eventCategory}</Badge>
+                                  <div className="text-sm font-semibold">{event.summary}</div>
+                                </div>
+                                <div className="text-muted-foreground text-right text-xs">{event.timestampLabel}</div>
+                              </div>
+                              {event.details.length > 0 ? (
+                                <div className="space-y-1">
+                                  {event.details.map((detail) => (
+                                    <div key={detail} className="text-muted-foreground text-sm">
+                                      {detail}
+                                    </div>
+                                  ))}
+                                </div>
+                              ) : null}
+                              <div className="text-muted-foreground text-xs">By: {event.actor}</div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    ))}
+
+                    {historyNextCursor ? (
+                      <div className="flex justify-center pt-2">
+                        <Button variant="outline" onClick={loadMoreHistory} disabled={historyLoadingMore}>
+                          {historyLoadingMore ? "Loading..." : "Load more"}
+                        </Button>
+                      </div>
+                    ) : null}
+                  </>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+      </RightSidePanel>
+
+      <RightSidePanel
+        open={!!memberToMove}
+        onOpenChange={(open) => {
+          if (!open) {
+            setMemberToMove(null)
+            setMoveTargetDepartmentId("")
+            setMoveNewRole("")
+            setMoveReason("")
+          }
+        }}
+        title="Move member"
+        description="Move this member to another department. Their current membership will be deactivated."
+        footer={
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setMemberToMove(null)
+                setMoveTargetDepartmentId("")
+                setMoveNewRole("")
+                setMoveReason("")
+              }}
+              disabled={moveLoading}
+            >
+              Cancel
+            </Button>
+            <Button variant="default" disabled={moveLoading || !moveTargetDepartmentId} onClick={moveMember}>
+              {moveLoading ? "Moving..." : "Move member"}
+            </Button>
+          </div>
+        }
+      >
+        <div className="space-y-4 pt-4">
+          <div className="bg-muted/20 rounded-md border p-4">
+            <div className="text-sm font-semibold">
+              {memberToMove?.user?.name || memberToMove?.user?.email || memberToMove?.user_id || "Member"}
+            </div>
+            <div className="text-muted-foreground mt-1 text-sm">
+              Current role: {memberToMove?.role.display_name} • Current department: This department
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="target-department">Target department</Label>
+            <select
+              id="target-department"
+              value={moveTargetDepartmentId}
+              onChange={(e) => setMoveTargetDepartmentId(e.target.value)}
+              className="border-input bg-background ring-offset-background focus-visible:ring-ring w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
+            >
+              <option value="">Select department...</option>
+              {allDepartments.map((dept) => (
+                <option key={dept.id} value={dept.id}>
+                  {dept.name}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="new-role">New role</Label>
+            <select
+              id="new-role"
+              value={moveNewRole}
+              onChange={(e) => setMoveNewRole(e.target.value)}
+              disabled={!moveTargetDepartmentId || targetDeptRolesLoading}
+              className="border-input bg-background ring-offset-background focus-visible:ring-ring w-full rounded-md border px-3 py-2 text-sm focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none disabled:opacity-50"
+            >
+              <option value="">
+                {!moveTargetDepartmentId
+                  ? "Select a department first..."
+                  : targetDeptRolesLoading
+                    ? "Loading roles..."
+                    : "Select role..."}
+              </option>
+              {targetDeptRoles.map((role) => (
+                <option key={role.key} value={role.key}>
+                  {role.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          <div className="space-y-2">
+            <Label htmlFor="move-reason">Reason (optional)</Label>
+            <Textarea
+              id="move-reason"
+              placeholder="e.g., Team restructuring, Project transfer..."
+              value={moveReason}
+              onChange={(e) => setMoveReason(e.target.value)}
+              className="min-h-[80px] resize-none"
+            />
+            <p className="text-muted-foreground text-xs">This will be recorded in the audit log.</p>
+          </div>
+
+          <div className="text-muted-foreground text-xs">
+            Note: The member's current membership will be deactivated and a new one will be created in the target
+            department.
+          </div>
         </div>
       </RightSidePanel>
 

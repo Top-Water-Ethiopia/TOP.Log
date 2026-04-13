@@ -28,6 +28,7 @@ export interface UserWithProfile {
     role_name: string
     profession_role_id?: string | null
     profession_role_name?: string | null
+    effective_department_role_name?: string | null
     is_active: boolean
     created_at: string
     last_login: string | null

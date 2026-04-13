@@ -22,33 +22,35 @@ export async function GET(request: Request) {
       return NextResponse.json({ error: "departmentId is required" }, { status: 400 })
     }
 
-    // Get user's access level for this department
-    const { data: userAccess, error: accessError } = await supabase
-      .from("user_department_access_levels")
+    // Get user's active membership for this department (specifically access_level for permissions)
+    const { data: membership, error: membershipError } = await supabase
+      .from("user_department_memberships")
       .select(
         `
-        access_level_id,
-        access_level:department_access_levels(id, name, level)
+        role_id,
+        role:roles(id, name, level)
       `
       )
       .eq("user_id", user.id)
       .eq("department_id", departmentId)
+      .eq("membership_type", "access_level")
+      .eq("is_active", true)
       .maybeSingle()
 
-    if (accessError) {
-      console.error("Error fetching user access level:", accessError)
-      return NextResponse.json({ error: "Failed to fetch user access level" }, { status: 500 })
+    if (membershipError) {
+      console.error("Error fetching user membership:", membershipError)
+      return NextResponse.json({ error: "Failed to fetch user membership" }, { status: 500 })
     }
 
-    if (!userAccess) {
+    if (!membership) {
       return NextResponse.json({ permissions: [] })
     }
 
-    // Get ALL permissions for the user's access level via permission_definitions
+    // Get ALL permissions for the role
     const { data: permissions, error: permError } = await supabase
-      .from("department_access_level_permissions")
-      .select("effect, permission_definition:permission_definitions(resource, action)")
-      .eq("access_level_id", userAccess.access_level_id)
+      .from("role_permissions")
+      .select("resource, action, effect")
+      .eq("role_id", membership.role_id)
 
     if (permError) {
       console.error("Error fetching permissions:", permError)
@@ -66,17 +68,17 @@ export async function GET(request: Request) {
       } | null
     }
 
-    const typedPermissions = permissions as unknown as PermissionRow[] | null
+    const typedPermissions = permissions as unknown as Array<{ resource: string; action: string; effect: string }> | null
     typedPermissions?.forEach((p) => {
-      if (p.permission_definition) {
-        const key = `${p.permission_definition.resource}.${p.permission_definition.action}`
-        permissionMap[key] = p.effect as "allow" | "deny" | "none"
-      }
+      const key = `${p.resource}.${p.action}`
+      permissionMap[key] = p.effect as "allow" | "deny" | "none"
     })
+
+    const roleData = Array.isArray(membership.role) ? membership.role[0] : membership.role
 
     return NextResponse.json({
       permissions: permissionMap,
-      accessLevel: userAccess.access_level,
+      accessLevel: roleData,
     })
   } catch (error) {
     console.error("Error in department permissions API:", error)

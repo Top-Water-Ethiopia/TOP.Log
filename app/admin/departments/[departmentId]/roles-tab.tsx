@@ -17,8 +17,9 @@ import { useToast } from "@/components/ui/use-toast"
 import { MoreVertical, Pencil, Plus, Trash2, UserPlus } from "lucide-react"
 
 type DepartmentRoleRow = {
-  key: string
-  label: string
+  id: string
+  name: string
+  display_name: string
   description: string | null
   department_id: string
   sort_order: number
@@ -39,7 +40,14 @@ type MembershipRow = {
   id: string
   user_id: string
   department_id: string
-  role: string
+  role_id: string
+  role: {
+    id: string
+    type: string
+    name: string
+    display_name: string
+    level: number | null
+  }
   is_active: boolean
 }
 
@@ -75,7 +83,8 @@ export function DepartmentRolesTab({ departmentId }: { departmentId: string }) {
     const map = new Map<string, number>()
     for (const m of memberships) {
       if (!m.is_active) continue
-      map.set(m.role, (map.get(m.role) || 0) + 1)
+      const roleName = typeof m.role === "object" && m.role ? m.role.name : String(m.role)
+      map.set(roleName, (map.get(roleName) || 0) + 1)
     }
     return map
   }, [memberships])
@@ -129,8 +138,8 @@ export function DepartmentRolesTab({ departmentId }: { departmentId: string }) {
   const openEditRole = (role: DepartmentRoleRow) => {
     setEditingRole(role)
     setRoleForm({
-      key: role.key,
-      label: role.label,
+      key: role.name,
+      label: role.display_name,
       description: role.description || "",
     })
     setRoleFormErrors({})
@@ -151,7 +160,7 @@ export function DepartmentRolesTab({ departmentId }: { departmentId: string }) {
       }
 
       if (editingRole) {
-        await apiFetch(`/api/admin/departments/${departmentId}/profession-roles?id=${editingRole.key}`, {
+        await apiFetch(`/api/admin/departments/${departmentId}/profession-roles?id=${editingRole.name}`, {
           method: "PUT",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(payload),
@@ -192,7 +201,7 @@ export function DepartmentRolesTab({ departmentId }: { departmentId: string }) {
 
     try {
       setRoleDeleting(true)
-      await apiFetch(`/api/admin/departments/${departmentId}/profession-roles?id=${roleToDelete.key}`, {
+      await apiFetch(`/api/admin/departments/${departmentId}/profession-roles?id=${roleToDelete.name}`, {
         method: "DELETE",
       })
       toast({ title: "Deleted", description: "Department role deleted" })
@@ -275,12 +284,12 @@ export function DepartmentRolesTab({ departmentId }: { departmentId: string }) {
               </TableHeader>
               <TableBody>
                 {roles.map((r) => {
-                  const count = activeCountByRole.get(r.key) || 0
+                  const count = activeCountByRole.get(r.name) || 0
 
                   const items = [
                     {
                       type: "label",
-                      label: r.label,
+                      label: r.display_name,
                     },
                     { type: "separator" },
                     {
@@ -291,11 +300,11 @@ export function DepartmentRolesTab({ departmentId }: { departmentId: string }) {
                     },
                     {
                       type: "item",
-                      label: "Assign members",
+                      label: "Assign to member",
                       icon: <UserPlus className="mr-2 h-4 w-4" />,
                       onSelect: () => {
                         router.push(
-                          `/admin/departments/${departmentId}?assign=1&assignRole=${encodeURIComponent(r.key)}`
+                          `/admin/departments/${departmentId}?assign=1&assignRole=${encodeURIComponent(r.name)}`
                         )
                       },
                     },
@@ -312,11 +321,11 @@ export function DepartmentRolesTab({ departmentId }: { departmentId: string }) {
                   ] satisfies ActionMenuItem[]
 
                   return (
-                    <TableRow key={r.key} className="transition-colors hover:bg-gray-50 dark:hover:bg-gray-800">
+                    <TableRow key={r.id} className="transition-colors hover:bg-gray-50 dark:hover:bg-gray-800">
                       <TableCell className="px-6 py-4">
                         <div className="flex items-center gap-2">
-                          <div className="font-medium text-gray-900 dark:text-gray-100">{r.label}</div>
-                          <div className="text-muted-foreground text-sm">({r.key})</div>
+                          <div className="font-medium text-gray-900 dark:text-gray-100">{r.display_name}</div>
+                          <div className="text-muted-foreground text-sm">({r.name})</div>
                         </div>
                       </TableCell>
                       <TableCell className="px-6 py-4">
@@ -328,7 +337,7 @@ export function DepartmentRolesTab({ departmentId }: { departmentId: string }) {
                       <TableCell className="px-6 py-4 text-right">
                         <ActionMenu
                           trigger={
-                            <Button variant="ghost" size="icon" aria-label={`Role actions for ${r.label}`}>
+                            <Button variant="ghost" size="icon" aria-label={`Role actions for ${r.display_name}`}>
                               <MoreVertical className="h-4 w-4" />
                             </Button>
                           }
@@ -418,15 +427,15 @@ export function DepartmentRolesTab({ departmentId }: { departmentId: string }) {
           {roleToDelete && (
             <div className="text-sm">
               Type <span className="font-medium">DELETE</span> to confirm deleting{" "}
-              <span className="font-medium">{roleToDelete.label || roleToDelete.key || "this role"}</span>.
+              <span className="font-medium">{roleToDelete.display_name || roleToDelete.name || "this role"}</span>.
             </div>
           )}
 
-          {roleToDelete && (activeCountByRole.get(roleToDelete.key) || 0) > 0 && (
+          {roleToDelete && (activeCountByRole.get(roleToDelete.name) || 0) > 0 && (
             <div className="rounded-md border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950">
               <div className="flex items-center gap-2 text-sm text-amber-800 dark:text-amber-200">
                 <span className="font-medium">⚠️ Warning:</span>
-                This role has {activeCountByRole.get(roleToDelete.key)} active member(s). You must reassign all members
+                This role has {activeCountByRole.get(roleToDelete.name)} active member(s). You must reassign all members
                 before deleting this role.
               </div>
             </div>

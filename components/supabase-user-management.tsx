@@ -144,8 +144,9 @@ interface Role {
 }
 
 type DepartmentRoleRow = {
-  key: string
-  label: string
+  id: string
+  name: string
+  display_name: string
   sort_order: number
   is_active: boolean
   is_default: boolean
@@ -1751,8 +1752,8 @@ export function SupabaseUserManagement() {
                 <SelectContent>
                   <SelectItem value={DEPARTMENT_ROLE_NONE}>None</SelectItem>
                   {departmentRoleOptions.map((role) => (
-                    <SelectItem key={role.key} value={role.key}>
-                      {role.label}
+                    <SelectItem key={role.id} value={role.name}>
+                      {role.display_name}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -2142,8 +2143,8 @@ export function SupabaseUserManagement() {
                           <span>None</span>
                         </SelectItem>
                         {departmentRoleOptions.map((role) => (
-                          <SelectItem key={role.key} value={role.key}>
-                            {role.label}
+                          <SelectItem key={role.id} value={role.name}>
+                            {role.display_name}
                           </SelectItem>
                         ))}
                       </SelectContent>

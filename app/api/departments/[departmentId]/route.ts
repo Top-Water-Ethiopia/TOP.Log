@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { adminSupabase } from "@/lib/supabase/admin"
+import { verifyPermissionForDepartmentFromRequest } from "@/lib/rbac/server"
 
 export const dynamic = "force-dynamic"
 
@@ -22,41 +23,10 @@ export async function GET(request: Request, { params }: { params: Promise<{ depa
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    // Check system-wide permissions first
-    const { data: profile } = await adminSupabase
-      .from("user_profiles")
-      .select("role_id")
-      .eq("user_id", user.id)
-      .single()
+    const readAuth = await verifyPermissionForDepartmentFromRequest(request, "departments.read", departmentId)
+    const adminAuth = readAuth.ok ? null : await verifyPermissionForDepartmentFromRequest(request, "admin.system", departmentId)
 
-    let systemWideAllowed = false
-    if (profile) {
-      const { data: permissions } = await adminSupabase
-        .from("permissions")
-        .select("resource, action")
-        .eq("role_id", profile.role_id)
-
-      const permissionNames = permissions?.map((p) => `${p.resource}.${p.action}`) || []
-      systemWideAllowed =
-        permissionNames.includes("departments.read") ||
-        permissionNames.includes("departments.own.read") ||
-        permissionNames.includes("admin.system")
-    }
-
-    // Check department access level membership (new architecture)
-    const { data: accessLevel } = await supabase
-      .from("user_department_access_levels")
-      .select("id")
-      .eq("user_id", user.id)
-      .eq("department_id", departmentId)
-      .maybeSingle()
-
-    // Dual-layer resolution: department scope overrides system-wide
-    // If user has access level in this department → ALLOW
-    // Else fall back to system-wide permission
-    const hasAccess = accessLevel !== null || systemWideAllowed
-
-    if (!hasAccess) {
+    if (!readAuth.ok && !adminAuth?.ok) {
       return NextResponse.json({ error: "Access denied" }, { status: 403 })
     }
 
@@ -108,55 +78,8 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ de
       return NextResponse.json({ error: "No fields to update" }, { status: 400 })
     }
 
-    // Check system-wide permissions first
-    const { data: profile } = await adminSupabase
-      .from("user_profiles")
-      .select("role_id")
-      .eq("user_id", user.id)
-      .single()
-
-    let systemWideAllowed = false
-    if (profile) {
-      const { data: permissions } = await adminSupabase
-        .from("permissions")
-        .select("resource, action")
-        .eq("role_id", profile.role_id)
-
-      const permissionNames = permissions?.map((p) => `${p.resource}.${p.action}`) || []
-      systemWideAllowed =
-        permissionNames.includes("departments.update") ||
-        permissionNames.includes("admin.system")
-    }
-
-    // Check department access level membership
-    const { data: userAccessLevel } = await adminSupabase
-      .from("user_department_access_levels")
-      .select("access_level_id")
-      .eq("user_id", user.id)
-      .eq("department_id", departmentId)
-      .maybeSingle()
-
-    let deptScopedAllowed = false
-    if (userAccessLevel?.access_level_id) {
-      const { data: accessLevelPermissions } = await adminSupabase
-        .from("department_access_level_permissions")
-        .select(`permission_definitions!inner(resource, action)`)
-        .eq("access_level_id", userAccessLevel.access_level_id)
-        .eq("effect", "allow")
-
-      const accessLevelPermissionNames = accessLevelPermissions?.map((p) => {
-        const pd = p.permission_definitions as { resource: string; action: string }
-        return `${pd.resource}.${pd.action}`
-      }) || []
-
-      if (accessLevelPermissionNames.includes("departments.update")) {
-        deptScopedAllowed = true
-      }
-    }
-
-    if (!systemWideAllowed && !deptScopedAllowed) {
-      return NextResponse.json({ error: "Access denied" }, { status: 403 })
-    }
+    const updateAuth = await verifyPermissionForDepartmentFromRequest(request, "departments.update", departmentId)
+    if (!updateAuth.ok) return NextResponse.json({ error: updateAuth.error }, { status: updateAuth.status })
 
     // Update department details
     const updates: Record<string, any> = {}

@@ -88,8 +88,20 @@ export async function GET(request: Request) {
     const userIdFilter = searchParams.get("user_id")
 
     const membershipsQuery = adminSupabase
-      .from("user_department_professions")
-      .select("user_id, department_id, role, is_active")
+      .from("user_department_memberships")
+      .select(`
+        user_id, 
+        department_id, 
+        role_id, 
+        membership_type, 
+        is_active,
+        role:roles (
+          id,
+          name,
+          display_name
+        )
+      `)
+      .eq("membership_type", "profession")
       .eq("is_active", true)
 
     const { data: memberships, error } =
@@ -97,7 +109,7 @@ export async function GET(request: Request) {
         ? await membershipsQuery.eq("user_id", userIdFilter.trim())
         : await membershipsQuery
 
-    const membershipRows = (memberships || []) as unknown as MembershipRow[]
+    const membershipRows = (memberships || []) as any[]
 
     if (error) {
       return NextResponse.json({ error: "Failed to load memberships", message: error.message }, { status: 500 })
@@ -107,15 +119,15 @@ export async function GET(request: Request) {
       const userIds = Array.from(
         new Set(
           membershipRows
-            .map((m) => (typeof m?.user_id === "string" ? (m.user_id as string) : null))
-            .filter((id: string | null): id is string => !!id)
+            .map((m) => m.user_id)
+            .filter((id): id is string => !!id)
         )
       )
       const departmentIds = Array.from(
         new Set(
           membershipRows
-            .map((m) => (typeof m?.department_id === "string" ? (m.department_id as string) : null))
-            .filter((id: string | null): id is string => !!id)
+            .map((m) => m.department_id)
+            .filter((id): id is string => !!id)
         )
       )
 
@@ -162,8 +174,9 @@ export async function GET(request: Request) {
       const authMap = new Map(authUsers.map((u) => [u.id, u]))
 
       const enriched = membershipRows.map((m) => {
-        const userId = typeof m?.user_id === "string" ? (m.user_id as string) : null
-        const departmentId = typeof m?.department_id === "string" ? (m.department_id as string) : null
+        const userId = m.user_id
+        const departmentId = m.department_id
+        const roleResult = Array.isArray(m.role) ? m.role[0] : m.role
 
         const profile = userId ? profileMap.get(userId) : undefined
         const auth = userId ? authMap.get(userId) : undefined
@@ -172,7 +185,9 @@ export async function GET(request: Request) {
         return {
           user_id: userId,
           department_id: departmentId,
-          role: typeof m?.role === "string" ? (m.role as string) : null,
+          role: roleResult?.display_name || roleResult?.name || null,
+          role_id: m.role_id,
+          membership_type: m.membership_type,
           is_active: !!m?.is_active,
           user: {
             user_id: userId,

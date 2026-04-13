@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { adminSupabase } from "@/lib/supabase/admin"
+import { getEffectivePermissionsForUser } from "@/lib/rbac/server"
 
 export const dynamic = "force-dynamic"
 
@@ -30,7 +31,7 @@ export async function GET() {
 
     const { data: role, error: roleErr } = await adminSupabase
       .from("roles")
-      .select("id, name")
+      .select("id, name, level")
       .eq("id", roleId)
       .single()
 
@@ -38,22 +39,14 @@ export async function GET() {
       return NextResponse.json({ error: "Role not found" }, { status: 404 })
     }
 
-    const { data: perms, error: permsError } = await adminSupabase
-      .from("permissions")
-      .select("resource, action")
-      .eq("role_id", roleId)
+    const effectivePermissions = await getEffectivePermissionsForUser(user.id)
 
-    if (permsError) {
-      console.error("Error fetching user permissions:", permsError)
-      return NextResponse.json({ role, permissions: [] as string[] })
-    }
-
-    const permissions = (perms || [])
-      .map((p) => `${p.resource}.${p.action}`)
-      .filter((p) => typeof p === "string" && p.length > 0)
-      .sort((a, b) => a.localeCompare(b))
-
-    return NextResponse.json({ role, permissions })
+    return NextResponse.json({
+      role,
+      permissions: effectivePermissions.globalPermissions,
+      globalPermissions: effectivePermissions.globalPermissions,
+      departmentAccess: effectivePermissions.departmentAccess,
+    })
   } catch (error) {
     console.error("RBAC me API error:", error)
     return NextResponse.json(

@@ -48,45 +48,51 @@ export async function DELETE(
     }
 
     const url = new URL(request.url)
-    const mode = url.searchParams.get("mode")
-    const hardDelete = mode === "hard"
-
+    const hardDelete = url.searchParams.get("mode") === "hard"
     const { departmentId, userId } = await params
 
-    const { data: existing, error: existingError } = await adminSupabase
-      .from("user_department_professions")
-      .select("id")
+    const { data: memberships, error: membershipsError } = await adminSupabase
+      .from("user_department_memberships")
+      .select("id, user_id, department_id, membership_type, role_id, is_active, is_primary")
       .eq("department_id", departmentId)
       .eq("user_id", userId)
-      .maybeSingle()
 
-    if (existingError) {
-      return NextResponse.json({ error: "Failed to load membership", message: existingError.message }, { status: 500 })
+    if (membershipsError) {
+      return NextResponse.json(
+        { error: "Failed to load membership", message: membershipsError.message },
+        { status: 500 }
+      )
     }
 
-    if (!existing) {
+    if (!memberships || memberships.length === 0) {
       return NextResponse.json({ data: null })
     }
 
     if (hardDelete) {
-      const { error } = await adminSupabase.from("user_department_professions").delete().eq("id", existing.id)
+      await adminSupabase.from("membership_audit_log").insert(
+        memberships.map((membership) => ({
+          user_id: membership.user_id,
+          from_department_id: departmentId,
+          membership_type: membership.membership_type,
+          role_id: membership.role_id,
+          action: "deactivated",
+          reason: "Hard delete requested",
+          performed_by: adminUserId,
+          metadata: { previous_state: membership, hard_delete: true },
+        }))
+      )
 
-      if (error) {
-        return NextResponse.json(
-          { error: "Failed to permanently delete membership", message: error.message },
-          { status: 500 }
-        )
-      }
-
-      const { error: professionDeleteError } = await adminSupabase
-        .from("user_department_professions")
+      const { error: deleteError } = await adminSupabase
+        .from("user_department_memberships")
         .delete()
-        .eq("department_id", departmentId)
-        .eq("user_id", userId)
+        .in(
+          "id",
+          memberships.map((membership) => membership.id)
+        )
 
-      if (professionDeleteError) {
+      if (deleteError) {
         return NextResponse.json(
-          { error: "Failed to permanently delete profession assignment", message: professionDeleteError.message },
+          { error: "Failed to permanently delete membership", message: deleteError.message },
           { status: 500 }
         )
       }
@@ -94,40 +100,38 @@ export async function DELETE(
       return NextResponse.json({ data: { deleted: true } })
     }
 
-    const { data, error } = await adminSupabase
-      .from("user_department_professions")
-      .update({
-        is_active: false,
-        updated_by: adminUserId,
-        updated_at: new Date().toISOString(),
-      } as any)
-      .eq("id", existing.id)
-      .select("id, user_id, department_id, role, is_active, created_at, updated_at")
-      .single()
-
-    if (error) {
-      return NextResponse.json({ error: "Failed to remove membership", message: error.message }, { status: 500 })
-    }
-
     const nowIso = new Date().toISOString()
-    const { error: professionDeactivateError } = await adminSupabase
-      .from("user_department_professions")
+
+    const { error: deactivateError } = await adminSupabase
+      .from("user_department_memberships")
       .update({
         is_active: false,
+        deactivated_at: nowIso,
         updated_by: adminUserId,
         updated_at: nowIso,
-      } as any)
+      })
       .eq("department_id", departmentId)
       .eq("user_id", userId)
 
-    if (professionDeactivateError) {
+    if (deactivateError) {
       return NextResponse.json(
-        { error: "Failed to remove profession assignment", message: professionDeactivateError.message },
+        { error: "Failed to remove membership", message: deactivateError.message },
         { status: 500 }
       )
     }
 
-    return NextResponse.json({ data })
+    await adminSupabase.from("membership_audit_log").insert(
+      memberships.map((membership) => ({
+        user_id: membership.user_id,
+        from_department_id: departmentId,
+        membership_type: membership.membership_type,
+        role_id: membership.role_id,
+        action: "deactivated",
+        performed_by: adminUserId,
+      }))
+    )
+
+    return NextResponse.json({ data: { deactivated: true } })
   } catch (error) {
     return NextResponse.json(
       {

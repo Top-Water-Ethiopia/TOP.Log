@@ -128,7 +128,7 @@ export interface Database {
             foreignKeyName: "captain_log_entries_subject_profession_id_fkey"
             columns: ["subject_profession_id"]
             isOneToOne: false
-            referencedRelation: "department_professions"
+            referencedRelation: "roles"
             referencedColumns: ["id"]
           },
         ]
@@ -218,26 +218,213 @@ export interface Database {
       roles: {
         Row: {
           id: string
+          type: "profession" | "access_level"
+          scope: "department" | "system"
+          department_id: string | null
           name: string
+          display_name: string
           description: string | null
+          level: number | null
+          sort_order: number | null
+          is_active: boolean
+          is_default: boolean
           created_at: string
           updated_at: string
         }
         Insert: {
           id?: string
+          type?: "profession" | "access_level"
+          scope?: "department" | "system"
+          department_id?: string | null
           name: string
+          display_name: string
           description?: string | null
+          level?: number | null
+          sort_order?: number | null
+          is_active?: boolean
+          is_default?: boolean
           created_at?: string
           updated_at?: string
         }
         Update: {
           id?: string
+          type?: "profession" | "access_level"
+          scope?: "department" | "system"
+          department_id?: string | null
           name?: string
+          display_name?: string
           description?: string | null
+          level?: number | null
+          sort_order?: number | null
+          is_active?: boolean
+          is_default?: boolean
           created_at?: string
           updated_at?: string
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "roles_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      user_department_memberships: {
+        Row: {
+          id: string
+          user_id: string
+          department_id: string
+          membership_type: "profession" | "access_level"
+          role_id: string
+          is_active: boolean
+          is_primary: boolean
+          last_used_at: string | null
+          deactivated_at: string | null
+          created_by: string | null
+          updated_by: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          department_id: string
+          membership_type: "profession" | "access_level"
+          role_id: string
+          is_active?: boolean
+          is_primary?: boolean
+          last_used_at?: string | null
+          deactivated_at?: string | null
+          created_by?: string | null
+          updated_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          department_id?: string
+          membership_type?: "profession" | "access_level"
+          role_id?: string
+          is_active?: boolean
+          is_primary?: boolean
+          last_used_at?: string | null
+          deactivated_at?: string | null
+          created_by?: string | null
+          updated_by?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "user_department_memberships_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_department_memberships_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "user_department_memberships_role_id_fkey"
+            columns: ["role_id"]
+            isOneToOne: false
+            referencedRelation: "roles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      role_permissions: {
+        Row: {
+          id: string
+          role_id: string
+          resource: string
+          action: string
+          effect: "allow" | "deny"
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          role_id: string
+          resource: string
+          action: string
+          effect?: "allow" | "deny"
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          role_id?: string
+          resource?: string
+          action?: string
+          effect?: "allow" | "deny"
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "role_permissions_role_id_fkey"
+            columns: ["role_id"]
+            isOneToOne: false
+            referencedRelation: "roles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      membership_audit_log: {
+        Row: {
+          id: string
+          user_id: string
+          from_department_id: string | null
+          to_department_id: string | null
+          membership_type: "profession" | "access_level" | null
+          role_id: string | null
+          action: string
+          reason: string | null
+          performed_by: string | null
+          metadata: Json | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          from_department_id?: string | null
+          to_department_id?: string | null
+          membership_type?: "profession" | "access_level" | null
+          role_id?: string | null
+          action: string
+          reason?: string | null
+          performed_by?: string | null
+          metadata?: Json | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          from_department_id?: string | null
+          to_department_id?: string | null
+          membership_type?: "profession" | "access_level" | null
+          role_id?: string | null
+          action?: string
+          reason?: string | null
+          performed_by?: string | null
+          metadata?: Json | null
+          created_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "membership_audit_log_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       role_questions: {
         Row: {
@@ -346,7 +533,7 @@ export interface Database {
             foreignKeyName: "role_questions_department_profession_id_fkey"
             columns: ["department_profession_id"]
             isOneToOne: false
-            referencedRelation: "department_professions"
+            referencedRelation: "roles"
             referencedColumns: ["id"]
           },
         ]
@@ -408,44 +595,6 @@ export interface Database {
           },
         ]
       }
-      permissions: {
-        Row: {
-          id: string
-          role_id: string
-          resource: string
-          action: string
-          conditions: Json | null
-          created_at: string
-          updated_at: string
-        }
-        Insert: {
-          id?: string
-          role_id: string
-          resource: string
-          action: string
-          conditions?: Json | null
-          created_at?: string
-          updated_at?: string
-        }
-        Update: {
-          id?: string
-          role_id?: string
-          resource?: string
-          action?: string
-          conditions?: Json | null
-          created_at?: string
-          updated_at?: string
-        }
-        Relationships: [
-          {
-            foreignKeyName: "permissions_role_id_fkey"
-            columns: ["role_id"]
-            isOneToOne: false
-            referencedRelation: "roles"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
       user_profiles: {
         Row: {
           id: string
@@ -503,66 +652,6 @@ export interface Database {
           },
         ]
       }
-      user_department_professions: {
-        Row: {
-          id: string
-          user_id: string
-          department_id: string
-          department_role_id: string | null
-          role: string
-          is_active: boolean
-          is_paused: boolean | null
-          reporting_started_at: string | null
-          created_at: string
-          created_by: string | null
-          updated_at: string
-          updated_by: string | null
-        }
-        Insert: {
-          id?: string
-          user_id: string
-          department_id: string
-          department_role_id?: string | null
-          role: string
-          is_active?: boolean
-          is_paused?: boolean | null
-          reporting_started_at?: string | null
-          created_at?: string
-          created_by?: string | null
-          updated_at?: string
-          updated_by?: string | null
-        }
-        Update: {
-          id?: string
-          user_id?: string
-          department_id?: string
-          department_role_id?: string | null
-          role?: string
-          is_active?: boolean
-          is_paused?: boolean | null
-          reporting_started_at?: string | null
-          created_at?: string
-          created_by?: string | null
-          updated_at?: string
-          updated_by?: string | null
-        }
-        Relationships: [
-          {
-            foreignKeyName: "user_department_professions_department_id_fkey"
-            columns: ["department_id"]
-            isOneToOne: false
-            referencedRelation: "departments"
-            referencedColumns: ["id"]
-          },
-          {
-            foreignKeyName: "user_department_professions_department_profession_id_fkey"
-            columns: ["department_role_id"]
-            isOneToOne: false
-            referencedRelation: "department_professions"
-            referencedColumns: ["id"]
-          },
-        ]
-      }
     }
     Views: {
       [_ in never]: never
@@ -585,7 +674,9 @@ export interface Database {
       }
     }
     Enums: {
-      [_ in never]: never
+      membership_type_enum: "profession" | "access_level"
+      role_type_enum: "profession" | "access_level"
+      role_scope_enum: "department" | "system"
     }
   }
 }

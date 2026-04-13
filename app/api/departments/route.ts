@@ -1,7 +1,10 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
 import { adminSupabase } from "@/lib/supabase/admin"
-import { normalizeSalesPromoterProfessionKey } from "@/lib/marketing-agents"
+import {
+  getUserEffectiveDepartmentMemberships,
+  type EffectiveDepartmentMembership,
+} from "@/lib/server/department-reporting"
 
 export const dynamic = "force-dynamic"
 
@@ -24,32 +27,10 @@ export async function GET() {
       .eq("user_id", user.id)
       .single()
 
-    // Get user's active department only (single active department principle)
-    const { data: activeDepartmentRole } = await supabase
-      .from("user_department_professions")
-      .select(
-        `
-        department_id,
-        role,
-        department_profession:department_professions!fk_user_department_professions_department_profession (
-          key
-        ),
-        department:departments (
-          id,
-          name,
-          description,
-          is_active
-        )
-      `
-      )
-      .eq("user_id", user.id)
-      .eq("is_active", true)
-      .single()
-
     let hasSystemWideAccess = false
     if (profile) {
       const { data: permissions } = await adminSupabase
-        .from("permissions")
+        .from("role_permissions")
         .select("resource, action")
         .eq("role_id", profile.role_id)
 
@@ -60,72 +41,67 @@ export async function GET() {
         permissionNames.includes("admin.system")
 
       // If no system-wide access, check department-scoped access
-      if (!hasSystemWideAccess && activeDepartmentRole) {
-        // Check department access level permissions
-        const { data: userAccessLevel } = await supabase
-          .from("user_department_access_levels")
-          .select("access_level_id")
-          .eq("user_id", user.id)
-          .eq("department_id", activeDepartmentRole.department_id)
-          .single()
-
-        if (userAccessLevel?.access_level_id) {
-          const { data: accessLevelPermissions } = await adminSupabase
-            .from("department_access_level_permissions")
-            .select(
-              `
-              permission_definitions!inner(resource, action)
-            `
-            )
-            .eq("access_level_id", userAccessLevel.access_level_id)
-            .eq("effect", "allow")
-
-          const accessLevelPermissionNames =
-            accessLevelPermissions?.map((p) => {
-              const pd = p.permission_definitions as { resource: string; action: string }
-              return `${pd.resource}.${pd.action}`
-            }) || []
-
-          if (accessLevelPermissionNames.includes("departments.read")) {
+      if (!hasSystemWideAccess) {
+        const memberships = await getUserEffectiveDepartmentMemberships(supabase, user.id)
+        for (const membership of memberships) {
+          // memberships already contain all resolved permissions in "resource.action" format
+          if (membership.permissions.includes("departments.read")) {
             hasSystemWideAccess = true
+            break
           }
         }
       }
     }
 
-    // Normalize the response
-    const normalized: Array<{
-      department_id: string
-      department: {
-        id: string
-        name: string
-        description: string | null
-        is_active: boolean
-      }
-      role: string | null
-      department_profession?: {
-        key: string | null
-      } | null
-    }> = []
-    if (activeDepartmentRole && activeDepartmentRole.department) {
-      const professionKey =
-        typeof activeDepartmentRole.department_profession?.key === "string"
-          ? normalizeSalesPromoterProfessionKey(activeDepartmentRole.department_profession.key)
-          : typeof activeDepartmentRole.role === "string"
-            ? normalizeSalesPromoterProfessionKey(activeDepartmentRole.role)
-            : null
+    let normalized
 
-      normalized.push({
-        department_id: activeDepartmentRole.department_id,
-        department: {
-          id: activeDepartmentRole.department.id,
-          name: activeDepartmentRole.department.name,
-          description: activeDepartmentRole.department.description,
-          is_active: activeDepartmentRole.department.is_active,
-        },
-        role: professionKey,
-        department_profession: professionKey ? { key: professionKey } : null,
-      })
+    if (hasSystemWideAccess) {
+      // Fetch ALL departments for system-wide access (e.g., move member dialog)
+      const { data: allDepartments, error: deptError } = await adminSupabase
+        .from("departments")
+        .select("id, name, description, is_active, created_at, updated_at")
+        .order("name")
+
+      if (deptError) {
+        throw deptError
+      }
+
+      normalized = (allDepartments || []).map((dept) => ({
+        department_id: dept.id,
+        department: { name: dept.name },
+        roleType: null,
+        roleKey: null,
+        roleLabel: null,
+        canViewReports: false,
+        canCreateReports: false,
+        canAnswerDepartmentReports: false,
+        role: null,
+        department_profession: null,
+      }))
+    } else {
+      // Get effective department memberships including inactive ones (for locked UI display)
+      const memberships = await getUserEffectiveDepartmentMemberships(supabase, user.id, true)
+
+      // Map to API response shape with both new fields and legacy backwards compatibility
+      normalized = memberships.map((membership: EffectiveDepartmentMembership) => ({
+        // Department info
+        department_id: membership.departmentId,
+        department: membership.department,
+
+        // Effective role (new contract)
+        roleType: membership.roleType,
+        roleKey: membership.roleKey,
+        roleLabel: membership.roleLabel,
+
+        // Explicit capabilities (new contract)
+        canViewReports: membership.canViewReports,
+        canCreateReports: membership.canCreateReports,
+        canAnswerDepartmentReports: membership.canAnswerDepartmentReports,
+
+        // Legacy fields (for backwards compatibility - NO NEW CONSUMERS SHOULD USE THESE)
+        role: membership.roleKey,
+        department_profession: membership.roleKey ? { key: membership.roleKey } : null,
+      }))
     }
 
     // Return both system-wide access flag and department list

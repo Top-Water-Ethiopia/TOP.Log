@@ -86,7 +86,7 @@ export function DepartmentAssignDialog({ departmentId }: { departmentId: string 
   }, [deptRolesResponse])
 
   const defaultDepartmentRoleKey = useMemo(() => {
-    if (departmentRoles.length === 0) return ""
+    if (departmentRoles.length === 0) return "__placeholder__"
     return departmentRoles[0].key
   }, [departmentRoles])
 
@@ -97,9 +97,9 @@ export function DepartmentAssignDialog({ departmentId }: { departmentId: string 
   const [selectedUser, setSelectedUser] = useState<SearchUser | null>(null)
   const [selectedUserId, setSelectedUserId] = useState<string | null>(null)
   const [editingMembershipUserId, setEditingMembershipUserId] = useState<string | null>(null)
-  const [selectedRole, setSelectedRole] = useState<string>("")
+  const [selectedRole, setSelectedRole] = useState<string>("__placeholder__")
   const [originalDepartmentRoleKey, setOriginalDepartmentRoleKey] = useState<string>("")
-  const [selectedAccessLevelId, setSelectedAccessLevelId] = useState<string>("")
+  const [selectedAccessLevelId, setSelectedAccessLevelId] = useState<string>("__placeholder__")
   const [accessLevels, setAccessLevels] = useState<DepartmentAccessLevel[]>([])
   const [loadingAccessLevels, setLoadingAccessLevels] = useState(true)
   const [selectedActive, setSelectedActive] = useState(true)
