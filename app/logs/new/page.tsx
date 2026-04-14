@@ -5,10 +5,9 @@ import { createClient } from "@/lib/supabase/server"
 import { getAllowedDates } from "@/lib/date-restrictions"
 import { isDepartmentReportQuestion, matchesProfessionQuestion } from "@/lib/reporting-model"
 import { getDefaultEntryKind as getConfiguredDefaultEntryKind } from "@/lib/entry-kinds"
+import { resolveEntryKinds } from "@/lib/entry-kinds/resolve"
 import { normalizeSalesPromoterProfessionKey } from "@/lib/marketing-agents"
-import {
-  getEffectiveDepartmentRole,
-} from "@/lib/server/department-reporting"
+import { getEffectiveDepartmentRole } from "@/lib/server/department-reporting"
 import { pickJoinedRow } from "@/lib/utils"
 import { EntryFormMultistepClient } from "./client"
 
@@ -216,28 +215,28 @@ async function fetchRoleQuestionsByKind(
   }
 
   const [{ data: questionRows, error: questionsError }, effectiveDepartmentRole] = await Promise.all([
-      supabase
-        .from("role_questions")
-        .select("*")
-        .eq("department_id", departmentId)
-        .eq("is_active", true)
-        .order("display_order", { ascending: true }),
-      getEffectiveDepartmentRole(supabase, userId, departmentId).catch((error) => {
-        console.error("Error fetching effective department role for report questions:", error)
-        return {
-          roleType: null,
-          roleKey: null,
-          roleName: null,
-          professionId: null,
-          professionKey: null,
-          professionName: null,
-          accessLevelId: null,
-          accessLevelName: null,
-          accessLevelDisplayName: null,
-          canAnswerDepartmentReports: false,
-        }
-      }),
-    ])
+    supabase
+      .from("role_questions")
+      .select("*")
+      .eq("department_id", departmentId)
+      .eq("is_active", true)
+      .order("display_order", { ascending: true }),
+    getEffectiveDepartmentRole(supabase, userId, departmentId).catch((error) => {
+      console.error("Error fetching effective department role for report questions:", error)
+      return {
+        roleType: null,
+        roleKey: null,
+        roleName: null,
+        professionId: null,
+        professionKey: null,
+        professionName: null,
+        accessLevelId: null,
+        accessLevelName: null,
+        accessLevelDisplayName: null,
+        canAnswerDepartmentReports: false,
+      }
+    }),
+  ])
 
   if (questionsError) {
     console.error("Error fetching report questions:", questionsError)
@@ -296,10 +295,7 @@ async function fetchRoleQuestions(
   return Object.values(grouped).flat()
 }
 
-function resolveClientRole(
-  departmentRole: string | null,
-  professionKey: string | null | undefined
-): string | null {
+function resolveClientRole(departmentRole: string | null, professionKey: string | null | undefined): string | null {
   if (typeof professionKey === "string" && professionKey.trim().length > 0) {
     return normalizeSalesPromoterProfessionKey(professionKey)
   }
@@ -418,48 +414,41 @@ export default async function NewLogPage({ searchParams }: { searchParams: Promi
     effectiveDepartmentRole.roleType === "profession" ? effectiveDepartmentRole.professionKey : null
   )
 
-  const { data: scopeEntryKinds } = await (supabase as any)
-    .from("scope_entry_kinds")
-    .select("entry_kind, label, is_default, allow_multiple_per_day, is_active, department_profession_id")
-    .eq("department_id", department.id)
-    .eq("is_active", true)
-    .eq("department_profession_id", resolvedRole || null)
+  // Use professionId (UUID) for database query, not the role key string
+  const professionRoleId = effectiveDepartmentRole.professionId
 
   // 6. Fetch role questions and initial entry availability for the active reporting subject.
-  const [questionsByKind] = await Promise.all([
-    fetchRoleQuestionsByKind(supabase, department.id, userId),
-  ])
+  const [questionsByKind] = await Promise.all([fetchRoleQuestionsByKind(supabase, department.id, userId)])
 
-  const initialAvailableEntryKinds = ((scopeEntryKinds as Array<{
-    entry_kind: string
-    label?: string
-    is_default?: boolean
-    allow_multiple_per_day?: boolean
-  }> | null) || []).filter((kind) => (questionsByKind[kind.entry_kind] || []).length > 0)
+  let resolvedEntryKinds: any[] = []
+  try {
+    const resolved = await resolveEntryKinds({
+      system: "personal",
+      departmentId: department.id,
+      userId,
+      professionRoleId: professionRoleId || null,
+    })
+    resolvedEntryKinds = Array.isArray(resolved.data) ? resolved.data : []
+  } catch (error) {
+    console.error("Failed to resolve entry kinds for /logs/new:", error)
+    resolvedEntryKinds = []
+  }
+
+  const initialAvailableEntryKinds = (
+    (resolvedEntryKinds as Array<{
+      entry_kind: string
+      label?: string
+      is_default?: boolean
+      allow_multiple_per_day?: boolean
+      is_active?: boolean
+    }> | null) || []
+  )
+    .filter((kind) => kind?.is_active !== false)
+    .filter((kind) => (questionsByKind[kind.entry_kind] || []).length > 0)
 
   const initialEntryKind =
     initialAvailableEntryKinds.length > 0
-      ? getConfiguredDefaultEntryKind(
-          initialAvailableEntryKinds.map((kind, index) => ({
-            id: `${kind.entry_kind}-${index}`,
-            department_id: department.id,
-            department_profession_id: resolvedRole,
-            entry_kind: kind.entry_kind,
-            label: kind.label || kind.entry_kind,
-            description: null,
-            sort_order: index,
-            is_default: kind.is_default === true,
-            is_active: true,
-            supports_assigned_agent: false,
-            allow_multiple_per_day: kind.allow_multiple_per_day === true,
-            color: null,
-            icon: null,
-            created_by: null,
-            updated_by: null,
-            created_at: "",
-            updated_at: "",
-          }))
-        )
+      ? getConfiguredDefaultEntryKind(initialAvailableEntryKinds as any[])
       : Object.keys(questionsByKind).find((kind) => (questionsByKind[kind] || []).length > 0) || "standard"
 
   const initialExistingEntryId = await fetchExistingEntryId(

@@ -13,7 +13,7 @@ jest.mock("@/lib/supabase/server", () => ({
   createClient: jest.fn(),
 }))
 
-const { createClient } = jest.requireMock("@/lib/supabase/server")
+const { createClient: mockCreateClient } = jest.requireMock("@/lib/supabase/server")
 const routeModule = require("@/app/api/reporting/available-entry-kinds/route")
 
 function createThenableBuilder(result: any) {
@@ -21,7 +21,12 @@ function createThenableBuilder(result: any) {
     select: jest.fn(() => builder),
     eq: jest.fn(() => builder),
     is: jest.fn(() => builder),
+    order: jest.fn(() => builder),
+    limit: jest.fn(() => builder),
+    maybeSingle: jest.fn(() => builder),
+    or: jest.fn(() => builder),
     then: (resolve: any, reject: any) => Promise.resolve(result).then(resolve, reject),
+
   }
 
   return builder
@@ -45,6 +50,7 @@ describe("/api/reporting/available-entry-kinds", () => {
           supports_assigned_agent: false,
           allow_multiple_per_day: true,
           department_profession_id: "sales-promoter",
+          is_active: true,
         },
       ],
       error: null,
@@ -55,7 +61,7 @@ describe("/api/reporting/available-entry-kinds", () => {
         {
           entry_kind: "standard",
           department_id: "dept-1",
-          department_profession_id: "profession-uuid-1",
+          department_profession_id: "afb7e9b0-b249-4d4a-aec6-e9f47b94d223",
           department_role: "sales-promoter",
           is_active: true,
         },
@@ -63,7 +69,17 @@ describe("/api/reporting/available-entry-kinds", () => {
       error: null,
     })
 
-    createClient.mockResolvedValue({
+    const membershipBuilder = createThenableBuilder({
+      data: [{ role_id: "afb7e9b0-b249-4d4a-aec6-e9f47b94d223", roles: { name: "sales-promoter" } }],
+      error: null,
+    })
+
+    const roleBuilder = createThenableBuilder({
+      data: { name: "sales-promoter" },
+      error: null,
+    })
+
+    mockCreateClient.mockResolvedValue({
       auth: {
         getUser: jest.fn().mockResolvedValue({
           data: { user: { id: "user-1" } },
@@ -73,18 +89,24 @@ describe("/api/reporting/available-entry-kinds", () => {
       from: jest.fn((table: string) => {
         if (table === "scope_entry_kinds") return configBuilder
         if (table === "role_questions") return questionsBuilder
+        if (table === "user_department_memberships") return membershipBuilder
+        if (table === "roles") return roleBuilder
         throw new Error(`Unexpected table ${table}`)
       }),
     })
 
+
+    const ROLE_UUID = "afb7e9b0-b249-4d4a-aec6-e9f47b94d223";
+
     const response = await routeModule.GET({
-      url: "http://localhost/api/reporting/available-entry-kinds?departmentId=dept-1&role=sales-promoter",
+      url: `http://localhost/api/reporting/available-entry-kinds?departmentId=dept-1&role=${ROLE_UUID}`,
     } as Request)
 
     expect(configBuilder.eq).toHaveBeenCalledWith("department_id", "dept-1")
-    expect(configBuilder.eq).toHaveBeenCalledWith("department_profession_id", "sales-promoter")
-    expect(configBuilder.is).not.toHaveBeenCalled()
+    expect(configBuilder.eq).toHaveBeenCalledWith("scope_type", "profession_personal")
+    expect(configBuilder.eq).toHaveBeenCalledWith("profession_role_id", ROLE_UUID)
     expect(response.status).toBe(200)
+
     await expect(response.json()).resolves.toEqual({
       data: [
         {
@@ -114,6 +136,7 @@ describe("/api/reporting/available-entry-kinds", () => {
           supports_assigned_agent: false,
           allow_multiple_per_day: false,
           department_profession_id: null,
+          is_active: true,
         },
       ],
       error: null,
@@ -126,13 +149,24 @@ describe("/api/reporting/available-entry-kinds", () => {
           department_id: "dept-1",
           department_profession_id: null,
           department_role: null,
+          question_scope_type: "dept_wide_personal",
           is_active: true,
         },
       ],
       error: null,
     })
 
-    createClient.mockResolvedValue({
+    const membershipBuilder = createThenableBuilder({
+      data: [],
+      error: null,
+    })
+
+    const roleBuilder = createThenableBuilder({
+      data: [],
+      error: null,
+    })
+
+    mockCreateClient.mockResolvedValue({
       auth: {
         getUser: jest.fn().mockResolvedValue({
           data: { user: { id: "user-1" } },
@@ -142,9 +176,12 @@ describe("/api/reporting/available-entry-kinds", () => {
       from: jest.fn((table: string) => {
         if (table === "scope_entry_kinds") return configBuilder
         if (table === "role_questions") return questionsBuilder
+        if (table === "user_department_memberships") return membershipBuilder
+        if (table === "roles") return roleBuilder
         throw new Error(`Unexpected table ${table}`)
       }),
     })
+
 
     const response = await routeModule.GET({
       url: "http://localhost/api/reporting/available-entry-kinds?departmentId=dept-1",

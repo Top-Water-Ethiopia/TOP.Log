@@ -65,7 +65,7 @@ export async function GET(request: Request) {
     // 2. Fetch active questions to determine reachability
     const { data: questions, error: queryError } = await supabase
       .from("role_questions")
-      .select("entry_kind, department_id, department_profession_id, department_role, is_active")
+      .select("entry_kind, department_id, department_profession_id, department_role, question_scope_type, is_active")
       .eq("department_id", departmentId)
       .eq("is_active", true)
 

@@ -20,6 +20,10 @@ jest.mock("@/lib/server/department-reporting", () => ({
   getEffectiveDepartmentRole: (...args: unknown[]) => mockGetEffectiveDepartmentRole(...args),
 }))
 
+jest.mock("@/lib/entry-kinds/resolve", () => ({
+  resolveEntryKinds: jest.fn(),
+}))
+
 jest.mock("@/app/logs/new/client", () => {
   const React = require("react")
 
@@ -30,6 +34,7 @@ jest.mock("@/app/logs/new/client", () => {
 })
 
 const { default: NewLogPage } = require("@/app/logs/new/page")
+const { resolveEntryKinds } = jest.requireMock("@/lib/entry-kinds/resolve")
 
 type Row = Record<string, unknown>
 
@@ -84,13 +89,11 @@ function createSupabaseMock({
   memberships = [],
   questionRows = [],
   entryRows = [],
-  scopeEntryKinds = [],
 }: {
   userId?: string
   memberships?: Row[]
   questionRows?: Row[]
   entryRows?: Row[]
-  scopeEntryKinds?: Row[]
 }) {
   return {
     auth: {
@@ -110,10 +113,6 @@ function createSupabaseMock({
 
       if (table === "captain_log_entries") {
         return createQueryBuilder(entryRows)
-      }
-
-      if (table === "scope_entry_kinds") {
-        return createQueryBuilder(scopeEntryKinds)
       }
 
       if (table === "user_profiles" || table === "departments") {
@@ -175,6 +174,7 @@ function makeQuestion({
 describe("/logs/new page", () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    resolveEntryKinds.mockResolvedValue({ data: [], meta: { used: "dept_wide_personal", state: "OK" } })
     mockGetEffectiveDepartmentRole.mockResolvedValue({
       roleType: null,
       roleKey: null,
@@ -216,6 +216,10 @@ describe("/logs/new page", () => {
       accessLevelName: null,
       accessLevelDisplayName: null,
       canAnswerDepartmentReports: false,
+    })
+    resolveEntryKinds.mockResolvedValue({
+      data: [{ entry_kind: "standard", label: "Standard", is_default: true, is_active: true }],
+      meta: { used: "profession_personal", state: "OK" },
     })
 
     const element = await NewLogPage({
@@ -618,26 +622,6 @@ describe("/logs/new page", () => {
             entry_kind: "marketing_performance_report",
           },
         ],
-        scopeEntryKinds: [
-          {
-            department_id: "dept-1",
-            entry_kind: "standard",
-            label: "Agent Report",
-            is_default: false,
-            is_active: true,
-            allow_multiple_per_day: true,
-            department_profession_id: "sales-promoter",
-          },
-          {
-            department_id: "dept-1",
-            entry_kind: "marketing_performance_report",
-            label: "Marketing Performance Report",
-            is_default: true,
-            is_active: true,
-            allow_multiple_per_day: false,
-            department_profession_id: "sales-promoter",
-          },
-        ],
         entryRows: [
           {
             id: "marketing-entry-1",
@@ -660,6 +644,29 @@ describe("/logs/new page", () => {
       accessLevelName: null,
       accessLevelDisplayName: null,
       canAnswerDepartmentReports: false,
+    })
+    resolveEntryKinds.mockResolvedValue({
+      data: [
+        {
+          department_id: "dept-1",
+          scope_type: "profession_personal",
+          entry_kind: "standard",
+          label: "Agent Report",
+          is_default: false,
+          is_active: true,
+          allow_multiple_per_day: true,
+        },
+        {
+          department_id: "dept-1",
+          scope_type: "profession_personal",
+          entry_kind: "marketing_performance_report",
+          label: "Marketing Performance Report",
+          is_default: true,
+          is_active: true,
+          allow_multiple_per_day: false,
+        },
+      ],
+      meta: { used: "profession_personal", state: "OK" },
     })
 
     const element = await NewLogPage({

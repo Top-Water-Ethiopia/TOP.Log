@@ -13,7 +13,12 @@ jest.mock("@/lib/supabase/server", () => ({
   createClient: jest.fn(),
 }))
 
+jest.mock("@/lib/entry-kinds/resolve", () => ({
+  resolveEntryKinds: jest.fn(),
+}))
+
 const { createClient } = jest.requireMock("@/lib/supabase/server")
+const { resolveEntryKinds } = jest.requireMock("@/lib/entry-kinds/resolve")
 const routeModule = require("@/app/api/reporting/entry-availability/route")
 
 function createThenableBuilder(result: any) {
@@ -40,13 +45,14 @@ describe("/api/reporting/entry-availability", () => {
       data: [{ department_id: "dept-1", membership_type: "access_level", role: { name: "member", id: "role-1" } }],
       error: null,
     })
-    const scopeEntryKindBuilder = createThenableBuilder({
-      data: [{ department_profession_id: null, allow_multiple_per_day: false }],
-      error: null,
-    })
     const entryBuilder = createThenableBuilder({
       data: { id: "entry-1" },
       error: null,
+    })
+
+    resolveEntryKinds.mockResolvedValue({
+      data: [{ entry_kind: "standard", allow_multiple_per_day: false }],
+      meta: { used: "dept_wide_personal", state: "OK" },
     })
 
     createClient.mockResolvedValue({
@@ -58,7 +64,6 @@ describe("/api/reporting/entry-availability", () => {
       },
       from: jest.fn((table: string) => {
         if (table === "user_department_memberships") return membershipBuilder
-        if (table === "scope_entry_kinds") return scopeEntryKindBuilder
         if (table === "captain_log_entries") return entryBuilder
         throw new Error(`Unexpected table ${table}`)
       }),
@@ -83,9 +88,10 @@ describe("/api/reporting/entry-availability", () => {
       data: [{ department_id: "dept-1", membership_type: "profession", role: { name: "sales-promoter", id: "role-2" } }],
       error: null,
     })
-    const scopeEntryKindBuilder = createThenableBuilder({
-      data: [{ department_profession_id: "sales-promoter", allow_multiple_per_day: true }],
-      error: null,
+
+    resolveEntryKinds.mockResolvedValue({
+      data: [{ entry_kind: "major_activity", allow_multiple_per_day: true }],
+      meta: { used: "profession_personal", state: "OK" },
     })
 
     createClient.mockResolvedValue({
@@ -97,7 +103,6 @@ describe("/api/reporting/entry-availability", () => {
       },
       from: jest.fn((table: string) => {
         if (table === "user_department_memberships") return membershipBuilder
-        if (table === "scope_entry_kinds") return scopeEntryKindBuilder
         if (table === "captain_log_entries") {
           throw new Error("captain_log_entries should not be queried for recurring kinds")
         }
@@ -109,7 +114,9 @@ describe("/api/reporting/entry-availability", () => {
       url: "http://localhost/api/reporting/entry-availability?departmentId=dept-1&date=2026-04-03&entryKind=major_activity&role=sales-promoter",
     } as Request)
 
-    expect(scopeEntryKindBuilder.eq).toHaveBeenCalledWith("entry_kind", "major_activity")
+    expect(resolveEntryKinds).toHaveBeenCalledWith(
+      expect.objectContaining({ system: "personal", departmentId: "dept-1", userId: "user-1" })
+    )
     expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({
       data: {
@@ -125,13 +132,14 @@ describe("/api/reporting/entry-availability", () => {
       data: [{ department_id: "dept-1", membership_type: "profession", role: { name: "sales-promoter", id: "role-2" } }],
       error: null,
     })
-    const scopeEntryKindBuilder = createThenableBuilder({
-      data: [{ department_profession_id: "sales-promoter", allow_multiple_per_day: false }],
-      error: null,
-    })
     const entryBuilder = createThenableBuilder({
       data: { id: "entry-2" },
       error: null,
+    })
+
+    resolveEntryKinds.mockResolvedValue({
+      data: [{ entry_kind: "standard", allow_multiple_per_day: false }],
+      meta: { used: "profession_personal", state: "OK" },
     })
 
     createClient.mockResolvedValue({
@@ -143,7 +151,6 @@ describe("/api/reporting/entry-availability", () => {
       },
       from: jest.fn((table: string) => {
         if (table === "user_department_memberships") return membershipBuilder
-        if (table === "scope_entry_kinds") return scopeEntryKindBuilder
         if (table === "captain_log_entries") return entryBuilder
         throw new Error(`Unexpected table ${table}`)
       }),
@@ -153,7 +160,9 @@ describe("/api/reporting/entry-availability", () => {
       url: "http://localhost/api/reporting/entry-availability?departmentId=dept-1&date=2026-04-03&entryKind=standard&role=sales-promoter",
     } as Request)
 
-    expect(scopeEntryKindBuilder.eq).toHaveBeenCalledWith("entry_kind", "standard")
+    expect(resolveEntryKinds).toHaveBeenCalledWith(
+      expect.objectContaining({ system: "personal", departmentId: "dept-1", userId: "user-1" })
+    )
     expect(entryBuilder.eq).toHaveBeenCalledWith("submitted_by_user_id", "user-1")
     expect(entryBuilder.eq).toHaveBeenCalledWith("entry_kind", "standard")
     expect(entryBuilder.eq).toHaveBeenCalledWith("subject_department_id", "dept-1")

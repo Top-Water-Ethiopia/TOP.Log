@@ -1,10 +1,15 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
+import { resolveEntryKinds } from "@/lib/entry-kinds/resolve"
 
 export const dynamic = "force-dynamic"
 
 function isValidDate(value: string) {
   return /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(new Date(`${value}T00:00:00`).getTime())
+}
+
+function looksLikeUuid(value: string) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
 }
 
 async function userCanAccessDepartment(
@@ -78,72 +83,32 @@ export async function GET(request: Request) {
     }
 
     if (!hasAccess) {
-      console.warn(`[entry-availability] Access denied for user ${user.id} to department ${departmentId}`)
-      return NextResponse.json({ error: "You do not have access to that department" }, { status: 403 })
+      console.warn(`[entry-availability] Access denied for user ${user.id} to department ${departmentId}. No active membership found.`)
+      return NextResponse.json(
+        { 
+          error: "Access denied", 
+          message: "You do not have an active membership in this department" 
+        }, 
+        { status: 403 }
+      )
     }
     console.log(`[entry-availability] Access granted, querying captain_log_entries...`)
 
-    // Resolve all active roles for the user in this department
-    const { data: userMemberships } = await supabase
-      .from("user_department_memberships")
-      .select("membership_type, role:roles(id, name)")
-      .eq("user_id", user.id)
-      .eq("department_id", departmentId)
-      .eq("is_active", true)
-
-    const userRoles = new Set<string>()
-    if (role) userRoles.add(role)
-    
-    let userProfessionName: string | null = null
-    userMemberships?.forEach((m: any) => {
-      const r = Array.isArray(m.role) ? m.role[0] : m.role
-      if (r?.name) {
-        userRoles.add(r.name)
-        if (m.membership_type === 'profession') userProfessionName = r.name
-      }
-      if (r?.id) userRoles.add(r.id)
-    })
-
-    // Fetch all configurations for this entry kind in this department
-    const { data: configs, error: scopeConfigError } = await (supabase as any)
-      .from("scope_entry_kinds")
-      .select("department_profession_id, allow_multiple_per_day")
-      .eq("department_id", departmentId)
-      .eq("entry_kind", entryKind)
-      .eq("is_active", true)
-
-    if (scopeConfigError) {
-      console.error("[entry-availability] Scope config query error:", scopeConfigError)
-      return NextResponse.json(
-        { error: "Failed to load entry kind configuration", message: scopeConfigError.message },
-        { status: 500 }
-      )
-    }
-
-    // Determine allowMultiplePerDay based on most specific config found
-    // 1. Check profession priority
     let allowMultiplePerDay = false
-    const configMap = new Map<string | null, boolean>(
-      (configs || []).map((c: any) => [c.department_profession_id, c.allow_multiple_per_day === true])
-    )
-
-    if (userProfessionName && configMap.has(userProfessionName)) {
-      allowMultiplePerDay = configMap.get(userProfessionName) === true
-    } else if (role && configMap.has(role)) {
-      allowMultiplePerDay = configMap.get(role) === true
-    } else {
-      // Check any other role the user has
-      for (const rName of Array.from(userRoles)) {
-        if (configMap.has(rName)) {
-          allowMultiplePerDay = configMap.get(rName) === true
-          break
-        }
-      }
-
-      // Fallback to department-wide if no role matches
-      if (!allowMultiplePerDay && configMap.has(null)) {
-        allowMultiplePerDay = configMap.get(null) === true
-      }
+    try {
+      const previewProfessionRoleId = role && looksLikeUuid(role) ? role : null
+      const resolved = await resolveEntryKinds({
+        system: "personal",
+        departmentId,
+        userId: user.id,
+        professionRoleId: previewProfessionRoleId,
+      })
+      const configs = Array.isArray(resolved.data) ? resolved.data : []
+      const match = configs.find((c: any) => String(c.entry_kind) === entryKind)
+      allowMultiplePerDay = match?.allow_multiple_per_day === true
+    } catch (e) {
+      console.error("[entry-availability] Failed to resolve entry kinds:", e)
+      allowMultiplePerDay = false
     }
 
     if (allowMultiplePerDay) {

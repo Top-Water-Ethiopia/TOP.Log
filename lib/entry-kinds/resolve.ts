@@ -92,19 +92,36 @@ async function loadTargetConfigs(params: {
 
   let rows = Array.isArray(data) ? data : []
 
-  // Dual-read fallback for profession_personal during migration:
-  // if no rows exist with profession_role_id, try legacy department_profession_id == professionRoleId (UUID-as-text).
-  if (scopeType === "profession_personal" && rows.length === 0 && professionRoleId) {
+  // Dual-read for profession_personal during migration:
+  // Always check legacy department_profession_id (which might contain the name string)
+  // in addition to the new profession_role_id (UUID).
+  if (scopeType === "profession_personal" && professionRoleId) {
+    // Get the role name for the UUID to check against legacy string-based column
+    const { data: roleData } = await (supabase as any)
+      .from("roles")
+      .select("name")
+      .eq("id", professionRoleId)
+      .maybeSingle()
+
+    const roleName = roleData?.name
+
     const legacyQuery = (supabase as any)
       .from("scope_entry_kinds")
       .select("*")
       .eq("department_id", departmentId)
       .eq("scope_type", scopeType)
-      .eq("department_profession_id", professionRoleId)
+      .or(`department_profession_id.eq.${professionRoleId}${roleName ? `,department_profession_id.eq.${roleName}` : ""}`)
 
     const legacyRes = (await legacyQuery) as any
     if (!legacyRes?.error && Array.isArray(legacyRes?.data)) {
-      rows = legacyRes.data
+      // Merge and deduplicate by entry_kind
+      const seen = new Set(rows.map((r: any) => r.entry_kind))
+      for (const row of legacyRes.data) {
+        if (!seen.has(row.entry_kind)) {
+          rows.push(row)
+          seen.add(row.entry_kind)
+        }
+      }
     }
   }
 
