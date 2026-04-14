@@ -7,8 +7,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Skeleton } from "@/components/ui/skeleton"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { ImageResponsePreview } from "@/components/image-response-preview"
 import { ArrowLeft, Calendar, MapPin, Phone } from "lucide-react"
 import { format, parseISO } from "date-fns"
+import { normalizeImageResponseValue } from "@/lib/image-upload"
 
 type CustomResponse = {
   question_id: string
@@ -103,7 +105,25 @@ export default function ReportViewPage() {
 
   const formatResponseValue = (value: unknown) => {
     if (value === null || value === undefined || value === "") return "Not provided"
-    if (Array.isArray(value)) return value.length ? value.map((v) => String(v)).join(", ") : "Not provided"
+    if (Array.isArray(value)) {
+      if (value.length === 0) return "Not provided"
+      return value
+        .map((v) => {
+          // Handle enriched objects with name/label property
+          if (typeof v === "object" && v !== null) {
+            const name = (v as { name?: unknown }).name
+            if (typeof name === "string" && name.trim()) {
+              return name
+            }
+            const label = (v as { label?: unknown }).label
+            if (typeof label === "string" && label.trim()) {
+              return label
+            }
+          }
+          return String(v)
+        })
+        .join(", ")
+    }
     if (typeof value === "object") {
       const label = (value as { label?: unknown }).label
       if (typeof label === "string" && label.trim()) {
@@ -118,6 +138,20 @@ export default function ReportViewPage() {
       return JSON.stringify(value, null, 2)
     }
     return String(value)
+  }
+
+  const renderResponseValue = (response: CustomResponse) => {
+    const questionType = response.question_type ?? "text"
+    const { value } = response
+
+    if (questionType === "image") {
+      const assets = normalizeImageResponseValue(value)
+      if (assets.length > 0) {
+        return <ImageResponsePreview value={value} />
+      }
+    }
+
+    return formatResponseValue(value)
   }
 
   const responses = useMemo(() => {
@@ -253,8 +287,12 @@ export default function ReportViewPage() {
                   <div className="flex items-center gap-2">
                     <div className="text-lg font-semibold">{response.question_label || response.question_key}</div>
                   </div>
-                  <div className="text-muted-foreground bg-muted/40 rounded-lg border p-4 text-sm whitespace-pre-wrap">
-                    {formatResponseValue(response.value)}
+                  <div className="bg-muted/40 rounded-lg border p-4 text-sm">
+                    {typeof response.question_type === "string" && response.question_type === "image" ? (
+                      <div className="not-prose">{renderResponseValue(response)}</div>
+                    ) : (
+                      <div className="text-muted-foreground whitespace-pre-wrap">{renderResponseValue(response)}</div>
+                    )}
                   </div>
                 </div>
               ))}

@@ -47,7 +47,23 @@ function formatResponseValue(value: unknown): string {
   }
 
   if (Array.isArray(value)) {
-    return value.length ? value.map((item) => String(item)).join(", ") : "Not provided"
+    if (value.length === 0) return "Not provided"
+    return value
+      .map((item) => {
+        // Handle enriched objects with name property
+        if (typeof item === "object" && item !== null) {
+          const name = (item as { name?: unknown }).name
+          if (typeof name === "string" && name.trim()) {
+            return name
+          }
+          const label = (item as { label?: unknown }).label
+          if (typeof label === "string" && label.trim()) {
+            return label
+          }
+        }
+        return String(item)
+      })
+      .join(", ")
   }
 
   if (typeof value === "object") {
@@ -190,7 +206,9 @@ export function LogReportPreviewPanel({ canAccessAdmin, closeHref, reportId }: L
               {formatDateHuman(report.date)}
             </Badge>
             {report.entry_kind === "agent_call" ? <Badge variant="outline">Agent Call</Badge> : null}
-            <Badge variant="outline">{responses.length} response{responses.length === 1 ? "" : "s"}</Badge>
+            <Badge variant="outline">
+              {responses.length} response{responses.length === 1 ? "" : "s"}
+            </Badge>
           </div>
 
           {report.subject_agent_snapshot?.name ? (
