@@ -145,8 +145,14 @@ export function useRBAC() {
   // Permission checking functions (renamed to avoid conflicts)
   const checkPermission = useCallback(
     (permission: string) => {
+      // If we don't have a user, we obviously don't have permission
       if (!user || !user.isActive) return false
+
+      // If RBAC data is loaded from the API, trust it as the source of truth
       if (dbRbac.loaded) return dbRbac.permissions.includes(permission)
+
+      // Fallback to local permission evaluation while API is loading or if it failed
+      // This uses the role from the profile and the default local role definitions
       return hasPermission(user, permission, roles)
     },
     [user, roles, dbRbac.loaded, dbRbac.permissions]

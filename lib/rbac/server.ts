@@ -34,6 +34,7 @@ async function getRolePermissionNames(userId: string) {
     .from("role_permissions")
     .select("resource, action")
     .eq("role_id", roleId)
+    .eq("effect", "allow")
 
   if (permError) {
     throw new Error("Failed to verify permissions")
@@ -79,6 +80,7 @@ export async function getDepartmentPermissionNames(userId: string, departmentId:
     .from("role_permissions")
     .select("resource, action")
     .eq("role_id", assignment.role_id)
+    .eq("effect", "allow")
 
   if (permError) {
     throw new Error("Failed to load department permissions")
@@ -226,6 +228,7 @@ export async function verifyPermission(permission: string) {
     .eq("role_id", roleId)
     .eq("resource", parsed.resource)
     .eq("action", parsed.action)
+    .eq("effect", "allow")
     .limit(1)
 
   if (permError) {
@@ -286,6 +289,7 @@ export async function verifyPermissionFromRequest(request: Request, permission: 
     .eq("role_id", roleId)
     .eq("resource", parsed.resource)
     .eq("action", parsed.action)
+    .eq("effect", "allow")
     .limit(1)
 
   if (permError) {
