@@ -522,12 +522,13 @@ export function SupabaseUserManagement() {
 
     const nextDepartmentId =
       activeMembership?.department_id || activeProfession?.department_id || editingUser.profile?.department_id || null
-    const nextDepartmentRole = activeMembership?.role || DEPARTMENT_ROLE_NONE
+    const nextProfessionRoleId =
+      activeProfession?.role_id || activeProfession?.role?.id || activeMembership?.role || DEPARTMENT_ROLE_NONE
 
     setEditUserForm((prev) => ({
       ...prev,
       department_id: nextDepartmentId,
-      department_role: nextDepartmentRole,
+      department_role: nextProfessionRoleId,
     }))
 
     prefilledAssignmentsUserIdRef.current = editingUser.id
@@ -722,7 +723,7 @@ export function SupabaseUserManagement() {
     const tempId = `temp-${Date.now()}`
     const roleName = roles.find((r) => r.id === createUserForm.role_id)?.name || "user"
     const nextDepartmentId = createUserForm.department_id
-    const nextDepartmentRole = createUserForm.department_role
+    const nextProfessionRoleId = createUserForm.department_role
     const nextAccessLevelId = createUserForm.pendingAccessLevelId
     const normalizedEmail = createUserForm.email.trim().toLowerCase() || null
     const normalizedPhone = createUserForm.phone.trim() ? normalizeEthiopianPhone(createUserForm.phone) : null
@@ -817,11 +818,11 @@ export function SupabaseUserManagement() {
         try {
           const canSkipDepartmentRole = isDepartmentLeadAccessLevel(createSelectedAccessLevel)
 
-          if ((!nextDepartmentRole || nextDepartmentRole === DEPARTMENT_ROLE_NONE) && !canSkipDepartmentRole) {
+          if ((!nextProfessionRoleId || nextProfessionRoleId === DEPARTMENT_ROLE_NONE) && !canSkipDepartmentRole) {
             throw new Error("Professional role is required")
           }
 
-          if (!canSkipDepartmentRole && nextDepartmentRole && nextDepartmentRole !== DEPARTMENT_ROLE_NONE) {
+          if (!canSkipDepartmentRole && nextProfessionRoleId && nextProfessionRoleId !== DEPARTMENT_ROLE_NONE) {
             await apiFetch(`/api/admin/departments/${nextDepartmentId}/memberships`, {
               method: "POST",
               headers: {
@@ -829,7 +830,8 @@ export function SupabaseUserManagement() {
               },
               body: JSON.stringify({
                 user_id: createdUserId,
-                role: nextDepartmentRole,
+                role_id: nextProfessionRoleId,
+                membership_type: "profession",
                 is_active: true,
               }),
             })
@@ -950,7 +952,7 @@ export function SupabaseUserManagement() {
     const nextRoleName = roles.find((r) => r.id === nextRoleId)?.name || "user"
     const nextIsActive = editUserForm.is_active
     const nextDepartmentId = editUserForm.department_id
-    const nextDepartmentRole = editUserForm.department_role
+    const nextProfessionRoleId = editUserForm.department_role
 
     mutateUsers(
       (current) => {
@@ -1016,7 +1018,7 @@ export function SupabaseUserManagement() {
       } else {
         const canSkipDepartmentRole = isDepartmentLeadAccessLevel(editEffectiveAccessLevel)
 
-        if ((!nextDepartmentRole || nextDepartmentRole === DEPARTMENT_ROLE_NONE) && !canSkipDepartmentRole) {
+        if ((!nextProfessionRoleId || nextProfessionRoleId === DEPARTMENT_ROLE_NONE) && !canSkipDepartmentRole) {
           throw new Error("Professional role is required")
         }
 
@@ -1034,7 +1036,8 @@ export function SupabaseUserManagement() {
             },
             body: JSON.stringify({
               user_id: editingUser.id,
-              role: nextDepartmentRole,
+              role_id: nextProfessionRoleId,
+              membership_type: "profession",
               is_active: true,
             }),
           })
@@ -1752,7 +1755,7 @@ export function SupabaseUserManagement() {
                 <SelectContent>
                   <SelectItem value={DEPARTMENT_ROLE_NONE}>None</SelectItem>
                   {departmentRoleOptions.map((role) => (
-                    <SelectItem key={role.id} value={role.name}>
+                    <SelectItem key={role.id} value={role.id}>
                       {role.display_name}
                     </SelectItem>
                   ))}
@@ -2143,7 +2146,7 @@ export function SupabaseUserManagement() {
                           <span>None</span>
                         </SelectItem>
                         {departmentRoleOptions.map((role) => (
-                          <SelectItem key={role.id} value={role.name}>
+                          <SelectItem key={role.id} value={role.id}>
                             {role.display_name}
                           </SelectItem>
                         ))}
