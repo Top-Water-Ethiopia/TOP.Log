@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import { SidebarProvider, SidebarInset, SidebarTrigger } from "@/components/ui/sidebar"
 import { AdminSidebar } from "@/components/admin-sidebar"
 import { Button } from "@/components/ui/button"
@@ -10,9 +10,10 @@ import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { useRBAC } from "@/hooks/use-rbac"
 
 export default function AdminLayout({ children }: { children: ReactNode }) {
-  const { user } = useSupabaseAuth()
-  const { canAccessAdmin, rbacLoading } = useRBAC()
+  const { user, profile, isLoading } = useSupabaseAuth()
+  const { canAccessAdmin, rbacLoading, rbacChecked } = useRBAC()
   const router = useRouter()
+  const pathname = usePathname()
   const [headerMode, setHeaderMode] = useState<"checking" | "show" | "hide">("checking")
 
   useEffect(() => {
@@ -21,11 +22,16 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
       return
     }
 
+    if (isLoading) return
+
     if (!user) {
       // Unauthenticated users redirect to login
       router.replace("/login")
       return
     }
+
+    // Wait for RBAC to be checked before making access decisions
+    if (!rbacChecked || rbacLoading) return
 
     if (!canAccessAdmin) {
       // Non-admin users redirect to logs

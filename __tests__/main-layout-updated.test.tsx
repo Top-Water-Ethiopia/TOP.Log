@@ -7,6 +7,9 @@ const mockApiFetch = jest.fn()
 const mockUseRoleQuestions = jest.fn()
 const mockReplace = jest.fn()
 const mockPush = jest.fn()
+const mockUseRBAC = jest.fn()
+const mockUseSupabaseAuth = jest.fn()
+const mockUsePathname = jest.fn()
 
 jest.mock("@/components/calendar-view", () => ({
   CalendarView: () => <div data-testid="calendar-view" />,
@@ -50,23 +53,11 @@ jest.mock("@/contexts/supabase-log-context", () => ({
 }))
 
 jest.mock("@/hooks/use-rbac", () => ({
-  useRBAC: () => ({
-    user: { id: "user-1", role: "sales-promoter" },
-    userInfo: { role: { name: "Sales Promoter" } },
-    permissions: [],
-    rbacLoaded: true,
-    rbacChecked: true,
-    canAccessAdmin: false,
-    canCreateEntries: true,
-    rbacLoading: false,
-  }),
+  useRBAC: () => mockUseRBAC(),
 }))
 
 jest.mock("@/contexts/supabase-auth-context", () => ({
-  useSupabaseAuth: () => ({
-    user: { id: "user-1" },
-    isLoading: false,
-  }),
+  useSupabaseAuth: () => mockUseSupabaseAuth(),
 }))
 
 jest.mock("@/lib/api-client", () => ({
@@ -95,11 +86,27 @@ jest.mock("next/navigation", () => ({
     replace: mockReplace,
     push: mockPush,
   }),
+  usePathname: () => mockUsePathname(),
 }))
 
 describe("MainLayoutUpdated", () => {
   beforeEach(() => {
     jest.clearAllMocks()
+    mockUsePathname.mockReturnValue("/logs")
+    mockUseRBAC.mockReturnValue({
+      user: { id: "user-1", role: "sales-promoter" },
+      userInfo: { role: { name: "Sales Promoter" } },
+      permissions: [],
+      rbacLoaded: true,
+      rbacChecked: true,
+      canAccessAdmin: false,
+      canCreateEntries: true,
+      rbacLoading: false,
+    })
+    mockUseSupabaseAuth.mockReturnValue({
+      user: { id: "user-1" },
+      isLoading: false,
+    })
   })
 
   it("uses the department profession key when fetching role questions for a sales-promoter membership", async () => {
@@ -147,5 +154,38 @@ describe("MainLayoutUpdated", () => {
     })
 
     expect(screen.queryByText("Your role is not configured with role-specific questions yet.")).not.toBeInTheDocument()
+  })
+
+  it("does not redirect admin users away from /admin routes when they have zero memberships", async () => {
+    mockUsePathname.mockReturnValue("/admin/questions")
+    mockUseRBAC.mockReturnValue({
+      user: { id: "user-1", role: "admin" },
+      userInfo: { role: { name: "Admin" } },
+      permissions: ["admin.system"],
+      rbacLoaded: true,
+      rbacChecked: true,
+      canAccessAdmin: true,
+      canCreateEntries: true,
+      rbacLoading: false,
+    })
+
+    mockApiFetch.mockResolvedValue({
+      data: [],
+      hasSystemWideAccess: false,
+    })
+
+    mockUseRoleQuestions.mockReturnValue({
+      questions: [],
+      isLoading: false,
+      error: null,
+    })
+
+    render(<MainLayoutUpdated initialRoleQuestions={[]} />)
+
+    await waitFor(() => {
+      expect(mockApiFetch).toHaveBeenCalled()
+    })
+
+    expect(mockReplace).not.toHaveBeenCalledWith("/admin")
   })
 })

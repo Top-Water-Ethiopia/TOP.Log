@@ -20,7 +20,7 @@ import { ApiError, apiFetch, getErrorMessage } from "@/lib/api-client"
 import { isFeatureEnabledClient } from "@/lib/feature-flags/client"
 import { canCreateEntryForDate, getToday } from "@/lib/date-restrictions"
 import { normalizeSalesPromoterProfessionKey } from "@/lib/marketing-agents"
-import { useRouter } from "next/navigation"
+import { usePathname, useRouter } from "next/navigation"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
 import Link from "next/link"
 import { UserMenuDropdown } from "@/components/user-menu-dropdown"
@@ -70,6 +70,7 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
   } = useRBAC()
   const { user, isLoading: isAuthLoading } = useSupabaseAuth()
   const router = useRouter()
+  const pathname = usePathname()
   const departmentsEnabled = isFeatureEnabledClient("DEPARTMENTS")
 
   useEffect(() => {
@@ -171,8 +172,9 @@ export function MainLayoutUpdated({ initialRoleQuestions }: MainLayoutUpdatedPro
     if (!canAccessAdmin) return
     if (departmentsLoadStatus !== "loaded") return
     if (memberships.length !== 0) return
+    if (typeof pathname === "string" && pathname.startsWith("/admin")) return
     router.replace("/admin")
-  }, [user, rbacLoading, canAccessAdmin, departmentsLoadStatus, memberships.length, router])
+  }, [user, rbacLoading, canAccessAdmin, departmentsLoadStatus, memberships.length, router, pathname])
 
   const showNoMembershipsMessage = !!user && departmentsLoadStatus === "loaded" && memberships.length === 0
 
