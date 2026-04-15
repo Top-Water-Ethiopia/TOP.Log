@@ -77,7 +77,7 @@ export function LogsCalendar({ daySummaries, departmentId, month, selectedDate }
           </div>
         </div>
 
-        <div className="grid grid-cols-7 gap-2 text-center text-xs font-semibold uppercase tracking-wide text-slate-500">
+        <div className="grid grid-cols-7 gap-2 text-center text-xs font-semibold tracking-wide text-slate-500 uppercase">
           {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((dayLabel) => (
             <div key={dayLabel} className="py-2">
               {dayLabel}
@@ -113,9 +113,11 @@ export function LogsCalendar({ daySummaries, departmentId, month, selectedDate }
                 }`}
               >
                 <div className="flex items-start justify-between gap-2">
-                  <span className="text-sm font-semibold">{new Date(`${dateValue}T00:00:00`).getDate()}</span>
+                  <span className={`text-sm font-semibold ${isToday ? "text-primary" : ""}`}>
+                    {new Date(`${dateValue}T00:00:00`).getDate()}
+                  </span>
                   {isToday ? (
-                    <span className="bg-primary/10 text-primary rounded-full px-2 py-0.5 text-[10px] font-medium">
+                    <span className="bg-primary/10 text-primary hidden rounded-full px-2 py-0.5 text-[10px] font-medium sm:inline">
                       Today
                     </span>
                   ) : null}
@@ -124,12 +126,12 @@ export function LogsCalendar({ daySummaries, departmentId, month, selectedDate }
                   {entryCount > 0 ? (
                     <div className="flex items-center gap-2">
                       <span className="h-2 w-2 rounded-full bg-emerald-500" />
-                      <span className="text-xs text-slate-600">
+                      <span className="hidden text-xs text-slate-600 sm:inline">
                         {entryCount} log{entryCount === 1 ? "" : "s"}
                       </span>
                     </div>
                   ) : (
-                    <span className="text-xs text-slate-400">No logs</span>
+                    <span className="hidden text-xs text-slate-400 sm:inline">No logs</span>
                   )}
                 </div>
               </Link>
