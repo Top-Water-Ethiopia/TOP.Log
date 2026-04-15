@@ -47,6 +47,7 @@ import {
   normalizeSalesPromoterProfessionKey,
 } from "@/lib/marketing-agents"
 import { toast } from "sonner"
+import { evaluateConditionalLogic } from "@/lib/reporting-logic"
 import { useScopeEntryKindsV2, type ScopeEntryKind } from "@/hooks/use-entry-kinds"
 import {
   getEntryKindLabel,
@@ -89,7 +90,8 @@ type ApiRoleQuestion = {
   min_date?: unknown
   max_date?: unknown
   is_active?: unknown
-  metadata?: unknown
+  metadata?: any
+  conditional_logic?: any
 }
 
 type SavedQuestion = {
@@ -133,6 +135,9 @@ function createEmptyQuestion(displayOrder = 0, defaultEntryKind: string = "stand
     image_max_size_bytes: DEFAULT_IMAGE_MAX_SIZE_BYTES,
     file_upload_mode: "single",
     file_max_size_bytes: DEFAULT_FILE_MAX_SIZE_BYTES,
+    section_label: null,
+    conditional_logic: null,
+    metadata: {},
   }
 }
 
@@ -260,6 +265,9 @@ interface QuestionFormData {
   image_max_size_bytes: number
   file_upload_mode: FileUploadMode
   file_max_size_bytes: number
+  section_label: string | null
+  conditional_logic: any | null
+  metadata: any
 }
 
 function normalizeQuestionEntryKind(entryKind: string | null | undefined, fallbackEntryKind: string): string {
@@ -373,6 +381,7 @@ export function RoleQuestionsCreator() {
   const [createdQuestions, setCreatedQuestions] = useState<SavedQuestion[]>([])
   const [roleQuestionCount, setRoleQuestionCount] = useState(0)
   const [showPreview, setShowPreview] = useState(true)
+  const [previewResponses, setPreviewResponses] = useState<Record<string, any>>({})
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
   const moveButtonRefs = useRef<Record<string, { up?: HTMLButtonElement | null; down?: HTMLButtonElement | null }>>({})
   const pendingFocusRef = useRef<{ questionId: string; direction: "up" | "down" } | null>(null)
@@ -635,6 +644,9 @@ export function RoleQuestionsCreator() {
             image_max_size_bytes: type === "image" ? getImageMaxSizeBytes(q.metadata) : DEFAULT_IMAGE_MAX_SIZE_BYTES,
             file_upload_mode: type === "file" ? getFileUploadMode(q.metadata) : "single",
             file_max_size_bytes: type === "file" ? getFileMaxSizeBytes(q.metadata) : DEFAULT_FILE_MAX_SIZE_BYTES,
+            section_label: asString((q.metadata as any)?.section_label) || null,
+            conditional_logic: q.conditional_logic || null,
+            metadata: q.metadata || {},
           }
         })
 
@@ -833,6 +845,45 @@ export function RoleQuestionsCreator() {
     return filterQuestionsForEntryKind(questions, activeEntryKindTab)
   }, [questions, activeEntryKindTab])
 
+  const previewQuestions = useMemo(() => {
+    return filteredQuestions.filter((qq) => qq.is_active)
+  }, [filteredQuestions])
+
+  const handlePreviewResponseChange = useCallback((key: string, value: any) => {
+    setPreviewResponses((prev) => {
+      if (Object.prototype.hasOwnProperty.call(prev, key) && prev[key] === value) {
+        return prev
+      }
+      return { ...prev, [key]: value }
+    })
+  }, [])
+
+  // Clear hidden preview answers to avoid stale values affecting downstream visibility.
+  useEffect(() => {
+    if (!showPreview) return
+    if (previewQuestions.length === 0) return
+
+    setPreviewResponses((prev) => {
+      let next: Record<string, any> = prev
+      for (let i = 0; i < 10; i++) {
+        let changed = false
+        const working = next
+        for (const q of previewQuestions) {
+          const key = String(q.question_key)
+          if (!Object.prototype.hasOwnProperty.call(working, key)) continue
+          if (evaluateConditionalLogic(q.conditional_logic, working)) continue
+          if (working === next) {
+            next = { ...working }
+          }
+          delete next[key]
+          changed = true
+        }
+        if (!changed) break
+      }
+      return next
+    })
+  }, [previewQuestions, showPreview])
+
   useEffect(() => {
     if (filteredQuestions.length === 0) {
       setCurrentQuestionId((currentId) =>
@@ -994,6 +1045,7 @@ export function RoleQuestionsCreator() {
           is_active: q.is_active,
           entry_kind: q.entry_kind || "standard",
           metadata: {
+            ...(q.metadata || {}),
             legacy_question_key: resolvedKey,
             ...(q.question_type === "image"
               ? { image_upload_mode: q.image_upload_mode, image_max_size_bytes: q.image_max_size_bytes }
@@ -1009,6 +1061,7 @@ export function RoleQuestionsCreator() {
                   },
                 }
               : {}),
+            section_label: q.section_label || null,
           },
           min_value: q.min_value,
           max_value: q.max_value,
@@ -1018,7 +1071,7 @@ export function RoleQuestionsCreator() {
           step: q.step,
           min_date: q.min_date || null,
           max_date: q.max_date || null,
-          conditional_logic: null,
+          conditional_logic: q.conditional_logic || null,
         }
       })
 
@@ -1629,6 +1682,7 @@ export function RoleQuestionsCreator() {
                             [direction]: node,
                           }
                         }}
+                        allQuestions={questions}
                       />
                     </div>
                   ))
@@ -1689,12 +1743,18 @@ export function RoleQuestionsCreator() {
                             No active questions in this tab.
                           </div>
                         ) : (
-                          filteredQuestions
-                            .filter((qq) => qq.is_active)
+                          previewQuestions
+                            .filter((qq) => evaluateConditionalLogic(qq.conditional_logic, previewResponses))
                             .map((qq, i) => (
                               <div key={qq.id} className="space-y-3">
                                 {i > 0 && <Separator />}
-                                <QuestionPreview question={qq} isPreviewMode={true} displayIndex={i} />
+                                <QuestionPreview
+                                  question={qq}
+                                  isPreviewMode={true}
+                                  displayIndex={i}
+                                  previewResponses={previewResponses}
+                                  onPreviewResponseChange={handlePreviewResponseChange}
+                                />
                               </div>
                             ))
                         )}
@@ -1751,6 +1811,7 @@ interface QuestionFormProps {
   onMoveEntryKind?: (newEntryKind: string) => void
   entryKinds?: ScopeEntryKind[]
   registerMoveButtonRef: (direction: "up" | "down", node: HTMLButtonElement | null) => void
+  allQuestions: QuestionFormData[]
 }
 
 function QuestionForm({
@@ -1768,10 +1829,14 @@ function QuestionForm({
   onMoveEntryKind,
   entryKinds = [],
   registerMoveButtonRef,
+  allQuestions,
 }: QuestionFormProps) {
   const [optionInput, setOptionInput] = useState("")
   const [isExpanded, setIsExpanded] = useState(true)
   const [showMoveMenu, setShowMoveMenu] = useState(false)
+  const [logicText, setLogicText] = useState(
+    question.conditional_logic ? JSON.stringify(question.conditional_logic, null, 2) : ""
+  )
   const isAssignedAgentQuestion = question.option_source_kind === ASSIGNED_AGENTS_OPTION_SOURCE_KIND
   const showsStaticOptions = questionTypeSupportsStaticOptions(question.question_type) && !isAssignedAgentQuestion
 
@@ -2154,6 +2219,31 @@ function QuestionForm({
             </div>
           )}
 
+          <div className="grid grid-cols-2 gap-4 rounded-lg border border-blue-200 bg-blue-50 p-4">
+            <div className="space-y-2">
+              <Label>Form Step / Page</Label>
+              <Input
+                type="number"
+                min="1"
+                value={question.step || ""}
+                onChange={(e) => onUpdate({ step: e.target.value ? parseInt(e.target.value) : null })}
+                placeholder="e.g. 1"
+                className="bg-white"
+              />
+              <p className="text-muted-foreground text-xs">Questions with the same step will be grouped on one page.</p>
+            </div>
+            <div className="space-y-2">
+              <Label>Section Header (Optional)</Label>
+              <Input
+                value={question.section_label || ""}
+                onChange={(e) => onUpdate({ section_label: e.target.value || null })}
+                placeholder="e.g. Agent Identification"
+                className="bg-white"
+              />
+              <p className="text-muted-foreground text-xs">A bold header shown at the start of this section.</p>
+            </div>
+          </div>
+
           {supportsDynamicOptionSource && (
             <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-4">
               <div className="space-y-1">
@@ -2245,6 +2335,50 @@ function QuestionForm({
               placeholder="Enter placeholder text"
               className="bg-[#f3f3f5]"
             />
+          </div>
+
+          <div className="space-y-4 rounded-xl border border-purple-200 bg-purple-50/50 p-5 shadow-sm">
+            <div className="flex items-center justify-between">
+              <Label className="flex items-center gap-2 text-sm font-semibold text-purple-900">
+                Visibility Logic (JSON)
+                <Badge variant="outline" className="border-purple-200 bg-purple-100 text-purple-700">
+                  Experimental
+                </Badge>
+              </Label>
+            </div>
+
+            <div className="space-y-3">
+              <Textarea
+                value={logicText}
+                onChange={(e) => {
+                  const val = e.target.value
+                  setLogicText(val)
+                  try {
+                    const trimmed = val.trim()
+                    const parsed = trimmed ? JSON.parse(trimmed) : null
+                    onUpdate({ conditional_logic: parsed })
+                  } catch (err) {
+                    // Invalid JSON while typing, don't sync to parent yet
+                  }
+                }}
+                placeholder='{ "showIf": { "questionKey": "some_key", "operator": "equals", "value": "Yes" } }'
+                className="h-28 min-h-[100px] resize-y bg-white font-mono text-xs shadow-inner"
+              />
+              <p className="text-muted-foreground text-[10px] leading-relaxed">
+                Operators: <code className="font-bold">equals</code>,{" "}
+                <code className="font-bold">not_equals</code>, <code className="font-bold">contains</code>,{" "}
+                <code className="font-bold">checked</code>, <code className="font-bold">not_checked</code>.
+              </p>
+              {allQuestions.length > 1 && (
+                <div className="mt-2 text-[10px] text-purple-700">
+                  <span className="font-semibold uppercase opacity-60">Available keys:</span>{" "}
+                  {allQuestions
+                    .filter((q) => q.id !== question.id && q.question_key)
+                    .map((q) => q.question_key)
+                    .join(", ")}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* Options for select/radio/rating/multiselect */}
@@ -2405,7 +2539,7 @@ function QuestionForm({
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label>Step</Label>
+                  <Label>Numerical Increment (Step)</Label>
                   <Input
                     type="number"
                     step="0.01"
@@ -2418,6 +2552,7 @@ function QuestionForm({
                     placeholder="e.g., 0.1 or 1"
                     className="bg-[#f3f3f5]"
                   />
+                  <p className="text-muted-foreground text-xs">The precision of the number input.</p>
                 </div>
               </div>
             )}
@@ -2457,26 +2592,84 @@ interface QuestionPreviewProps {
   question: QuestionFormData
   isPreviewMode?: boolean
   displayIndex?: number
+  previewResponses?: Record<string, any>
+  onPreviewResponseChange?: (questionKey: string, value: any) => void
 }
 
-function QuestionPreview({ question, isPreviewMode = false, displayIndex }: QuestionPreviewProps) {
+function coercePreviewResponseValue(question: QuestionFormData, rawValue: string) {
+  const type = question.question_type
+
+  if (type === "multiselect") {
+    try {
+      const parsed = JSON.parse(rawValue || "[]")
+      return Array.isArray(parsed) ? parsed : []
+    } catch {
+      return []
+    }
+  }
+
+  if (type === "checkbox") {
+    if (question.options && question.options.length > 0) {
+      try {
+        const parsed = JSON.parse(rawValue || "[]")
+        return Array.isArray(parsed) ? parsed : []
+      } catch {
+        return []
+      }
+    }
+    return rawValue === "true"
+  }
+
+  if (type === "number") {
+    if (!rawValue) return null
+    const n = Number(rawValue)
+    return Number.isFinite(n) ? n : rawValue
+  }
+
+  return rawValue
+}
+
+function QuestionPreview({
+  question,
+  isPreviewMode = false,
+  displayIndex,
+  previewResponses,
+  onPreviewResponseChange,
+}: QuestionPreviewProps) {
   const [previewValue, setPreviewValue] = useState<string>("")
   const [previewError, setPreviewError] = useState<string>("")
   const [touched, setTouched] = useState(false)
+  const previewChangeRef = useRef(onPreviewResponseChange)
+
+  useEffect(() => {
+    previewChangeRef.current = onPreviewResponseChange
+  }, [onPreviewResponseChange])
 
   // Initialize with default value and update when question changes
   useEffect(() => {
     if (question.question_type === "multiselect") {
       setPreviewValue("[]")
+      if (isPreviewMode && previewChangeRef.current) {
+        previewChangeRef.current(String(question.question_key), [])
+      }
     } else if (question.question_type === "checkbox") {
       setPreviewValue(question.options && question.options.length > 0 ? "[]" : "false")
+      if (isPreviewMode && previewChangeRef.current) {
+        previewChangeRef.current(
+          String(question.question_key),
+          question.options && question.options.length > 0 ? [] : false
+        )
+      }
     } else {
       setPreviewValue("")
+      if (isPreviewMode && previewChangeRef.current) {
+        previewChangeRef.current(String(question.question_key), "")
+      }
     }
     // Reset validation state when question changes
     setTouched(false)
     setPreviewError("")
-  }, [question.question_type, question.id])
+  }, [question.question_type, question.id, isPreviewMode, question.options, question.question_key])
 
   // Validation function
   const validateValue = (value: string): string => {
@@ -2544,6 +2737,10 @@ function QuestionPreview({ question, isPreviewMode = false, displayIndex }: Ques
     setPreviewValue(newValue)
     if (touched) {
       setPreviewError(validateValue(newValue))
+    }
+
+    if (isPreviewMode && onPreviewResponseChange) {
+      previewChangeRef.current?.(String(question.question_key), coercePreviewResponseValue(question, newValue))
     }
   }
 

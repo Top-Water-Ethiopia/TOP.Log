@@ -21,8 +21,13 @@ jest.mock("@/lib/supabase/admin", () => {
   return { adminSupabase: mock, __adminMock: mock }
 })
 
+jest.mock("@/lib/rbac/server", () => ({
+  verifyPermissionFromRequest: jest.fn().mockResolvedValue({ ok: true }),
+}))
+
 const { createClient } = jest.requireMock("@/lib/supabase/server")
 const { __adminMock } = jest.requireMock("@/lib/supabase/admin")
+const { verifyPermissionFromRequest } = jest.requireMock("@/lib/rbac/server")
 const routeModule = require("@/app/api/admin/role-questions/bulk/route")
 
 function createThenableBuilder(result: any) {
@@ -43,6 +48,7 @@ function createThenableBuilder(result: any) {
 describe("/api/admin/role-questions/bulk", () => {
   beforeEach(() => {
     jest.resetAllMocks()
+    verifyPermissionFromRequest.mockResolvedValue({ ok: true })
     createClient.mockResolvedValue({
       auth: {
         getUser: jest.fn().mockResolvedValue({
@@ -155,6 +161,7 @@ describe("/api/admin/role-questions/bulk", () => {
         question_type: "select",
         options: null,
         is_required: true,
+        conditional_logic: null,
         metadata: expect.objectContaining({
           legacy_question_key: "agent_contacted",
           option_source: {
@@ -534,7 +541,7 @@ describe("/api/admin/role-questions/bulk", () => {
     } as any)
 
     expect(response.status).toBe(200)
-    expect(scopeEntryKindsBuilder.eq).toHaveBeenCalledWith("department_profession_id", "sales-promoter")
+    expect(scopeEntryKindsBuilder.eq).toHaveBeenCalledWith("profession_role_id", "profession-uuid-1")
     expect(upsertBuilder.upsert).toHaveBeenCalledWith(
       expect.arrayContaining([
         expect.objectContaining({
@@ -545,5 +552,58 @@ describe("/api/admin/role-questions/bulk", () => {
       ]),
       { onConflict: "id" }
     )
+  })
+
+  it("persists conditional_logic on create", async () => {
+    const insertBuilder = createThenableBuilder({
+      data: [{ id: "question-1" }],
+      error: null,
+    })
+
+    __adminMock.from.mockImplementation((table: string) => {
+      if (table === "scope_entry_kinds") {
+        return createThenableBuilder({
+          data: [{ entry_kind: "test", is_active: true, supports_assigned_agent: false }],
+          error: null,
+        })
+      }
+
+      if (table === "role_questions") {
+        return insertBuilder
+      }
+
+      throw new Error(`Unexpected table ${table}`)
+    })
+
+    const response = await routeModule.POST({
+      json: async () => ({
+        questions: [
+          {
+            department_id: "dept-1",
+            department_profession_id: "role-1",
+            department_role: "test-role",
+            question_label: "Dependent question",
+            question_type: "text",
+            entry_kind: "test",
+            options: null,
+            conditional_logic: {
+              showIf: { questionKey: "controls_visibility", operator: "equals", value: "yes" },
+            },
+            metadata: {},
+          },
+        ],
+      }),
+    } as any)
+
+    expect(response.status).toBe(201)
+    expect(insertBuilder.insert).toHaveBeenCalledWith([
+      expect.objectContaining({
+        entry_kind: "test",
+        question_label: "Dependent question",
+        conditional_logic: {
+          showIf: { questionKey: "controls_visibility", operator: "equals", value: "yes" },
+        },
+      }),
+    ])
   })
 })

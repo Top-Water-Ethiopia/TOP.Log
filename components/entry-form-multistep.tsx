@@ -55,6 +55,7 @@ import {
   getAssignedAgentsDailyLimit,
   parseAgentResponseValue,
 } from "@/lib/marketing-agents"
+import { evaluateConditionalLogic } from "@/lib/reporting-logic"
 
 interface EntryFormMultistepProps {
   date?: string
@@ -106,12 +107,14 @@ type FormQuestion = {
   order: number
   validationRules?: unknown
   defaultValue?: unknown
-  metadata?: unknown
+  metadata?: any
   optionSourceKind?: string
   maxLogsPerAgentPerDay?: number | null
+  step?: number | null
+  conditional_logic?: any | null
 }
 
-type StepKey = "date" | `question_${string}` | "preview"
+type StepKey = "date" | `question_${string}` | `question-${string}` | `step-${string}` | "preview"
 
 interface Step {
   key: StepKey
@@ -150,10 +153,25 @@ function getQuestionKeyFromStepKey(stepKey: string): string | null {
   return null
 }
 
-function findQuestionStepNumber(steps: Step[], questionKey: string): number | null {
+function getStepNumberFromStepKey(stepKey: string): number | null {
+  if (stepKey.startsWith("step-")) {
+    return parseInt(stepKey.slice("step-".length), 10)
+  }
+  return null
+}
+
+function findQuestionStepNumber(steps: Step[], question: Record<string, any>): number | null {
+  const stepVal = typeof question.step === "number" ? question.step : null
+  if (stepVal !== null) {
+    const stepIndex = steps.findIndex((s) => getStepNumberFromStepKey(s.key) === stepVal)
+    return stepIndex >= 0 ? steps[stepIndex].number : null
+  }
+
+  const questionKey = String(question.key)
   const questionStepIndex = steps.findIndex((step) => getQuestionKeyFromStepKey(step.key) === questionKey)
   return questionStepIndex >= 0 ? steps[questionStepIndex].number : null
 }
+
 
 function getLegacyQuestionKeyFromMetadata(metadata: unknown): string | null {
   if (!metadata || typeof metadata !== "object") {
@@ -224,6 +242,8 @@ function normalizeInitialQuestion(question: unknown, index: number): FormQuestio
       (typeof candidate.option_source_kind === "string" && candidate.option_source_kind) ||
       ((metadata as { option_source?: { kind?: unknown } } | null)?.option_source?.kind as string | undefined),
     maxLogsPerAgentPerDay: getAssignedAgentsDailyLimit(metadata),
+    step: typeof candidate.step === "number" ? candidate.step : null,
+    conditional_logic: candidate.conditional_logic || null,
   }
 }
 
@@ -351,7 +371,9 @@ export function EntryFormMultistep({
         const type = (q as { type?: unknown }).type
         const required = (q as { required?: unknown }).required
         const defaultValue = (q as { defaultValue?: unknown }).defaultValue
-        return `${String(key ?? "")}:${String(type ?? "")}:${String(!!required)}:${String(defaultValue ?? "")}`
+        const step = (q as { step?: unknown }).step
+        const logic = (q as { conditional_logic?: unknown }).conditional_logic
+        return `${String(key ?? "")}:${String(type ?? "")}:${String(!!required)}:${String(defaultValue ?? "")}:${String(step ?? "")}:${String(!!logic)}`
       })
       .join("|")
   }, [effectiveRoleQuestions])
@@ -1142,6 +1164,18 @@ export function EntryFormMultistep({
     if (!entryKind || lockedFlow) return
     if (effectiveRoleQuestions.length === 0) return
 
+    // If the question set uses step grouping or conditional logic, the flow must remain dynamic
+    // so step-level grouping + visibility can update correctly.
+    const hasDynamicStepsOrLogic = effectiveRoleQuestions.some((question) => {
+      if (!question || typeof question !== "object") return false
+      const q = question as { step?: unknown; conditional_logic?: unknown }
+      return typeof q.step === "number" || !!q.conditional_logic
+    })
+
+    if (hasDynamicStepsOrLogic) {
+      return
+    }
+
     // Build locked steps with proper StepKey type
     const lockedSteps: Step[] = [{ key: "date", title: "Select Date", number: 1 }]
 
@@ -1183,9 +1217,40 @@ export function EntryFormMultistep({
 
     const stepsList: { key: string; title: string }[] = [{ key: "date", title: "Select Date" }]
 
-    // One step per role question, with a dedicated title (falls back to label)
-    effectiveRoleQuestions.forEach((question, index) => {
-      const q = question as Record<string, unknown>
+    // Group questions by step
+    const groupedQuestions = new Map<number, FormQuestion[]>()
+    const nonGroupedQuestions: FormQuestion[] = []
+
+    effectiveRoleQuestions.forEach((q: any) => {
+      const stepVal = typeof q.step === "number" ? q.step : null
+      if (stepVal !== null) {
+        if (!groupedQuestions.has(stepVal)) {
+          groupedQuestions.set(stepVal, [])
+        }
+        groupedQuestions.get(stepVal)!.push(q)
+      } else {
+        nonGroupedQuestions.push(q)
+      }
+    })
+
+    // Sort steps numerically
+    const sortedSteps = Array.from(groupedQuestions.keys()).sort((a, b) => a - b)
+
+    sortedSteps.forEach((stepVal) => {
+      const group = groupedQuestions.get(stepVal)!
+      const firstQ = group[0] as Record<string, any>
+      // Section label from metadata or fall back to first question label
+      const sectionLabel =
+        (firstQ.metadata as any)?.section_label || firstQ.title || firstQ.label || `Step ${stepVal}`
+
+      stepsList.push({
+        key: `step-${stepVal}`,
+        title: sectionLabel,
+      })
+    })
+
+    // Add remaining questions that don't have a specific step (legacy behavior)
+    nonGroupedQuestions.forEach((q, index) => {
       const title = String(q.title || q.label || `Question ${index + 1}`)
       stepsList.push({
         key: `question-${q.key}`,
@@ -1195,10 +1260,13 @@ export function EntryFormMultistep({
 
     stepsList.push({ key: "preview", title: "Preview & Submit" })
 
-    return stepsList.map((step, index) => ({
-      ...step,
-      number: index + 1,
-    }))
+    return stepsList.map(
+      (step, index) =>
+        ({
+          ...step,
+          number: index + 1,
+        }) as Step
+    )
   }, [lockedFlow?.steps, effectiveRoleQuestions])
 
   useEffect(() => {
@@ -1220,6 +1288,119 @@ export function EntryFormMultistep({
     },
     [markAsChanged]
   )
+
+  const visibleQuestionKeys = useMemo(() => {
+    const keys = new Set<string>()
+    effectiveRoleQuestions.forEach((question) => {
+      const q = question as FormQuestion
+      if (evaluateConditionalLogic(q.conditional_logic, customResponses)) {
+        keys.add(String(q.key))
+      }
+    })
+    return keys
+  }, [customResponses, effectiveRoleQuestions, effectiveRoleQuestionsSignature])
+
+  // When questions become hidden, clear their values + errors and re-evaluate until stable.
+  useEffect(() => {
+    if (effectiveRoleQuestions.length === 0) return
+
+    let didChange = false
+
+    setCustomResponses((prev) => {
+      let next = prev
+
+      const deleteHiddenValues = (responses: Record<string, unknown>) => {
+        let updated = responses
+        effectiveRoleQuestions.forEach((question) => {
+          const q = question as FormQuestion
+          const key = String(q.key)
+          if (!Object.prototype.hasOwnProperty.call(updated, key)) return
+          if (evaluateConditionalLogic(q.conditional_logic, updated)) return
+
+          const { [key]: _removed, ...rest } = updated
+          updated = rest
+        })
+        return updated
+      }
+
+      // Iterate because clearing answers can hide additional dependent questions.
+      for (let i = 0; i < 10; i++) {
+        const updated = deleteHiddenValues(next)
+        if (updated === next) {
+          break
+        }
+        didChange = true
+        next = updated
+      }
+
+      return next
+    })
+
+    if (didChange) {
+      setCustomErrors((prev) => {
+        const next: Record<string, string> = { ...prev }
+        Object.keys(next).forEach((key) => {
+          if (!visibleQuestionKeys.has(key)) {
+            delete next[key]
+          }
+        })
+        return next
+      })
+    }
+  }, [customResponses, effectiveRoleQuestions, effectiveRoleQuestionsSignature, visibleQuestionKeys])
+
+  const getVisibleQuestionsForStep = useCallback(
+    (step: Step | undefined) => {
+      if (!step) return []
+      const questionKey = getQuestionKeyFromStepKey(step.key)
+      if (questionKey) {
+        const q = effectiveRoleQuestions.find((row: any) => String(row.key) === questionKey) as FormQuestion | undefined
+        if (!q) return []
+        return evaluateConditionalLogic(q.conditional_logic, customResponses) ? [q] : []
+      }
+
+      const stepNumber = getStepNumberFromStepKey(step.key)
+      if (stepNumber === null) {
+        return []
+      }
+
+      return (effectiveRoleQuestions as FormQuestion[]).filter(
+        (q) => q.step === stepNumber && evaluateConditionalLogic(q.conditional_logic, customResponses)
+      )
+    },
+    [customResponses, effectiveRoleQuestions]
+  )
+
+  // If the current step becomes empty due to conditional logic, auto-navigate to the next valid step.
+  useEffect(() => {
+    const step = steps[currentStep - 1]
+    if (!step) return
+    if (step.key === "date" || step.key === "preview") return
+
+    const visibleQuestions = getVisibleQuestionsForStep(step)
+    if (visibleQuestions.length > 0) return
+
+    const findNext = () => {
+      for (let i = currentStep; i < steps.length; i++) {
+        const candidate = steps[i]
+        if (candidate.key === "preview") return i + 1
+        if (candidate.key === "date") continue
+        if (getVisibleQuestionsForStep(candidate).length > 0) return i + 1
+      }
+      for (let i = currentStep - 2; i >= 0; i--) {
+        const candidate = steps[i]
+        if (candidate.key === "date") return i + 1
+        if (candidate.key === "preview") continue
+        if (getVisibleQuestionsForStep(candidate).length > 0) return i + 1
+      }
+      return null
+    }
+
+    const nextStep = findNext()
+    if (nextStep && nextStep !== currentStep) {
+      setCurrentStep(nextStep)
+    }
+  }, [currentStep, getVisibleQuestionsForStep, steps])
 
   const handleUploadPendingStateChange = useCallback((questionKey: string, hasBlockingUploads: boolean) => {
     setPendingUploadQuestions((prev) => {
@@ -1354,14 +1535,60 @@ export function EntryFormMultistep({
 
     if (currentStep < steps.length) {
       markAsChanged()
-      setCurrentStep(currentStep + 1)
+
+      // Skip steps with no visible questions
+      let nextStep = currentStep + 1
+      while (nextStep < steps.length) {
+        const nextConfig = steps[nextStep - 1]
+        if (nextConfig.key === "preview") break
+
+        const nextQuestionKey = getQuestionKeyFromStepKey(nextConfig.key)
+        const nextStepNumber = getStepNumberFromStepKey(nextConfig.key)
+
+        let nextQuestions: FormQuestion[] = []
+        if (nextQuestionKey) {
+          const q = effectiveRoleQuestions.find((row) => row.key === nextQuestionKey)
+          if (q) nextQuestions = [q]
+        } else if (nextStepNumber !== null) {
+          nextQuestions = (effectiveRoleQuestions as FormQuestion[]).filter((q) => q.step === nextStepNumber)
+        }
+
+        const anyVisible = nextQuestions.some((q) => evaluateConditionalLogic(q.conditional_logic, customResponses))
+        if (anyVisible) break
+        nextStep++
+      }
+
+      setCurrentStep(nextStep)
     }
   }
 
   const handlePrevious = () => {
     if (currentStep > 1) {
       markAsChanged()
-      setCurrentStep(currentStep - 1)
+
+      // Skip steps with no visible questions
+      let prevStep = currentStep - 1
+      while (prevStep > 1) {
+        const prevConfig = steps[prevStep - 1]
+        if (prevConfig.key === "date") break
+
+        const prevQuestionKey = getQuestionKeyFromStepKey(prevConfig.key)
+        const prevStepNumber = getStepNumberFromStepKey(prevConfig.key)
+
+        let prevQuestions: FormQuestion[] = []
+        if (prevQuestionKey) {
+          const q = effectiveRoleQuestions.find((row) => row.key === prevQuestionKey)
+          if (q) prevQuestions = [q]
+        } else if (prevStepNumber !== null) {
+          prevQuestions = (effectiveRoleQuestions as FormQuestion[]).filter((q) => q.step === prevStepNumber)
+        }
+
+        const anyVisible = prevQuestions.some((q) => evaluateConditionalLogic(q.conditional_logic, customResponses))
+        if (anyVisible) break
+        prevStep--
+      }
+
+      setCurrentStep(prevStep)
     }
   }
 
@@ -1957,241 +2184,54 @@ export function EntryFormMultistep({
           )}
 
           {/* Role-Based Questions - one question per step */}
-          {getQuestionKeyFromStepKey(currentStepConfig?.key || "") && (
+          {(getQuestionKeyFromStepKey(currentStepConfig?.key || "") ||
+            getStepNumberFromStepKey(currentStepConfig?.key || "")) && (
             <div className="space-y-4">
               {(() => {
-                const questionKey = getQuestionKeyFromStepKey(currentStepConfig.key)
-                if (!questionKey) return null
-                const question = effectiveRoleQuestions.find((q: unknown) => {
-                  if (!q || typeof q !== "object") return false
-                  const key = (q as { key?: unknown }).key
-                  return typeof key === "string" && key === questionKey
-                }) as FormQuestion | undefined
-                if (!question) return null
+                const stepKey = currentStepConfig?.key || ""
+                const questionKey = getQuestionKeyFromStepKey(stepKey)
+                const stepNumber = getStepNumberFromStepKey(stepKey)
 
-                const valueForCount = customResponses[String(question.key)]
-                const showCharacterCount =
-                  (question.type === "text" || question.type === "textarea") && typeof valueForCount === "string"
+                let questionsToRender: FormQuestion[] = []
+
+                if (questionKey) {
+                  const q = effectiveRoleQuestions.find((row: any) => row.key === questionKey)
+                  if (q) questionsToRender = [q]
+                } else if (stepNumber !== null) {
+                  questionsToRender = effectiveRoleQuestions.filter((q: any) => q.step === stepNumber)
+                }
+
+                // Filter by visibility
+                questionsToRender = questionsToRender.filter((q) =>
+                  evaluateConditionalLogic(q.conditional_logic, customResponses)
+                )
+
+                questionsToRender = questionsToRender.map((question) => {
+                  if (question.optionSourceKind !== ASSIGNED_AGENTS_OPTION_SOURCE_KIND) {
+                    return question
+                  }
+
+                  const selectedIds = parseAssignedAgentValues(customResponses[String(question.key)])
+                  const availableAgents = getQuestionAvailableAgents(question, selectedIds)
+
+                  return {
+                    ...question,
+                    options: availableAgents.map((agent) => ({ value: agent.id, label: agent.name })),
+                  }
+                })
+
+                if (questionsToRender.length === 0) return null
 
                 return (
-                  <div className="space-y-4">
-                    <div className="p-0">
-                      <div className="space-y-2">
-                        <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
-                          <Badge variant={question.category === "department_report" ? "default" : "secondary"}>
-                            {getQuestionCategoryLabel(question.category)}
-                          </Badge>
-                          <h3 className="text-sm font-medium">{question.label}</h3>
-                          {question.required ? (
-                            <span className="text-muted-foreground text-xs">Required field</span>
-                          ) : null}
-                        </div>
-                        <p className="text-muted-foreground text-sm">
-                          {getQuestionCategoryDescription(question.category)}
-                        </p>
-                        {question.description ? (
-                          <p className="text-muted-foreground mt-2 text-sm">{question.description}</p>
-                        ) : null}
-                      </div>
-
-                      <div className="mt-4">
-                        {question.optionSourceKind === ASSIGNED_AGENTS_OPTION_SOURCE_KIND ? (
-                          <div className="space-y-4">
-                            {(() => {
-                              const selectedIds = parseAssignedAgentValues(customResponses[String(question.key)])
-                              const availableAgentsForQuestion = getQuestionAvailableAgents(question, selectedIds)
-                              const selectedAgentForQuestion =
-                                question.type !== "multiselect"
-                                  ? assignedAgents.find((agent) => agent.id === selectedIds[0]) ?? null
-                                  : null
-                              const questionLimit =
-                                typeof question.maxLogsPerAgentPerDay === "number" ? question.maxLogsPerAgentPerDay : null
-
-                              return (
-                                <>
-                            <div className="bg-muted/30 rounded-lg border p-4">
-                              <div className="flex flex-wrap items-center gap-2">
-                                <Badge variant="outline">Assigned agents</Badge>
-                                <span className="text-sm font-medium">
-                                  {reportedAssignedAgentsCount} currently unavailable across this report type
-                                </span>
-                              </div>
-                              <p className="text-muted-foreground mt-2 text-sm">
-                                {question.type === "multiselect"
-                                  ? questionLimit === null
-                                    ? "Select one or more assigned agents for this report."
-                                    : `Select one or more assigned agents for this report. Each agent can be logged up to ${questionLimit} time${questionLimit === 1 ? "" : "s"} today for this field.`
-                                  : questionLimit === null
-                                    ? "Select one assigned agent for this report."
-                                    : `Select one assigned agent for this report. Each agent can be logged up to ${questionLimit} time${questionLimit === 1 ? "" : "s"} today for this field.`}
-                              </p>
-                            </div>
-
-                            {isAssignedAgentsLoading ? (
-                              <div className="flex items-center gap-2 rounded-lg border p-4 text-sm">
-                                <Loader2 className="text-muted-foreground h-4 w-4 animate-spin" />
-                                <span>Loading assigned agents...</span>
-                              </div>
-                            ) : assignedAgentsError ? (
-                              <div className="rounded-lg border border-red-500/40 bg-red-500/10 p-4">
-                                <p className="flex items-center gap-2 text-sm text-red-600 dark:text-red-400">
-                                  <AlertCircle className="h-4 w-4 shrink-0" />
-                                  {assignedAgentsError}
-                                </p>
-                              </div>
-                            ) : availableAgentsForQuestion.length === 0 ? (
-                              <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-4">
-                                <p className="text-sm font-medium text-emerald-700 dark:text-emerald-300">
-                                  No assigned agents are currently available
-                                </p>
-                                <p className="text-muted-foreground mt-2 text-sm">
-                                  {getAssignedAgentLimitReachedMessage(question)} Change the date, wait for the limit to
-                                  reset tomorrow, or choose a different field value if one is available.
-                                </p>
-                              </div>
-                            ) : (
-                              <div className="space-y-4">
-                                <div className="space-y-3">
-                                  <label htmlFor={`assigned-agent-search-${question.key}`} className="sr-only">
-                                    Search assigned agents
-                                  </label>
-                                  <div className="relative">
-                                    <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2" />
-                                    <Input
-                                      id={`assigned-agent-search-${question.key}`}
-                                      value={assignedAgentsSearch}
-                                      onChange={(event) => {
-                                        markAsChanged()
-                                        setAssignedAgentsSearch(event.target.value)
-                                      }}
-                                      placeholder="Search assigned agents"
-                                      className="pl-9"
-                                    />
-                                  </div>
-
-                                  {noMatchingAssignedAgents ? (
-                                    <div className="text-muted-foreground rounded-lg border border-dashed p-4 text-sm">
-                                      No assigned agents match your search.
-                                    </div>
-                                  ) : (
-                                    <div className="max-h-72 space-y-2 overflow-y-auto rounded-lg border p-2">
-                                      {filteredAssignedAgents.map((agent) => {
-                                        const selectedIds = parseAssignedAgentValues(customResponses[String(question.key)])
-                                        const isSelected = selectedIds.includes(agent.id)
-
-                                        return (
-                                          <div
-                                            key={agent.id}
-                                            className={`rounded-lg border p-3 transition-colors ${
-                                              isSelected
-                                                ? "border-primary bg-primary/5"
-                                                : "border-border/60 hover:border-primary/40 hover:bg-muted/40"
-                                            }`}
-                                          >
-                                            {question.type === "multiselect" ? (
-                                              <label
-                                                htmlFor={`assigned-agent-${question.key}-${agent.id}`}
-                                                className="flex cursor-pointer items-start gap-3"
-                                              >
-                                                <input
-                                                  id={`assigned-agent-${question.key}-${agent.id}`}
-                                                  type="checkbox"
-                                                  checked={isSelected}
-                                                  onChange={(event) => {
-                                                    const nextValues = event.target.checked
-                                                      ? [...selectedIds, agent.id]
-                                                      : selectedIds.filter((item) => item !== agent.id)
-                                                    handleCustomResponseChange(String(question.key), nextValues)
-                                                  }}
-                                                  className="mt-1 h-4 w-4"
-                                                />
-                                                <div className="space-y-1">
-                                                  <p className="text-sm font-medium">{agent.name}</p>
-                                                  <div className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-                                                    {agent.location ? <span>{agent.location}</span> : null}
-                                                    {agent.phone ? <span>{agent.phone}</span> : null}
-                                                  </div>
-                                                </div>
-                                              </label>
-                                            ) : (
-                                              <button
-                                                type="button"
-                                                onClick={() =>
-                                                  handleCustomResponseChange(String(question.key), {
-                                                    value: agent.id,
-                                                    label: agent.name,
-                                                  })
-                                                }
-                                                className="w-full text-left"
-                                                aria-pressed={isSelected}
-                                              >
-                                                <div className="space-y-1">
-                                                  <p className="text-sm font-medium">{agent.name}</p>
-                                                  <div className="text-muted-foreground flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-                                                    {agent.location ? <span>{agent.location}</span> : null}
-                                                    {agent.phone ? <span>{agent.phone}</span> : null}
-                                                  </div>
-                                                </div>
-                                              </button>
-                                            )}
-                                          </div>
-                                        )
-                                      })}
-                                    </div>
-                                  )}
-                                </div>
-
-                                {question.type !== "multiselect" && selectedAgentForQuestion ? (
-                                  <div className="bg-muted/20 rounded-lg border p-4">
-                                    <div className="space-y-2">
-                                      <p className="text-sm font-medium">{selectedAgentForQuestion.name}</p>
-                                      <div className="text-muted-foreground space-y-2 text-sm">
-                                        {selectedAgentForQuestion.location ? (
-                                          <div className="flex items-center gap-2">
-                                            <MapPin className="h-4 w-4 shrink-0" />
-                                            <span>{selectedAgentForQuestion.location}</span>
-                                          </div>
-                                        ) : null}
-                                        {selectedAgentForQuestion.phone ? (
-                                          <div className="flex items-center gap-2">
-                                            <Phone className="h-4 w-4 shrink-0" />
-                                            <span>{selectedAgentForQuestion.phone}</span>
-                                          </div>
-                                        ) : null}
-                                      </div>
-                                    </div>
-                                  </div>
-                                ) : null}
-                              </div>
-                            )}
-
-                            {customErrors[String(question.key)] ? (
-                              <p id={`${question.key}-error`} className="text-destructive mt-2 text-sm">
-                                {customErrors[String(question.key)]}
-                              </p>
-                            ) : null}
-                                </>
-                              )
-                            })()}
-                          </div>
-                        ) : (
-                          <RoleBasedQuestionFields
-                            questions={[question]}
-                            responses={customResponses}
-                            errors={customErrors}
-                            onChange={handleCustomResponseChange}
-                            onUploadPendingStateChange={handleUploadPendingStateChange}
-                            renderMode="fieldsOnly"
-                          />
-                        )}
-
-                        {showCharacterCount ? (
-                          <div className="mt-4 flex items-center justify-between">
-                            <span className="text-muted-foreground text-xs">{valueForCount.length} characters</span>
-                          </div>
-                        ) : null}
-                      </div>
-                    </div>
+                  <div className="space-y-8">
+                    <RoleBasedQuestionFields
+                      questions={questionsToRender}
+                      responses={customResponses}
+                      errors={customErrors}
+                      onChange={handleCustomResponseChange}
+                      onUploadPendingStateChange={handleUploadPendingStateChange}
+                      renderMode="grouped"
+                    />
                   </div>
                 )
               })()}
@@ -2219,13 +2259,13 @@ export function EntryFormMultistep({
                         key: "department",
                         title: getQuestionCategoryLabel("department_report", true),
                         description: `These answers represent the ${normalizedDepartmentName} department.`,
-                        questions: departmentReportQuestions,
+                        questions: departmentReportQuestions.filter((q) => evaluateConditionalLogic(q.conditional_logic, customResponses)),
                       },
                       {
                         key: "profession",
                         title: getQuestionCategoryLabel("profession_question", true),
                         description: `These answers apply to your assigned profession in ${normalizedDepartmentName}.`,
-                        questions: professionQuestions,
+                        questions: professionQuestions.filter((q) => evaluateConditionalLogic(q.conditional_logic, customResponses)),
                       },
                     ]
                       .filter((group) => group.questions.length > 0)
@@ -2245,7 +2285,7 @@ export function EntryFormMultistep({
                               const isImageQuestion = question.type === "image"
                               const displayValue = isImageQuestion ? null : formatQuestionResponseValue(question, value)
 
-                              const questionStepNumber = findQuestionStepNumber(steps, String(question.key))
+                              const questionStepNumber = findQuestionStepNumber(steps, question)
                               const reactKey = getQuestionReactKey(question, index)
                               const previewAgent =
                                 question.optionSourceKind === ASSIGNED_AGENTS_OPTION_SOURCE_KIND &&

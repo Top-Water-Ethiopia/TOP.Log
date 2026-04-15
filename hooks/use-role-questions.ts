@@ -53,6 +53,8 @@ export interface RoleQuestion {
   created_at: string
   updated_at: string
   metadata?: unknown
+  step?: number | null
+  conditional_logic?: any | null
 }
 
 // SWR fetcher for role questions
@@ -131,6 +133,8 @@ export function useRoleQuestions(
             : q.question_type === "multiselect"
               ? []
               : undefined,
+        step: q.step || null,
+        conditional_logic: q.conditional_logic || null,
       }
     })
   }, [effectiveQuestions])

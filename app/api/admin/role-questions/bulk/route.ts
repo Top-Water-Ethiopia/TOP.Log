@@ -447,6 +447,7 @@ export async function POST(request: Request) {
         step: question.step ?? null,
         min_date: question.min_date ?? null,
         max_date: question.max_date ?? null,
+        conditional_logic: question.conditional_logic ?? null,
       }
     })
 
@@ -736,6 +737,7 @@ export async function PUT(request: Request) {
           step: question.step ?? null,
           min_date: question.min_date ?? null,
           max_date: question.max_date ?? null,
+          conditional_logic: question.conditional_logic ?? null,
         }
 
         if (!resolvedId || !existingIds.has(resolvedId)) {

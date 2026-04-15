@@ -33,6 +33,21 @@ type UploadState = {
   error: string | null
 }
 
+type QuestionOption = string | { value: string; label: string }
+
+function normalizeQuestionOption(option: QuestionOption): { value: string; label: string } | null {
+  if (typeof option === "string") {
+    const trimmed = option.trim()
+    return trimmed ? { value: trimmed, label: trimmed } : null
+  }
+
+  if (!option || typeof option !== "object") return null
+  const value = typeof option.value === "string" ? option.value.trim() : ""
+  if (!value) return null
+  const label = typeof option.label === "string" ? option.label.trim() : ""
+  return { value, label: label || value }
+}
+
 type ImageUploadSlot = {
   id: string
   status: "pending" | "success" | "error"
@@ -100,7 +115,7 @@ interface RoleBasedQuestionFieldsProps {
   errors?: Record<string, string>
   onChange: (questionKey: string, value: any) => void
   onUploadPendingStateChange?: (questionKey: string, hasBlockingUploads: boolean) => void
-  renderMode?: "full" | "fieldsOnly"
+  renderMode?: "full" | "fieldsOnly" | "grouped"
 }
 
 export function RoleBasedQuestionFields({
@@ -816,11 +831,14 @@ export function RoleBasedQuestionFields({
               <SelectValue placeholder={question.placeholder || "Select an option"} />
             </SelectTrigger>
             <SelectContent>
-              {question.options?.map((option: string) => (
-                <SelectItem key={option} value={option}>
-                  {option}
-                </SelectItem>
-              ))}
+              {question.options
+                ?.map((option: QuestionOption) => normalizeQuestionOption(option))
+                .filter((option): option is { value: string; label: string } => option !== null)
+                .map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
             </SelectContent>
           </Select>
         )
@@ -828,19 +846,22 @@ export function RoleBasedQuestionFields({
       case "radio":
         return (
           <div className="space-y-2">
-            {question.options?.map((option: string) => (
-              <div key={option} className="flex items-center space-x-2">
+            {question.options
+              ?.map((option: QuestionOption) => normalizeQuestionOption(option))
+              .filter((option): option is { value: string; label: string } => option !== null)
+              .map((option) => (
+              <div key={option.value} className="flex items-center space-x-2">
                 <input
                   type="radio"
-                  id={`${question.key}-${option}`}
+                  id={`${question.key}-${option.value}`}
                   name={question.key}
-                  value={option}
-                  checked={value === option}
+                  value={option.value}
+                  checked={value === option.value}
                   onChange={(event) => onChange(question.key, event.target.value)}
                   className="text-primary focus:ring-primary h-4 w-4 border-gray-300 focus:ring-2"
                 />
-                <Label htmlFor={`${question.key}-${option}`} className="cursor-pointer text-sm font-normal">
-                  {option}
+                <Label htmlFor={`${question.key}-${option.value}`} className="cursor-pointer text-sm font-normal">
+                  {option.label}
                 </Label>
               </div>
             ))}
@@ -851,28 +872,31 @@ export function RoleBasedQuestionFields({
       case "tags":
         return (
           <div className="space-y-2">
-            {question.options?.map((option: string) => {
+            {question.options
+              ?.map((option: QuestionOption) => normalizeQuestionOption(option))
+              .filter((option): option is { value: string; label: string } => option !== null)
+              .map((option) => {
               const currentValues = Array.isArray(value) ? value : []
-              const checkboxId = `${question.key}-${option}`
+              const checkboxId = `${question.key}-${option.value}`
 
               return (
-                <div key={option} className="flex items-center space-x-2">
+                <div key={option.value} className="flex items-center space-x-2">
                   <Checkbox
                     id={checkboxId}
-                    checked={currentValues.includes(option)}
+                    checked={currentValues.includes(option.value)}
                     onCheckedChange={(checked) => {
                       if (checked) {
-                        onChange(question.key, [...currentValues, option])
+                        onChange(question.key, [...currentValues, option.value])
                       } else {
                         onChange(
                           question.key,
-                          currentValues.filter((item: string) => item !== option)
+                          currentValues.filter((item: string) => item !== option.value)
                         )
                       }
                     }}
                   />
                   <Label htmlFor={checkboxId} className="cursor-pointer text-sm font-normal">
-                    {option}
+                    {option.label}
                   </Label>
                 </div>
               )
@@ -1310,6 +1334,82 @@ export function RoleBasedQuestionFields({
 
   if (!hasQuestions) {
     return null
+  }
+
+  if (renderMode === "grouped") {
+    const groups = (() => {
+      type Group = { sectionLabel: string | null; questions: RoleBasedQuestionFieldsProps["questions"] }
+      const result: Group[] = []
+      const byLabelIndex = new Map<string, number>()
+
+      questions.forEach((question) => {
+        const sectionLabel = ((question as any).metadata?.section_label as string | undefined) || null
+
+        if (!sectionLabel) {
+          result.push({ sectionLabel: null, questions: [question] })
+          return
+        }
+
+        const existingIndex = byLabelIndex.get(sectionLabel)
+        if (existingIndex === undefined) {
+          byLabelIndex.set(sectionLabel, result.length)
+          result.push({ sectionLabel, questions: [question] })
+          return
+        }
+
+        result[existingIndex].questions.push(question)
+      })
+
+      return result
+    })()
+
+    return (
+      <div className="space-y-8">
+        {groups.map((group, groupIndex) => (
+          <div key={`${group.sectionLabel ?? "no-section"}-${groupIndex}`} className="space-y-6">
+            {group.sectionLabel ? (
+              <div className="mb-2 border-b-2 border-primary/10 pb-2">
+                <h2 className="text-lg font-bold text-primary">{group.sectionLabel}</h2>
+              </div>
+            ) : null}
+
+            {group.questions.map((question, index) => {
+              const reactKey = getQuestionReactKey(question, index)
+              const value = responses[question.key]
+              const error = errors[question.key]
+
+              return (
+                <div key={reactKey} className="space-y-6">
+                  <div className="space-y-2">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-2">
+                      <Badge variant={question.category === "department_report" ? "default" : "secondary"}>
+                        {question.category === "department_report" ? "Department Question" : "Profession Question"}
+                      </Badge>
+                      <h3 className="text-sm font-medium">{question.label}</h3>
+                      {question.required ? (
+                        <span className="text-muted-foreground text-xs">Required field</span>
+                      ) : null}
+                    </div>
+                    {question.description ? (
+                      <p className="text-muted-foreground text-sm">{question.description}</p>
+                    ) : null}
+                  </div>
+
+                  <div className="mt-4">
+                    {renderField(question, value, error)}
+                    {error && (
+                      <p id={`${question.key}-error`} className="text-destructive mt-2 text-sm">
+                        {error}
+                      </p>
+                    )}
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        ))}
+      </div>
+    )
   }
 
   return (
