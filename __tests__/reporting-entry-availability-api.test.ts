@@ -62,6 +62,7 @@ describe("/api/reporting/entry-availability", () => {
           error: null,
         }),
       },
+      rpc: jest.fn().mockResolvedValue({ data: true, error: null }),
       from: jest.fn((table: string) => {
         if (table === "user_department_memberships") return membershipBuilder
         if (table === "captain_log_entries") return entryBuilder
@@ -101,6 +102,7 @@ describe("/api/reporting/entry-availability", () => {
           error: null,
         }),
       },
+      rpc: jest.fn().mockResolvedValue({ data: true, error: null }),
       from: jest.fn((table: string) => {
         if (table === "user_department_memberships") return membershipBuilder
         if (table === "captain_log_entries") {
@@ -149,6 +151,7 @@ describe("/api/reporting/entry-availability", () => {
           error: null,
         }),
       },
+      rpc: jest.fn().mockResolvedValue({ data: true, error: null }),
       from: jest.fn((table: string) => {
         if (table === "user_department_memberships") return membershipBuilder
         if (table === "captain_log_entries") return entryBuilder
@@ -185,6 +188,7 @@ describe("/api/reporting/entry-availability", () => {
           error: null,
         }),
       },
+      rpc: jest.fn().mockResolvedValue({ data: false, error: null }),
       from: jest.fn((table: string) => {
         if (table === "user_department_memberships") {
           return createThenableBuilder({
@@ -201,8 +205,62 @@ describe("/api/reporting/entry-availability", () => {
     } as Request)
 
     expect(response.status).toBe(403)
+    const body = await response.json()
+    expect(body).toEqual(
+      expect.objectContaining({
+        error: "Access denied",
+        message: "You do not have an active membership in this department",
+      })
+    )
+  })
+
+  it("falls back to has_department_access when membership select returns empty", async () => {
+    const membershipBuilder = createThenableBuilder({
+      data: [],
+      error: null,
+    })
+    const entryBuilder = createThenableBuilder({
+      data: { id: "entry-3" },
+      error: null,
+    })
+
+    resolveEntryKinds.mockResolvedValue({
+      data: [{ entry_kind: "standard", allow_multiple_per_day: false }],
+      meta: { used: "dept_wide_personal", state: "OK" },
+    })
+
+    const rpc = jest.fn().mockResolvedValue({ data: true, error: null })
+
+    createClient.mockResolvedValue({
+      auth: {
+        getUser: jest.fn().mockResolvedValue({
+          data: { user: { id: "user-1" } },
+          error: null,
+        }),
+      },
+      rpc,
+      from: jest.fn((table: string) => {
+        if (table === "user_department_memberships") return membershipBuilder
+        if (table === "captain_log_entries") return entryBuilder
+        throw new Error(`Unexpected table ${table}`)
+      }),
+    })
+
+    const response = await routeModule.GET({
+      url: "http://localhost/api/reporting/entry-availability?departmentId=dept-1&date=2026-04-03&entryKind=standard",
+    } as Request)
+
+    expect(rpc).toHaveBeenCalledWith("has_department_membership", {
+      p_user_id: "user-1",
+      p_department_id: "dept-1",
+    })
+    expect(response.status).toBe(200)
     await expect(response.json()).resolves.toEqual({
-      error: "You do not have access to that department",
+      data: {
+        existingEntryId: "entry-3",
+        existingStandardEntryId: "entry-3",
+        allowMultiplePerDay: false,
+      },
     })
   })
 })

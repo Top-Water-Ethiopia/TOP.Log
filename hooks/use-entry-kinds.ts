@@ -64,7 +64,8 @@ export function useScopeEntryKindsV2(
   departmentId: string | null,
   params: { scopeType: ScopeEntryKindScopeType; professionRoleId?: string | null }
 ) {
-  const shouldFetch = departmentId != null
+  const shouldFetch =
+    departmentId != null && (params.scopeType !== "profession_personal" || !!params.professionRoleId)
   const url = shouldFetch
     ? `/api/admin/scope-entry-kinds?departmentId=${encodeURIComponent(departmentId!)}&scopeType=${encodeURIComponent(
         params.scopeType

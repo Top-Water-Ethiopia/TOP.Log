@@ -29,7 +29,22 @@ async function userCanAccessDepartment(
     throw membershipError
   }
 
-  return (memberships || []).length > 0
+  if ((memberships || []).length > 0) {
+    return { allowed: true, membershipCount: (memberships || []).length, rpcAllowed: null as boolean | null }
+  }
+
+  // Fallback to security-definer function (bypasses RLS) for cases where RLS filters the membership row.
+  // Use ANY active membership, not just access_level, since reporting is available to department members.
+  const { data: hasAccess, error: accessError } = await supabase.rpc("has_department_membership", {
+    p_user_id: userId,
+    p_department_id: departmentId,
+  })
+
+  if (accessError) {
+    throw accessError
+  }
+
+  return { allowed: hasAccess === true, membershipCount: 0, rpcAllowed: hasAccess === true }
 }
 
 export async function GET(request: Request) {
@@ -68,9 +83,9 @@ export async function GET(request: Request) {
     }
 
     console.log(`[entry-availability] Checking department access for user ${user.id} and department ${departmentId}`)
-    let hasAccess: boolean
+    let accessCheck: { allowed: boolean; membershipCount: number; rpcAllowed: boolean | null }
     try {
-      hasAccess = await userCanAccessDepartment(supabase, user.id, departmentId)
+      accessCheck = await userCanAccessDepartment(supabase, user.id, departmentId)
     } catch (accessError) {
       console.error("[entry-availability] Error in userCanAccessDepartment:", accessError)
       return NextResponse.json(
@@ -82,12 +97,22 @@ export async function GET(request: Request) {
       )
     }
 
-    if (!hasAccess) {
+    if (!accessCheck.allowed) {
       console.warn(`[entry-availability] Access denied for user ${user.id} to department ${departmentId}. No active membership found.`)
       return NextResponse.json(
         { 
           error: "Access denied", 
-          message: "You do not have an active membership in this department" 
+          message: "You do not have an active membership in this department",
+          ...(process.env.NODE_ENV !== "production"
+            ? {
+                debug: {
+                  userId: user.id,
+                  departmentId,
+                  membershipCount: accessCheck.membershipCount,
+                  rpcAllowed: accessCheck.rpcAllowed,
+                },
+              }
+            : {}),
         }, 
         { status: 403 }
       )

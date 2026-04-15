@@ -2075,7 +2075,7 @@ export function DepartmentMembersPanel({ departmentId }: { departmentId: string 
                     : "Select role..."}
               </option>
               {targetDeptRoles.map((role) => (
-                <option key={role.key} value={role.key}>
+                <option key={role.id} value={role.key}>
                   {role.label}
                 </option>
               ))}

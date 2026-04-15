@@ -205,4 +205,67 @@ describe("/api/reporting/available-entry-kinds", () => {
       ],
     })
   })
+
+  it("handles entry kinds with questions across multiple steps", async () => {
+    const configBuilder = createThenableBuilder({
+      data: [
+        {
+          entry_kind: "standard",
+          label: "Multi-Step Report",
+          is_active: true,
+          department_id: "dept-1",
+        },
+      ],
+      error: null,
+    })
+
+    const questionsBuilder = createThenableBuilder({
+      data: [
+        {
+          entry_kind: "standard",
+          department_id: "dept-1",
+          question_scope_type: "dept_wide_personal",
+          step: 1,
+          is_active: true,
+        },
+        {
+          entry_kind: "standard",
+          department_id: "dept-1",
+          question_scope_type: "dept_wide_personal",
+          step: 2,
+          is_active: true,
+        },
+      ],
+      error: null,
+    })
+
+    const membershipBuilder = createThenableBuilder({ data: [], error: null })
+    const roleBuilder = createThenableBuilder({ data: [], error: null })
+
+    mockCreateClient.mockResolvedValue({
+      auth: {
+        getUser: jest.fn().mockResolvedValue({
+          data: { user: { id: "user-1" } },
+          error: null,
+        }),
+      },
+      from: jest.fn((table: string) => {
+        if (table === "scope_entry_kinds") return configBuilder
+        if (table === "role_questions") return questionsBuilder
+        if (table === "user_department_memberships") return membershipBuilder
+        if (table === "roles") return roleBuilder
+        throw new Error(`Unexpected table ${table}`)
+      }),
+    })
+
+    const response = await routeModule.GET({
+      url: "http://localhost/api/reporting/available-entry-kinds?departmentId=dept-1",
+    } as Request)
+
+    expect(response.status).toBe(200)
+    const body = await response.json()
+    expect(body.data).toHaveLength(1)
+    expect(body.data[0].entry_kind).toBe("standard")
+    expect(body.data[0].label).toBe("Multi-Step Report")
+  })
 })

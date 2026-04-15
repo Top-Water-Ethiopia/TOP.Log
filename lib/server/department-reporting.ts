@@ -26,7 +26,6 @@ export type EffectiveDepartmentRole = {
   canAnswerDepartmentReports: boolean
 }
 
-
 /**
  * Fetches ALL permissions for a given access level ID
  * Returns array of permission strings in format "resource.action"
@@ -63,8 +62,7 @@ function mapPermissionsToCapabilities(permissions: string[]): {
       permissions.some(
         (p) => p === "entries.read" || p === "entries.read.own" || p === "analytics.read" || p === "analytics.read.own"
       ),
-    canCreateReports:
-      hasDeptAnswer || permissions.some((p) => p === "entries.create" || p === "entries.create.own"),
+    canCreateReports: hasDeptAnswer || permissions.some((p) => p === "entries.create" || p === "entries.create.own"),
     canAnswerDepartmentReports: hasDeptAnswer,
     canManageMembers: permissions.some((p) => p === "departments.members.manage" || p === "departments.members.read"),
     canExportReports: permissions.some((p) => p === "entries.export" || p === "entries.export.own"),
@@ -86,7 +84,7 @@ export async function getUserDepartmentProfessionAssignment(
     .maybeSingle()
 
   if (error) {
-    throw error
+    throw new Error(`Failed to fetch profession assignment: ${JSON.stringify(error)}`)
   }
 
   if (!data || !data.role) return null
@@ -115,7 +113,7 @@ export async function getUserDepartmentAccessLevelAssignment(
     .maybeSingle()
 
   if (error) {
-    throw error
+    throw new Error(`Failed to fetch access level assignment: ${JSON.stringify(error)}`)
   }
 
   if (!data || !data.role) return null
@@ -160,7 +158,9 @@ async function accessLevelCanAnswerDepartmentQuestions(
     .limit(1)
     .maybeSingle()
 
-  if (permissionError) throw permissionError
+  if (permissionError) {
+    throw new Error(`Failed to check department question permission: ${JSON.stringify(permissionError)}`)
+  }
 
   return !!permissionRow
 }

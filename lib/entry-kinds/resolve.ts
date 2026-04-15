@@ -43,12 +43,15 @@ async function getPrimaryProfessionRoleId(userId: string, departmentId: string):
 
   const { data, error } = await supabase
     .from("user_department_memberships")
-    .select("role_id")
+    .select("role_id, is_primary, last_used_at, created_at")
     .eq("user_id", userId)
     .eq("department_id", departmentId)
     .eq("membership_type", "profession")
     .eq("is_active", true)
-    .eq("is_primary", true)
+    .order("is_primary", { ascending: false })
+    .order("last_used_at", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false })
+    .limit(1)
     .maybeSingle()
 
   if (error) {
