@@ -326,7 +326,10 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
       const identifier = parseAuthIdentifier(identifierInput)
 
       if (!identifier) {
-        throw new Error(getAuthIdentifierError(identifierInput))
+        const message = getAuthIdentifierError(identifierInput)
+        setAuthState((prev) => ({ ...prev, isLoading: false, error: message }))
+        toast.error(message)
+        return
       }
 
       const { data, error } = await signIn(identifier, password)
@@ -454,7 +457,10 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
       const identifier = parseAuthIdentifier(identifierInput)
 
       if (!identifier) {
-        throw new Error(getAuthIdentifierError(identifierInput))
+        const message = getAuthIdentifierError(identifierInput)
+        setAuthState((prev) => ({ ...prev, isLoading: false, error: message }))
+        toast.error(message)
+        return
       }
 
       // Create user in Supabase Auth

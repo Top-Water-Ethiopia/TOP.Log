@@ -35,11 +35,11 @@ export function Providers({ children }: ProvidersProps) {
           shouldRetryOnError: false,
         }}
       >
-        <SupabaseProviders>
-          <AuthProvider>{children}</AuthProvider>
-          <SonnerToaster />
-          <Toaster />
-        </SupabaseProviders>
+          <SupabaseProviders>
+            <AuthProvider>{children}</AuthProvider>
+            <SonnerToaster position="top-right" />
+            <Toaster />
+          </SupabaseProviders>
       </SWRConfig>
     </ThemeProvider>
   )

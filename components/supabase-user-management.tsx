@@ -37,7 +37,7 @@ import {
 } from "lucide-react"
 import { toast } from "sonner"
 import { UsersTableSkeleton } from "@/components/skeletons/users-table-skeleton"
-import { apiFetch, getErrorMessage } from "@/lib/api-client"
+import { ApiError, apiFetch, getErrorMessage } from "@/lib/api-client"
 import { RightSidePanel } from "@/components/ui/right-side-panel"
 import { DepartmentAccessLevelManager } from "@/components/department-access-level-manager"
 import useSWR, { useSWRConfig } from "swr"
@@ -1228,8 +1228,32 @@ export function SupabaseUserManagement() {
       } else {
         mutateUsers()
       }
-      console.error("Failed to delete user:", error)
-      toast.error(getErrorMessage(error, "Failed to delete user"))
+      const rawMessage = getErrorMessage(error, "Failed to delete user")
+      const message = (() => {
+        const normalized = rawMessage.toLowerCase()
+
+        if (
+          (normalized.includes("cannot delete user") && normalized.includes("referenced")) ||
+          normalized.includes("referenced by existing records") ||
+          normalized.includes("violates foreign key constraint") ||
+          normalized.includes("foreign key constraint")
+        ) {
+          return "Can’t delete this user because they have existing records. Remove them from departments or transfer ownership, then try again."
+        }
+
+        if (normalized.includes("user profile not found")) {
+          return "Can’t delete this user because their profile record is missing. Refresh and try again, or remove their department memberships instead."
+        }
+
+        return rawMessage
+      })()
+
+      // Avoid noisy console errors for expected API rejections; still log unexpected failures.
+      if (!(error instanceof ApiError) || error.status >= 500) {
+        console.error("Failed to delete user:", error)
+      }
+
+      toast.error(message)
     } finally {
       setIsDeletingUser(false)
     }
