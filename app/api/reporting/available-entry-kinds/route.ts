@@ -10,6 +10,20 @@ function looksLikeUuid(value: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
 }
 
+function isValidYyyyMmDd(value: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false
+  const d = new Date(`${value}T00:00:00Z`)
+  if (Number.isNaN(d.getTime())) return false
+  const [year, month, day] = value.split("-").map((p) => Number(p))
+  return d.getUTCFullYear() === year && d.getUTCMonth() + 1 === month && d.getUTCDate() === day
+}
+
+function isoDow(yyyyMmDd: string): number {
+  const d = new Date(`${yyyyMmDd}T00:00:00Z`)
+  const dow = d.getUTCDay() // 0=Sun..6=Sat
+  return dow === 0 ? 7 : dow
+}
+
 export async function GET(request: Request) {
   try {
     const supabase = await createClient()
@@ -25,9 +39,24 @@ export async function GET(request: Request) {
     const { searchParams } = new URL(request.url)
     const departmentId = searchParams.get("departmentId")
     const requestedRole = searchParams.get("professionId") || searchParams.get("role")
+    const date = searchParams.get("date")
 
     if (!departmentId) {
       return NextResponse.json({ error: "departmentId is required" }, { status: 400 })
+    }
+
+    if (!date) {
+      return NextResponse.json(
+        { error: "date (YYYY-MM-DD) is required", code: "REPORT_DATE_REQUIRED" },
+        { status: 400 }
+      )
+    }
+
+    if (!isValidYyyyMmDd(date)) {
+      return NextResponse.json(
+        { error: "date must be a valid YYYY-MM-DD", code: "REPORT_DATE_INVALID" },
+        { status: 400 }
+      )
     }
 
     // Resolve all active roles for the user in this department
@@ -40,7 +69,7 @@ export async function GET(request: Request) {
 
     const userRoles = new Set<string>()
     if (requestedRole) userRoles.add(requestedRole)
-    
+
     userMemberships?.forEach((m: any) => {
       const role = Array.isArray(m.role) ? m.role[0] : m.role
       if (role?.name) userRoles.add(role.name)
@@ -61,6 +90,23 @@ export async function GET(request: Request) {
       // For personal logging, missing config should not hard-fail the endpoint.
       console.error("Error resolving entry kinds:", e)
     }
+
+    const configuredDefault =
+      resolvedConfigs.find((c: any) => c?.is_default === true && typeof c?.entry_kind === "string")?.entry_kind ?? null
+
+    const reportIsoDow = isoDow(date)
+
+    const eligibleByAvailability = (resolvedConfigs || []).filter((config: any) => {
+      if (!config?.is_active) return false
+      if (config?.is_available === false) return false
+      const start = config?.available_start_date ? String(config.available_start_date) : null
+      const end = config?.available_end_date ? String(config.available_end_date) : null
+      if (start && start > date) return false
+      if (end && end < date) return false
+      const weekdays = Array.isArray(config?.allowed_weekdays) ? (config.allowed_weekdays as unknown[]) : null
+      if (!weekdays || weekdays.length === 0) return true
+      return weekdays.map((w) => Number(w)).includes(reportIsoDow)
+    })
 
     // 2. Fetch active questions to determine reachability
     const { data: questions, error: queryError } = await supabase
@@ -98,7 +144,7 @@ export async function GET(request: Request) {
     }
 
     // 3. Combine configs with reachability
-    const available = (resolvedConfigs || [])
+    let available = eligibleByAvailability
       .filter((config: any) => reachableKinds.has(config.entry_kind))
       .map((config: any) => ({
         entry_kind: config.entry_kind,
@@ -106,26 +152,40 @@ export async function GET(request: Request) {
         color: config.color,
         icon: config.icon,
         description: config.description,
+        sort_order: config.sort_order ?? 0,
         is_default: config.is_default,
         supports_assigned_agent: config.supports_assigned_agent,
         allow_multiple_per_day: config.allow_multiple_per_day ?? false,
       }))
 
-    // 4. Fallback for "standard" if not in configs but has questions
-    if (reachableKinds.has("standard") && !available.some((a: any) => a.entry_kind === "standard")) {
-      available.push({
-        entry_kind: "standard",
-        label: "Standard",
-        color: "#6B7280",
-        icon: "FileText",
-        description: "Default report type",
-        is_default: false,
-        supports_assigned_agent: false,
-        allow_multiple_per_day: false,
-      })
+    available.sort((a: any, b: any) => {
+      if ((a.sort_order ?? 0) !== (b.sort_order ?? 0)) return (a.sort_order ?? 0) - (b.sort_order ?? 0)
+      return String(a.label ?? "").localeCompare(String(b.label ?? ""))
+    })
+
+    const configuredDefaultPresent =
+      configuredDefault != null && available.some((a: any) => a.entry_kind === configuredDefault)
+    const effectiveDefault = configuredDefaultPresent
+      ? configuredDefault
+      : available.length > 0
+        ? available[0].entry_kind
+        : null
+
+    const defaultMissing = configuredDefault != null && !configuredDefaultPresent
+
+    if (defaultMissing && effectiveDefault) {
+      available = available.map((k: any) => ({ ...k, is_default: k.entry_kind === effectiveDefault }))
     }
 
-    return NextResponse.json({ data: available })
+    return NextResponse.json({
+      data: available,
+      meta: {
+        configured_default: configuredDefault,
+        effective_default: effectiveDefault,
+        default_missing: defaultMissing,
+        suggested_default: effectiveDefault,
+      },
+    })
   } catch (error) {
     console.error("Unexpected error in available-entry-kinds:", error)
     return NextResponse.json({ error: "Internal server error" }, { status: 500 })

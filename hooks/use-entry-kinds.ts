@@ -10,6 +10,10 @@ export interface ScopeEntryKind {
   sort_order: number
   is_default: boolean
   is_active: boolean
+  is_available: boolean
+  allowed_weekdays: number[] | null
+  available_start_date: string | null
+  available_end_date: string | null
   supports_assigned_agent: boolean
   allow_multiple_per_day: boolean
   color: string | null

@@ -19,7 +19,7 @@ import { useRBAC } from "@/hooks/use-rbac"
 import { useRoleQuestions, type RoleQuestion } from "@/hooks/use-role-questions"
 import { RoleBasedQuestionFields } from "@/components/role-based-question-fields"
 import { ImageResponsePreview } from "@/components/image-response-preview"
-import { DateRestrictionBanner, QuickDateChips } from "@/components/features/daily-log/molecules"
+import { QuickDateChips } from "@/components/features/daily-log/molecules"
 import { EntryKindDropdown } from "@/components/entry-kind-dropdown"
 import type { CustomQuestion, QuestionResponse } from "@/lib/rbac/types"
 import { getQuestionReactKey } from "@/lib/role-question-identity"
@@ -171,7 +171,6 @@ function findQuestionStepNumber(steps: Step[], question: Record<string, any>): n
   const questionStepIndex = steps.findIndex((step) => getQuestionKeyFromStepKey(step.key) === questionKey)
   return questionStepIndex >= 0 ? steps[questionStepIndex].number : null
 }
-
 
 function getLegacyQuestionKeyFromMetadata(metadata: unknown): string | null {
   if (!metadata || typeof metadata !== "object") {
@@ -326,14 +325,17 @@ export function EntryFormMultistep({
       ])
     )
   }, [initialQuestionsByKind])
-  const [questionsByKind] = useState<Record<string, FormQuestion[]>>(
-    () => normalizedQuestionsByKind
-  )
+  const [questionsByKind] = useState<Record<string, FormQuestion[]>>(() => normalizedQuestionsByKind)
   const availableEntryKinds = useMemo(() => {
     return Object.keys(questionsByKind).filter((kind) => (questionsByKind[kind] || []).length > 0)
   }, [questionsByKind])
   const defaultEntryKind = useMemo(() => {
-    return getDefaultEntryKind(!!initialQuestionsByKind, questionsByKind, availableEntryKinds, initialAvailableEntryKinds)
+    return getDefaultEntryKind(
+      !!initialQuestionsByKind,
+      questionsByKind,
+      availableEntryKinds,
+      initialAvailableEntryKinds
+    )
   }, [availableEntryKinds, initialAvailableEntryKinds, initialQuestionsByKind, questionsByKind])
   const [entryKind, setEntryKind] = useState<string | null>(() => defaultEntryKind)
   const requiresEntryKindSelection = initialQuestionsByKind && availableEntryKinds.length > 1
@@ -652,17 +654,14 @@ export function EntryFormMultistep({
     },
     [availableAssignedAgents, getAssignedAgentUsageCount]
   )
-  const getAssignedAgentLimitReachedMessage = useCallback(
-    (question: FormQuestion | undefined) => {
-      if (!question) return "No assigned agents are available for this field."
-      const limit = typeof question.maxLogsPerAgentPerDay === "number" ? question.maxLogsPerAgentPerDay : null
-      if (limit === null) {
-        return "No agents are assigned to you yet."
-      }
-      return `All assigned agents have reached this field's daily limit of ${limit}.`
-    },
-    []
-  )
+  const getAssignedAgentLimitReachedMessage = useCallback((question: FormQuestion | undefined) => {
+    if (!question) return "No assigned agents are available for this field."
+    const limit = typeof question.maxLogsPerAgentPerDay === "number" ? question.maxLogsPerAgentPerDay : null
+    if (limit === null) {
+      return "No agents are assigned to you yet."
+    }
+    return `All assigned agents have reached this field's daily limit of ${limit}.`
+  }, [])
   const existingStandardEntryHref = existingEntryId ? `/reports/${existingEntryId}` : null
   const hasStandardEntryConflict = !allowMultiplePerDay && !!entryKind && !!existingEntryId
 
@@ -743,7 +742,14 @@ export function EntryFormMultistep({
     return () => {
       controller.abort()
     }
-  }, [assignedAgentQuestions, assignedAgentsReloadKey, departmentId, entryKind, hasAssignedAgentsQuestion, selectedDate])
+  }, [
+    assignedAgentQuestions,
+    assignedAgentsReloadKey,
+    departmentId,
+    entryKind,
+    hasAssignedAgentsQuestion,
+    selectedDate,
+  ])
 
   useEffect(() => {
     const dateValidation = canCreateEntryForDate(selectedDate)
@@ -822,7 +828,9 @@ export function EntryFormMultistep({
         }
 
         const availableAgentsForQuestion = getQuestionAvailableAgents(question, selectedValues)
-        const nextValues = selectedValues.filter((value) => availableAgentsForQuestion.some((agent) => agent.id === value))
+        const nextValues = selectedValues.filter((value) =>
+          availableAgentsForQuestion.some((agent) => agent.id === value)
+        )
         if (nextValues.length === selectedValues.length) {
           return
         }
@@ -1240,8 +1248,7 @@ export function EntryFormMultistep({
       const group = groupedQuestions.get(stepVal)!
       const firstQ = group[0] as Record<string, any>
       // Section label from metadata or fall back to first question label
-      const sectionLabel =
-        (firstQ.metadata as any)?.section_label || firstQ.title || firstQ.label || `Step ${stepVal}`
+      const sectionLabel = (firstQ.metadata as any)?.section_label || firstQ.title || firstQ.label || `Step ${stepVal}`
 
       stepsList.push({
         key: `step-${stepVal}`,
@@ -2094,9 +2101,6 @@ export function EntryFormMultistep({
           {/* Step 1: Select Date */}
           {currentStepConfig?.key === "date" && (
             <div className="space-y-4">
-              {/* Date Restriction Info Banner */}
-              <DateRestrictionBanner title={getDateRestrictionMessage()} />
-
               <div className="space-y-2">
                 <label htmlFor="date" className="text-foreground text-lg font-semibold">
                   When is this log for?
@@ -2106,6 +2110,7 @@ export function EntryFormMultistep({
                   <EntryKindDropdown
                     departmentId={departmentId}
                     role={role}
+                    date={selectedDate || null}
                     value={entryKind}
                     onChange={handleEntryKindChange}
                     label="Report Type"
@@ -2154,11 +2159,13 @@ export function EntryFormMultistep({
                   </PopoverContent>
                 </Popover>
 
+                {/* Hidden for now - three day buttons
                 <QuickDateChips
                   options={quickDateOptions}
                   selectedDate={selectedDate}
                   onSelectDate={handleDateSelection}
                 />
+                */}
                 {dateError && (
                   <div className="mt-2 rounded-md border border-red-500/50 bg-red-500/10 p-4">
                     <p className="flex items-center gap-2 text-sm text-red-600 dark:text-red-400">
@@ -2259,13 +2266,17 @@ export function EntryFormMultistep({
                         key: "department",
                         title: getQuestionCategoryLabel("department_report", true),
                         description: `These answers represent the ${normalizedDepartmentName} department.`,
-                        questions: departmentReportQuestions.filter((q) => evaluateConditionalLogic(q.conditional_logic, customResponses)),
+                        questions: departmentReportQuestions.filter((q) =>
+                          evaluateConditionalLogic(q.conditional_logic, customResponses)
+                        ),
                       },
                       {
                         key: "profession",
                         title: getQuestionCategoryLabel("profession_question", true),
                         description: `These answers apply to your assigned profession in ${normalizedDepartmentName}.`,
-                        questions: professionQuestions.filter((q) => evaluateConditionalLogic(q.conditional_logic, customResponses)),
+                        questions: professionQuestions.filter((q) =>
+                          evaluateConditionalLogic(q.conditional_logic, customResponses)
+                        ),
                       },
                     ]
                       .filter((group) => group.questions.length > 0)
@@ -2314,7 +2325,9 @@ export function EntryFormMultistep({
                                       {isImageQuestion ? (
                                         <ImageResponsePreview value={value} className="max-w-3xl" />
                                       ) : (
-                                        <p className="text-muted-foreground text-sm whitespace-pre-wrap">{displayValue}</p>
+                                        <p className="text-muted-foreground text-sm whitespace-pre-wrap">
+                                          {displayValue}
+                                        </p>
                                       )}
                                     </div>
                                     {previewAgent ? (
@@ -2380,7 +2393,14 @@ export function EntryFormMultistep({
         ) : null}
         <div className="flex items-center justify-between">
           {currentStep === 1 ? (
-            <Button variant="outline" className="invisible gap-2" type="button" tabIndex={-1} aria-hidden="true" disabled>
+            <Button
+              variant="outline"
+              className="invisible gap-2"
+              type="button"
+              tabIndex={-1}
+              aria-hidden="true"
+              disabled
+            >
               <ArrowLeft className="h-4 w-4" />
               Previous
             </Button>

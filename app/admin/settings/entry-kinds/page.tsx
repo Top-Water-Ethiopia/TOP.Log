@@ -3,6 +3,7 @@
 import { useEffect, useState, useMemo, useRef } from "react"
 import { useRouter } from "next/navigation"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -33,6 +34,7 @@ import {
   ChevronUp,
   Plus,
   X,
+  ChevronRight,
 } from "lucide-react"
 
 interface Department {
@@ -62,6 +64,7 @@ export default function EntryKindsConfigPage() {
   const [isSaving, setIsSaving] = useState(false)
   const [validationError, setValidationError] = useState<string | null>(null)
   const [deactivationBlock, setDeactivationBlock] = useState<{ entryKind: string; count: number } | null>(null)
+  const validationBannerRef = useRef<HTMLDivElement | null>(null)
 
   // Create Entry Kind Modal state
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
@@ -236,6 +239,15 @@ export default function EntryKindsConfigPage() {
       return { valid: true, error: null }
     }
 
+    for (const c of editedConfigs) {
+      if (c.available_start_date && c.available_end_date && c.available_start_date > c.available_end_date) {
+        return {
+          valid: false,
+          error: `Invalid date window for ${getEntryKindLabel(c.entry_kind)}: start date must be on/before end date.`,
+        }
+      }
+    }
+
     const requiresActive = effectiveScopeType !== "profession_personal"
 
     if (requiresActive && active.length === 0) {
@@ -309,6 +321,41 @@ export default function EntryKindsConfigPage() {
     setHasChanges(true)
   }
 
+  const handleUpdateIsAvailable = (index: number, value: boolean) => {
+    const newConfigs = [...editedConfigs]
+    newConfigs[index] = { ...newConfigs[index], is_available: value }
+    setEditedConfigs(newConfigs)
+    setHasChanges(true)
+  }
+
+  const handleToggleWeekday = (index: number, isoWeekday: number) => {
+    const current = editedConfigs[index]
+    if (!current) return
+    const existing = Array.isArray(current.allowed_weekdays) ? current.allowed_weekdays : []
+    const next = existing.includes(isoWeekday)
+      ? existing.filter((d) => d !== isoWeekday)
+      : [...existing, isoWeekday].sort((a, b) => a - b)
+    const normalized = next.length === 0 ? null : next
+    const newConfigs = [...editedConfigs]
+    newConfigs[index] = { ...current, allowed_weekdays: normalized }
+    setEditedConfigs(newConfigs)
+    setHasChanges(true)
+  }
+
+  const handleUpdateStartDate = (index: number, value: string) => {
+    const newConfigs = [...editedConfigs]
+    newConfigs[index] = { ...newConfigs[index], available_start_date: value || null }
+    setEditedConfigs(newConfigs)
+    setHasChanges(true)
+  }
+
+  const handleUpdateEndDate = (index: number, value: string) => {
+    const newConfigs = [...editedConfigs]
+    newConfigs[index] = { ...newConfigs[index], available_end_date: value || null }
+    setEditedConfigs(newConfigs)
+    setHasChanges(true)
+  }
+
   const handleUpdateIcon = (index: number, icon: string) => {
     const newConfigs = [...editedConfigs]
     newConfigs[index] = { ...newConfigs[index], icon }
@@ -338,6 +385,13 @@ export default function EntryKindsConfigPage() {
   const handleSave = async () => {
     if (!validation.valid) {
       setValidationError(validation.error)
+      requestAnimationFrame(() => {
+        const banner = validationBannerRef.current
+        if (banner) {
+          banner.scrollIntoView({ behavior: "smooth", block: "center" })
+          banner.focus()
+        }
+      })
       return
     }
 
@@ -362,6 +416,10 @@ export default function EntryKindsConfigPage() {
             sort_order: c.sort_order,
             is_default: c.is_default,
             is_active: c.is_active,
+            is_available: c.is_available,
+            allowed_weekdays: c.allowed_weekdays,
+            available_start_date: c.available_start_date,
+            available_end_date: c.available_end_date,
             supports_assigned_agent: c.supports_assigned_agent ?? false,
             allow_multiple_per_day: c.allow_multiple_per_day ?? false,
             color: c.color,
@@ -626,12 +684,19 @@ export default function EntryKindsConfigPage() {
         </CardContent>
       </Card>
 
-      {/* Validation Error */}
-      {validationError && (
-        <Alert variant="destructive" className="mb-6">
+      {/* Validation Banner (live) */}
+      {!validation.valid && (
+        <Alert
+          ref={validationBannerRef}
+          tabIndex={-1}
+          role="alert"
+          aria-live="assertive"
+          variant="destructive"
+          className="mb-6"
+        >
           <AlertCircle className="h-4 w-4" />
-          <AlertTitle>Invalid Configuration</AlertTitle>
-          <AlertDescription>{validationError}</AlertDescription>
+          <AlertTitle>Fix Errors to Save</AlertTitle>
+          <AlertDescription>{validation.error}</AlertDescription>
         </Alert>
       )}
 
@@ -661,7 +726,7 @@ export default function EntryKindsConfigPage() {
                   <Plus className="mr-2 h-4 w-4" />
                   Create Entry Kind
                 </Button>
-                <Button onClick={handleSave} disabled={!hasChanges || isSaving || !validation.valid}>
+                <Button onClick={handleSave} disabled={!hasChanges || isSaving}>
                   {isSaving ? (
                     <>
                       <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -670,7 +735,7 @@ export default function EntryKindsConfigPage() {
                   ) : (
                     <>
                       <Save className="mr-2 h-4 w-4" />
-                      Save Changes
+                      {validation.valid ? "Save Changes" : "Fix Errors to Save"}
                     </>
                   )}
                 </Button>
@@ -693,13 +758,13 @@ export default function EntryKindsConfigPage() {
                 {editedConfigs.map((config, index) => {
                   const editorTitle = getEntryKindEditorTitle(config)
                   return (
-                    <div
+                    <Collapsible
                       key={`${config.entry_kind}-${index}`}
                       className={`rounded-lg border p-4 ${config.is_active ? "bg-white" : "bg-gray-50 opacity-75"}`}
                     >
-                      <div className="flex items-start gap-4">
+                      <CollapsibleTrigger className="flex w-full items-start gap-4 text-left">
                         {/* Drag Handle */}
-                        <div className="flex flex-col gap-1 pt-1">
+                        <div className="flex flex-col gap-1 pt-1" onClick={(e) => e.stopPropagation()}>
                           <Button
                             variant="ghost"
                             size="icon"
@@ -722,19 +787,28 @@ export default function EntryKindsConfigPage() {
                         </div>
 
                         {/* Icon & System Key */}
-                        <div className="bg-muted flex h-10 w-10 items-center justify-center rounded-full">
+                        <div className="bg-muted flex h-10 w-10 shrink-0 items-center justify-center rounded-full">
                           {getIconComponent(config.icon || "FileText")}
                         </div>
 
-                        {/* Content */}
-                        <div className="flex-1 space-y-3">
-                          <div className="flex items-center gap-2">
+                        {/* Title Row */}
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
                             <span className="font-semibold">{editorTitle.title}</span>
                             <span className="text-muted-foreground text-xs">{editorTitle.keyLabel}</span>
                             {config.is_active && config.is_default && <Badge variant="default">Default</Badge>}
                             {!config.is_active && <Badge variant="secondary">Inactive</Badge>}
                           </div>
+                        </div>
 
+                        {/* Chevron */}
+                        <div className="shrink-0 pt-2">
+                          <ChevronRight className="text-muted-foreground h-5 w-5 transition-transform duration-200 group-data-[state=open]:rotate-90" />
+                        </div>
+                      </CollapsibleTrigger>
+
+                      <CollapsibleContent className="pt-4">
+                        <div className="space-y-3">
                           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                             <div className="space-y-1">
                               <Label className="text-xs">Display Label</Label>
@@ -793,6 +867,18 @@ export default function EntryKindsConfigPage() {
 
                               <div className="flex items-center gap-2">
                                 <Switch
+                                  checked={config.is_available}
+                                  onCheckedChange={(checked) => handleUpdateIsAvailable(index, checked)}
+                                  id={`available-${config.entry_kind}`}
+                                />
+                                <Label htmlFor={`available-${config.entry_kind}`} className="text-sm">
+                                  Available to submitters
+                                </Label>
+                                {!config.is_available ? <Badge variant="secondary">Suspended</Badge> : null}
+                              </div>
+
+                              <div className="flex items-center gap-2">
+                                <Switch
                                   checked={config.supports_assigned_agent}
                                   onCheckedChange={() =>
                                     handleUpdateSupportsAssignedAgent(index, !config.supports_assigned_agent)
@@ -818,9 +904,65 @@ export default function EntryKindsConfigPage() {
                               </div>
                             </div>
                           </div>
+
+                          <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                            <div className="space-y-1">
+                              <Label className="text-xs" htmlFor={`start-${config.entry_kind}`}>
+                                Available start date (optional)
+                              </Label>
+                              <Input
+                                id={`start-${config.entry_kind}`}
+                                type="date"
+                                value={config.available_start_date || ""}
+                                onChange={(e) => handleUpdateStartDate(index, e.target.value)}
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs" htmlFor={`end-${config.entry_kind}`}>
+                                Available end date (optional)
+                              </Label>
+                              <Input
+                                id={`end-${config.entry_kind}`}
+                                type="date"
+                                value={config.available_end_date || ""}
+                                onChange={(e) => handleUpdateEndDate(index, e.target.value)}
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-xs">Allowed days (optional)</Label>
+                              <div className="flex flex-wrap gap-2 pt-1">
+                                {[
+                                  { iso: 1, label: "Mon" },
+                                  { iso: 2, label: "Tue" },
+                                  { iso: 3, label: "Wed" },
+                                  { iso: 4, label: "Thu" },
+                                  { iso: 5, label: "Fri" },
+                                  { iso: 6, label: "Sat" },
+                                  { iso: 7, label: "Sun" },
+                                ].map((d) => {
+                                  const selected = (config.allowed_weekdays ?? []).includes(d.iso)
+                                  return (
+                                    <Button
+                                      key={d.iso}
+                                      type="button"
+                                      size="sm"
+                                      variant={selected ? "default" : "outline"}
+                                      className="h-8 px-2"
+                                      onClick={() => handleToggleWeekday(index, d.iso)}
+                                    >
+                                      {d.label}
+                                    </Button>
+                                  )
+                                })}
+                              </div>
+                              <p className="text-muted-foreground text-xs">
+                                None selected = allowed any day (ISO: 1=Mon … 7=Sun)
+                              </p>
+                            </div>
+                          </div>
                         </div>
-                      </div>
-                    </div>
+                      </CollapsibleContent>
+                    </Collapsible>
                   )
                 })}
               </div>
