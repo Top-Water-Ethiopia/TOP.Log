@@ -1,6 +1,6 @@
 import { formatLocalDate } from "@/lib/date-restrictions"
 
-export type LogsViewMode = "list" | "calendar"
+export type LogsViewMode = "list" | "calendar" | "files"
 
 export interface LogsPageSearchParams {
   date?: string
@@ -28,7 +28,9 @@ export function getCurrentMonthValue(referenceDate = new Date()): string {
 }
 
 export function parseLogsViewMode(value?: string): LogsViewMode {
-  return value === "calendar" ? "calendar" : "list"
+  if (value === "calendar") return "calendar"
+  if (value === "files") return "files"
+  return "list"
 }
 
 export function parseLogsPageNumber(value?: string): number {
@@ -127,6 +129,10 @@ export function buildLogsPageHref(state: {
     query.set("view", "calendar")
   }
 
+  if (view === "files") {
+    query.set("view", "files")
+  }
+
   if (state.date) {
     query.set("date", state.date)
   }
@@ -139,7 +145,7 @@ export function buildLogsPageHref(state: {
     query.set("selectedReportId", state.selectedReportId)
   }
 
-  if (view === "calendar" && state.month && state.month !== getCurrentMonthValue()) {
+  if ((view === "calendar" || view === "files") && state.month && state.month !== getCurrentMonthValue()) {
     query.set("month", state.month)
   }
 

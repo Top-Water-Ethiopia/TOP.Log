@@ -1,5 +1,5 @@
 import Link from "next/link"
-import { CalendarDays, List } from "lucide-react"
+import { CalendarDays, Files, List } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { buildLogsPageHref } from "@/lib/logs-page-filters"
 import type { LogsViewMode } from "@/lib/logs-page-filters"
@@ -21,6 +21,13 @@ export function LogsViewToggle({ currentView, date, departmentId, month }: LogsV
 
   const calendarHref = buildLogsPageHref({
     view: "calendar",
+    date,
+    departmentId,
+    month,
+  })
+
+  const filesHref = buildLogsPageHref({
+    view: "files",
     date,
     departmentId,
     month,
@@ -54,6 +61,20 @@ export function LogsViewToggle({ currentView, date, departmentId, month }: LogsV
         >
           <CalendarDays className="h-4 w-4" />
           Calendar
+        </Button>
+      </Link>
+      <Link href={filesHref}>
+        <Button
+          variant={currentView === "files" ? "secondary" : "ghost"}
+          size="sm"
+          aria-current={currentView === "files" ? "page" : undefined}
+          className={cn(
+            "gap-2 transition-colors",
+            currentView === "files" ? "text-foreground font-semibold shadow-sm" : "text-muted-foreground"
+          )}
+        >
+          <Files className="h-4 w-4" />
+          Files
         </Button>
       </Link>
     </div>

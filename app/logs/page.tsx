@@ -21,6 +21,7 @@ import { LogsFilters } from "@/components/logs/logs-filters"
 import { LogsList } from "@/components/logs/logs-list"
 import { LogReportPreviewPanel } from "@/components/logs/log-report-preview-panel"
 import { LogsViewToggle } from "@/components/logs/logs-view-toggle"
+import { LogsFilesView } from "@/components/logs/files-view"
 
 interface LogsViewerProfile {
   role_id: string
@@ -511,7 +512,9 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
         </CardContent>
       </Card>
 
-      {pageState.view === "calendar" ? (
+      {pageState.view === "files" ? (
+        <LogsFilesView currentUserId={userId} departmentId={pageState.departmentId} date={pageState.date} month={pageState.month} />
+      ) : pageState.view === "calendar" ? (
         <div className="space-y-6">
           <LogsCalendar
             daySummaries={calendarDaySummaries}

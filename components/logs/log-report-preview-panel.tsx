@@ -10,6 +10,13 @@ import { RightSidePanel } from "@/components/ui/right-side-panel"
 import { ImageResponsePreview } from "@/components/image-response-preview"
 import { formatDateHuman } from "@/lib/date-restrictions"
 import { normalizeImageResponseValue } from "@/lib/image-upload"
+import { FilesTabs } from "@/components/logs/files-tabs"
+import {
+  compareLogAssetsNewestFirst,
+  dedupeLogAssetsKeepingNewest,
+  extractLogAssetsFromResponses,
+  type LogAssetSourceResponse,
+} from "@/lib/log-assets"
 
 interface CustomResponse {
   question_id: string
@@ -154,6 +161,29 @@ export function LogReportPreviewPanel({ canAccessAdmin, closeHref, reportId }: L
     })
   }, [report])
 
+  const assets = useMemo(() => {
+    if (!report) return []
+    const sourceResponses: LogAssetSourceResponse[] = responses.map((r) => ({
+      question_type: r.question_type,
+      question_key: r.question_key,
+      question_label: r.question_label,
+      value: r.value,
+    }))
+    const extracted = extractLogAssetsFromResponses(sourceResponses, {
+      entryId: report.id,
+      entryDate: report.date,
+      entryCreatedAt: report.created_at,
+      entryUserId: null,
+    })
+    return dedupeLogAssetsKeepingNewest(extracted).sort(compareLogAssetsNewestFirst)
+  }, [report, responses])
+
+  const { docs, media } = useMemo(() => {
+    const mediaAssets = assets.filter((a) => a.kind === "image")
+    const docAssets = assets.filter((a) => a.kind === "document")
+    return { docs: docAssets, media: mediaAssets }
+  }, [assets])
+
   if (!reportId) {
     return null
   }
@@ -210,6 +240,8 @@ export function LogReportPreviewPanel({ canAccessAdmin, closeHref, reportId }: L
               {responses.length} response{responses.length === 1 ? "" : "s"}
             </Badge>
           </div>
+
+          {assets.length > 0 ? <FilesTabs media={media} docs={docs} /> : null}
 
           {report.subject_agent_snapshot?.name ? (
             <div className="space-y-3 rounded-lg border p-4">

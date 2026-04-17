@@ -24,15 +24,16 @@ export function LogsFilters({
 }: LogsFiltersProps) {
   const clearHref = buildLogsPageHref({
     view: currentView,
-    month: currentView === "calendar" ? month : undefined,
+    month: currentView === "calendar" || currentView === "files" ? month : undefined,
   })
 
   return (
     <form action="/logs" className="flex flex-wrap items-end gap-4">
       <input type="hidden" name="view" value={currentView} />
 
-      {currentView === "calendar" ? <input type="hidden" name="month" value={month} /> : null}
+      {currentView === "calendar" || currentView === "files" ? <input type="hidden" name="month" value={month} /> : null}
       {currentView === "calendar" && date ? <input type="hidden" name="date" value={date} /> : null}
+      {currentView === "files" && date ? <input type="hidden" name="date" value={date} /> : null}
 
       {currentView === "list" ? (
         <div className="flex flex-col gap-1.5">
