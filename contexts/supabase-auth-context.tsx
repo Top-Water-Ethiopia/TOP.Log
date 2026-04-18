@@ -7,6 +7,7 @@ import type { User, Session } from "@supabase/supabase-js"
 import { createSupabaseClient } from "@/lib/supabase-client"
 import { signIn, signOut, signUp, onAuthStateChange, getCurrentUser, createUserProfile } from "@/lib/auth-utils"
 import { getAuthIdentifierError, parseAuthIdentifier } from "@/lib/auth/identifier"
+import type { ChangePasswordResult } from "@/lib/auth/password"
 
 // Define types for our auth context
 interface UserProfile {
@@ -44,6 +45,7 @@ interface AuthContextType extends AuthState {
   register: (identifier: string, password: string, name: string, departmentId?: string) => Promise<void>
   updateProfile: (data: Partial<UserProfile>) => Promise<void>
   refreshProfile: () => Promise<void>
+  changePassword: (currentPassword: string, newPassword: string) => Promise<ChangePasswordResult>
   resetAuthError: () => void
 }
 
@@ -581,6 +583,77 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
     }
   }
 
+  // Change password function
+  const changePassword = async (currentPassword: string, newPassword: string): Promise<ChangePasswordResult> => {
+    if (!authState.user) {
+      return { success: false, error: "UNKNOWN_ERROR", message: "User not authenticated" }
+    }
+
+    try {
+      const localSupabase = createSupabaseClient()
+
+      // Step 1: Verify current password by attempting sign in
+      const credentials = authState.user.email
+        ? { email: authState.user.email, password: currentPassword }
+        : authState.user.phone
+          ? { phone: authState.user.phone, password: currentPassword }
+          : null
+
+      if (!credentials) {
+        return { success: false, error: "UNKNOWN_ERROR", message: "User has no email/phone identifier" }
+      }
+
+      const { error: verifyError } = await localSupabase.auth.signInWithPassword(credentials)
+
+      if (verifyError) {
+        const message = verifyError.message || ""
+        const lowered = message.toLowerCase()
+
+        if (lowered.includes("invalid login credentials") || lowered.includes("invalid") || lowered.includes("password")) {
+          return { success: false, error: "INVALID_CURRENT_PASSWORD" }
+        }
+
+        if (lowered.includes("captcha") || lowered.includes("rate") || lowered.includes("too many")) {
+          return { success: false, error: "UNKNOWN_ERROR", message }
+        }
+
+        return { success: false, error: "UNKNOWN_ERROR", message }
+      }
+
+      // Step 2: Check new password is different from current
+      if (currentPassword === newPassword) {
+        return { success: false, error: "PASSWORD_REUSE" }
+      }
+
+      // Step 3: Update to new password
+      const { error: updateError } = await localSupabase.auth.updateUser({
+        password: newPassword,
+      })
+
+      if (updateError) {
+        console.error("Password update error:", updateError)
+        const message = updateError.message || "Failed to update password"
+        const lowered = message.toLowerCase()
+        if (lowered.includes("network") || lowered.includes("fetch")) {
+          return { success: false, error: "NETWORK_ERROR", message }
+        }
+        return { success: false, error: "UNKNOWN_ERROR", message }
+      }
+
+      // Step 4: Refresh session to maintain continuity
+      await localSupabase.auth.refreshSession()
+
+      return { success: true }
+    } catch (error: unknown) {
+      console.error("Change password error:", error)
+      const message = error instanceof Error ? error.message : "Unknown error"
+      if (message.includes("fetch") || message.includes("network")) {
+        return { success: false, error: "NETWORK_ERROR" }
+      }
+      return { success: false, error: "UNKNOWN_ERROR", message }
+    }
+  }
+
   // Reset auth error
   const resetAuthError = () => {
     setAuthState((prev) => ({ ...prev, error: null }))
@@ -594,6 +667,7 @@ export function SupabaseAuthProvider({ children }: { children: React.ReactNode }
     register,
     updateProfile,
     refreshProfile,
+    changePassword,
     resetAuthError,
   }
 

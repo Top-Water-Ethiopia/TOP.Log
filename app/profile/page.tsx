@@ -15,7 +15,14 @@ import { Badge } from "@/components/ui/badge"
 import { toast } from "sonner"
 import { supabase } from "@/lib/supabase/client"
 import { SupabaseNav } from "@/components/supabase-nav"
-import { Building2, Shield } from "lucide-react"
+import { Building2, Shield, Eye, EyeOff, CheckCircle } from "lucide-react"
+import {
+  validatePassword,
+  checkPasswordRequirements,
+  changePasswordErrorMessages,
+  type ChangePasswordError,
+} from "@/lib/auth/password"
+import { Alert, AlertDescription } from "@/components/ui/alert"
 import { isFeatureEnabledClient } from "@/lib/feature-flags/client"
 import { getEffectiveDepartmentRole } from "@/lib/server/department-reporting"
 
@@ -75,6 +82,19 @@ export default function ProfilePage() {
   const [isUpdating, setIsUpdating] = useState(false)
   const [departmentName, setDepartmentName] = useState("")
   const [departmentRoleName, setDepartmentRoleName] = useState("")
+
+  // Password change state
+  const { changePassword } = useSupabaseAuth()
+  const [currentPassword, setCurrentPassword] = useState("")
+  const [newPassword, setNewPassword] = useState("")
+  const [confirmPassword, setConfirmPassword] = useState("")
+  const [showCurrentPassword, setShowCurrentPassword] = useState(false)
+  const [showNewPassword, setShowNewPassword] = useState(false)
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
+  const [isChangingPassword, setIsChangingPassword] = useState(false)
+  const [passwordError, setPasswordError] = useState<string | null>(null)
+  const [failedAttempts, setFailedAttempts] = useState(0)
+  const [isCooldown, setIsCooldown] = useState(false)
 
   useEffect(() => {
     const loadDepartment = async () => {
@@ -136,6 +156,90 @@ export default function ProfilePage() {
       toast.error("Failed to update profile")
     } finally {
       setIsUpdating(false)
+    }
+  }
+
+  // Password requirements checklist component
+  const PasswordRequirements = ({ password }: { password: string }) => {
+    const reqs = checkPasswordRequirements(password)
+    const items = [
+      { label: "At least 8 characters", met: reqs.minLength },
+      { label: "One uppercase letter", met: reqs.hasUppercase },
+      { label: "One lowercase letter", met: reqs.hasLowercase },
+      { label: "One number", met: reqs.hasNumber },
+      { label: "One special character", met: reqs.hasSpecial },
+    ]
+
+    return (
+      <div className="mt-2 space-y-1">
+        {items.map((item, index) => (
+          <div key={index} className="flex items-center gap-2 text-xs">
+            {item.met ? (
+              <CheckCircle className="h-3 w-3 text-green-500" />
+            ) : (
+              <div className="h-3 w-3 rounded-full border border-gray-300" />
+            )}
+            <span className={item.met ? "text-green-600" : "text-muted-foreground"}>{item.label}</span>
+          </div>
+        ))}
+      </div>
+    )
+  }
+
+  // Handle password change
+  const handlePasswordChange = async (e: FormEvent) => {
+    e.preventDefault()
+    setPasswordError(null)
+
+    if (isCooldown) return
+
+    // Client validation
+    if (newPassword !== confirmPassword) {
+      setPasswordError(changePasswordErrorMessages.CONFIRM_MISMATCH)
+      return
+    }
+
+    const validation = validatePassword(newPassword)
+    if (!validation.isValid) {
+      setPasswordError(validation.errors[0])
+      return
+    }
+
+    setIsChangingPassword(true)
+    try {
+      const result = await changePassword(currentPassword, newPassword)
+
+      if (result.success) {
+        toast.success("Password changed successfully")
+        // Reset form
+        setCurrentPassword("")
+        setNewPassword("")
+        setConfirmPassword("")
+        setFailedAttempts(0)
+      } else {
+        const errorKey = result.error || "UNKNOWN_ERROR"
+        const hasDetail = typeof result.message === "string" && result.message.trim().length > 0
+        const mappedMessage = changePasswordErrorMessages[errorKey as ChangePasswordError]
+        const fallbackMessage = hasDetail ? result.message!.trim() : changePasswordErrorMessages.UNKNOWN_ERROR
+
+        setPasswordError(errorKey === "UNKNOWN_ERROR" ? fallbackMessage : mappedMessage ?? fallbackMessage)
+        setFailedAttempts((prev) => {
+          const newCount = prev + 1
+          if (newCount >= 3) {
+            setIsCooldown(true)
+            setTimeout(() => {
+              setIsCooldown(false)
+              setFailedAttempts(0)
+            }, 5000)
+          }
+          return newCount
+        })
+      }
+    } catch (error) {
+      console.error("Password change error:", error)
+      setPasswordError(changePasswordErrorMessages.UNKNOWN_ERROR)
+    } finally {
+      setIsChangingPassword(false)
     }
   }
 
@@ -259,7 +363,11 @@ export default function ProfilePage() {
 
                   <div className="space-y-2">
                     <Label>Department Role</Label>
-                    <Input value={departmentRoleName || "No department role assigned"} disabled className="bg-muted/50" />
+                    <Input
+                      value={departmentRoleName || "No department role assigned"}
+                      disabled
+                      className="bg-muted/50"
+                    />
                   </div>
 
                   <Button type="submit" disabled={isUpdating}>
@@ -304,6 +412,117 @@ export default function ProfilePage() {
                     </div>
                   </div>
                 </div>
+              </CardContent>
+            </Card>
+
+            {/* Security Card - Password Change */}
+            <Card>
+              <CardHeader>
+                <CardTitle>Security</CardTitle>
+                <CardDescription>Manage your password</CardDescription>
+              </CardHeader>
+              <CardContent>
+                <form onSubmit={handlePasswordChange} className="space-y-4">
+                  {passwordError && (
+                    <Alert variant="destructive">
+                      <AlertDescription>{passwordError}</AlertDescription>
+                    </Alert>
+                  )}
+
+                  {isCooldown && (
+                    <Alert variant="default" className="border-amber-200 bg-amber-50">
+                      <AlertDescription className="text-amber-700">
+                        Too many failed attempts. Please wait 5 seconds before trying again.
+                      </AlertDescription>
+                    </Alert>
+                  )}
+
+                  {/* Current Password */}
+                  <div className="space-y-2">
+                    <Label htmlFor="currentPassword">Current Password</Label>
+                    <div className="relative">
+                      <Input
+                        id="currentPassword"
+                        name="currentPassword"
+                        type={showCurrentPassword ? "text" : "password"}
+                        value={currentPassword}
+                        onChange={(e) => setCurrentPassword(e.target.value)}
+                        autoComplete="current-password"
+                        disabled={isChangingPassword || isCooldown}
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="absolute top-1 right-1 h-8 w-8 p-0"
+                        onClick={() => setShowCurrentPassword(!showCurrentPassword)}
+                        disabled={isChangingPassword}
+                      >
+                        {showCurrentPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </Button>
+                    </div>
+                  </div>
+
+                  {/* New Password */}
+                  <div className="space-y-2">
+                    <Label htmlFor="newPassword">New Password</Label>
+                    <div className="relative">
+                      <Input
+                        id="newPassword"
+                        name="newPassword"
+                        type={showNewPassword ? "text" : "password"}
+                        value={newPassword}
+                        onChange={(e) => setNewPassword(e.target.value)}
+                        autoComplete="new-password"
+                        disabled={isChangingPassword || isCooldown}
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="absolute top-1 right-1 h-8 w-8 p-0"
+                        onClick={() => setShowNewPassword(!showNewPassword)}
+                        disabled={isChangingPassword}
+                      >
+                        {showNewPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </Button>
+                    </div>
+                    <PasswordRequirements password={newPassword} />
+                  </div>
+
+                  {/* Confirm Password */}
+                  <div className="space-y-2">
+                    <Label htmlFor="confirmPassword">Confirm New Password</Label>
+                    <div className="relative">
+                      <Input
+                        id="confirmPassword"
+                        name="confirmPassword"
+                        type={showConfirmPassword ? "text" : "password"}
+                        value={confirmPassword}
+                        onChange={(e) => setConfirmPassword(e.target.value)}
+                        autoComplete="new-password"
+                        disabled={isChangingPassword || isCooldown}
+                      />
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="absolute top-1 right-1 h-8 w-8 p-0"
+                        onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                        disabled={isChangingPassword}
+                      >
+                        {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </Button>
+                    </div>
+                  </div>
+
+                  <Button
+                    type="submit"
+                    disabled={isChangingPassword || isCooldown || !currentPassword || !newPassword || !confirmPassword}
+                  >
+                    {isChangingPassword ? "Changing..." : "Change Password"}
+                  </Button>
+                </form>
               </CardContent>
             </Card>
           </div>

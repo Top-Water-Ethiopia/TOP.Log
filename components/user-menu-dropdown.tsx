@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from "react"
 import { useRouter } from "next/navigation"
-import { ChevronDown } from "lucide-react"
+import Link from "next/link"
+import { ChevronDown, User } from "lucide-react"
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu"
+import { isFeatureEnabledClient } from "@/lib/feature-flags/client"
 
 export interface UserMenuDropdownProps {
   isAuthenticated: boolean
@@ -44,6 +46,14 @@ export function UserMenuDropdown({
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-48">
+        {isFeatureEnabledClient("PROFILE") && (
+          <DropdownMenuItem asChild>
+            <Link href="/profile" className="flex cursor-pointer items-center gap-2">
+              <User className="h-4 w-4" />
+              Profile
+            </Link>
+          </DropdownMenuItem>
+        )}
         <DropdownMenuItem
           onClick={async () => {
             const { supabase } = await import("@/lib/supabase/client")
