@@ -6,6 +6,7 @@ import { useSupabaseAuth } from "./supabase-auth-context";
 import { v4 as uuidv4 } from 'uuid';
 import * as supabaseData from "@/lib/supabase-data";
 import type { CaptainLogEntry, AuditLog } from "@/lib/supabase-data";
+import { normalizeReportKind } from "@/lib/reporting-model";
 
 // Context type
 interface CaptainLogContextType {
@@ -124,6 +125,7 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
       const now = new Date().toISOString();
       const newEntry = await supabaseData.createEntry({
         ...entry,
+        report_kind: normalizeReportKind(entry.report_kind),
         id: uuidv4(),
         user_id: user.id,
         created_at: now,
