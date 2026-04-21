@@ -3,6 +3,10 @@ import { render, screen, waitFor, fireEvent } from "@testing-library/react"
 import { EntryKindDropdown } from "@/components/entry-kind-dropdown"
 import { SWRConfig } from "swr"
 
+jest.mock("next/navigation", () => ({
+  usePathname: () => "/logs/new",
+}))
+
 // Mock the use-entry-kinds hook
 jest.mock("@/hooks/use-entry-kinds", () => ({
   useScopeEntryKinds: jest.fn(),
@@ -27,6 +31,7 @@ const mockUseScopeEntryKinds = useScopeEntryKinds as jest.MockedFunction<typeof 
 
 describe("EntryKindDropdown", () => {
   const mockOnChange = jest.fn()
+  const testDate = "2026-03-31"
   const renderWithSWR = (ui: React.ReactElement) =>
     render(<SWRConfig value={{ provider: () => new Map(), dedupingInterval: 0 }}>{ui}</SWRConfig>)
 
@@ -51,6 +56,7 @@ describe("EntryKindDropdown", () => {
       <EntryKindDropdown
         departmentId="dept-123"
         role="sales_promoter"
+        date={testDate}
         value={null}
         onChange={mockOnChange}
       />
@@ -81,7 +87,7 @@ describe("EntryKindDropdown", () => {
     })
 
     const { rerender } = renderWithSWR(
-      <EntryKindDropdown departmentId="dept-123" role="sales_promoter" value={null} onChange={mockOnChange} />
+      <EntryKindDropdown departmentId="dept-123" role="sales_promoter" date={testDate} value={null} onChange={mockOnChange} />
     )
 
     // Wait for initial fetch
@@ -91,13 +97,13 @@ describe("EntryKindDropdown", () => {
     const initialCallCount = mockFetch.mock.calls.length
 
     // Re-render with same props - should NOT trigger new API calls
-    rerender(<EntryKindDropdown departmentId="dept-123" role="sales_promoter" value={null} onChange={mockOnChange} />)
+    rerender(<EntryKindDropdown departmentId="dept-123" role="sales_promoter" date={testDate} value={null} onChange={mockOnChange} />)
 
     const samePropsCallCount = mockFetch.mock.calls.length
 
     // Re-render with different value - should NOT trigger new API calls
     rerender(
-      <EntryKindDropdown departmentId="dept-123" role="sales_promoter" value="standard" onChange={mockOnChange} />
+      <EntryKindDropdown departmentId="dept-123" role="sales_promoter" date={testDate} value="standard" onChange={mockOnChange} />
     )
 
     await waitFor(() => {
@@ -122,7 +128,7 @@ describe("EntryKindDropdown", () => {
     })
 
     const { rerender } = renderWithSWR(
-      <EntryKindDropdown departmentId="dept-123" role="sales_promoter" value={null} onChange={mockOnChange} />
+      <EntryKindDropdown departmentId="dept-123" role="sales_promoter" date={testDate} value={null} onChange={mockOnChange} />
     )
 
     await waitFor(() => {
@@ -143,6 +149,7 @@ describe("EntryKindDropdown", () => {
       <EntryKindDropdown
         departmentId="dept-456"
         role="sales_promoter"
+        date={testDate}
         value={null}
         onChange={mockOnChange}
       />
@@ -172,6 +179,7 @@ describe("EntryKindDropdown", () => {
       <EntryKindDropdown
         departmentId="dept-123"
         role="sales_promoter"
+        date={testDate}
         value={null}
         onChange={mockOnChange}
       />
@@ -203,6 +211,7 @@ describe("EntryKindDropdown", () => {
       <EntryKindDropdown
         departmentId="dept-123"
         role="sales_promoter"
+        date={testDate}
         value={null}
         onChange={mockOnChange}
       />
@@ -234,6 +243,7 @@ describe("EntryKindDropdown", () => {
       <EntryKindDropdown
         departmentId="dept-123"
         role="sales_promoter"
+        date={testDate}
         value="standard"
         onChange={mockOnChange}
       />
@@ -271,6 +281,7 @@ describe("EntryKindDropdown", () => {
       <EntryKindDropdown
         departmentId="dept-123"
         role="sales_promoter"
+        date={testDate}
         value="standard"
         onChange={mockOnChange}
       />
@@ -313,6 +324,7 @@ describe("EntryKindDropdown", () => {
       <EntryKindDropdown
         departmentId="dept-123"
         role="sales_promoter"
+        date={testDate}
         value={null}
         onChange={mockOnChange}
       />
@@ -342,6 +354,7 @@ describe("EntryKindDropdown", () => {
       <EntryKindDropdown
         departmentId="dept-abc-123"
         role="sales_promoter"
+        date={testDate}
         value={null}
         onChange={mockOnChange}
       />

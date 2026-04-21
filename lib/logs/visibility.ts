@@ -3,7 +3,15 @@ export function normalizeDepartmentAccessLevelName(value: string | null | undefi
 }
 
 export function canViewDepartmentLogs(accessLevelName: string | null | undefined) {
-  return normalizeDepartmentAccessLevelName(accessLevelName) === "department-lead"
+  const normalized = normalizeDepartmentAccessLevelName(accessLevelName)
+  return [
+    "department-lead",
+    "department-manager",
+    "supervisor",
+    "viewer",
+    "admin",
+    "super-admin",
+  ].includes(normalized)
 }
 
 export function shouldRestrictLogsToOwnEntries(accessLevelName: string | null | undefined) {

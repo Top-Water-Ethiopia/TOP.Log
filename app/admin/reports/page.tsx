@@ -15,7 +15,7 @@ export default function AdminReportsPage() {
   const router = useRouter()
   const { user, isLoading } = useSupabaseAuth()
   const { hasPermission, rbacChecked, rbacLoading } = useRBAC()
-  const canAccessAdmin = hasPermission("admin.system")
+  const canAccessAdmin = hasPermission("admin.system") || hasPermission("analytics.read") || hasPermission("entries.read")
 
   useEffect(() => {
     if (isLoading) return

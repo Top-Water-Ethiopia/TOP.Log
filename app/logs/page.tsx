@@ -120,12 +120,12 @@ async function fetchUserLogs(
       `
       id,
       date,
-      department_id,
+      department_id:subject_department_id,
       created_at,
       updated_at,
       entry_kind,
       subject_agent_snapshot,
-      departments:department_id (name)
+      departments:subject_department_id (name)
     `,
       { count: "exact" }
     )
@@ -136,7 +136,7 @@ async function fetchUserLogs(
   }
 
   if (filters.departmentId) {
-    query = query.eq("department_id", filters.departmentId)
+    query = query.eq("subject_department_id", filters.departmentId)
   } else {
     const accessibleDepartmentIds = await fetchAccessibleDepartmentIds(supabase, userId)
 
@@ -144,7 +144,7 @@ async function fetchUserLogs(
       return { logs: [], count: 0, hasMore: false }
     }
 
-    query = query.in("department_id", accessibleDepartmentIds)
+    query = query.in("subject_department_id", accessibleDepartmentIds)
   }
 
   if (filters.date) {
@@ -181,12 +181,12 @@ async function fetchLogsForMonth(
       `
       id,
       date,
-      department_id,
+      department_id:subject_department_id,
       created_at,
       updated_at,
       entry_kind,
       subject_agent_snapshot,
-      departments:department_id (name)
+      departments:subject_department_id (name)
     `
     )
     .gte("date", startDate)
@@ -199,7 +199,7 @@ async function fetchLogsForMonth(
   }
 
   if (filters.departmentId) {
-    query = query.eq("department_id", filters.departmentId)
+    query = query.eq("subject_department_id", filters.departmentId)
   } else {
     const accessibleDepartmentIds = await fetchAccessibleDepartmentIds(supabase, userId)
 
@@ -207,7 +207,7 @@ async function fetchLogsForMonth(
       return []
     }
 
-    query = query.in("department_id", accessibleDepartmentIds)
+    query = query.in("subject_department_id", accessibleDepartmentIds)
   }
 
   const { data, error } = await query
@@ -322,9 +322,34 @@ async function fetchViewerDepartmentProfession(
   }
 }
 
-async function fetchViewerDepartmentAccess(
+async function fetchUserDepartmentAccessLevels(
   supabase: Awaited<ReturnType<typeof createClient>>,
-  userId: string,
+  userId: string
+): Promise<Map<string, string>> {
+  const { data: memberships, error } = await supabase
+    .from("user_department_memberships")
+    .select("department_id, role:roles(name)")
+    .eq("user_id", userId)
+    .eq("membership_type", "access_level")
+    .eq("is_active", true)
+
+  if (error || !memberships) {
+    return new Map()
+  }
+
+  const accessMap = new Map<string, string>()
+  memberships.forEach((m) => {
+    const roleResult = Array.isArray(m.role) ? m.role[0] : m.role
+    if (roleResult?.name) {
+      accessMap.set(m.department_id, roleResult.name)
+    }
+  })
+
+  return accessMap
+}
+
+async function fetchViewerDepartmentAccess(
+  accessMap: Map<string, string>,
   departmentId?: string | null
 ): Promise<ViewerDepartmentAccess> {
   if (!departmentId) {
@@ -334,30 +359,7 @@ async function fetchViewerDepartmentAccess(
     }
   }
 
-  const { data: membership, error } = await supabase
-    .from("user_department_memberships")
-    .select(
-      `
-      role:roles (
-        name
-      )
-    `
-    )
-    .eq("user_id", userId)
-    .eq("department_id", departmentId)
-    .eq("membership_type", "access_level")
-    .eq("is_active", true)
-    .maybeSingle()
-
-  if (error || !membership) {
-    return {
-      access_level_name: null,
-      can_view_department_logs: false,
-    }
-  }
-
-  const roleResult = Array.isArray(membership.role) ? membership.role[0] : membership.role
-  const accessLevelName = roleResult?.name?.trim() || null
+  const accessLevelName = accessMap.get(departmentId) || null
 
   return {
     access_level_name: accessLevelName,
@@ -393,14 +395,24 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
   const userId = user.id
   const rawParams = await searchParams
   const viewerProfile = await fetchViewerProfile(supabase, userId)
-  const isBasicUser = viewerProfile?.role_name === "user"
+  const accessMap = await fetchUserDepartmentAccessLevels(supabase, userId)
+  
+  // A user is "basic" only if they don't have lead/manager permissions in any department
+  const hasAnyLeadPermission = Array.from(accessMap.values()).some(role => canViewDepartmentLogs(role))
   const canAccessAdmin = ["admin", "system-admin", "super-admin"].includes(viewerProfile?.role_name || "")
+  const isBasicUser = !canAccessAdmin && !hasAnyLeadPermission
+
   const forcedDepartmentId = isBasicUser ? viewerProfile?.department_id || undefined : undefined
   const pageState = normalizeLogsPageState({
     ...rawParams,
     departmentId: forcedDepartmentId || rawParams.departmentId,
   })
-  const viewerDepartmentAccess = await fetchViewerDepartmentAccess(supabase, userId, pageState.departmentId)
+  
+  // Resolve visibility: if we have a specific department, check its access.
+  // If no department selected but user is a lead in some departments,
+  // allow broad visibility for fetch calls (API will filter by accessible departments).
+  const viewerDepartmentAccess = await fetchViewerDepartmentAccess(accessMap, pageState.departmentId)
+  const effectiveCanViewDepartmentLogs = viewerDepartmentAccess.can_view_department_logs || (!pageState.departmentId && hasAnyLeadPermission)
 
   const [departments, listResult, monthLogs] = await Promise.all([
     fetchUserDepartments(supabase, userId, forcedDepartmentId),
@@ -409,20 +421,20 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
           date: pageState.date,
           departmentId: pageState.departmentId,
           page: pageState.page,
-          canViewDepartmentLogs: viewerDepartmentAccess.can_view_department_logs,
+          canViewDepartmentLogs: effectiveCanViewDepartmentLogs,
         })
       : Promise.resolve({ logs: [], count: 0, hasMore: false }),
     pageState.view === "calendar"
       ? fetchLogsForMonth(supabase, userId, {
           departmentId: pageState.departmentId,
           month: pageState.month,
-          canViewDepartmentLogs: viewerDepartmentAccess.can_view_department_logs,
+          canViewDepartmentLogs: effectiveCanViewDepartmentLogs,
         })
       : Promise.resolve([]),
   ])
 
-  const primaryDepartment = forcedDepartmentId
-    ? departments.find((department) => department.id === forcedDepartmentId) || departments[0] || null
+  const primaryDepartment = pageState.departmentId 
+    ? departments.find(d => d.id === pageState.departmentId) || departments[0] || null
     : departments[0] || null
   const reportStatus = primaryDepartment ? await getReportStatus(supabase, userId, primaryDepartment.id) : null
   const viewerProfession =

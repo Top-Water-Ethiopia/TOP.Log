@@ -72,16 +72,45 @@ export async function GET() {
 
     const isAdmin = (profile as any).role_id === ADMIN_ROLE_ID || (profile as any).role_id === SYSTEM_ADMIN_ROLE_ID
 
+    // Check for management permissions if not system admin
+    let accessibleDepartmentIds: string[] = []
+    let isManager = isAdmin
+    
     if (!isAdmin) {
-      return NextResponse.json({ error: "Forbidden: Admin access required" }, { status: 403 })
+      // Query memberships for management roles
+      const { data: memberships } = await adminSupabase
+        .from("user_department_memberships")
+        .select("department_id, role:roles(name)")
+        .eq("user_id", user.id)
+        .eq("membership_type", "access_level")
+        .eq("is_active", true)
+      
+      const managerDepts = (memberships || [])
+        .filter(m => {
+          const roleName = (m.role as any)?.name || (Array.isArray(m.role) && m.role[0]?.name)
+          return canViewDepartmentLogs(roleName)
+        })
+        .map(m => m.department_id)
+      
+      if (managerDepts.length > 0) {
+        isManager = true
+        accessibleDepartmentIds = managerDepts
+      }
     }
 
-    // Fetch all captain log entries
-    // Use adminSupabase to bypass RLS and get ALL entries for admin view
-    const { data: entries, error: entriesError } = await adminSupabase
-      .from("captain_log_entries")
-      .select("*")
-      .order("created_at", { ascending: false })
+    if (!isManager) {
+      return NextResponse.json({ error: "Forbidden: Management access required" }, { status: 403 })
+    }
+
+    // Fetch captain log entries
+    // Use adminSupabase to bypass RLS and get ALL entries for authorized departments
+    let entriesQuery = adminSupabase.from("captain_log_entries").select("*")
+    
+    if (!isAdmin) {
+      entriesQuery = entriesQuery.in("subject_department_id", accessibleDepartmentIds)
+    }
+
+    const { data: entries, error: entriesError } = await entriesQuery.order("created_at", { ascending: false })
 
     console.log("Entries fetched:", entries?.length || 0)
     console.log("Sample entry:", entries?.[0])
@@ -96,11 +125,16 @@ export async function GET() {
     let allUsers: any[] | null = null
     let allUsersError: any = null
 
-    const activeUsersResult = await adminSupabase
+    let usersQuery = adminSupabase
       .from("user_profiles")
       .select("user_id, name, role_id, department_id")
       .eq("is_active", true)
-      .order("name")
+    
+    if (!isAdmin) {
+      usersQuery = usersQuery.in("department_id", accessibleDepartmentIds)
+    }
+
+    const activeUsersResult = await usersQuery.order("name")
 
     allUsers = (activeUsersResult as any).data ?? null
     allUsersError = (activeUsersResult as any).error ?? null
@@ -150,10 +184,13 @@ export async function GET() {
 
     // Fetch ALL departments (for dropdown)
     // Use adminSupabase to bypass RLS
-    const { data: allDepartments, error: allDeptsError } = await adminSupabase
-      .from("departments")
-      .select("id, name")
-      .order("name")
+    let deptsQuery = adminSupabase.from("departments").select("id, name")
+    
+    if (!isAdmin) {
+      deptsQuery = deptsQuery.in("id", accessibleDepartmentIds)
+    }
+
+    const { data: allDepartments, error: allDeptsError } = await deptsQuery.order("name")
 
     if (allDeptsError) {
       console.error("Error fetching all departments:", allDeptsError)
