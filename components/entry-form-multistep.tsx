@@ -77,6 +77,7 @@ interface EntryFormMultistepProps {
     allow_multiple_per_day?: boolean
   }>
   effectiveRoleName?: string | null
+  resolutionMeta?: Record<string, any>
 }
 
 type AssignedAgentUsageMap = Record<string, Record<string, number>>
@@ -303,6 +304,7 @@ export function EntryFormMultistep({
   initialQuestionsByKind,
   initialAvailableEntryKinds,
   effectiveRoleName,
+  resolutionMeta,
 }: EntryFormMultistepProps) {
   const { addEntry } = useCaptainLog()
   const { isAuthenticated, user } = useAuth()
@@ -1800,10 +1802,14 @@ export function EntryFormMultistep({
           : null,
       }
 
+      const submissionMeta = resolutionMeta?.[finalEntryKind]
       const now = new Date().toISOString()
       await addEntry({
         department_id: departmentId,
         ...submissionData,
+        entry_kind_version_id: submissionMeta?.entry_kind_version_id,
+        question_set_version_id: submissionMeta?.question_set_version_id,
+        submitted_for_date: selectedDate,
         createdAt: now,
         updatedAt: now,
         metadata: null,

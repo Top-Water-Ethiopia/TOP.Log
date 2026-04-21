@@ -30,11 +30,22 @@ export interface ResolveEntryKindsInput {
   professionRoleId?: string | null // preview override; otherwise primary profession in this department
 }
 
+export interface ResolutionMetadata {
+  source: EntryKindsUsed
+  priority: number
+  matched_profession_id?: string | null
+  is_computed_default: boolean
+  entry_kind_version_id?: string | null
+  question_set_version_id?: string | null
+}
+
 export interface ResolveEntryKindsResult {
   data: any[]
+  primary: any | null
   meta: {
     used: EntryKindsUsed
     state: EntryKindsState
+    resolution?: Record<string, ResolutionMetadata>
   }
 }
 
@@ -62,130 +73,130 @@ async function getPrimaryProfessionRoleId(userId: string, departmentId: string):
   return data?.role_id ? String(data.role_id) : null
 }
 
-async function loadTargetConfigs(params: {
-  departmentId: string
-  scopeType: EntryKindsUsed
-  professionRoleId?: string | null
-}) {
-  const supabase = await createClient()
-  const { departmentId, scopeType, professionRoleId } = params
-
-  let query = (supabase as any)
-    .from("scope_entry_kinds")
-    .select("*")
-    .eq("department_id", departmentId)
-    .eq("scope_type", scopeType)
-
-  if (scopeType === "profession_personal") {
-    if (professionRoleId) {
-      query = query.eq("profession_role_id", professionRoleId)
-    } else {
-      // No profession context → treat as not configured
-      return { rows: [] as any[], state: "CONFIG_NOT_FOUND" as const }
-    }
-  } else {
-    // For department targets, constrain legacy field to null to avoid mixing with old profession rows
-    query = query.is("department_profession_id", null)
-  }
-
-  let { data, error } = (await query) as any
-  if (error) {
-    return { rows: [] as any[], state: "CONFIG_NOT_FOUND" as const }
-  }
-
-  let rows = Array.isArray(data) ? data : []
-
-  // Dual-read for profession_personal during migration:
-  // Always check legacy department_profession_id (which might contain the name string)
-  // in addition to the new profession_role_id (UUID).
-  if (scopeType === "profession_personal" && professionRoleId) {
-    // Get the role name for the UUID to check against legacy string-based column
-    const { data: roleData } = await (supabase as any)
-      .from("roles")
-      .select("name")
-      .eq("id", professionRoleId)
-      .maybeSingle()
-
-    const roleName = roleData?.name
-
-    const legacyQuery = (supabase as any)
-      .from("scope_entry_kinds")
-      .select("*")
-      .eq("department_id", departmentId)
-      .eq("scope_type", scopeType)
-      .or(`department_profession_id.eq.${professionRoleId}${roleName ? `,department_profession_id.eq.${roleName}` : ""}`)
-
-    const legacyRes = (await legacyQuery) as any
-    if (!legacyRes?.error && Array.isArray(legacyRes?.data)) {
-      // Merge and deduplicate by entry_kind
-      const seen = new Set(rows.map((r: any) => r.entry_kind))
-      for (const row of legacyRes.data) {
-        if (!seen.has(row.entry_kind)) {
-          rows.push(row)
-          seen.add(row.entry_kind)
-        }
-      }
-    }
-  }
-
-  if (rows.length === 0) return { rows, state: "CONFIG_NOT_FOUND" as const }
-
-  const active = rows.filter((r) => r?.is_active)
-  if (active.length === 0) return { rows, state: "EMPTY_CONFIGURATION" as const }
-
-  // Return active only, ordered
-  active.sort((a: any, b: any) => {
-    if ((a.sort_order ?? 0) !== (b.sort_order ?? 0)) return (a.sort_order ?? 0) - (b.sort_order ?? 0)
-    return String(a.label ?? "").localeCompare(String(b.label ?? ""))
-  })
-
-  return { rows: active, state: "OK" as const }
+const SCOPE_PRIORITY: Record<EntryKindsUsed, number> = {
+  profession_personal: 3.0,
+  dept_wide_personal: 2.5,
+  dept_report: 2.0,
 }
 
 export async function resolveEntryKinds(input: ResolveEntryKindsInput): Promise<ResolveEntryKindsResult> {
   const { system, departmentId, userId } = input
+  const supabase = await createClient()
 
-  if (system === "dept_report") {
-    const { rows, state } = await loadTargetConfigs({ departmentId, scopeType: "dept_report" })
-    if (state === "CONFIG_NOT_FOUND") {
-      throw new EntryKindsError(
-        "DEPT_REPORT_NOT_CONFIGURED",
-        "Department reports require explicit entry kind configuration for this department.",
-        400
-      )
+  const professionRoleId = input.professionRoleId ?? (await getPrimaryProfessionRoleId(userId, departmentId))
+
+  // 1. Fetch all candidates from relevant scopes
+  const scopesToFetch: EntryKindsUsed[] = system === "dept_report" 
+    ? ["dept_report"] 
+    : ["profession_personal", "dept_wide_personal"]
+
+  const candidates: any[] = []
+
+  for (const scope of scopesToFetch) {
+    let query = (supabase as any)
+      .from("scope_entry_kinds")
+      .select(`
+        *,
+        versions:entry_kind_versions (
+          id,
+          version,
+          question_sets:question_set_versions (
+            id,
+            is_active
+          )
+        )
+      `)
+      .eq("department_id", departmentId)
+      .eq("is_active", true)
+
+    if (scope === "profession_personal") {
+      if (!professionRoleId) continue
+      
+      const { data: roleData } = await (supabase as any)
+        .from("roles")
+        .select("name")
+        .eq("id", professionRoleId)
+        .maybeSingle()
+
+      const roleName = roleData?.name
+      query = query.or(`profession_role_id.eq.${professionRoleId}${roleName ? `,department_profession_id.eq.${roleName}` : ""}`)
+    } else {
+      // For personal/dept_report, we look for department-wide settings
+      query = query.is("department_profession_id", null).is("profession_role_id", null)
+      if (scope === "dept_wide_personal") {
+        query = query.eq("has_department_sections", true)
+      } else {
+        query = query.eq("has_department_sections", false)
+      }
     }
-    if (state === "EMPTY_CONFIGURATION") {
-      throw new EntryKindsError(
-        "DEPT_REPORT_EMPTY_CONFIGURATION",
-        "Department report entry kinds are configured but none are active.",
-        400
-      )
+
+    const { data: rows, error } = await query
+    if (!error && Array.isArray(rows)) {
+      candidates.push(...rows.map(r => {
+        // Find latest version
+        const versions = (r.versions || []) as any[]
+        versions.sort((a, b) => b.version - a.version)
+        const latestVersion = versions[0]
+        const latestQuestionSet = latestVersion?.question_sets?.[0]
+
+        return {
+          ...r,
+          _resolution: {
+            source: scope,
+            priority: SCOPE_PRIORITY[scope] || 1.0,
+            matched_profession_id: scope === "profession_personal" ? professionRoleId : null,
+            is_computed_default: false,
+            entry_kind_version_id: latestVersion?.id || null,
+            question_set_version_id: latestQuestionSet?.id || null
+          }
+        }
+      }))
     }
-    return { data: rows, meta: { used: "dept_report", state } }
   }
 
-  const overrideProfessionRoleId = input.professionRoleId ?? null
-  const professionRoleId = overrideProfessionRoleId ?? (await getPrimaryProfessionRoleId(userId, departmentId))
+  if (candidates.length === 0) {
+    return { data: [], primary: null, meta: { used: scopesToFetch[0], state: "CONFIG_NOT_FOUND" } }
+  }
 
-  // 1) Try profession_personal; if missing/empty, fallback to dept-wide personal
-  if (professionRoleId) {
-    const profession = await loadTargetConfigs({
-      departmentId,
-      scopeType: "profession_personal",
-      professionRoleId,
-    })
-    if (profession.state === "OK") {
-      return { data: profession.rows, meta: { used: "profession_personal", state: "OK" } }
+  // 2. Deterministic Deduplication & Scoring
+  const dedupedMap = new Map<string, any>()
+  candidates.sort((a, b) => b._resolution.priority - a._resolution.priority)
+
+  for (const cand of candidates) {
+    if (!dedupedMap.has(cand.entry_kind)) {
+      dedupedMap.set(cand.entry_kind, cand)
     }
   }
 
-  const deptWide = await loadTargetConfigs({ departmentId, scopeType: "dept_wide_personal" })
-  if (deptWide.state === "CONFIG_NOT_FOUND") {
-    return { data: [], meta: { used: "dept_wide_personal", state: "CONFIG_NOT_FOUND" } }
-  }
-  if (deptWide.state === "EMPTY_CONFIGURATION") {
-    return { data: [], meta: { used: "dept_wide_personal", state: "EMPTY_CONFIGURATION" } }
-  }
+  const finalResults = Array.from(dedupedMap.values())
 
-  return { data: deptWide.rows, meta: { used: "dept_wide_personal", state: "OK" } }
+  // 3. Strict Ordering Formula
+  finalResults.sort((a, b) => {
+    if (b._resolution.priority !== a._resolution.priority) return b._resolution.priority - a._resolution.priority
+    if (a.is_default !== b.is_default) return a.is_default ? -1 : 1
+    if ((a.sort_order ?? 0) !== (b.sort_order ?? 0)) return (a.sort_order ?? 0) - (b.sort_order ?? 0)
+    return new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+  })
+
+  // 4. Primary Selection
+  const primary = finalResults[0] || null
+  if (primary) primary._resolution.is_computed_default = true
+
+  // 5. Metadata mapping
+  const resolutionMetadata: Record<string, ResolutionMetadata> = {}
+  const data = finalResults.map(r => {
+    const { _resolution, versions, ...clean } = r
+    resolutionMetadata[r.entry_kind] = _resolution
+    return clean
+  })
+
+  return {
+    data,
+    primary,
+    meta: {
+      used: primary?._resolution.source || scopesToFetch[0],
+      state: "OK",
+      resolution: resolutionMetadata
+    }
+  }
 }

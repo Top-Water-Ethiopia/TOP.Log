@@ -20,6 +20,7 @@ interface EntryFormMultistepClientProps {
   }>
   role?: string | null
   effectiveRoleName?: string | null
+  resolutionMeta?: Record<string, any>
 }
 
 export function EntryFormMultistepClient({
@@ -33,6 +34,7 @@ export function EntryFormMultistepClient({
   initialAvailableEntryKinds,
   role,
   effectiveRoleName,
+  resolutionMeta,
 }: EntryFormMultistepClientProps) {
   const router = useRouter()
 
@@ -102,6 +104,7 @@ export function EntryFormMultistepClient({
         initialAvailableEntryKinds={initialAvailableEntryKinds}
         role={role}
         effectiveRoleName={effectiveRoleName}
+        resolutionMeta={resolutionMeta}
       />
     </div>
   )

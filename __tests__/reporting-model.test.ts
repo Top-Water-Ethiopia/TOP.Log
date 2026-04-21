@@ -1,5 +1,4 @@
 import {
-  deriveReportKindFromResponses,
   getQuestionCategory,
   getRoleQuestionScopeCacheKey,
   isDepartmentReportQuestion,
@@ -13,17 +12,17 @@ describe("reporting model helpers", () => {
     const question = { department_id: "dept-1", department_profession_id: null, department_role: null }
 
     expect(resolveRoleQuestionScope(question)).toEqual({
-      kind: "department",
+      kind: "dept_report",
       departmentId: "dept-1",
     })
     expect(isDepartmentReportQuestion(question)).toBe(true)
     expect(getQuestionCategory(question)).toBe("department_report")
     expect(
       getRoleQuestionScopeCacheKey({
-        kind: "department",
+        kind: "dept_report",
         departmentId: "dept-1",
       })
-    ).toBe("department:dept-1")
+    ).toBe("dept_report:dept-1")
   })
 
   it("resolves profession questions using the new profession id", () => {
@@ -92,16 +91,6 @@ describe("reporting model helpers", () => {
     ).toBe(true)
   })
 
-  it("derives report kind from response categories", () => {
-    expect(deriveReportKindFromResponses([{ questionCategory: "department_report" }])).toBe("department")
-    expect(deriveReportKindFromResponses([{ questionCategory: "profession_question" }])).toBe("personal")
-    expect(
-      deriveReportKindFromResponses([
-        { questionCategory: "department_report" },
-        { questionCategory: "profession_question" },
-      ])
-    ).toBe("mixed")
-  })
 
   it("normalizes unknown report kinds back to personal", () => {
     expect(normalizeReportKind("department")).toBe("department")

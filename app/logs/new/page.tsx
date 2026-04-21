@@ -421,6 +421,7 @@ export default async function NewLogPage({ searchParams }: { searchParams: Promi
   const [questionsByKind] = await Promise.all([fetchRoleQuestionsByKind(supabase, department.id, userId)])
 
   let resolvedEntryKinds: any[] = []
+  let resolutionMeta: Record<string, any> = {}
   try {
     const resolved = await resolveEntryKinds({
       system: "personal",
@@ -429,9 +430,11 @@ export default async function NewLogPage({ searchParams }: { searchParams: Promi
       professionRoleId: professionRoleId || null,
     })
     resolvedEntryKinds = Array.isArray(resolved.data) ? resolved.data : []
+    resolutionMeta = resolved.meta?.resolution || {}
   } catch (error) {
     console.error("Failed to resolve entry kinds for /logs/new:", error)
     resolvedEntryKinds = []
+    resolutionMeta = {}
   }
 
   const initialAvailableEntryKinds = (
@@ -474,6 +477,7 @@ export default async function NewLogPage({ searchParams }: { searchParams: Promi
       initialAvailableEntryKinds={initialAvailableEntryKinds}
       role={resolvedRole}
       effectiveRoleName={effectiveDepartmentRole.roleName}
+      resolutionMeta={resolutionMeta}
     />
   )
 }

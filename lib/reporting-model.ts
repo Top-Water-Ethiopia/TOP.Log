@@ -69,7 +69,14 @@ export function getRoleQuestionScopeCacheKey(scope: RoleQuestionScope): string {
     return `dept_wide_personal:${scope.departmentId}`
   }
 
-  return `profession:${scope.departmentId ?? "unknown"}:${scope.departmentProfessionId ?? "unknown"}:${scope.departmentProfessionKey ?? "unknown"}`
+  const profScope = scope as {
+    kind: "profession"
+    departmentId: string | null
+    departmentProfessionId: string | null
+    departmentProfessionKey: string | null
+  }
+
+  return `profession:${profScope.departmentId ?? "unknown"}:${profScope.departmentProfessionId ?? "unknown"}:${profScope.departmentProfessionKey ?? "unknown"}`
 }
 
 export function isDepartmentReportQuestion(question: RoleQuestionScopeLike): boolean {
@@ -116,32 +123,6 @@ export function getQuestionCategory(question: RoleQuestionScopeLike): string {
   return "profession_question"
 }
 
-export function deriveReportKindFromResponses(
-  responses: Array<Pick<QuestionResponse, "questionCategory"> | Record<string, unknown> | null | undefined>
-): ReportKind {
-  const categories = new Set(
-    responses
-      .map((response) => {
-        if (!response || typeof response !== "object") return null
-        const category = "questionCategory" in response ? response.questionCategory : response.questionCategory
-        return getNonEmptyString(category)
-      })
-      .filter((category): category is string => Boolean(category))
-  )
-
-  const hasDepartmentResponses = categories.has("department_report")
-  const hasProfessionResponses = categories.has("profession_question") || categories.has("custom")
-
-  if (hasDepartmentResponses && hasProfessionResponses) {
-    return "mixed"
-  }
-
-  if (hasDepartmentResponses) {
-    return "department"
-  }
-
-  return "personal"
-}
 
 export function normalizeReportKind(value: unknown): ReportKind {
   if (value === "department" || value === "mixed") {

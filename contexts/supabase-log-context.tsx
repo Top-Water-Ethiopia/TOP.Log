@@ -9,7 +9,7 @@ import * as supabaseData from "@/lib/supabase-data"
 import type { CaptainLogEntry as DbCaptainLogEntry, AuditLog } from "@/lib/supabase-data"
 import type { Json } from "@/lib/supabase.types"
 import { canCreateEntryForDate, canUpdateEntryForDate } from "@/lib/date-restrictions"
-import { deriveReportKindFromResponses, normalizeReportKind, type ReportKind } from "@/lib/reporting-model"
+import { normalizeReportKind, type ReportKind } from "@/lib/reporting-model"
 
 // Re-export types for components
 export type { AuditLog } from "@/lib/supabase-data"
@@ -74,6 +74,9 @@ type CaptainLogEntryDraftInput = {
   subject_agent_snapshot?: Json | null
   subject_department_id?: string | null
   subject_profession_id?: string | null
+  entry_kind_version_id?: string | null
+  question_set_version_id?: string | null
+  submitted_for_date?: string | null
 }
 
 // Helper function to get standard question labels
@@ -369,7 +372,7 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
           typeof entry.department_id === "string" && entry.department_id
             ? await supabaseData.getProfessionRoleForUserInDepartment(user.id, entry.department_id)
             : null
-        const reportKind = entry.report_kind || deriveReportKindFromResponses(entry.customResponses as any[])
+        const reportKind = entry.report_kind || "standard"
         const entryKind = entry.entry_kind || "standard"
         const subjectDepartmentId =
           typeof entry.subject_department_id === "string" ? entry.subject_department_id : entry.department_id
@@ -400,6 +403,9 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
           subject_agent_snapshot: subjectAgentSnapshot,
           subject_department_id: subjectDepartmentId,
           subject_profession_id: subjectProfessionId,
+          entry_kind_version_id: entry.entry_kind_version_id ?? null,
+          question_set_version_id: entry.question_set_version_id ?? null,
+          submitted_for_date: entry.submitted_for_date ?? entry.date,
           created_at: now,
           updated_at: now,
           version: 1,

@@ -56,6 +56,9 @@ export interface Database {
           subject_agent_snapshot: Json | null
           subject_department_id: string | null
           subject_profession_id: string | null
+          entry_kind_version_id: string | null
+          question_set_version_id: string | null
+          submitted_for_date: string | null
           created_at: string
           updated_at: string
           version: number
@@ -73,6 +76,9 @@ export interface Database {
           subject_agent_snapshot?: Json | null
           subject_department_id?: string | null
           subject_profession_id?: string | null
+          entry_kind_version_id?: string | null
+          question_set_version_id?: string | null
+          submitted_for_date?: string | null
           created_at?: string
           updated_at?: string
           version?: number
@@ -90,6 +96,9 @@ export interface Database {
           subject_agent_snapshot?: Json | null
           subject_department_id?: string | null
           subject_profession_id?: string | null
+          entry_kind_version_id?: string | null
+          question_set_version_id?: string | null
+          submitted_for_date?: string | null
           created_at?: string
           updated_at?: string
           version?: number
@@ -131,6 +140,152 @@ export interface Database {
             referencedRelation: "roles"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "captain_log_entries_entry_kind_version_id_fkey"
+            columns: ["entry_kind_version_id"]
+            isOneToOne: false
+            referencedRelation: "entry_kind_versions"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "captain_log_entries_question_set_version_id_fkey"
+            columns: ["question_set_version_id"]
+            isOneToOne: false
+            referencedRelation: "question_set_versions"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      scope_entry_kinds: {
+        Row: {
+          id: string
+          department_id: string
+          entry_kind: string
+          label: string
+          is_active: boolean
+          is_default: boolean
+          profession_role_id: string | null
+          department_profession_id: string | null
+          has_department_sections: boolean
+          has_profession_sections: boolean
+          status: string
+          sort_order: number | null
+          created_at: string
+          updated_at: string
+          created_by: string | null
+        }
+        Insert: {
+          id?: string
+          department_id: string
+          entry_kind: string
+          label: string
+          is_active?: boolean
+          is_default?: boolean
+          profession_role_id?: string | null
+          department_profession_id?: string | null
+          has_department_sections?: boolean
+          has_profession_sections?: boolean
+          status?: string
+          sort_order?: number | null
+          created_at?: string
+          updated_at?: string
+          created_by?: string | null
+        }
+        Update: {
+          id?: string
+          department_id?: string
+          entry_kind?: string
+          label?: string
+          is_active?: boolean
+          is_default?: boolean
+          profession_role_id?: string | null
+          department_profession_id?: string | null
+          has_department_sections?: boolean
+          has_profession_sections?: boolean
+          status?: string
+          sort_order?: number | null
+          created_at?: string
+          updated_at?: string
+          created_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "scope_entry_kinds_department_id_fkey"
+            columns: ["department_id"]
+            isOneToOne: false
+            referencedRelation: "departments"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      entry_kind_versions: {
+        Row: {
+          id: string
+          scope_entry_kind_id: string
+          version: number
+          ui_schema: Json
+          created_at: string
+          created_by: string | null
+        }
+        Insert: {
+          id?: string
+          scope_entry_kind_id: string
+          version: number
+          ui_schema?: Json
+          created_at?: string
+          created_by?: string | null
+        }
+        Update: {
+          id?: string
+          scope_entry_kind_id?: string
+          version?: number
+          ui_schema?: Json
+          created_at?: string
+          created_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "entry_kind_versions_scope_entry_kind_id_fkey"
+            columns: ["scope_entry_kind_id"]
+            isOneToOne: false
+            referencedRelation: "scope_entry_kinds"
+            referencedColumns: ["id"]
+          }
+        ]
+      }
+      question_set_versions: {
+        Row: {
+          id: string
+          entry_kind_version_id: string
+          questions_snapshot: Json
+          is_active: boolean
+          created_at: string
+          created_by: string | null
+        }
+        Insert: {
+          id?: string
+          entry_kind_version_id: string
+          questions_snapshot?: Json
+          is_active?: boolean
+          created_at?: string
+          created_by?: string | null
+        }
+        Update: {
+          id?: string
+          entry_kind_version_id?: string
+          questions_snapshot?: Json
+          is_active?: boolean
+          created_at?: string
+          created_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "question_set_versions_entry_kind_version_id_fkey"
+            columns: ["entry_kind_version_id"]
+            isOneToOne: false
+            referencedRelation: "entry_kind_versions"
+            referencedColumns: ["id"]
+          }
         ]
       }
       custom_responses: {
