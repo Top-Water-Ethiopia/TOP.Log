@@ -3,8 +3,8 @@ import {
   dedupeLogAssetsKeepingNewest,
   extractLogAssetsFromResponses,
   getAssetFilename,
-  shouldIncludeAssetForUser,
 } from "@/lib/log-assets"
+import { canAccessLog, type AccessContext } from "@/lib/logs/visibility"
 import type { AttributedCloudinaryAsset } from "@/lib/upload-types"
 
 function makeAsset(overrides: Partial<AttributedCloudinaryAsset> = {}): AttributedCloudinaryAsset {
@@ -81,13 +81,20 @@ describe("log-assets", () => {
     expect(assets.find((a) => a.id === "doc1")?.kind).toBe("document")
   })
 
-  test("shouldIncludeAssetForUser uses uploadedByUserId then entry userId fallback", () => {
-    const asset = makeAsset({ uploadedByUserId: undefined })
-    expect(shouldIncludeAssetForUser(asset, { entryUserId: "u1" }, "u1")).toBe(true)
-    expect(shouldIncludeAssetForUser(asset, { entryUserId: "u2" }, "u1")).toBe(false)
+  test("canAccessLog uses roles and ownership correctly", () => {
+    const ctx: AccessContext = {
+      userId: "u1",
+      departmentAccess: new Map([["dept1", "department-lead"]]),
+    }
 
-    const attributed = makeAsset({ uploadedByUserId: "u1" })
-    expect(shouldIncludeAssetForUser(attributed, { entryUserId: "u2" }, "u1")).toBe(true)
+    // Owner access
+    expect(canAccessLog({ user_id: "u1", department_id: "dept1" }, ctx)).toBe(true)
+    
+    // Lead access (cross-user)
+    expect(canAccessLog({ user_id: "u2", department_id: "dept1" }, ctx)).toBe(true)
+
+    // No access (other department)
+    expect(canAccessLog({ user_id: "u2", department_id: "dept2" }, ctx)).toBe(false)
   })
 
   test("getAssetFilename falls back to publicId then Untitled file", () => {

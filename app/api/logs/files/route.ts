@@ -6,8 +6,8 @@ import {
   extractLogAssetsFromResponses,
   type LogAsset,
   type LogAssetSourceResponse,
-  shouldIncludeAssetForUser,
 } from "@/lib/log-assets"
+import { type AccessContext, canAccessAsset, shouldAudit, enqueueAuditLog } from "@/lib/logs/visibility"
 import { FILES_BATCH_SIZE, FILES_MAX_ENTRY_SCAN, FILES_TARGET_ASSETS } from "@/lib/log-files-constants"
 import { getEffectivePermissionsForUser } from "@/lib/rbac/server"
 
@@ -43,12 +43,11 @@ export async function GET(request: Request) {
   const targetAssets = parsePositiveInt(url.searchParams.get("targetAssets"), FILES_TARGET_ASSETS)
   const maxEntriesScanned = parsePositiveInt(url.searchParams.get("maxEntriesScanned"), FILES_MAX_ENTRY_SCAN)
 
-  const { departmentAccess } = await getEffectivePermissionsForUser(user.id)
-  const leadDepartmentIds = new Set(
-    departmentAccess
-      .filter((da) => da.permissions.includes("entries.read_any"))
-      .map((da) => da.departmentId)
-  )
+  const { departmentAccess: rawAccess } = await getEffectivePermissionsForUser(user.id)
+  const context: AccessContext = {
+    userId: user.id,
+    departmentAccess: new Map(rawAccess.map((a) => [a.departmentId, a.accessLevel.name])),
+  }
 
   const collected: LogAsset[] = []
   let scanned = 0
@@ -140,10 +139,40 @@ export async function GET(request: Request) {
         entryUserId: entry.user_id,
       })
 
-      const canViewAll = entry.subject_department_id ? leadDepartmentIds.has(entry.subject_department_id) : false
-
       for (const asset of extracted) {
-        if (!shouldIncludeAssetForUser(asset, { entryUserId: entry.user_id }, user.id, canViewAll)) continue
+        const hasAccess = canAccessAsset(
+          {
+            log: { user_id: entry.user_id, department_id: entry.subject_department_id },
+          },
+          context
+        )
+
+        if (!hasAccess) continue
+
+        // Staff-Grade Observability: Audit only cross-user access (Sampled)
+        if (
+          shouldAudit({
+            actorId: user.id,
+            targetId: entry.user_id,
+            isBulkRead: true,
+            isSensitive: true,
+          })
+        ) {
+          enqueueAuditLog(supabase, {
+            user_id: user.id,
+            action: "READ_CROSS_USER_FILE",
+            resource_type: "log_asset",
+            resource_id: asset.id,
+            severity: "low",
+            metadata: {
+              entryId: entry.id,
+              uploaderId: entry.user_id,
+              departmentId: entry.subject_department_id,
+              reason: "Lead department-wide visibility (Elite async audit)",
+            },
+          })
+        }
+
         collected.push(asset)
       }
     }
