@@ -76,16 +76,20 @@ export async function GET(request: Request) {
       if (role?.id) userRoles.add(role.id)
     })
     const previewProfessionRoleId = requestedRole && looksLikeUuid(requestedRole) ? requestedRole : null
+    const previewProfessionKey = requestedRole && !looksLikeUuid(requestedRole) ? requestedRole : null
 
     let resolvedConfigs: any[] = []
+    let resolvedMeta: any = null
     try {
       const resolved = await resolveEntryKinds({
         system: "personal",
         departmentId,
         userId: user.id,
         professionRoleId: previewProfessionRoleId,
+        professionKey: previewProfessionKey,
       })
       resolvedConfigs = resolved.data
+      resolvedMeta = resolved.meta ?? null
     } catch (e) {
       // For personal logging, missing config should not hard-fail the endpoint.
       console.error("Error resolving entry kinds:", e)
@@ -144,8 +148,14 @@ export async function GET(request: Request) {
     }
 
     // 3. Combine configs with reachability
-    let available = eligibleByAvailability
-      .filter((config: any) => reachableKinds.has(config.entry_kind))
+    const hadReachabilitySignal = reachableKinds.size > 0
+    const reachabilityFiltered = eligibleByAvailability.filter((config: any) => reachableKinds.has(config.entry_kind))
+    const selfHealed = hadReachabilitySignal && reachabilityFiltered.length === 0
+
+    // If we did not find any reachable kinds for this role, fall back to the configured entry kinds
+    // (date/availability-filtered). This prevents "No report types available" when questions are not yet configured
+    // or when scope metadata is incomplete.
+    let available = (selfHealed ? eligibleByAvailability : reachabilityFiltered)
       .map((config: any) => ({
         entry_kind: config.entry_kind,
         label: config.label,
@@ -184,6 +194,21 @@ export async function GET(request: Request) {
         effective_default: effectiveDefault,
         default_missing: defaultMissing,
         suggested_default: effectiveDefault,
+        self_healed: selfHealed,
+        ...(process.env.NODE_ENV !== "production"
+          ? {
+              debug: {
+                requestedRole,
+                previewProfessionRoleId,
+                previewProfessionKey,
+                resolvedMeta,
+                resolvedConfigsCount: Array.isArray(resolvedConfigs) ? resolvedConfigs.length : null,
+                eligibleByAvailabilityCount: Array.isArray(eligibleByAvailability) ? eligibleByAvailability.length : null,
+                hadReachabilitySignal,
+                reachableKindsCount: reachableKinds.size,
+              },
+            }
+          : {}),
       },
     })
   } catch (error) {

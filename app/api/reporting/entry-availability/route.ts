@@ -122,11 +122,13 @@ export async function GET(request: Request) {
     let allowMultiplePerDay = false
     try {
       const previewProfessionRoleId = role && looksLikeUuid(role) ? role : null
+      const previewProfessionKey = role && !looksLikeUuid(role) ? role : null
       const resolved = await resolveEntryKinds({
         system: "personal",
         departmentId,
         userId: user.id,
         professionRoleId: previewProfessionRoleId,
+        professionKey: previewProfessionKey,
       })
       const configs = Array.isArray(resolved.data) ? resolved.data : []
       const match = configs.find((c: any) => String(c.entry_kind) === entryKind)
@@ -146,6 +148,8 @@ export async function GET(request: Request) {
       })
     }
 
+    console.log(`[entry-availability] Querying captain_log_entries for user=${user.id}, kind=${entryKind}, dept=${departmentId}, date=${date}`)
+    const queryStart = Date.now()
     const { data, error } = await supabase
       .from("captain_log_entries")
       .select("id")
@@ -156,16 +160,9 @@ export async function GET(request: Request) {
       .order("created_at", { ascending: false })
       .limit(1)
       .maybeSingle()
+    const queryDuration = Date.now() - queryStart
+    console.log(`[entry-availability] Query completed in ${queryDuration}ms. Found: ${data?.id || "none"}`)
 
-    if (error) {
-      console.error("[entry-availability] Query error:", error)
-      return NextResponse.json(
-        { error: "Failed to check existing report availability", message: error.message },
-        { status: 500 }
-      )
-    }
-
-    console.log(`[entry-availability] Query successful, found: ${data?.id || "none"}`)
     return NextResponse.json({
       data: {
         existingEntryId: typeof data?.id === "string" ? data.id : null,

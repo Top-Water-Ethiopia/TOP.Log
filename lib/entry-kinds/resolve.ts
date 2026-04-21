@@ -28,6 +28,7 @@ export interface ResolveEntryKindsInput {
   departmentId: string
   userId: string
   professionRoleId?: string | null // preview override; otherwise primary profession in this department
+  professionKey?: string | null // preview override (department_profession_id / role key), used when no UUID is available
 }
 
 export interface ResolutionMetadata {
@@ -84,6 +85,7 @@ export async function resolveEntryKinds(input: ResolveEntryKindsInput): Promise<
   const supabase = await createClient()
 
   const professionRoleId = input.professionRoleId ?? (await getPrimaryProfessionRoleId(userId, departmentId))
+  const professionKey = input.professionKey ?? null
 
   // 1. Fetch all candidates from relevant scopes
   const scopesToFetch: EntryKindsUsed[] = system === "dept_report" 
@@ -95,31 +97,29 @@ export async function resolveEntryKinds(input: ResolveEntryKindsInput): Promise<
   for (const scope of scopesToFetch) {
     let query = (supabase as any)
       .from("scope_entry_kinds")
-      .select(`
-        *,
-        versions:entry_kind_versions (
-          id,
-          version,
-          question_sets:question_set_versions (
-            id,
-            is_active
-          )
-        )
-      `)
+      .select("*")
       .eq("department_id", departmentId)
       .eq("is_active", true)
 
     if (scope === "profession_personal") {
-      if (!professionRoleId) continue
-      
-      const { data: roleData } = await (supabase as any)
-        .from("roles")
-        .select("name")
-        .eq("id", professionRoleId)
-        .maybeSingle()
+      if (!professionRoleId && !professionKey) continue
 
-      const roleName = roleData?.name
-      query = query.or(`profession_role_id.eq.${professionRoleId}${roleName ? `,department_profession_id.eq.${roleName}` : ""}`)
+      if (professionRoleId) {
+        const { data: roleData } = await (supabase as any)
+          .from("roles")
+          .select("name")
+          .eq("id", professionRoleId)
+          .maybeSingle()
+
+        const roleName = roleData?.name
+        query = query.or(
+          `profession_role_id.eq.${professionRoleId}` +
+            `${roleName ? `,department_profession_id.eq.${roleName}` : ""}` +
+            `${professionKey ? `,department_profession_id.eq.${professionKey}` : ""}`
+        )
+      } else if (professionKey) {
+        query = query.eq("department_profession_id", professionKey)
+      }
     } else {
       // For personal/dept_report, we look for department-wide settings
       query = query.is("department_profession_id", null).is("profession_role_id", null)
@@ -133,21 +133,15 @@ export async function resolveEntryKinds(input: ResolveEntryKindsInput): Promise<
     const { data: rows, error } = await query
     if (!error && Array.isArray(rows)) {
       candidates.push(...rows.map(r => {
-        // Find latest version
-        const versions = (r.versions || []) as any[]
-        versions.sort((a, b) => b.version - a.version)
-        const latestVersion = versions[0]
-        const latestQuestionSet = latestVersion?.question_sets?.[0]
-
         return {
           ...r,
           _resolution: {
             source: scope,
             priority: SCOPE_PRIORITY[scope] || 1.0,
-            matched_profession_id: scope === "profession_personal" ? professionRoleId : null,
+            matched_profession_id: scope === "profession_personal" ? (professionRoleId ?? professionKey) : null,
             is_computed_default: false,
-            entry_kind_version_id: latestVersion?.id || null,
-            question_set_version_id: latestQuestionSet?.id || null
+            entry_kind_version_id: null,
+            question_set_version_id: null
           }
         }
       }))
@@ -185,7 +179,7 @@ export async function resolveEntryKinds(input: ResolveEntryKindsInput): Promise<
   // 5. Metadata mapping
   const resolutionMetadata: Record<string, ResolutionMetadata> = {}
   const data = finalResults.map(r => {
-    const { _resolution, versions, ...clean } = r
+    const { _resolution, ...clean } = r
     resolutionMetadata[r.entry_kind] = _resolution
     return clean
   })

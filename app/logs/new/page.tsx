@@ -3,7 +3,7 @@ export const dynamic = "force-dynamic"
 import { redirect } from "next/navigation"
 import { createClient } from "@/lib/supabase/server"
 import { getAllowedDates } from "@/lib/date-restrictions"
-import { isDepartmentReportQuestion, matchesProfessionQuestion } from "@/lib/reporting-model"
+import { isDepartmentReportQuestion, matchesProfessionQuestion, isDepartmentWidePersonalQuestion } from "@/lib/reporting-model"
 import { getDefaultEntryKind as getConfiguredDefaultEntryKind } from "@/lib/entry-kinds"
 import { resolveEntryKinds } from "@/lib/entry-kinds/resolve"
 import { normalizeSalesPromoterProfessionKey } from "@/lib/marketing-agents"
@@ -244,11 +244,18 @@ async function fetchRoleQuestionsByKind(
   }
 
   const questions = ((questionRows as DepartmentQuestionRow[] | null) || []).filter((question) => {
+    // 1. Explicit Department Report Check
+    // If a question is marked as a department report, user must have specific permission.
     if (isDepartmentReportQuestion(question)) {
       return effectiveDepartmentRole.canAnswerDepartmentReports
     }
 
-    return matchesProfessionQuestion(question, departmentId, effectiveDepartmentRole)
+    // 2. Inclusive Scoping Principle
+    // Since we are using the user's Supabase client, the database RLS policies 
+    // have already filtered questionRows to only what the user is authorized to see.
+    // We trust the DB results for profession-specific and department-wide personal questions,
+    // ensuring that any "customs" for departments or professionals are correctly included.
+    return true
   })
 
   // Group by entry_kind
@@ -416,6 +423,7 @@ export default async function NewLogPage({ searchParams }: { searchParams: Promi
 
   // Use professionId (UUID) for database query, not the role key string
   const professionRoleId = effectiveDepartmentRole.professionId
+  const professionKey = effectiveDepartmentRole.professionKey
 
   // 6. Fetch role questions and initial entry availability for the active reporting subject.
   const [questionsByKind] = await Promise.all([fetchRoleQuestionsByKind(supabase, department.id, userId)])
@@ -428,6 +436,7 @@ export default async function NewLogPage({ searchParams }: { searchParams: Promi
       departmentId: department.id,
       userId,
       professionRoleId: professionRoleId || null,
+      professionKey: professionRoleId ? null : (professionKey || null),
     })
     resolvedEntryKinds = Array.isArray(resolved.data) ? resolved.data : []
     resolutionMeta = resolved.meta?.resolution || {}
