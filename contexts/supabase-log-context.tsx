@@ -372,7 +372,7 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
           typeof entry.department_id === "string" && entry.department_id
             ? await supabaseData.getProfessionRoleForUserInDepartment(user.id, entry.department_id)
             : null
-        const reportKind = entry.report_kind || "standard"
+        const reportKind = normalizeReportKind(entry.report_kind)
         const entryKind = entry.entry_kind || "standard"
         const subjectDepartmentId =
           typeof entry.subject_department_id === "string" ? entry.subject_department_id : entry.department_id
