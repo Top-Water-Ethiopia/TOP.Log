@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation"
+export const revalidate = 60 // Cache for 60 seconds
 import Link from "next/link"
 import { Plus } from "lucide-react"
 import { createClient } from "@/lib/supabase/server"
@@ -9,7 +10,11 @@ import { getReportStatus } from "@/lib/completion-status"
 import { buildLogsPageHref, getMonthDateRange, normalizeLogsPageState } from "@/lib/logs-page-filters"
 import type { LogsPageSearchParams } from "@/lib/logs-page-filters"
 import type { CalendarDaySummary, LogEntry } from "@/lib/logs/types"
-import { canViewDepartmentLogs } from "@/lib/logs/visibility"
+import {
+  normalizeDepartmentAccessLevelName,
+  canAccessLog,
+  canViewDepartmentLogs,
+} from "@/lib/logs/visibility"
 import {
   getAgentSnapshotName,
   isMarketingDepartmentName,
@@ -43,6 +48,9 @@ interface LogRow {
   id: string
   subject_agent_snapshot?: unknown
   updated_at: string | null
+  user_id: string
+  user_profiles: { name: string } | null
+  total_user_logs?: number
 }
 
 interface ViewerDepartmentProfession {
@@ -59,17 +67,15 @@ async function fetchAccessibleDepartmentIds(
     .eq("user_id", userId)
     .eq("is_active", true)
 
-  if (error) {
-    return []
-  }
+  if (error) return []
+  return (memberships || [])
+    .map((m) => m.department_id)
+    .filter((id): id is string => typeof id === "string" && id.length > 0)
+}
 
-  return Array.from(
-    new Set(
-      (memberships || [])
-        .map((m) => m.department_id)
-        .filter((departmentId): departmentId is string => typeof departmentId === "string" && departmentId.length > 0)
-    )
-  )
+interface LogCursor {
+  date: string
+  id: string
 }
 
 async function mapRowsToLogs(
@@ -77,16 +83,14 @@ async function mapRowsToLogs(
   rows: LogRow[] | null | undefined
 ): Promise<LogEntry[]> {
   const data = rows || []
-  if (data.length === 0) {
-    return []
-  }
+  if (data.length === 0) return []
 
   const logIds = data.map((row) => row.id)
   const { data: responses } = await supabase.from("custom_responses").select("entry_id").in("entry_id", logIds)
 
   const responseCounts = new Map<string, number>()
-  responses?.forEach((response) => {
-    responseCounts.set(response.entry_id, (responseCounts.get(response.entry_id) || 0) + 1)
+  responses?.forEach((r) => {
+    responseCounts.set(r.entry_id, (responseCounts.get(r.entry_id) || 0) + 1)
   })
 
   return data.map((entry) => ({
@@ -103,17 +107,82 @@ async function mapRowsToLogs(
       typeof entry.subject_agent_snapshot === "object" && entry.subject_agent_snapshot !== null
         ? (entry.subject_agent_snapshot as LogEntry["subject_agent_snapshot"])
         : null,
+    user: {
+      id: entry.user_id,
+      name: entry.user_profiles?.name || "Deleted User",
+    },
   }))
+}
+
+interface FlattenedLogItem {
+  id: string
+  type: "header" | "row"
+  userId: string
+  userName: string
+  data?: LogEntry
+  summary?: {
+    totalLogs: number
+    lastSubmission: string
+  }
+}
+
+function flattenLogs(logs: LogEntry[]): FlattenedLogItem[] {
+  const flattened: FlattenedLogItem[] = []
+  const userGroups = new Map<string, LogEntry[]>()
+
+  // Preserve stable ordering
+  logs.forEach((log) => {
+    const list = userGroups.get(log.user.id) || []
+    list.push(log)
+    userGroups.set(log.user.id, list)
+  })
+
+  userGroups.forEach((entries, userId) => {
+    const userName = entries[0]?.user.name || "Unknown User"
+    
+    // Add Header
+    flattened.push({
+      id: `header-${userId}`,
+      type: "header",
+      userId,
+      userName,
+      summary: {
+        totalLogs: entries.length,
+        lastSubmission: entries[0]?.date || "",
+      },
+    })
+
+    // Add Rows
+    entries.forEach((log) => {
+      flattened.push({
+        id: log.id,
+        type: "row",
+        userId,
+        userName,
+        data: log,
+      })
+    })
+  })
+
+  return flattened
 }
 
 async function fetchUserLogs(
   supabase: Awaited<ReturnType<typeof createClient>>,
   userId: string,
-  filters: { date?: string; departmentId?: string; page: number; canViewDepartmentLogs?: boolean }
-): Promise<{ count: number; hasMore: boolean; logs: LogEntry[] }> {
-  const pageSize = 20
-  const offset = (filters.page - 1) * pageSize
-
+  filters: { 
+    date?: string; 
+    departmentId?: string; 
+    cursor?: LogCursor | null;
+    limit: number;
+    canViewDepartmentLogs?: boolean 
+  }
+): Promise<{ 
+  count: number; 
+  hasMore: boolean; 
+  logs: LogEntry[]; 
+  nextCursor: LogCursor | null 
+}> {
   let query = supabase
     .from("captain_log_entries")
     .select(
@@ -125,11 +194,14 @@ async function fetchUserLogs(
       updated_at,
       entry_kind,
       subject_agent_snapshot,
-      departments:subject_department_id (name)
+      user_id,
+      departments:subject_department_id (name),
+      user_profiles!captain_log_entries_user_profiles_user_id_fkey (name)
     `,
       { count: "exact" }
     )
     .order("date", { ascending: false })
+    .order("id", { ascending: false })
 
   if (!filters.canViewDepartmentLogs) {
     query = query.eq("user_id", userId)
@@ -139,11 +211,9 @@ async function fetchUserLogs(
     query = query.eq("subject_department_id", filters.departmentId)
   } else {
     const accessibleDepartmentIds = await fetchAccessibleDepartmentIds(supabase, userId)
-
     if (accessibleDepartmentIds.length === 0) {
-      return { logs: [], count: 0, hasMore: false }
+      return { logs: [], count: 0, hasMore: false, nextCursor: null }
     }
-
     query = query.in("subject_department_id", accessibleDepartmentIds)
   }
 
@@ -151,20 +221,32 @@ async function fetchUserLogs(
     query = query.eq("date", filters.date)
   }
 
-  const { data, error, count } = await query.range(offset, offset + pageSize - 1)
+  // Composite Cursor Logic: (date, id) < (cursor_date, cursor_id)
+  if (filters.cursor) {
+    query = query.or(`date.lt.${filters.cursor.date},and(date.eq.${filters.cursor.date},id.lt.${filters.cursor.id})`)
+  }
+
+  const { data, error, count } = await query.limit(filters.limit)
 
   if (error) {
-    console.error("Error fetching logs:", error)
-    return { logs: [], count: 0, hasMore: false }
+    console.error("Error fetching logs:", error.message)
+    return { logs: [], count: 0, hasMore: false, nextCursor: null }
   }
 
   const logs = await mapRowsToLogs(supabase, (data as LogRow[] | null | undefined) || [])
   const totalCount = count || 0
 
+  const hasMore = logs.length === filters.limit
+  const nextCursor = hasMore ? { 
+    date: logs[logs.length - 1].date, 
+    id: logs[logs.length - 1].id 
+  } : null
+
   return {
     logs,
     count: totalCount,
-    hasMore: offset + logs.length < totalCount,
+    hasMore,
+    nextCursor
   }
 }
 
@@ -186,7 +268,9 @@ async function fetchLogsForMonth(
       updated_at,
       entry_kind,
       subject_agent_snapshot,
-      departments:subject_department_id (name)
+      user_id,
+      departments:subject_department_id (name),
+      user_profiles!captain_log_entries_user_profiles_user_id_fkey (name)
     `
     )
     .gte("date", startDate)
@@ -420,10 +504,13 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
       ? fetchUserLogs(supabase, userId, {
           date: pageState.date,
           departmentId: pageState.departmentId,
-          page: pageState.page,
+          cursor: (rawParams as any).nextCursorDate && (rawParams as any).nextCursorId 
+            ? { date: (rawParams as any).nextCursorDate, id: (rawParams as any).nextCursorId } 
+            : null,
+          limit: 30, // Increased for virtualization
           canViewDepartmentLogs: effectiveCanViewDepartmentLogs,
         })
-      : Promise.resolve({ logs: [], count: 0, hasMore: false }),
+      : Promise.resolve({ logs: [], count: 0, hasMore: false, nextCursor: null }),
     pageState.view === "calendar"
       ? fetchLogsForMonth(supabase, userId, {
           departmentId: pageState.departmentId,
@@ -432,6 +519,8 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
         })
       : Promise.resolve([]),
   ])
+
+  const flattenedList = pageState.view === "list" ? flattenLogs(listResult.logs) : []
 
   const primaryDepartment = pageState.departmentId 
     ? departments.find(d => d.id === pageState.departmentId) || departments[0] || null
@@ -462,7 +551,6 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
     date: pageState.date,
     departmentId: pageState.departmentId,
     month: pageState.month,
-    page: pageState.view === "list" ? pageState.page : undefined,
   })
 
   return (
@@ -574,6 +662,7 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
         <>
           <LogsList
             logs={listResult.logs}
+            flattenedItems={flattenedList}
             emptyTitle="No logs found"
             emptyDescription={
               hasFilters
@@ -584,43 +673,20 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
             previewView="list"
             previewDate={pageState.date}
             previewDepartmentId={pageState.departmentId}
-            previewPage={pageState.page}
           />
 
-          {listResult.hasMore || pageState.page > 1 ? (
-            <div className="flex items-center justify-between">
-              <Button variant="outline" size="sm" disabled={pageState.page <= 1} asChild={pageState.page > 1}>
-                {pageState.page > 1 ? (
-                  <Link
-                    href={buildLogsPageHref({
-                      view: "list",
-                      date: pageState.date,
-                      departmentId: pageState.departmentId,
-                      page: pageState.page - 1,
-                    })}
-                  >
-                    Previous
-                  </Link>
-                ) : (
-                  "Previous"
-                )}
-              </Button>
-              <span className="text-muted-foreground text-sm">Page {pageState.page}</span>
-              <Button variant="outline" size="sm" disabled={!listResult.hasMore} asChild={listResult.hasMore}>
-                {listResult.hasMore ? (
-                  <Link
-                    href={buildLogsPageHref({
-                      view: "list",
-                      date: pageState.date,
-                      departmentId: pageState.departmentId,
-                      page: pageState.page + 1,
-                    })}
-                  >
-                    Next
-                  </Link>
-                ) : (
-                  "Next"
-                )}
+          {listResult.hasMore ? (
+            <div className="flex items-center justify-center pt-4">
+              <Button variant="outline" size="sm" asChild>
+                <Link
+                  href={buildLogsPageHref({
+                    ...pageState,
+                    nextCursorDate: listResult.nextCursor?.date,
+                    nextCursorId: listResult.nextCursor?.id,
+                  })}
+                >
+                  Load More
+                </Link>
               </Button>
             </div>
           ) : null}
