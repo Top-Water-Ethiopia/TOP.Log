@@ -50,8 +50,10 @@ export function getAssetKind(asset: Pick<AttributedCloudinaryAsset, "resourceTyp
 export function shouldIncludeAssetForUser(
   asset: Pick<AttributedCloudinaryAsset, "uploadedByUserId">,
   context: Pick<LogAssetEntryContext, "entryUserId">,
-  currentUserId: string
+  currentUserId: string,
+  canViewAll = false
 ): boolean {
+  if (canViewAll) return true
   if (asset.uploadedByUserId && asset.uploadedByUserId === currentUserId) return true
   return !!context.entryUserId && context.entryUserId === currentUserId
 }

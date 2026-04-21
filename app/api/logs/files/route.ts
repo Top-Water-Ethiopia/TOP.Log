@@ -4,11 +4,12 @@ import {
   compareLogAssetsNewestFirst,
   dedupeLogAssetsKeepingNewest,
   extractLogAssetsFromResponses,
-  shouldIncludeAssetForUser,
   type LogAsset,
   type LogAssetSourceResponse,
+  shouldIncludeAssetForUser,
 } from "@/lib/log-assets"
 import { FILES_BATCH_SIZE, FILES_MAX_ENTRY_SCAN, FILES_TARGET_ASSETS } from "@/lib/log-files-constants"
+import { getEffectivePermissionsForUser } from "@/lib/rbac/server"
 
 type Cursor = { createdAt: string; id: string }
 
@@ -42,6 +43,13 @@ export async function GET(request: Request) {
   const targetAssets = parsePositiveInt(url.searchParams.get("targetAssets"), FILES_TARGET_ASSETS)
   const maxEntriesScanned = parsePositiveInt(url.searchParams.get("maxEntriesScanned"), FILES_MAX_ENTRY_SCAN)
 
+  const { departmentAccess } = await getEffectivePermissionsForUser(user.id)
+  const leadDepartmentIds = new Set(
+    departmentAccess
+      .filter((da) => da.permissions.includes("entries.read_any"))
+      .map((da) => da.departmentId)
+  )
+
   const collected: LogAsset[] = []
   let scanned = 0
   let nextCursor: Cursor | null = cursor
@@ -50,17 +58,16 @@ export async function GET(request: Request) {
   while (collected.length < targetAssets && scanned < maxEntriesScanned) {
     let entriesQuery = supabase
       .from("captain_log_entries")
-      .select("id, created_at, date, user_id, department_id")
+      .select("id, created_at, date, user_id, subject_department_id")
       .order("created_at", { ascending: false })
       .order("id", { ascending: false })
       .limit(cursor ? batchSize * 2 : batchSize)
 
     if (departmentId) {
-      entriesQuery = entriesQuery.eq("department_id", departmentId)
+      entriesQuery = entriesQuery.eq("subject_department_id", departmentId)
     }
 
     if (nextCursor) {
-      // Fetch a wider window by created_at and filter precisely in JS to avoid OR-string encoding issues.
       entriesQuery = entriesQuery.lte("created_at", nextCursor.createdAt)
     }
 
@@ -71,17 +78,20 @@ export async function GET(request: Request) {
 
     const candidateRows =
       (entries || []).filter(
-        (e): e is { id: string; created_at: string | null; date: string; user_id: string | null } =>
-          typeof e?.id === "string" && typeof e?.date === "string"
+        (e): e is { id: string; created_at: string; date: string; user_id: string; subject_department_id: string | null } =>
+          typeof e?.id === "string" &&
+          typeof e?.date === "string" &&
+          typeof e?.created_at === "string" &&
+          typeof e?.user_id === "string"
       ) || []
 
-    const cursorFiltered = nextCursor
+    const currentCursor = nextCursor
+    const cursorFiltered = currentCursor
       ? candidateRows.filter((row) => {
           const createdAt = row.created_at
-          if (!createdAt) return false
-          if (createdAt < nextCursor.createdAt) return true
-          if (createdAt > nextCursor.createdAt) return false
-          return row.id < nextCursor.id
+          if (createdAt < currentCursor.createdAt) return true
+          if (createdAt > currentCursor.createdAt) return false
+          return row.id < currentCursor.id
         })
       : candidateRows
 
@@ -130,8 +140,10 @@ export async function GET(request: Request) {
         entryUserId: entry.user_id,
       })
 
+      const canViewAll = entry.subject_department_id ? leadDepartmentIds.has(entry.subject_department_id) : false
+
       for (const asset of extracted) {
-        if (!shouldIncludeAssetForUser(asset, { entryUserId: entry.user_id }, user.id)) continue
+        if (!shouldIncludeAssetForUser(asset, { entryUserId: entry.user_id }, user.id, canViewAll)) continue
         collected.push(asset)
       }
     }
