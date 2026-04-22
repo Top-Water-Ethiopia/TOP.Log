@@ -4,11 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { Loader2 } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { FilesTabs } from "@/components/logs/files-tabs"
-import {
-  compareLogAssetsNewestFirst,
-  dedupeLogAssetsKeepingNewest,
-  type LogAsset,
-} from "@/lib/log-assets"
+import { compareLogAssetsNewestFirst, dedupeLogAssetsKeepingNewest, type LogAsset } from "@/lib/log-assets"
 import { buildLogsPageHref } from "@/lib/logs-page-filters"
 import { FILES_MAX_ENTRY_SCAN, FILES_TARGET_ASSETS } from "@/lib/log-files-constants"
 
@@ -74,7 +70,7 @@ export function LogsFilesView({ currentUserId, departmentId, date, month }: Logs
         departmentId,
         date,
         month,
-        selectedReportId: entryId,
+        selectedLogId: entryId,
       }),
     [date, departmentId, month]
   )
@@ -174,7 +170,9 @@ export function LogsFilesView({ currentUserId, departmentId, date, month }: Logs
         </div>
       ) : isEmpty ? (
         <div className="text-muted-foreground rounded-lg border bg-white p-8 text-center text-sm">
-          {departmentId ? "No files found for your uploads in this department." : "No files found for your uploads yet."}
+          {departmentId
+            ? "No files found for your uploads in this department."
+            : "No files found for your uploads yet."}
         </div>
       ) : (
         <FilesTabs

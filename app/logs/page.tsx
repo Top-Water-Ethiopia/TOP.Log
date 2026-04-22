@@ -536,7 +536,11 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
 
   if (userError || !user) {
     const params = await searchParams
-    const redirectHref = buildLogsPageHref(normalizeLogsPageState(params))
+    const redirectState = normalizeLogsPageState(params)
+    const redirectHref = buildLogsPageHref({
+      ...redirectState,
+      page: redirectState.page.toString(),
+    })
     redirect(`/login?redirect=${encodeURIComponent(redirectHref)}`)
   }
 
@@ -651,12 +655,6 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
   const calendarDaySummaries = pageState.view === "calendar" ? summarizeCalendarDays(monthLogs) : []
   const selectedDateLogs =
     pageState.view === "calendar" && pageState.date ? monthLogs.filter((log) => log.date === pageState.date) : []
-  const previewCloseHref = buildLogsPageHref({
-    view: pageState.view,
-    date: pageState.date,
-    departmentId: pageState.departmentId,
-    month: pageState.month,
-  })
 
   return (
     <div className="space-y-6">
@@ -686,12 +684,7 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <LogsViewToggle
-            currentView={pageState.view}
-            date={pageState.date}
-            departmentId={pageState.departmentId}
-            month={pageState.month}
-          />
+          <LogsViewToggle />
           {canCreateNewReport && newReportHref ? (
             <Button asChild>
               <Link href={newReportHref}>
@@ -753,10 +746,6 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
                 logs={selectedDateLogs}
                 emptyTitle="No logs for this date"
                 emptyDescription="Pick another date on the calendar to review a different day."
-                previewView="calendar"
-                previewDate={pageState.date}
-                previewDepartmentId={pageState.departmentId}
-                previewMonth={pageState.month}
               />
             ) : (
               <Card>
@@ -792,12 +781,6 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
                   : "Get started by creating your first daily log entry."
             }
             emptyActionHref={!hasFilters ? newReportHref : null}
-            previewView="list"
-            previewDate={pageState.date}
-            previewDepartmentId={pageState.departmentId}
-            defaultCollapsed={effectiveCanViewDepartmentLogs}
-            currentUserId={userId}
-            preserveState={!!(rawParams as any).nextCursorDate && !!(rawParams as any).nextCursorId}
           />
 
           {listResult.hasMore ? (
@@ -806,6 +789,7 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
                 <Link
                   href={buildLogsPageHref({
                     ...pageState,
+                    page: pageState.page.toString(),
                     nextCursorDate: listResult.nextCursor?.date,
                     nextCursorId: listResult.nextCursor?.id,
                   })}
@@ -818,11 +802,7 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
         </>
       )}
 
-      <LogReportPreviewPanel
-        canAccessAdmin={canAccessAdmin}
-        closeHref={previewCloseHref}
-        reportId={pageState.selectedReportId}
-      />
+      <LogReportPreviewPanel canAccessAdmin={canAccessAdmin} reportId={pageState.selectedLogId} />
     </div>
   )
 }

@@ -1,4 +1,5 @@
 import { formatLocalDate } from "@/lib/date-restrictions"
+import { z } from "zod"
 
 export type LogsViewMode = "list" | "calendar" | "files"
 
@@ -9,7 +10,7 @@ export interface LogsPageSearchParams {
   page?: string
   nextCursorDate?: string
   nextCursorId?: string
-  selectedReportId?: string
+  selectedLogId?: string
   searchName?: string
   view?: string
 }
@@ -20,12 +21,36 @@ export interface LogsPageState {
   month: string
   page: number
   searchName?: string
-  selectedReportId?: string
+  selectedLogId?: string
   view: LogsViewMode
+  nextCursorDate?: string
+  nextCursorId?: string
 }
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
 const MONTH_PATTERN = /^\d{4}-\d{2}$/
+
+// Zod schema for runtime validation
+export const LogsPageStateSchema = z.object({
+  date: z.string().optional(),
+  departmentId: z.string().optional(),
+  month: z.string(),
+  page: z.number().int().positive(),
+  searchName: z.string().optional(),
+  selectedLogId: z.string().optional(),
+  view: z.enum(["list", "calendar", "files"]),
+  nextCursorDate: z.string().optional(),
+  nextCursorId: z.string().optional(),
+})
+
+// Helper to assert complete state (defensive check)
+export function assertCompleteState(state: LogsPageState): asserts state is Required<LogsPageState> {
+  if (!state.month) throw new Error("LogsPageState missing required field: month")
+  if (!state.view) throw new Error("LogsPageState missing required field: view")
+  if (typeof state.page !== "number" || state.page < 1) {
+    throw new Error("LogsPageState invalid field: page")
+  }
+}
 
 export function getCurrentMonthValue(referenceDate = new Date()): string {
   return formatLocalDate(referenceDate).slice(0, 7)
@@ -100,14 +125,12 @@ export function shiftMonthValue(month: string, offset: number): string {
   return `${shiftedDate.getFullYear()}-${String(shiftedDate.getMonth() + 1).padStart(2, "0")}`
 }
 
-export function normalizeLogsPageState(params: LogsPageSearchParams): LogsPageState {
+export function parseLogsPageState(params: LogsPageSearchParams): LogsPageState {
   const date = isValidLogsDate(params.date) ? params.date : undefined
   const monthFromDate = date?.slice(0, 7)
   const month = monthFromDate || (isValidLogsMonth(params.month) ? params.month : getCurrentMonthValue())
-  const selectedReportId =
-    typeof params.selectedReportId === "string" && params.selectedReportId.trim()
-      ? params.selectedReportId.trim()
-      : undefined
+  const selectedLogId =
+    typeof params.selectedLogId === "string" && params.selectedLogId.trim() ? params.selectedLogId.trim() : undefined
 
   let searchName: string | undefined
   if (typeof params.searchName === "string" && params.searchName.trim()) {
@@ -124,22 +147,27 @@ export function normalizeLogsPageState(params: LogsPageSearchParams): LogsPageSt
     page: parseLogsPageNumber(params.page),
     month,
     searchName,
-    selectedReportId,
+    selectedLogId,
+    // Preserve cursor params if present
+    nextCursorDate: params.nextCursorDate,
+    nextCursorId: params.nextCursorId,
   }
 }
 
-export function buildLogsPageHref(state: {
-  date?: string
-  departmentId?: string
-  month?: string
-  nextCursorDate?: string
-  nextCursorId?: string
-  searchName?: string
-  selectedReportId?: string
-  view?: LogsViewMode
-}): string {
+// Backward compatibility alias
+export function normalizeLogsPageState(params: LogsPageSearchParams): LogsPageState {
+  return parseLogsPageState(params)
+}
+
+export function buildLogsPageHrefFromState(state: Required<LogsPageState>): string {
+  // Runtime validation with zod
+  LogsPageStateSchema.parse(state)
+
+  // Defensive check
+  assertCompleteState(state)
+
   const query = new URLSearchParams()
-  const view = state.view || "list"
+  const view = state.view
 
   if (view === "calendar") {
     query.set("view", "calendar")
@@ -161,8 +189,9 @@ export function buildLogsPageHref(state: {
     query.set("searchName", state.searchName)
   }
 
-  if (state.selectedReportId) {
-    query.set("selectedReportId", state.selectedReportId)
+  // Support new naming
+  if (state.selectedLogId) {
+    query.set("selectedLogId", state.selectedLogId)
   }
 
   if ((view === "calendar" || view === "files") && state.month && state.month !== getCurrentMonthValue()) {
@@ -176,4 +205,29 @@ export function buildLogsPageHref(state: {
 
   const queryString = query.toString()
   return queryString ? `/logs?${queryString}` : "/logs"
+}
+
+// Backward compatibility alias (will be removed after migration)
+export function buildLogsPageHref(state: {
+  date?: string
+  departmentId?: string
+  month?: string
+  page?: string
+  nextCursorDate?: string
+  nextCursorId?: string
+  searchName?: string
+  selectedLogId?: string
+  view?: LogsViewMode
+}): string {
+  return buildLogsPageHrefFromState({
+    date: state.date || "",
+    departmentId: state.departmentId || "",
+    month: state.month || getCurrentMonthValue(),
+    page: state.page ? Number.parseInt(state.page, 10) : 1,
+    searchName: state.searchName || "",
+    selectedLogId: state.selectedLogId || "",
+    view: state.view || "list",
+    nextCursorDate: state.nextCursorDate || "",
+    nextCursorId: state.nextCursorId || "",
+  })
 }

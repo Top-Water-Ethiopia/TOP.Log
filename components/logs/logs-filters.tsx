@@ -1,6 +1,7 @@
 "use client"
 
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { buildLogsPageHref } from "@/lib/logs-page-filters"
 import type { LogsViewMode } from "@/lib/logs-page-filters"
@@ -35,6 +36,7 @@ export function LogsFilters({
 
   // Search input state (for controlled input)
   const [searchInput, setSearchInput] = useState(searchName || "")
+  const router = useRouter()
 
   useEffect(() => {
     setSearchInput(searchName || "")
@@ -116,7 +118,31 @@ export function LogsFilters({
             type="text"
             name="searchName"
             value={searchInput}
-            onChange={(e) => setSearchInput(e.target.value)}
+            onChange={(e) => {
+              setSearchInput(e.target.value)
+              // Immediately flush to URL to keep in sync
+              const trimmed = e.target.value.trim().toLowerCase()
+              if (trimmed.length >= 2 && trimmed.length <= 50) {
+                const href = buildLogsPageHref({
+                  view: currentView,
+                  date,
+                  departmentId,
+                  month: currentView === "calendar" || currentView === "files" ? month : undefined,
+                  searchName: trimmed,
+                })
+                router.replace(href)
+              } else if (trimmed.length === 0) {
+                // Clear search if empty
+                const href = buildLogsPageHref({
+                  view: currentView,
+                  date,
+                  departmentId,
+                  month: currentView === "calendar" || currentView === "files" ? month : undefined,
+                  searchName: undefined,
+                })
+                router.replace(href)
+              }
+            }}
             placeholder="Enter name to search..."
             className="border-input bg-background h-9 rounded-md border px-3 py-1 text-sm shadow-sm"
           />

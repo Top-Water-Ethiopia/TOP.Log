@@ -2,13 +2,14 @@
 
 import { useState, useMemo, useRef } from "react"
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { Building2, Calendar, ChevronDown, ChevronRight, Eye, FileText, PhoneCall, Plus, User } from "lucide-react"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
 import { formatDateHuman } from "@/lib/date-restrictions"
-import { buildLogsPageHref } from "@/lib/logs-page-filters"
-import type { LogsViewMode } from "@/lib/logs-page-filters"
+import { buildLogsPageHrefFromState } from "@/lib/logs-page-filters"
+import { useLogsPageState } from "@/hooks/use-logs-page-state"
 import type { LogEntry } from "@/lib/logs/types"
 import { cn } from "@/lib/utils"
 import { useVirtualizer } from "@tanstack/react-virtual"
@@ -32,10 +33,6 @@ interface LogsListProps {
   emptyTitle: string
   flattenedItems?: FlattenedLogItem[]
   logs: LogEntry[]
-  previewDate?: string
-  previewDepartmentId?: string
-  previewMonth?: string
-  previewView: LogsViewMode
 }
 
 export function LogsList({
@@ -45,11 +42,9 @@ export function LogsList({
   emptyTitle,
   flattenedItems = [],
   logs,
-  previewDate,
-  previewDepartmentId,
-  previewMonth,
-  previewView,
 }: LogsListProps) {
+  const router = useRouter()
+  const { state } = useLogsPageState()
   const [expandedUsers, setExpandedUsers] = useState<Record<string, boolean>>({})
   const parentRef = useRef<HTMLDivElement>(null)
 
@@ -149,7 +144,9 @@ export function LogsList({
                       <div className="flex items-center gap-4 p-4">
                         <div className="bg-primary/10 flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-lg">
                           <span className="text-primary text-xs font-medium uppercase">
-                            {item.data?.date ? new Date(item.data.date).toLocaleDateString("en-US", { month: "short" }) : ""}
+                            {item.data?.date
+                              ? new Date(item.data.date).toLocaleDateString("en-US", { month: "short" })
+                              : ""}
                           </span>
                           <span className="text-primary text-lg font-bold">
                             {item.data?.date ? new Date(item.data.date).getDate() : ""}
@@ -159,7 +156,9 @@ export function LogsList({
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2">
                             <Calendar className="text-muted-foreground h-3.5 w-3.5" />
-                            <span className="text-sm font-medium">{item.data?.date ? formatDateHuman(item.data.date) : ""}</span>
+                            <span className="text-sm font-medium">
+                              {item.data?.date ? formatDateHuman(item.data.date) : ""}
+                            </span>
                           </div>
                           <div className="mt-1 flex items-center gap-2">
                             <Building2 className="text-muted-foreground h-3.5 w-3.5" />
@@ -178,19 +177,26 @@ export function LogsList({
                         </div>
 
                         <div className="flex shrink-0 gap-2">
-                          <Button variant="ghost" size="sm" asChild>
-                            <Link
-                              href={buildLogsPageHref({
-                                view: previewView,
-                                date: previewDate,
-                                departmentId: previewDepartmentId,
-                                month: previewMonth,
-                                selectedReportId: item.data?.id,
-                              })}
-                            >
-                              <Eye className="mr-1 h-4 w-4" />
-                              View
-                            </Link>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => {
+                              const href = buildLogsPageHrefFromState({
+                                date: state.date || "",
+                                departmentId: state.departmentId || "",
+                                month: state.month,
+                                page: state.page,
+                                searchName: state.searchName || "",
+                                selectedLogId: item.data?.id || "",
+                                view: state.view,
+                                nextCursorDate: state.nextCursorDate || "",
+                                nextCursorId: state.nextCursorId || "",
+                              })
+                              router.push(href)
+                            }}
+                          >
+                            <Eye className="mr-1 h-4 w-4" />
+                            View
                           </Button>
                         </div>
                       </div>

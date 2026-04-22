@@ -1,9 +1,9 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState, useRef } from "react"
 import Link from "next/link"
 import { useRouter } from "next/navigation"
-import { AlertCircle, Calendar, ExternalLink, Loader2, MapPin, Phone, Shield } from "lucide-react"
+import { AlertCircle, Calendar, ExternalLink, Info, Loader2, MapPin, Phone, Shield } from "lucide-react"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { RightSidePanel } from "@/components/ui/right-side-panel"
@@ -17,6 +17,8 @@ import {
   extractLogAssetsFromResponses,
   type LogAssetSourceResponse,
 } from "@/lib/log-assets"
+import { buildLogsPageHrefFromState } from "@/lib/logs-page-filters"
+import { useLogsPageState } from "@/hooks/use-logs-page-state"
 
 interface CustomResponse {
   question_id: string
@@ -44,7 +46,6 @@ interface ReportPreview {
 
 interface LogReportPreviewPanelProps {
   canAccessAdmin: boolean
-  closeHref: string
   reportId?: string
 }
 
@@ -102,11 +103,26 @@ function renderResponseValue(response: CustomResponse) {
   return formatResponseValue(value)
 }
 
-export function LogReportPreviewPanel({ canAccessAdmin, closeHref, reportId }: LogReportPreviewPanelProps) {
+export function LogReportPreviewPanel({ canAccessAdmin, reportId }: LogReportPreviewPanelProps) {
   const router = useRouter()
+  const { state, isCursorExpired } = useLogsPageState()
+  const prevCursorRef = useRef(state.nextCursorDate)
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const [report, setReport] = useState<ReportPreview | null>(null)
+  const [showExpiryIndicator, setShowExpiryIndicator] = useState(false)
+
+  // Detect cursor expiry transition
+  useEffect(() => {
+    if (prevCursorRef.current && !state.nextCursorDate) {
+      // Cursor was removed - this could be due to expiry
+      setShowExpiryIndicator(true)
+      // Auto-dismiss after 5 seconds
+      const timer = setTimeout(() => setShowExpiryIndicator(false), 5000)
+      return () => clearTimeout(timer)
+    }
+    prevCursorRef.current = state.nextCursorDate
+  }, [state.nextCursorDate])
 
   useEffect(() => {
     if (!reportId) {
@@ -193,6 +209,17 @@ export function LogReportPreviewPanel({ canAccessAdmin, closeHref, reportId }: L
       open={!!reportId}
       onOpenChange={(open) => {
         if (!open) {
+          const closeHref = buildLogsPageHrefFromState({
+            date: state.date || "",
+            departmentId: state.departmentId || "",
+            month: state.month,
+            page: state.page,
+            searchName: state.searchName || "",
+            selectedLogId: "",
+            view: state.view,
+            nextCursorDate: isCursorExpired ? "" : state.nextCursorDate || "",
+            nextCursorId: isCursorExpired ? "" : state.nextCursorId || "",
+          })
           router.replace(closeHref)
         }
       }}
@@ -230,6 +257,14 @@ export function LogReportPreviewPanel({ canAccessAdmin, closeHref, reportId }: L
         </div>
       ) : report ? (
         <div className="space-y-6">
+          {showExpiryIndicator ? (
+            <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 dark:border-amber-800 dark:bg-amber-950">
+              <div className="flex items-start gap-2 text-sm">
+                <Info className="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
+                <span className="text-amber-800 dark:text-amber-200">Session expired, showing latest results</span>
+              </div>
+            </div>
+          ) : null}
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="secondary" className="gap-1">
               <Calendar className="h-3.5 w-3.5" />
