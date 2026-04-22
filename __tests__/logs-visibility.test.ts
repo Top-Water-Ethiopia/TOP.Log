@@ -1,23 +1,36 @@
-import {
-  canViewDepartmentLogs,
-  normalizeDepartmentAccessLevelName,
-  shouldRestrictLogsToOwnEntries,
-} from "@/lib/logs/visibility"
+import { canAccessLogByDepartmentSet } from "@/lib/logs/visibility"
 
-describe("logs visibility", () => {
-  it("treats department lead access levels as department-wide visibility", () => {
-    expect(canViewDepartmentLogs("department-lead")).toBe(true)
-    expect(canViewDepartmentLogs("department_lead")).toBe(true)
-    expect(canViewDepartmentLogs("Department Lead")).toBe(true)
+describe("canAccessLogByDepartmentSet", () => {
+  it("allows owner access even without readable departments", () => {
+    const ok = canAccessLogByDepartmentSet(
+      { user_id: "u1", department_id: "d1" },
+      { userId: "u1", readableDepartments: new Set() }
+    )
+    expect(ok).toBe(true)
   })
 
-  it("keeps contributors restricted to their own entries", () => {
-    expect(canViewDepartmentLogs("contributor")).toBe(false)
-    expect(shouldRestrictLogsToOwnEntries("contributor")).toBe(true)
+  it("allows department-wide access when department is in readable set", () => {
+    const ok = canAccessLogByDepartmentSet(
+      { user_id: "u2", department_id: "d1" },
+      { userId: "u1", readableDepartments: new Set(["d1"]) }
+    )
+    expect(ok).toBe(true)
   })
 
-  it("normalizes access level names consistently", () => {
-    expect(normalizeDepartmentAccessLevelName(" Department Lead ")).toBe("department-lead")
-    expect(normalizeDepartmentAccessLevelName("department_lead")).toBe("department-lead")
+  it("denies cross-user access when department is not readable", () => {
+    const ok = canAccessLogByDepartmentSet(
+      { user_id: "u2", department_id: "d1" },
+      { userId: "u1", readableDepartments: new Set(["d2"]) }
+    )
+    expect(ok).toBe(false)
+  })
+
+  it("denies cross-user access when department_id is null", () => {
+    const ok = canAccessLogByDepartmentSet(
+      { user_id: "u2", department_id: null },
+      { userId: "u1", readableDepartments: new Set(["d1"]) }
+    )
+    expect(ok).toBe(false)
   })
 })
+

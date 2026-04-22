@@ -23,6 +23,11 @@ export interface AccessContext {
   departmentAccess: Map<string, string> // departmentId -> accessLevel
 }
 
+export interface PermissionAccessContext {
+  userId: string
+  readableDepartments: Set<string> // departmentIds with department-wide read
+}
+
 /**
  * Centralized authorization guard for log access.
  * Enforces that a user can see a log if:
@@ -37,6 +42,20 @@ export function canAccessLog(log: { user_id: string; department_id: string | nul
   if (!log.department_id) return false
   const accessLevel = context.departmentAccess.get(log.department_id)
   return canViewDepartmentLogs(accessLevel)
+}
+
+/**
+ * Permission-based access guard for log access.
+ * Use this when "department-wide read" is derived from explicit permissions,
+ * not inferred from access-level naming conventions.
+ */
+export function canAccessLogByDepartmentSet(
+  log: { user_id: string; department_id: string | null },
+  context: PermissionAccessContext
+) {
+  if (log.user_id === context.userId) return true
+  if (!log.department_id) return false
+  return context.readableDepartments.has(log.department_id)
 }
 
 /**
