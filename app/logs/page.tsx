@@ -743,6 +743,7 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
 
             {pageState.date ? (
               <LogsList
+                canViewDepartmentLogs={effectiveCanViewDepartmentLogs}
                 logs={selectedDateLogs}
                 emptyTitle="No logs for this date"
                 emptyDescription="Pick another date on the calendar to review a different day."
@@ -768,6 +769,7 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
           )}
 
           <LogsList
+            canViewDepartmentLogs={effectiveCanViewDepartmentLogs}
             logs={listResult.logs}
             flattenedItems={flattenedList}
             emptyTitle={pageState.searchName ? `No users found matching "${pageState.searchName}"` : "No logs found"}
