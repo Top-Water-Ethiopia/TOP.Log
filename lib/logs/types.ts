@@ -15,6 +15,10 @@ export interface LogEntry {
   entry_kind?: string
   subject_agent_name?: string | null
   subject_agent_snapshot?: AgentSnapshot | null
+  user: {
+    id: string
+    name: string
+  }
 }
 
 export interface CalendarDaySummary {
