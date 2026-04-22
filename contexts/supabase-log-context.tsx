@@ -266,6 +266,9 @@ interface CaptainLogContextType {
 
   // Refresh data
   refreshEntries: () => Promise<void>
+
+  // Distinguished Safeguards
+  USE_SYNC_AGGREGATION: boolean
 }
 
 // Create the context
@@ -336,6 +339,19 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
   }, [user, loadEntries, loadAuditLogs]) // Include callbacks to ensure stable dependency array
 
   // CRUD Operations
+  const USE_SYNC_AGGREGATION = process.env.NEXT_PUBLIC_USE_SYNC_AGGREGATION !== "false"
+
+  const triggerRevalidation = useCallback(async (tags: string[]) => {
+    try {
+      await fetch("/api/revalidate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ tags }),
+      })
+    } catch (err) {
+      console.warn("[Invalidation] Failed to trigger server-side revalidation", err)
+    }
+  }, [])
 
   // Add entry
   const addEntry = useCallback(
@@ -482,9 +498,11 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
 
         // Create audit log
         await supabaseData.createAuditLog({
-          operation: "CREATE",
-          entity_id: newEntry.id,
+          action: "CREATE",
+          resource_type: "log",
+          resource_id: newEntry.id,
           user_id: user.id,
+          severity: "info",
           metadata: { date: newEntry.date } as Json,
         })
 
@@ -494,6 +512,9 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
 
         // Refresh SWR caches for admin views
         globalMutate("/api/admin/captain-log-entries")
+
+        // Trigger Distinguished-grade Server-side revalidation
+        await triggerRevalidation([`user-${user.id}`])
 
         toast.success("Entry saved successfully")
       } catch (error) {
@@ -620,18 +641,22 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
 
         // Create audit log
         await supabaseData.createAuditLog({
-          operation: "UPDATE",
-          entity_id: id,
+          action: "UPDATE",
+          resource_type: "log",
+          resource_id: id,
           user_id: user.id,
-          changes: {
-            from: Object.keys(updates).reduce(
-              (acc, key) => {
-                acc[key] = (existingEntry as Record<string, unknown>)[key]
-                return acc
-              },
-              {} as Record<string, unknown>
-            ),
-            to: updates,
+          severity: "info",
+          metadata: {
+            changes: {
+              from: Object.keys(updates).reduce(
+                (acc, key) => {
+                  acc[key] = (existingEntry as Record<string, unknown>)[key]
+                  return acc
+                },
+                {} as Record<string, unknown>
+              ),
+              to: updates,
+            },
           } as Json,
         })
 
@@ -644,6 +669,9 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
 
         // Refresh SWR caches for admin views
         globalMutate("/api/admin/captain-log-entries")
+
+        // Trigger Distinguished-grade Server-side revalidation
+        await triggerRevalidation([`user-${user.id}`])
 
         toast.success("Entry updated successfully")
       } catch (error) {
@@ -682,9 +710,11 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
 
         // Create audit log
         await supabaseData.createAuditLog({
-          operation: "DELETE",
-          entity_id: id,
+          action: "DELETE",
+          resource_type: "log",
+          resource_id: id,
           user_id: user.id,
+          severity: "warning",
           metadata: { date: existingEntry.date },
         })
 
@@ -693,6 +723,9 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
 
         // Refresh SWR caches for admin views
         globalMutate("/api/admin/captain-log-entries")
+
+        // Trigger Distinguished-grade Server-side revalidation
+        await triggerRevalidation([`user-${user.id}`])
 
         toast.success("Entry deleted successfully")
       } catch (error) {
@@ -747,9 +780,11 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
 
           // Create audit log for each deletion
           await supabaseData.createAuditLog({
-            operation: "DELETE",
-            entity_id: id,
+            action: "DELETE",
+            resource_type: "log",
+            resource_id: id,
             user_id: user.id,
+            severity: "warning",
           })
         }
 
@@ -888,9 +923,11 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
 
         // Create audit log
         await supabaseData.createAuditLog({
-          operation: "IMPORT",
-          entity_id: "batch",
+          action: "IMPORT",
+          resource_type: "batch",
+          resource_id: "none",
           user_id: user.id,
+          severity: "info",
           metadata: { count: importedEntries.length },
         })
 
@@ -948,9 +985,11 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
 
       // Create audit log
       await supabaseData.createAuditLog({
-        operation: "MIGRATION",
-        entity_id: "batch",
+        action: "MIGRATION",
+        resource_type: "batch",
+        resource_id: "none",
         user_id: user.id,
+        severity: "info",
         metadata: {
           total: result.total,
           success: result.success,
@@ -1023,6 +1062,7 @@ export function SupabaseLogProvider({ children }: { children: React.ReactNode })
     migrateFromLocalStorage,
     clearError,
     refreshEntries,
+    USE_SYNC_AGGREGATION,
   }
 
   return <SupabaseLogContext.Provider value={contextValue}>{children}</SupabaseLogContext.Provider>

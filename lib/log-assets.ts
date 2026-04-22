@@ -47,16 +47,6 @@ export function getAssetKind(asset: Pick<AttributedCloudinaryAsset, "resourceTyp
   return asset.resourceType === "image" ? "image" : "document"
 }
 
-export function shouldIncludeAssetForUser(
-  asset: Pick<AttributedCloudinaryAsset, "uploadedByUserId">,
-  context: Pick<LogAssetEntryContext, "entryUserId">,
-  currentUserId: string,
-  canViewAll = false
-): boolean {
-  if (canViewAll) return true
-  if (asset.uploadedByUserId && asset.uploadedByUserId === currentUserId) return true
-  return !!context.entryUserId && context.entryUserId === currentUserId
-}
 
 function normalizeAssets(value: unknown): AttributedCloudinaryAsset[] {
   if (isAttributedCloudinaryAssetArray(value)) return value

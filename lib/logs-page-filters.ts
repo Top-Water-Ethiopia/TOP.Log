@@ -7,6 +7,8 @@ export interface LogsPageSearchParams {
   departmentId?: string
   month?: string
   page?: string
+  nextCursorDate?: string
+  nextCursorId?: string
   selectedReportId?: string
   view?: string
 }
@@ -118,7 +120,8 @@ export function buildLogsPageHref(state: {
   date?: string
   departmentId?: string
   month?: string
-  page?: number
+  nextCursorDate?: string
+  nextCursorId?: string
   selectedReportId?: string
   view?: LogsViewMode
 }): string {
@@ -149,8 +152,9 @@ export function buildLogsPageHref(state: {
     query.set("month", state.month)
   }
 
-  if (view === "list" && state.page && state.page > 1) {
-    query.set("page", String(state.page))
+  if (view === "list" && state.nextCursorDate && state.nextCursorId) {
+    query.set("nextCursorDate", state.nextCursorDate)
+    query.set("nextCursorId", state.nextCursorId)
   }
 
   const queryString = query.toString()

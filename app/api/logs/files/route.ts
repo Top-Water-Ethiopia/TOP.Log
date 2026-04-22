@@ -1,13 +1,14 @@
 import { NextResponse } from "next/server"
 import { createClient } from "@/lib/supabase/server"
+import { adminSupabase } from "@/lib/supabase/admin"
 import {
   compareLogAssetsNewestFirst,
   dedupeLogAssetsKeepingNewest,
   extractLogAssetsFromResponses,
   type LogAsset,
   type LogAssetSourceResponse,
-  shouldIncludeAssetForUser,
 } from "@/lib/log-assets"
+import { canAccessLogByDepartmentSet, shouldAudit, enqueueAuditLog, type PermissionAccessContext } from "@/lib/logs/visibility"
 import { FILES_BATCH_SIZE, FILES_MAX_ENTRY_SCAN, FILES_TARGET_ASSETS } from "@/lib/log-files-constants"
 import { getEffectivePermissionsForUser } from "@/lib/rbac/server"
 
@@ -44,11 +45,22 @@ export async function GET(request: Request) {
   const maxEntriesScanned = parsePositiveInt(url.searchParams.get("maxEntriesScanned"), FILES_MAX_ENTRY_SCAN)
 
   const { departmentAccess } = await getEffectivePermissionsForUser(user.id)
-  const leadDepartmentIds = new Set(
+  const readableDepartments = new Set(
     departmentAccess
-      .filter((da) => da.permissions.includes("entries.read_any"))
-      .map((da) => da.departmentId)
+      .filter((a) => a.permissions.includes("departments.members.read") || a.permissions.includes("departments.read"))
+      .map((a) => a.departmentId)
   )
+
+  // If a departmentId is provided, this is a department-wide asset listing.
+  // Promoters/supervisors should not be able to enumerate department assets.
+  if (departmentId && !readableDepartments.has(departmentId)) {
+    return NextResponse.json({ error: "Access denied" }, { status: 403 })
+  }
+
+  const accessContext: PermissionAccessContext = {
+    userId: user.id,
+    readableDepartments,
+  }
 
   const collected: LogAsset[] = []
   let scanned = 0
@@ -56,7 +68,7 @@ export async function GET(request: Request) {
   let lastBatchSize = 0
 
   while (collected.length < targetAssets && scanned < maxEntriesScanned) {
-    let entriesQuery = supabase
+    let entriesQuery = adminSupabase
       .from("captain_log_entries")
       .select("id, created_at, date, user_id, subject_department_id")
       .order("created_at", { ascending: false })
@@ -65,6 +77,12 @@ export async function GET(request: Request) {
 
     if (departmentId) {
       entriesQuery = entriesQuery.eq("subject_department_id", departmentId)
+    } else if (readableDepartments.size === 0) {
+      entriesQuery = entriesQuery.eq("user_id", user.id)
+    } else {
+      const deptList = Array.from(readableDepartments).join(",")
+      // Supabase `.or()` supports `in.(...)` filters in a single clause.
+      entriesQuery = entriesQuery.or(`user_id.eq.${user.id},subject_department_id.in.(${deptList})`)
     }
 
     if (nextCursor) {
@@ -106,7 +124,7 @@ export async function GET(request: Request) {
     scanned += rows.length
     const entryIds = rows.map((r) => r.id)
 
-    const { data: responses, error: responsesError } = await supabase
+    const { data: responses, error: responsesError } = await adminSupabase
       .from("custom_responses")
       .select("entry_id, question_key, question_label, question_type, value")
       .in("entry_id", entryIds)
@@ -131,6 +149,15 @@ export async function GET(request: Request) {
     })
 
     for (const entry of rows) {
+      const hasLogAccess = canAccessLogByDepartmentSet(
+        {
+          user_id: entry.user_id,
+          department_id: entry.subject_department_id,
+        },
+        accessContext
+      )
+      if (!hasLogAccess) continue
+
       const entryResponses = responsesByEntry.get(entry.id) || []
       if (entryResponses.length === 0) continue
       const extracted = extractLogAssetsFromResponses(entryResponses, {
@@ -140,10 +167,31 @@ export async function GET(request: Request) {
         entryUserId: entry.user_id,
       })
 
-      const canViewAll = entry.subject_department_id ? leadDepartmentIds.has(entry.subject_department_id) : false
-
       for (const asset of extracted) {
-        if (!shouldIncludeAssetForUser(asset, { entryUserId: entry.user_id }, user.id, canViewAll)) continue
+        // Staff-Grade Observability: Audit only cross-user access (Sampled)
+        if (
+          shouldAudit({
+            actorId: user.id,
+            targetId: entry.user_id,
+            isBulkRead: true,
+            isSensitive: true,
+          })
+        ) {
+          enqueueAuditLog(adminSupabase, {
+            user_id: user.id,
+            action: "READ_CROSS_USER_FILE",
+            resource_type: "log_asset",
+            resource_id: asset.id,
+            severity: "low",
+            metadata: {
+              entryId: entry.id,
+              uploaderId: entry.user_id,
+              departmentId: entry.subject_department_id,
+              reason: departmentId ? "Department-wide asset listing" : "Cross-user asset listing",
+            },
+          })
+        }
+
         collected.push(asset)
       }
     }

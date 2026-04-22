@@ -14,6 +14,7 @@ import {
   normalizeDepartmentAccessLevelName,
   canAccessLog,
   canViewDepartmentLogs,
+  enqueueAuditLog,
 } from "@/lib/logs/visibility"
 import {
   getAgentSnapshotName,
@@ -27,6 +28,8 @@ import { LogsList } from "@/components/logs/logs-list"
 import { LogReportPreviewPanel } from "@/components/logs/log-report-preview-panel"
 import { LogsViewToggle } from "@/components/logs/logs-view-toggle"
 import { LogsFilesView } from "@/components/logs/files-view"
+import { rateLimit } from "@/lib/rate-limit"
+import { unstable_cache } from "next/cache"
 
 interface LogsViewerProfile {
   role_id: string
@@ -496,12 +499,47 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
   // If no department selected but user is a lead in some departments,
   // allow broad visibility for fetch calls (API will filter by accessible departments).
   const viewerDepartmentAccess = await fetchViewerDepartmentAccess(accessMap, pageState.departmentId)
+  // 1. Principal-grade Per-User Rate Limiting
+  const rl = await rateLimit(user.id, { limit: 60, windowMs: 60000, burst: 10 })
+  if (!rl.success) {
+    enqueueAuditLog(supabase, {
+      user_id: user.id,
+      action: "RATE_LIMIT_EXCEEDED",
+      resource_type: "api_endpoint",
+      resource_id: "/logs",
+      severity: "medium",
+      metadata: { rl },
+    })
+    return (
+      <div className="flex min-h-[400px] items-center justify-center">
+        <Card className="max-w-md">
+          <CardContent className="pt-6 text-center">
+            <h3 className="text-lg font-semibold text-destructive">Too Many Requests</h3>
+            <p className="mt-2 text-sm text-muted-foreground">
+              You have exceeded the rate limit. Please wait a moment and try again.
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  // Define cached logs fetcher for atomic, permission-aware isolation
+  const getCachedUserLogs = unstable_cache(
+    async (userId: string, filters: any) => {
+      console.log(`[Cache] MISS for user ${userId}`)
+      return fetchUserLogs(supabase, userId, filters)
+    },
+    ["user-logs-v1"],
+    { revalidate: 60, tags: [`user-${user.id}`] }
+  )
+
   const effectiveCanViewDepartmentLogs = viewerDepartmentAccess.can_view_department_logs || (!pageState.departmentId && hasAnyLeadPermission)
 
   const [departments, listResult, monthLogs] = await Promise.all([
     fetchUserDepartments(supabase, userId, forcedDepartmentId),
     pageState.view === "list"
-      ? fetchUserLogs(supabase, userId, {
+      ? getCachedUserLogs(user.id, {
           date: pageState.date,
           departmentId: pageState.departmentId,
           cursor: (rawParams as any).nextCursorDate && (rawParams as any).nextCursorId 

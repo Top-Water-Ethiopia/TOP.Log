@@ -1,15 +1,13 @@
+import * as crypto from 'crypto';
 import { createClient } from '@supabase/supabase-js';
 import * as dotenv from 'dotenv';
-import { v4 as uuidv4 } from 'uuid';
 
 // Load environment variables
 const prodEnv = dotenv.config({ path: '.env.production' }).parsed || {};
 const devEnv = dotenv.config({ path: '.env.local' }).parsed || {};
 
-const DEFAULT_PASSWORD = 'CaptainLog123!';
-
 async function syncProductionData() {
-  console.log('🚀 Starting Production to Dev Data Sync...');
+  console.log('🚀 Starting Production to Dev Data Sync (Hardened)...');
 
   // 1. Initialize Clients
   const prodSupabase = createClient(
@@ -23,6 +21,10 @@ async function syncProductionData() {
     devEnv.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { autoRefreshToken: false, persistSession: false } }
   );
+
+  function generateRandomPassword() {
+    return crypto.randomBytes(16).toString('hex');
+  }
 
   try {
     // 2. Sync Departments
@@ -47,29 +49,37 @@ async function syncProductionData() {
       else console.log(`  ✅ Synced role: ${role.name}`);
     }
 
-    // 4. Sync Auth Users
-    console.log('\n👤 Syncing Auth Users...');
+    // 4. Sync Auth Users with unique random passwords
+    console.log('\n👤 Syncing Auth Users with unique random passwords...');
     const { data: { users: prodUsers }, error: usersErr } = await prodSupabase.auth.admin.listUsers();
     if (usersErr) throw usersErr;
 
-    const { data: { users: devUsers } } = await devSupabase.auth.admin.listUsers();
-    const devUserEmails = new Set(devUsers.map(u => u.email));
-
     for (const user of prodUsers) {
-      if (!devUserEmails.has(user.email)) {
-        console.log(`  Creating user: ${user.email}`);
-        const { error } = await devSupabase.auth.admin.createUser({
-          id: user.id,
-          email: user.email,
-          password: DEFAULT_PASSWORD,
-          email_confirm: true,
+      const randomPassword = generateRandomPassword();
+      const { error } = await devSupabase.auth.admin.createUser({
+        id: user.id,
+        email: user.email,
+        password: randomPassword,
+        email_confirm: true,
+        phone: user.phone,
+        phone_confirm: true,
+        user_metadata: user.user_metadata,
+        app_metadata: user.app_metadata
+      });
+
+      if (error && error.message.includes('already exists')) {
+        await devSupabase.auth.admin.updateUserById(user.id, {
+          password: randomPassword,
+          phone: user.phone,
+          phone_confirm: true,
           user_metadata: user.user_metadata,
           app_metadata: user.app_metadata
         });
-        if (error) console.error(`  ❌ Error creating user ${user.email}:`, error.message);
-        else console.log(`  ✅ Created user: ${user.email}`);
+        console.log(`  ✅ Reset password for: ${user.email}`);
+      } else if (error) {
+        console.error(`  ❌ Error syncing user ${user.email}:`, error.message);
       } else {
-        console.log(`  ℹ️  User already exists: ${user.email}`);
+        console.log(`  ✅ Created user: ${user.email}`);
       }
     }
 
@@ -96,7 +106,7 @@ async function syncProductionData() {
     }
 
     console.log('\n✨ Data Sync Completed Successfully!');
-    console.log(`\n🔑 All synced users assigned password: ${DEFAULT_PASSWORD}`);
+    console.log('\n🔐 All users reset with unique random passwords for development security.');
 
   } catch (error) {
     console.error('\n💥 Critical Error during sync:', error);
