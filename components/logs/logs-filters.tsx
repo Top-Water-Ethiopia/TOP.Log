@@ -1,7 +1,10 @@
+"use client"
+
 import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { buildLogsPageHref } from "@/lib/logs-page-filters"
 import type { LogsViewMode } from "@/lib/logs-page-filters"
+import { useState, useEffect } from "react"
 
 interface LogsFiltersProps {
   currentView: LogsViewMode
@@ -11,6 +14,7 @@ interface LogsFiltersProps {
   hasFilters: boolean
   isBasicUser: boolean
   month: string
+  searchName?: string
 }
 
 export function LogsFilters({
@@ -21,17 +25,28 @@ export function LogsFilters({
   hasFilters,
   isBasicUser,
   month,
+  searchName,
 }: LogsFiltersProps) {
   const clearHref = buildLogsPageHref({
     view: currentView,
     month: currentView === "calendar" || currentView === "files" ? month : undefined,
+    searchName: undefined, // Clear search when clicking Clear
   })
+
+  // Search input state (for controlled input)
+  const [searchInput, setSearchInput] = useState(searchName || "")
+
+  useEffect(() => {
+    setSearchInput(searchName || "")
+  }, [searchName])
 
   return (
     <form action="/logs" className="flex flex-wrap items-end gap-4">
       <input type="hidden" name="view" value={currentView} />
 
-      {currentView === "calendar" || currentView === "files" ? <input type="hidden" name="month" value={month} /> : null}
+      {currentView === "calendar" || currentView === "files" ? (
+        <input type="hidden" name="month" value={month} />
+      ) : null}
       {currentView === "calendar" && date ? <input type="hidden" name="date" value={date} /> : null}
       {currentView === "files" && date ? <input type="hidden" name="date" value={date} /> : null}
 
@@ -88,6 +103,23 @@ export function LogsFilters({
               </option>
             ))}
           </select>
+        </div>
+      ) : null}
+
+      {!isBasicUser ? (
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="logs-search-filter" className="text-sm font-medium">
+            Search by name
+          </label>
+          <input
+            id="logs-search-filter"
+            type="text"
+            name="searchName"
+            value={searchInput}
+            onChange={(e) => setSearchInput(e.target.value)}
+            placeholder="Enter name to search..."
+            className="border-input bg-background h-9 rounded-md border px-3 py-1 text-sm shadow-sm"
+          />
         </div>
       ) : null}
 
