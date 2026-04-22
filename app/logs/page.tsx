@@ -8,6 +8,7 @@ import { Card, CardContent } from "@/components/ui/card"
 import { formatDateHuman } from "@/lib/date-restrictions"
 import { getReportStatus } from "@/lib/completion-status"
 import { buildLogsPageHref, getMonthDateRange, normalizeLogsPageState } from "@/lib/logs-page-filters"
+import type { Database } from "@/lib/supabase/database.types"
 import type { LogsPageSearchParams } from "@/lib/logs-page-filters"
 import type { CalendarDaySummary, LogEntry } from "@/lib/logs/types"
 import {
@@ -55,6 +56,8 @@ interface LogRow {
   user_profiles: { name: string } | null
   total_user_logs?: number
 }
+
+type SearchLogsRow = Database["public"]["Functions"]["search_logs"]["Returns"][number]
 
 interface ViewerDepartmentProfession {
   profession_key: string | null
@@ -142,7 +145,7 @@ function flattenLogs(logs: LogEntry[]): FlattenedLogItem[] {
 
   userGroups.forEach((entries, userId) => {
     const userName = entries[0]?.user.name || "Unknown User"
-    
+
     // Add Header
     flattened.push({
       id: `header-${userId}`,
@@ -173,19 +176,75 @@ function flattenLogs(logs: LogEntry[]): FlattenedLogItem[] {
 async function fetchUserLogs(
   supabase: Awaited<ReturnType<typeof createClient>>,
   userId: string,
-  filters: { 
-    date?: string; 
-    departmentId?: string; 
-    cursor?: LogCursor | null;
-    limit: number;
-    canViewDepartmentLogs?: boolean 
+  filters: {
+    date?: string
+    departmentId?: string
+    cursor?: LogCursor | null
+    limit: number
+    canViewDepartmentLogs?: boolean
+    searchName?: string
   }
-): Promise<{ 
-  count: number; 
-  hasMore: boolean; 
-  logs: LogEntry[]; 
-  nextCursor: LogCursor | null 
+): Promise<{
+  count: number
+  hasMore: boolean
+  logs: LogEntry[]
+  nextCursor: LogCursor | null
 }> {
+  // Use RPC function for search with cursor pagination
+  if (filters.searchName) {
+    const { data, error } = await supabase.rpc("search_logs", {
+      p_user_id: userId,
+      p_date: filters.date || undefined,
+      p_department_id: filters.departmentId || undefined,
+      p_search_name: filters.searchName,
+      p_cursor_date: filters.cursor?.date || undefined,
+      p_cursor_id: filters.cursor?.id || undefined,
+      p_limit: filters.limit,
+      p_can_view_department_logs: filters.canViewDepartmentLogs || undefined,
+    })
+
+    if (error) {
+      console.error("Error searching logs:", error.message)
+      return { logs: [], count: 0, hasMore: false, nextCursor: null }
+    }
+
+    // RPC returns typed rows, map to LogEntry format
+    const logs = ((data as SearchLogsRow[]) || []).map((row) => ({
+      id: row.id,
+      date: row.date,
+      department_id: row.subject_department_id,
+      department_name: row.department_name || "Unknown",
+      created_at: row.created_at,
+      updated_at: row.updated_at,
+      response_count: row.response_count || 0,
+      entry_kind: row.entry_kind === "agent_call" ? "agent_call" : "standard",
+      subject_agent_name: null, // RPC doesn't include agent snapshot
+      subject_agent_snapshot: row.subject_agent_snapshot as LogEntry["subject_agent_snapshot"],
+      user: {
+        id: row.user_id,
+        name: row.user_name || "Deleted User",
+      },
+    })) as LogEntry[]
+
+    // LIMIT+1 pattern: trim extra row if present
+    const hasMore = logs.length > filters.limit
+    const trimmedLogs = hasMore ? logs.slice(0, filters.limit) : logs
+    const nextCursor = hasMore
+      ? {
+          date: trimmedLogs[trimmedLogs.length - 1].date,
+          id: trimmedLogs[trimmedLogs.length - 1].id,
+        }
+      : null
+
+    return {
+      logs: trimmedLogs,
+      count: trimmedLogs.length, // RPC doesn't return total count
+      hasMore,
+      nextCursor,
+    }
+  }
+
+  // Existing Supabase query builder for non-search queries
   let query = supabase
     .from("captain_log_entries")
     .select(
@@ -240,16 +299,18 @@ async function fetchUserLogs(
   const totalCount = count || 0
 
   const hasMore = logs.length === filters.limit
-  const nextCursor = hasMore ? { 
-    date: logs[logs.length - 1].date, 
-    id: logs[logs.length - 1].id 
-  } : null
+  const nextCursor = hasMore
+    ? {
+        date: logs[logs.length - 1].date,
+        id: logs[logs.length - 1].id,
+      }
+    : null
 
   return {
     logs,
     count: totalCount,
     hasMore,
-    nextCursor
+    nextCursor,
   }
 }
 
@@ -483,9 +544,9 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
   const rawParams = await searchParams
   const viewerProfile = await fetchViewerProfile(supabase, userId)
   const accessMap = await fetchUserDepartmentAccessLevels(supabase, userId)
-  
+
   // A user is "basic" only if they don't have lead/manager permissions in any department
-  const hasAnyLeadPermission = Array.from(accessMap.values()).some(role => canViewDepartmentLogs(role))
+  const hasAnyLeadPermission = Array.from(accessMap.values()).some((role) => canViewDepartmentLogs(role))
   const canAccessAdmin = ["admin", "system-admin", "super-admin"].includes(viewerProfile?.role_name || "")
   const isBasicUser = !canAccessAdmin && !hasAnyLeadPermission
 
@@ -494,7 +555,7 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
     ...rawParams,
     departmentId: forcedDepartmentId || rawParams.departmentId,
   })
-  
+
   // Resolve visibility: if we have a specific department, check its access.
   // If no department selected but user is a lead in some departments,
   // allow broad visibility for fetch calls (API will filter by accessible departments).
@@ -514,8 +575,8 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
       <div className="flex min-h-[400px] items-center justify-center">
         <Card className="max-w-md">
           <CardContent className="pt-6 text-center">
-            <h3 className="text-lg font-semibold text-destructive">Too Many Requests</h3>
-            <p className="mt-2 text-sm text-muted-foreground">
+            <h3 className="text-destructive text-lg font-semibold">Too Many Requests</h3>
+            <p className="text-muted-foreground mt-2 text-sm">
               You have exceeded the rate limit. Please wait a moment and try again.
             </p>
           </CardContent>
@@ -530,11 +591,15 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
       console.log(`[Cache] MISS for user ${userId}`)
       return fetchUserLogs(supabase, userId, filters)
     },
-    ["user-logs-v1"],
-    { revalidate: 60, tags: [`user-${user.id}`] }
+    ["user-logs-v2"],
+    {
+      revalidate: 60,
+      tags: [`user-${user.id}`, ...(pageState.searchName ? [`search-${pageState.searchName}`] : [])],
+    }
   )
 
-  const effectiveCanViewDepartmentLogs = viewerDepartmentAccess.can_view_department_logs || (!pageState.departmentId && hasAnyLeadPermission)
+  const effectiveCanViewDepartmentLogs =
+    viewerDepartmentAccess.can_view_department_logs || (!pageState.departmentId && hasAnyLeadPermission)
 
   const [departments, listResult, monthLogs] = await Promise.all([
     fetchUserDepartments(supabase, userId, forcedDepartmentId),
@@ -542,11 +607,13 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
       ? getCachedUserLogs(user.id, {
           date: pageState.date,
           departmentId: pageState.departmentId,
-          cursor: (rawParams as any).nextCursorDate && (rawParams as any).nextCursorId 
-            ? { date: (rawParams as any).nextCursorDate, id: (rawParams as any).nextCursorId } 
-            : null,
+          cursor:
+            (rawParams as any).nextCursorDate && (rawParams as any).nextCursorId
+              ? { date: (rawParams as any).nextCursorDate, id: (rawParams as any).nextCursorId }
+              : null,
           limit: 30, // Increased for virtualization
           canViewDepartmentLogs: effectiveCanViewDepartmentLogs,
+          searchName: pageState.searchName,
         })
       : Promise.resolve({ logs: [], count: 0, hasMore: false, nextCursor: null }),
     pageState.view === "calendar"
@@ -560,8 +627,8 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
 
   const flattenedList = pageState.view === "list" ? flattenLogs(listResult.logs) : []
 
-  const primaryDepartment = pageState.departmentId 
-    ? departments.find(d => d.id === pageState.departmentId) || departments[0] || null
+  const primaryDepartment = pageState.departmentId
+    ? departments.find((d) => d.id === pageState.departmentId) || departments[0] || null
     : departments[0] || null
   const reportStatus = primaryDepartment ? await getReportStatus(supabase, userId, primaryDepartment.id) : null
   const viewerProfession =
@@ -580,7 +647,7 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
     isMarketingDepartmentName(primaryDepartment.name) &&
     isSalesPromoterProfessionKey(viewerProfession?.profession_key)
 
-  const hasFilters = !!pageState.date || (!isBasicUser && !!pageState.departmentId)
+  const hasFilters = !!pageState.date || (!isBasicUser && !!pageState.departmentId) || !!pageState.searchName
   const calendarDaySummaries = pageState.view === "calendar" ? summarizeCalendarDays(monthLogs) : []
   const selectedDateLogs =
     pageState.view === "calendar" && pageState.date ? monthLogs.filter((log) => log.date === pageState.date) : []
@@ -646,12 +713,18 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
             hasFilters={hasFilters}
             isBasicUser={isBasicUser}
             month={pageState.month}
+            searchName={pageState.searchName}
           />
         </CardContent>
       </Card>
 
       {pageState.view === "files" ? (
-        <LogsFilesView currentUserId={userId} departmentId={pageState.departmentId} date={pageState.date} month={pageState.month} />
+        <LogsFilesView
+          currentUserId={userId}
+          departmentId={pageState.departmentId}
+          date={pageState.date}
+          month={pageState.month}
+        />
       ) : pageState.view === "calendar" ? (
         <div className="space-y-6">
           <LogsCalendar
@@ -698,19 +771,33 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
         </div>
       ) : (
         <>
+          {/* Ranking transition hint - shown on first page with search */}
+          {pageState.searchName && !(rawParams as any).nextCursorDate && !(rawParams as any).nextCursorId && (
+            <div className="mb-4 rounded-md bg-blue-50 px-4 py-2 text-sm text-blue-700 dark:bg-blue-950 dark:text-blue-300">
+              Top results sorted by relevance. More results sorted by recent activity.
+            </div>
+          )}
+
           <LogsList
             logs={listResult.logs}
             flattenedItems={flattenedList}
-            emptyTitle="No logs found"
+            emptyTitle={pageState.searchName ? `No users found matching "${pageState.searchName}"` : "No logs found"}
             emptyDescription={
-              hasFilters
-                ? "Try adjusting your filters or clear them to see all entries."
-                : "Get started by creating your first daily log entry."
+              pageState.searchName
+                ? pageState.date
+                  ? "Try removing the date filter to broaden results."
+                  : "Try a shorter name or different spelling."
+                : hasFilters
+                  ? "Try adjusting your filters or clear them to see all entries."
+                  : "Get started by creating your first daily log entry."
             }
             emptyActionHref={!hasFilters ? newReportHref : null}
             previewView="list"
             previewDate={pageState.date}
             previewDepartmentId={pageState.departmentId}
+            defaultCollapsed={effectiveCanViewDepartmentLogs}
+            currentUserId={userId}
+            preserveState={!!(rawParams as any).nextCursorDate && !!(rawParams as any).nextCursorId}
           />
 
           {listResult.hasMore ? (

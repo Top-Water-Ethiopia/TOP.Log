@@ -10,6 +10,7 @@ export interface LogsPageSearchParams {
   nextCursorDate?: string
   nextCursorId?: string
   selectedReportId?: string
+  searchName?: string
   view?: string
 }
 
@@ -18,6 +19,7 @@ export interface LogsPageState {
   departmentId?: string
   month: string
   page: number
+  searchName?: string
   selectedReportId?: string
   view: LogsViewMode
 }
@@ -102,9 +104,18 @@ export function normalizeLogsPageState(params: LogsPageSearchParams): LogsPageSt
   const date = isValidLogsDate(params.date) ? params.date : undefined
   const monthFromDate = date?.slice(0, 7)
   const month = monthFromDate || (isValidLogsMonth(params.month) ? params.month : getCurrentMonthValue())
-  const selectedReportId = typeof params.selectedReportId === "string" && params.selectedReportId.trim()
-    ? params.selectedReportId.trim()
-    : undefined
+  const selectedReportId =
+    typeof params.selectedReportId === "string" && params.selectedReportId.trim()
+      ? params.selectedReportId.trim()
+      : undefined
+
+  let searchName: string | undefined
+  if (typeof params.searchName === "string" && params.searchName.trim()) {
+    const trimmed = params.searchName.trim().toLowerCase()
+    if (trimmed.length >= 2 && trimmed.length <= 50) {
+      searchName = trimmed
+    }
+  }
 
   return {
     view: parseLogsViewMode(params.view),
@@ -112,6 +123,7 @@ export function normalizeLogsPageState(params: LogsPageSearchParams): LogsPageSt
     departmentId: params.departmentId || undefined,
     page: parseLogsPageNumber(params.page),
     month,
+    searchName,
     selectedReportId,
   }
 }
@@ -122,6 +134,7 @@ export function buildLogsPageHref(state: {
   month?: string
   nextCursorDate?: string
   nextCursorId?: string
+  searchName?: string
   selectedReportId?: string
   view?: LogsViewMode
 }): string {
@@ -142,6 +155,10 @@ export function buildLogsPageHref(state: {
 
   if (state.departmentId) {
     query.set("departmentId", state.departmentId)
+  }
+
+  if (state.searchName) {
+    query.set("searchName", state.searchName)
   }
 
   if (state.selectedReportId) {

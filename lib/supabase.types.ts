@@ -154,6 +154,13 @@ export interface Database {
             referencedRelation: "question_set_versions"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "captain_log_entries_user_profiles_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "user_profiles"
+            referencedColumns: ["user_id"]
+          },
         ]
       }
       scope_entry_kinds: {
@@ -335,30 +342,42 @@ export interface Database {
       audit_logs: {
         Row: {
           id: string
-          timestamp: string
-          operation: string
-          entity_id: string
-          changes: Json | null
-          metadata: Json | null
           user_id: string | null
+          action: string
+          resource_type: string | null
+          resource_id: string | null
+          metadata: Json | null
+          ip_address: string | null
+          user_agent: string | null
+          severity: "debug" | "info" | "warning" | "error" | "critical"
+          session_id: string | null
+          timestamp: string
         }
         Insert: {
           id?: string
-          timestamp?: string
-          operation: string
-          entity_id: string
-          changes?: Json | null
-          metadata?: Json | null
           user_id?: string | null
+          action: string
+          resource_type?: string | null
+          resource_id?: string | null
+          metadata?: Json | null
+          ip_address?: string | null
+          user_agent?: string | null
+          severity?: "debug" | "info" | "warning" | "error" | "critical"
+          session_id?: string | null
+          timestamp?: string
         }
         Update: {
           id?: string
-          timestamp?: string
-          operation?: string
-          entity_id?: string
-          changes?: Json | null
-          metadata?: Json | null
           user_id?: string | null
+          action?: string
+          resource_type?: string | null
+          resource_id?: string | null
+          metadata?: Json | null
+          ip_address?: string | null
+          user_agent?: string | null
+          severity?: "debug" | "info" | "warning" | "error" | "critical"
+          session_id?: string | null
+          timestamp?: string
         }
         Relationships: [
           {
@@ -366,6 +385,13 @@ export interface Database {
             columns: ["user_id"]
             isOneToOne: false
             referencedRelation: "users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "audit_logs_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "user_sessions"
             referencedColumns: ["id"]
           },
         ]
@@ -806,6 +832,36 @@ export interface Database {
             referencedColumns: ["id"]
           },
         ]
+      }
+      permission_definitions: {
+        Row: {
+          id: string
+          resource: string
+          action: string
+          description: string | null
+          scope: "system" | "department" | "both"
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          resource: string
+          action: string
+          description?: string | null
+          scope?: "system" | "department" | "both"
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          resource?: string
+          action?: string
+          description?: string | null
+          scope?: "system" | "department" | "both"
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
       }
     }
     Views: {
