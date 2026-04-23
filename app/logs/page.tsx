@@ -31,6 +31,7 @@ import { LogsViewToggle } from "@/components/logs/logs-view-toggle"
 import { LogsFilesView } from "@/components/logs/files-view"
 import { rateLimit } from "@/lib/rate-limit"
 import { unstable_cache } from "next/cache"
+import type { ScopeEntryKind } from "@/hooks/use-entry-kinds"
 
 interface LogsViewerProfile {
   role_id: string
@@ -50,7 +51,9 @@ interface LogRow {
   departments: { name?: string } | null
   entry_kind?: string | null
   id: string
+  report_kind?: string | null
   subject_agent_snapshot?: unknown
+  subject_profession_id?: string | null
   updated_at: string | null
   user_id: string
   user_profiles: { name: string } | null
@@ -107,7 +110,9 @@ async function mapRowsToLogs(
     created_at: entry.created_at,
     updated_at: entry.updated_at,
     response_count: responseCounts.get(entry.id) || 0,
-    entry_kind: entry.entry_kind === "agent_call" ? "agent_call" : "standard",
+    entry_kind: entry.entry_kind || "standard",
+    report_kind: entry.report_kind || null,
+    subject_profession_id: entry.subject_profession_id || null,
     subject_agent_name: getAgentSnapshotName(entry.subject_agent_snapshot),
     subject_agent_snapshot:
       typeof entry.subject_agent_snapshot === "object" && entry.subject_agent_snapshot !== null
@@ -122,9 +127,10 @@ async function mapRowsToLogs(
 
 interface FlattenedLogItem {
   id: string
-  type: "header" | "row"
+  type: "header" | "dateHeader" | "row"
   userId: string
   userName: string
+  date?: string
   data?: LogEntry
   summary?: {
     totalLogs: number
@@ -132,7 +138,7 @@ interface FlattenedLogItem {
   }
 }
 
-function flattenLogs(logs: LogEntry[]): FlattenedLogItem[] {
+function flattenLogs(logs: LogEntry[], groupByDate: boolean): FlattenedLogItem[] {
   const flattened: FlattenedLogItem[] = []
   const userGroups = new Map<string, LogEntry[]>()
 
@@ -159,7 +165,18 @@ function flattenLogs(logs: LogEntry[]): FlattenedLogItem[] {
     })
 
     // Add Rows
+    let lastDate: string | null = null
     entries.forEach((log) => {
+      if (groupByDate && log.date && log.date !== lastDate) {
+        lastDate = log.date
+        flattened.push({
+          id: `date-${userId}-${log.date}`,
+          type: "dateHeader",
+          userId,
+          userName,
+          date: log.date,
+        })
+      }
       flattened.push({
         id: log.id,
         type: "row",
@@ -217,14 +234,55 @@ async function fetchUserLogs(
       created_at: row.created_at,
       updated_at: row.updated_at,
       response_count: row.response_count || 0,
-      entry_kind: row.entry_kind === "agent_call" ? "agent_call" : "standard",
-      subject_agent_name: null, // RPC doesn't include agent snapshot
-      subject_agent_snapshot: row.subject_agent_snapshot as LogEntry["subject_agent_snapshot"],
+      entry_kind: (row as any).entry_kind || "standard",
+      report_kind: (row as any).report_kind || null,
+      subject_profession_id: (row as any).subject_profession_id || null,
+      subject_agent_name: getAgentSnapshotName((row as any).subject_agent_snapshot),
+      subject_agent_snapshot: (row as any).subject_agent_snapshot as LogEntry["subject_agent_snapshot"],
       user: {
         id: row.user_id,
         name: row.user_name || "Deleted User",
       },
     })) as LogEntry[]
+
+    // Some deployments / older RPC versions may return NULL subject_agent_snapshot even when the entry has it.
+    // Backfill from captain_log_entries by id so list UI can always show agent identity for agent-related logs.
+    const ids = logs.map((l) => l.id).filter(Boolean)
+    if (ids.length > 0) {
+      const { data: backfillRows } = await supabase
+        .from("captain_log_entries")
+        .select("id, subject_agent_snapshot, subject_profession_id, report_kind, entry_kind")
+        .in("id", ids)
+
+      const backfillMap = new Map<
+        string,
+        {
+          entry_kind?: string | null
+          report_kind?: string | null
+          subject_profession_id?: string | null
+          subject_agent_snapshot?: unknown
+        }
+      >()
+      ;(backfillRows || []).forEach((row: any) => {
+        backfillMap.set(row.id, row)
+      })
+
+      logs.forEach((log) => {
+        const backfill = backfillMap.get(log.id)
+        if (!backfill) return
+
+        log.entry_kind = backfill.entry_kind || log.entry_kind
+        log.report_kind = backfill.report_kind || log.report_kind
+        log.subject_profession_id = backfill.subject_profession_id || log.subject_profession_id
+
+        if (!log.subject_agent_snapshot && backfill.subject_agent_snapshot) {
+          log.subject_agent_snapshot = backfill.subject_agent_snapshot as LogEntry["subject_agent_snapshot"]
+        }
+        if (!log.subject_agent_name) {
+          log.subject_agent_name = getAgentSnapshotName(log.subject_agent_snapshot)
+        }
+      })
+    }
 
     // LIMIT+1 pattern: trim extra row if present
     const hasMore = logs.length > filters.limit
@@ -255,7 +313,9 @@ async function fetchUserLogs(
       created_at,
       updated_at,
       entry_kind,
+      report_kind,
       subject_agent_snapshot,
+      subject_profession_id,
       user_id,
       departments:subject_department_id (name),
       user_profiles!captain_log_entries_user_profiles_user_id_fkey (name)
@@ -331,7 +391,9 @@ async function fetchLogsForMonth(
       created_at,
       updated_at,
       entry_kind,
+      report_kind,
       subject_agent_snapshot,
+      subject_profession_id,
       user_id,
       departments:subject_department_id (name),
       user_profiles!captain_log_entries_user_profiles_user_id_fkey (name)
@@ -515,6 +577,31 @@ async function fetchViewerDepartmentAccess(
   }
 }
 
+async function fetchEntryKindConfigs(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  departmentIds: string[]
+): Promise<ScopeEntryKind[]> {
+  if (departmentIds.length === 0) return []
+
+  try {
+    const { data, error } = await (supabase as any)
+      .from("scope_entry_kinds")
+      .select("*")
+      .in("department_id", departmentIds)
+      .eq("is_active", true)
+
+    if (error) {
+      console.error("Failed to fetch entry kind configs:", error)
+      return []
+    }
+
+    return (data || []) as ScopeEntryKind[]
+  } catch (error) {
+    console.error("Error fetching entry kind configs:", error)
+    return []
+  }
+}
+
 function summarizeCalendarDays(logs: LogEntry[]): CalendarDaySummary[] {
   const summaryMap = new Map<string, number>()
 
@@ -629,7 +716,22 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
       : Promise.resolve([]),
   ])
 
-  const flattenedList = pageState.view === "list" ? flattenLogs(listResult.logs) : []
+  const departmentIdsForEntryKinds = pageState.departmentId
+    ? [pageState.departmentId]
+    : Array.from(
+        new Set(
+          (pageState.view === "list" ? listResult.logs : monthLogs)
+            .map((log) => log.department_id)
+            .filter((id): id is string => typeof id === "string" && id.length > 0)
+        )
+      )
+
+  const entryKindConfigs = await fetchEntryKindConfigs(supabase, departmentIdsForEntryKinds)
+
+  const flattenedList =
+    pageState.view === "list"
+      ? flattenLogs(listResult.logs, !pageState.date) // single-day filter => no date grouping
+      : []
 
   const primaryDepartment = pageState.departmentId
     ? departments.find((d) => d.id === pageState.departmentId) || departments[0] || null
@@ -744,6 +846,7 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
             {pageState.date ? (
               <LogsList
                 canViewDepartmentLogs={effectiveCanViewDepartmentLogs}
+                entryKindConfigs={entryKindConfigs}
                 logs={selectedDateLogs}
                 emptyTitle="No logs for this date"
                 emptyDescription="Pick another date on the calendar to review a different day."
@@ -770,6 +873,7 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
 
           <LogsList
             canViewDepartmentLogs={effectiveCanViewDepartmentLogs}
+            entryKindConfigs={entryKindConfigs}
             logs={listResult.logs}
             flattenedItems={flattenedList}
             emptyTitle={pageState.searchName ? `No users found matching "${pageState.searchName}"` : "No logs found"}

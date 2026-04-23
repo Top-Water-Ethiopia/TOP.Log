@@ -4,6 +4,8 @@ export interface ScopeEntryKind {
   id: string
   department_id: string
   department_profession_id: string | null // TEXT (profession key), not UUID
+  profession_role_id?: string | null
+  scope_type?: ScopeEntryKindScopeType
   entry_kind: string
   label: string
   description: string | null

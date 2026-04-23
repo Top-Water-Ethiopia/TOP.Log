@@ -19,7 +19,6 @@ import {
   User,
 } from "lucide-react"
 import { Button } from "@/components/ui/button"
-import { Badge } from "@/components/ui/badge"
 import { Card, CardContent } from "@/components/ui/card"
 import { formatDateHuman } from "@/lib/date-restrictions"
 import { buildLogsPageHrefFromState } from "@/lib/logs-page-filters"
@@ -28,12 +27,15 @@ import type { LogEntry } from "@/lib/logs/types"
 import { cn } from "@/lib/utils"
 import { useVirtualizer } from "@tanstack/react-virtual"
 import { useToast } from "@/hooks/use-toast"
+import { EntryKindBadge } from "@/components/logs/entry-kind-badge"
+import type { ScopeEntryKind } from "@/hooks/use-entry-kinds"
 
 export interface FlattenedLogItem {
   id: string
-  type: "header" | "row"
+  type: "header" | "dateHeader" | "row"
   userId: string
   userName: string
+  date?: string
   data?: LogEntry
   summary?: {
     totalLogs: number
@@ -47,8 +49,17 @@ interface LogsListProps {
   emptyActionLabel?: string
   emptyDescription: string
   emptyTitle: string
+  entryKindConfigs?: ScopeEntryKind[]
   flattenedItems?: FlattenedLogItem[]
   logs: LogEntry[]
+}
+
+function deptEntryKindKey(departmentId: string, entryKind: string) {
+  return `${departmentId}:${entryKind}`
+}
+
+function professionEntryKindKey(departmentId: string, professionRoleId: string, entryKind: string) {
+  return `${departmentId}:${professionRoleId}:${entryKind}`
 }
 
 export function LogsList({
@@ -57,6 +68,7 @@ export function LogsList({
   emptyActionLabel = "Create New Log",
   emptyDescription,
   emptyTitle,
+  entryKindConfigs = [],
   flattenedItems = [],
   logs,
 }: LogsListProps) {
@@ -67,15 +79,104 @@ export function LogsList({
   const [previousExpandedState, setPreviousExpandedState] = useState<Record<string, boolean>>({})
   const parentRef = useRef<HTMLDivElement>(null)
 
+  const entryKindIndex = useMemo(() => {
+    const deptWidePersonal = new Map<string, ScopeEntryKind>()
+    const deptReport = new Map<string, ScopeEntryKind>()
+    const professionPersonal = new Map<string, ScopeEntryKind>()
+    const professionHasAnyOverride = new Set<string>()
+
+    entryKindConfigs.forEach((config) => {
+      if (!config.is_active || !config.is_available) return
+      if (!config.department_id) return
+
+      const scopeType = config.scope_type
+
+      if (scopeType === "dept_report") {
+        deptReport.set(deptEntryKindKey(config.department_id, config.entry_kind), config)
+        return
+      }
+
+      if (scopeType === "profession_personal" && config.profession_role_id) {
+        professionHasAnyOverride.add(`${config.department_id}:${config.profession_role_id}`)
+        professionPersonal.set(
+          professionEntryKindKey(config.department_id, config.profession_role_id, config.entry_kind),
+          config
+        )
+        return
+      }
+
+      // Default/fallback: dept-wide personal
+      deptWidePersonal.set(deptEntryKindKey(config.department_id, config.entry_kind), config)
+    })
+
+    return { deptWidePersonal, deptReport, professionPersonal, professionHasAnyOverride }
+  }, [entryKindConfigs])
+
+  const resolveEntryKindConfig = (log: LogEntry | undefined) => {
+    if (!log?.department_id || !log.entry_kind) return undefined
+
+    const reportKind = (log.report_kind || "personal").toLowerCase()
+    if (reportKind === "department" || reportKind === "mixed") {
+      return entryKindIndex.deptReport.get(deptEntryKindKey(log.department_id, log.entry_kind))
+    }
+
+    if (log.subject_profession_id) {
+      const overrideKey = `${log.department_id}:${log.subject_profession_id}`
+      if (entryKindIndex.professionHasAnyOverride.has(overrideKey)) {
+        return entryKindIndex.professionPersonal.get(
+          professionEntryKindKey(log.department_id, log.subject_profession_id, log.entry_kind)
+        )
+      }
+    }
+
+    return entryKindIndex.deptWidePersonal.get(deptEntryKindKey(log.department_id, log.entry_kind))
+  }
+
+  const shouldShowAgentName = (log: LogEntry | undefined) => {
+    const { name } = getAgentDisplayParts(log)
+    if (!name) return false
+    if (log.entry_kind === "agent_call") return true
+    const config = resolveEntryKindConfig(log)
+    return !!config?.supports_assigned_agent
+  }
+
+  const getAgentDisplayParts = (log: LogEntry | undefined) => {
+    const snapshot = log?.subject_agent_snapshot
+    const name = snapshot?.name || log?.subject_agent_name || null
+    const location = snapshot?.location || null
+    return { location, name }
+  }
+
+  const isSingleDepartmentContext = useMemo(() => {
+    if (state.departmentId) return true
+    const uniqueDepartmentIds = new Set(
+      (logs || [])
+        .map((log) => log.department_id)
+        .filter((id): id is string => typeof id === "string" && id.length > 0)
+    )
+    return uniqueDepartmentIds.size === 1
+  }, [logs, state.departmentId])
+
   const visibleItems = useMemo(() => {
     // Derived visible list ensures virtualization indices stay consistent during collapse
     return flattenedItems.filter((item) => item.type === "header" || expandedUsers[item.userId] !== false)
   }, [flattenedItems, expandedUsers])
 
+  const hasDateHeaders = useMemo(() => flattenedItems.some((item) => item.type === "dateHeader"), [flattenedItems])
+
+  const DATE_HEADER_HEIGHT = 44
+  const USER_HEADER_HEIGHT = 64
+  const ROW_HEIGHT = 140
+
   const virtualizer = useVirtualizer({
     count: visibleItems.length,
     getScrollElement: () => parentRef.current,
-    estimateSize: (index) => (visibleItems[index].type === "header" ? 64 : 140),
+    estimateSize: (index) => {
+      const type = visibleItems[index].type
+      if (type === "header") return USER_HEADER_HEIGHT
+      if (type === "dateHeader") return DATE_HEADER_HEIGHT
+      return ROW_HEIGHT
+    },
     overscan: 5,
   })
 
@@ -242,7 +343,9 @@ export function LogsList({
             if (!item) return null
 
             const isHeader = item.type === "header"
+            const isDateHeader = item.type === "dateHeader"
             const isExpanded = expandedUsers[item.userId] !== false
+            const previousItem = virtualRow.index > 0 ? visibleItems[virtualRow.index - 1] : null
 
             return (
               <div
@@ -278,12 +381,51 @@ export function LogsList({
                       {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
                     </Button>
                   </div>
+                ) : isDateHeader ? (
+                  <div
+                    className={cn(
+                      "flex h-full items-center",
+                      previousItem?.type === "row" ? "pt-4" : "pt-2",
+                      "pb-2"
+                    )}
+                  >
+                    <div className="bg-muted/20 border-primary/40 text-muted-foreground flex items-center rounded-md border-l-2 px-3 py-1.5 text-xs font-medium uppercase tracking-wide">
+                      {item.date
+                        ? new Date(item.date).toLocaleDateString("en-US", {
+                            weekday: "short",
+                            month: "short",
+                            day: "numeric",
+                          })
+                        : ""}
+                    </div>
+                  </div>
                 ) : (
                   <div className="py-2">
-                    <Card className="overflow-hidden transition-shadow hover:shadow-md">
+                    <Card
+                      className="cursor-pointer overflow-hidden transition-shadow hover:shadow-md"
+                      onClick={() => {
+                        const href = buildLogsPageHrefFromState({
+                          date: state.date || "",
+                          departmentId: state.departmentId || "",
+                          month: state.month,
+                          page: state.page,
+                          searchName: state.searchName || "",
+                          selectedLogId: item.data?.id || "",
+                          view: state.view,
+                          nextCursorDate: state.nextCursorDate || "",
+                          nextCursorId: state.nextCursorId || "",
+                        })
+                        router.push(href)
+                      }}
+                    >
                       <CardContent className="p-0">
-                        <div className="flex items-center gap-4 p-4">
-                          <div className="bg-primary/10 flex h-14 w-14 shrink-0 flex-col items-center justify-center rounded-lg">
+                        <div className="flex items-center gap-3 p-3 sm:gap-4 sm:p-4">
+                          <div
+                            className={cn(
+                              "bg-primary/10 hidden h-14 w-14 shrink-0 flex-col items-center justify-center rounded-lg sm:flex",
+                              hasDateHeaders && "sm:hidden"
+                            )}
+                          >
                             <span className="text-primary text-xs font-medium uppercase">
                               {item.data?.date
                                 ? new Date(item.data.date).toLocaleDateString("en-US", { month: "short" })
@@ -295,33 +437,141 @@ export function LogsList({
                           </div>
 
                           <div className="min-w-0 flex-1">
-                            <div className="flex items-center gap-2">
+                            <div className={cn("hidden items-center gap-2 sm:flex", hasDateHeaders && "sm:hidden")}>
                               <Calendar className="text-muted-foreground h-3.5 w-3.5" />
                               <span className="text-sm font-medium">
                                 {item.data?.date ? formatDateHuman(item.data.date) : ""}
                               </span>
                             </div>
-                            <div className="mt-1 flex items-center gap-2">
-                              <Building2 className="text-muted-foreground h-3.5 w-3.5" />
-                              <span className="text-muted-foreground text-sm">{item.data?.department_name}</span>
-                            </div>
-                            {item.data?.entry_kind === "agent_call" && item.data.subject_agent_name ? (
-                              <div className="mt-2 flex items-center gap-2">
-                                <PhoneCall className="text-muted-foreground h-3.5 w-3.5" />
-                                <span className="text-sm font-medium">{item.data.subject_agent_name}</span>
-                                <Badge variant="outline">Agent Call</Badge>
-                              </div>
-                            ) : null}
-                            <div className="mt-1 text-xs text-slate-500">
+                            {(() => {
+                              const log = item.data
+                              if (!log) return null
+
+                              const { name: agentName, location: agentLocation } = getAgentDisplayParts(log)
+                              const isAgentRelated = shouldShowAgentName(log)
+                              const showAgentPrimary = isSingleDepartmentContext && isAgentRelated && !!agentName
+
+                              return (
+                                <div className="hidden items-center gap-2 sm:mt-1 sm:flex">
+                                  {showAgentPrimary ? (
+                                    <>
+                                      <PhoneCall className="text-muted-foreground h-3.5 w-3.5" aria-hidden="true" />
+                                      <span className="max-w-[18rem] truncate text-sm font-medium" title={agentName || undefined}>
+                                        {agentName}
+                                      </span>
+                                      {agentLocation ? (
+                                        <>
+                                          <span className="text-muted-foreground text-sm">•</span>
+                                          <span className="max-w-[16rem] truncate text-sm text-slate-600" title={agentLocation}>
+                                            {agentLocation}
+                                          </span>
+                                        </>
+                                      ) : null}
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Building2 className="text-muted-foreground h-3.5 w-3.5" aria-hidden="true" />
+                                      <span className="text-sm font-medium sm:font-normal" title={log.department_name || undefined}>
+                                        {log.department_name}
+                                      </span>
+                                      {isAgentRelated && agentName ? (
+                                        <>
+                                          <span className="text-muted-foreground text-sm">•</span>
+                                          <span className="max-w-[14rem] truncate text-sm text-slate-600" title={agentName}>
+                                            {agentName}
+                                          </span>
+                                        </>
+                                      ) : null}
+                                    </>
+                                  )}
+                                </div>
+                              )
+                            })()}
+                            <div className="mt-1 hidden text-xs text-slate-500 sm:block">
                               {item.data?.response_count} response{item.data?.response_count !== 1 ? "s" : ""}
                             </div>
+                            {(() => {
+                              const log = item.data
+                              if (!log) return null
+
+                              const { name: agentName, location: agentLocation } = getAgentDisplayParts(log)
+                              const isAgentRelated = shouldShowAgentName(log)
+                              const showAgentPrimary = isSingleDepartmentContext && isAgentRelated && !!agentName
+
+                              // Keep list rows stable-height: only include location inline if it’s short enough.
+                              const canShowLocationInline = !!agentLocation && agentLocation.length <= 24
+
+                              const responseLabel = `${log.response_count} response${log.response_count !== 1 ? "s" : ""}`
+
+                              return (
+                                <>
+                                  <div className="mt-1 flex items-center gap-2 text-sm sm:hidden">
+                                    {showAgentPrimary ? (
+                                      <>
+                                        <PhoneCall className="text-muted-foreground h-3.5 w-3.5" aria-hidden="true" />
+                                        <span className="max-w-[16rem] truncate font-medium" title={agentName || undefined}>
+                                          {agentName}
+                                        </span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Building2 className="text-muted-foreground h-3.5 w-3.5" aria-hidden="true" />
+                                        <span className="max-w-[16rem] truncate font-medium" title={log.department_name || undefined}>
+                                          {log.department_name}
+                                        </span>
+                                      </>
+                                    )}
+                                  </div>
+                                  <div className="mt-1 flex items-center gap-1 text-xs text-slate-600 sm:hidden">
+                                    {showAgentPrimary ? (
+                                      <>
+                                        {canShowLocationInline && agentLocation ? (
+                                          <>
+                                            <span className="truncate" title={agentLocation || undefined}>
+                                              {agentLocation}
+                                            </span>
+                                            <span className="text-muted-foreground">·</span>
+                                          </>
+                                        ) : null}
+                                        {canShowLocationInline && agentLocation ? null : (
+                                          <span className="text-muted-foreground">·</span>
+                                        )}
+                                        <span>{responseLabel}</span>
+                                      </>
+                                    ) : (
+                                      <>
+                                        {isAgentRelated && agentName ? (
+                                          <>
+                                            <span className="truncate" title={agentName || undefined}>
+                                              {agentName}
+                                            </span>
+                                            <span className="text-muted-foreground">·</span>
+                                          </>
+                                        ) : null}
+                                        {isAgentRelated && agentName ? null : (
+                                          <span className="text-muted-foreground">·</span>
+                                        )}
+                                        <span>{responseLabel}</span>
+                                      </>
+                                    )}
+                                  </div>
+                                </>
+                              )
+                            })()}
                           </div>
 
-                          <div className="flex shrink-0 gap-2">
+                          <div className="flex shrink-0 flex-col items-end gap-2 self-start pt-1 sm:self-start sm:pt-1">
+                            <div className="flex h-6 items-start justify-end">
+                              <EntryKindBadge
+                                entryKind={item.data?.entry_kind}
+                                config={resolveEntryKindConfig(item.data)}
+                              />
+                            </div>
                             <Button
                               variant="ghost"
                               size="sm"
-                              onClick={() => {
+                              onClick={(e) => {
+                                e.stopPropagation()
                                 const href = buildLogsPageHrefFromState({
                                   date: state.date || "",
                                   departmentId: state.departmentId || "",

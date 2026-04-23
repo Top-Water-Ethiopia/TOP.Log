@@ -13,6 +13,8 @@ export interface LogEntry {
   updated_at: string | null
   response_count: number
   entry_kind?: string
+  report_kind?: string | null
+  subject_profession_id?: string | null
   subject_agent_name?: string | null
   subject_agent_snapshot?: AgentSnapshot | null
   user: {
