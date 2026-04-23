@@ -228,6 +228,43 @@ export function LogsList({
     })
   }
 
+  const scrollKey = useMemo(() => {
+    if (typeof window === "undefined") return "logs:scroll"
+    const url = new URL(window.location.href)
+    url.searchParams.delete("selectedLogId")
+    url.searchParams.delete("nextCursorDate")
+    url.searchParams.delete("nextCursorId")
+    return `logs:scroll:${url.pathname}?${url.searchParams.toString()}`
+  }, [state.date, state.departmentId, state.searchName, state.view, state.professionRoleId, state.entryKind, state.month])
+
+  const saveScrollPosition = () => {
+    try {
+      const el = parentRef.current
+      if (!el) return
+      window.sessionStorage.setItem(scrollKey, String(el.scrollTop))
+    } catch {
+      // ignore
+    }
+  }
+
+  useEffect(() => {
+    // Restore scroll position after navigation (e.g., opening/closing preview).
+    try {
+      const el = parentRef.current
+      if (!el) return
+      const raw = window.sessionStorage.getItem(scrollKey)
+      if (!raw) return
+      const value = Number.parseInt(raw, 10)
+      if (!Number.isFinite(value)) return
+      // Defer until after paint so virtualization has laid out.
+      requestAnimationFrame(() => {
+        el.scrollTop = value
+      })
+    } catch {
+      // ignore
+    }
+  }, [scrollKey, state.selectedLogId])
+
   const undo = () => {
     setExpandedUsers(previousExpandedState)
     toast({
@@ -400,6 +437,7 @@ export function LogsList({
                     <Card
                       className="cursor-pointer overflow-hidden transition-all duration-150 ease-out hover:-translate-y-px hover:shadow-md active:scale-[0.99] motion-reduce:transition-none"
                       onClick={() => {
+                        saveScrollPosition()
                         const href = buildLogsPageHrefFromState({
                           date: state.date || "",
                           departmentId: state.departmentId || "",
@@ -410,6 +448,8 @@ export function LogsList({
                           view: state.view,
                           nextCursorDate: state.nextCursorDate || "",
                           nextCursorId: state.nextCursorId || "",
+                          professionRoleId: state.professionRoleId || "",
+                          entryKind: state.entryKind || "",
                         })
                         router.push(href)
                       }}
@@ -591,6 +631,7 @@ export function LogsList({
                               className="text-sm font-medium"
                               onClick={(e) => {
                                 e.stopPropagation()
+                                saveScrollPosition()
                                 const href = buildLogsPageHrefFromState({
                                   date: state.date || "",
                                   departmentId: state.departmentId || "",
@@ -601,6 +642,8 @@ export function LogsList({
                                   view: state.view,
                                   nextCursorDate: state.nextCursorDate || "",
                                   nextCursorId: state.nextCursorId || "",
+                                  professionRoleId: state.professionRoleId || "",
+                                  entryKind: state.entryKind || "",
                                 })
                                 router.push(href)
                               }}

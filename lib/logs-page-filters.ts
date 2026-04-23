@@ -13,6 +13,8 @@ export interface LogsPageSearchParams {
   selectedLogId?: string
   searchName?: string
   view?: string
+  professionRoleId?: string
+  entryKind?: string
 }
 
 export interface LogsPageState {
@@ -25,6 +27,8 @@ export interface LogsPageState {
   view: LogsViewMode
   nextCursorDate?: string
   nextCursorId?: string
+  professionRoleId?: string
+  entryKind?: string
 }
 
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/
@@ -41,6 +45,8 @@ export const LogsPageStateSchema = z.object({
   view: z.enum(["list", "calendar", "files"]),
   nextCursorDate: z.string().optional(),
   nextCursorId: z.string().optional(),
+  professionRoleId: z.string().optional(),
+  entryKind: z.string().optional(),
 })
 
 // Helper to assert complete state (defensive check)
@@ -151,6 +157,9 @@ export function parseLogsPageState(params: LogsPageSearchParams): LogsPageState 
     // Preserve cursor params if present
     nextCursorDate: params.nextCursorDate,
     nextCursorId: params.nextCursorId,
+    // New filter params
+    professionRoleId: params.professionRoleId || undefined,
+    entryKind: params.entryKind || undefined,
   }
 }
 
@@ -194,6 +203,15 @@ export function buildLogsPageHrefFromState(state: Required<LogsPageState>): stri
     query.set("selectedLogId", state.selectedLogId)
   }
 
+  // New filter params
+  if (state.professionRoleId) {
+    query.set("professionRoleId", state.professionRoleId)
+  }
+
+  if (state.entryKind) {
+    query.set("entryKind", state.entryKind)
+  }
+
   if ((view === "calendar" || view === "files") && state.month && state.month !== getCurrentMonthValue()) {
     query.set("month", state.month)
   }
@@ -218,6 +236,8 @@ export function buildLogsPageHref(state: {
   searchName?: string
   selectedLogId?: string
   view?: LogsViewMode
+  professionRoleId?: string
+  entryKind?: string
 }): string {
   return buildLogsPageHrefFromState({
     date: state.date || "",
@@ -229,5 +249,7 @@ export function buildLogsPageHref(state: {
     view: state.view || "list",
     nextCursorDate: state.nextCursorDate || "",
     nextCursorId: state.nextCursorId || "",
+    professionRoleId: state.professionRoleId || "",
+    entryKind: state.entryKind || "",
   })
 }

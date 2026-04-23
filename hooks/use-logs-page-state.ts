@@ -45,6 +45,8 @@ export function useLogsPageState(): UseLogsPageStateResult {
       selectedLogId: searchParams.get("selectedLogId") || undefined,
       searchName: searchParams.get("searchName") || undefined,
       view: searchParams.get("view") || undefined,
+      professionRoleId: searchParams.get("professionRoleId") || undefined,
+      entryKind: searchParams.get("entryKind") || undefined,
     }
   }, [searchParams])
 

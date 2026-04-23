@@ -32,6 +32,7 @@ import { LogsFilesView } from "@/components/logs/files-view"
 import { rateLimit } from "@/lib/rate-limit"
 import { unstable_cache } from "next/cache"
 import type { ScopeEntryKind } from "@/hooks/use-entry-kinds"
+import { applySearchPostFilters } from "@/lib/logs/search-post-filters"
 
 interface LogsViewerProfile {
   role_id: string
@@ -60,7 +61,7 @@ interface LogRow {
   total_user_logs?: number
 }
 
-type SearchLogsRow = Database["public"]["Functions"]["search_logs"]["Returns"][number]
+type SearchLogsRow = any
 
 interface ViewerDepartmentProfession {
   profession_key: string | null
@@ -190,6 +191,84 @@ function flattenLogs(logs: LogEntry[], groupByDate: boolean): FlattenedLogItem[]
   return flattened
 }
 
+// Fetch profession roles based on ACTUAL DATA USAGE in the department (optimized single query)
+async function fetchDepartmentProfessionRoles(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  departmentId: string
+): Promise<Array<{ id: string; name: string; label: string }>> {
+  // Professions are modeled as roles (type='profession') after the memberships migration.
+  // Use roles as the source of truth for the department’s profession list.
+  const { data: professionRoles, error } = await supabase
+    .from("roles")
+    .select("id, name, display_name, sort_order")
+    .eq("department_id", departmentId)
+    .eq("type", "profession")
+    .eq("is_active", true)
+    .order("sort_order", { ascending: true, nullsFirst: false })
+    .order("display_name", { ascending: true })
+
+  if (error || !professionRoles || professionRoles.length === 0) return []
+
+  return professionRoles.map((role: any) => ({
+    id: role.id,
+    name: role.name,
+    label: role.display_name || role.name,
+  }))
+}
+
+// Fetch entry kinds for logs filtering (HISTORICAL TRUTH - no availability windows)
+async function fetchDepartmentEntryKinds(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  departmentId: string,
+  professionRoleId?: string | null
+): Promise<Array<{ entry_kind: string; label: string }>> {
+  // Get entry kinds ACTUALLY USED in logs for this department (data-driven)
+  let query = supabase.from("captain_log_entries").select("entry_kind").eq("subject_department_id", departmentId)
+
+  // If profession is selected, filter by profession-specific logs
+  if (professionRoleId) {
+    query = query.eq("subject_profession_id", professionRoleId)
+  }
+
+  const { data: logEntryKinds } = await query.not("entry_kind", "is", null)
+
+  if (!logEntryKinds || logEntryKinds.length === 0) return []
+
+  // Get distinct entry kinds used in logs
+  const distinctKinds = new Set(logEntryKinds.map((lek: any) => lek.entry_kind))
+
+  // Join with scope_entry_kinds to get labels (for display, NOT for filtering)
+  const { data: scopeKinds } = await supabase
+    .from("scope_entry_kinds")
+    .select("entry_kind, label")
+    .eq("department_id", departmentId)
+    .in("entry_kind", Array.from(distinctKinds))
+    .eq("is_active", true)
+
+  // Combine: use scope label if available, otherwise use raw entry_kind with fallback hierarchy
+  const kindMap = new Map<string, string>()
+  ;(scopeKinds || []).forEach((sk: any) => {
+    kindMap.set(sk.entry_kind, sk.label || sk.entry_kind)
+  })
+
+  // Fallback hierarchy for labels:
+  // 1. scope_entry_kinds.label (preferred)
+  // 2. Formatted entry_kind (e.g., "agent_call" → "Agent Call")
+  const formatEntryKind = (ek: string): string => {
+    return ek
+      .split("_")
+      .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+      .join(" ")
+  }
+
+  return Array.from(distinctKinds)
+    .map((entry_kind) => ({
+      entry_kind,
+      label: kindMap.get(entry_kind) || formatEntryKind(entry_kind),
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label))
+}
+
 async function fetchUserLogs(
   supabase: Awaited<ReturnType<typeof createClient>>,
   userId: string,
@@ -200,6 +279,8 @@ async function fetchUserLogs(
     limit: number
     canViewDepartmentLogs?: boolean
     searchName?: string
+    professionRoleId?: string
+    entryKind?: string
   }
 ): Promise<{
   count: number
@@ -284,9 +365,16 @@ async function fetchUserLogs(
       })
     }
 
-    // LIMIT+1 pattern: trim extra row if present
-    const hasMore = logs.length > filters.limit
-    const trimmedLogs = hasMore ? logs.slice(0, filters.limit) : logs
+    // Apply additional filters locally for search (profession/entryKind).
+    // The underlying RPC does not currently accept these filters in all deployments.
+    const filteredLogs = applySearchPostFilters(logs, {
+      professionRoleId: filters.professionRoleId,
+      entryKind: filters.entryKind,
+    })
+
+    // LIMIT+1 pattern: trim extra row if present (after filtering)
+    const hasMore = filteredLogs.length > filters.limit
+    const trimmedLogs = hasMore ? filteredLogs.slice(0, filters.limit) : filteredLogs
     const nextCursor = hasMore
       ? {
           date: trimmedLogs[trimmedLogs.length - 1].date,
@@ -339,6 +427,14 @@ async function fetchUserLogs(
     query = query.in("subject_department_id", accessibleDepartmentIds)
   }
 
+  if (filters.professionRoleId) {
+    query = query.eq("subject_profession_id", filters.professionRoleId)
+  }
+
+  if (filters.entryKind) {
+    query = query.eq("entry_kind", filters.entryKind)
+  }
+
   if (filters.date) {
     query = query.eq("date", filters.date)
   }
@@ -377,7 +473,13 @@ async function fetchUserLogs(
 async function fetchLogsForMonth(
   supabase: Awaited<ReturnType<typeof createClient>>,
   userId: string,
-  filters: { departmentId?: string; month: string; canViewDepartmentLogs?: boolean }
+  filters: {
+    departmentId?: string
+    month: string
+    canViewDepartmentLogs?: boolean
+    professionRoleId?: string
+    entryKind?: string
+  }
 ): Promise<LogEntry[]> {
   const { endDate, startDate } = getMonthDateRange(filters.month)
 
@@ -404,6 +506,7 @@ async function fetchLogsForMonth(
     .order("date", { ascending: false })
     .order("created_at", { ascending: false })
 
+  // Apply same permission and filter logic as list view
   if (!filters.canViewDepartmentLogs) {
     query = query.eq("user_id", userId)
   }
@@ -420,7 +523,16 @@ async function fetchLogsForMonth(
     query = query.in("subject_department_id", accessibleDepartmentIds)
   }
 
-  const { data, error } = await query
+  if (filters.professionRoleId) {
+    query = query.eq("subject_profession_id", filters.professionRoleId)
+  }
+
+  if (filters.entryKind) {
+    query = query.eq("entry_kind", filters.entryKind)
+  }
+
+  // Performance safeguard: limit calendar view to prevent large result sets
+  const { data, error } = await query.limit(2000)
 
   if (error) {
     console.error("Error fetching month logs:", error)
@@ -635,16 +747,21 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
   const rawParams = await searchParams
   const viewerProfile = await fetchViewerProfile(supabase, userId)
   const accessMap = await fetchUserDepartmentAccessLevels(supabase, userId)
+  const accessibleDepartmentIds = await fetchAccessibleDepartmentIds(supabase, userId)
 
   // A user is "basic" only if they don't have lead/manager permissions in any department
   const hasAnyLeadPermission = Array.from(accessMap.values()).some((role) => canViewDepartmentLogs(role))
   const canAccessAdmin = ["admin", "system-admin", "super-admin"].includes(viewerProfile?.role_name || "")
   const isBasicUser = !canAccessAdmin && !hasAnyLeadPermission
 
+  // Auto-select department if user has a membership (not just basic user with department_id)
+  const userMembershipDepartmentId =
+    !isBasicUser && accessibleDepartmentIds.length === 1 ? accessibleDepartmentIds[0] : undefined
   const forcedDepartmentId = isBasicUser ? viewerProfile?.department_id || undefined : undefined
+
   const pageState = normalizeLogsPageState({
     ...rawParams,
-    departmentId: forcedDepartmentId || rawParams.departmentId,
+    departmentId: rawParams.departmentId || forcedDepartmentId || userMembershipDepartmentId,
   })
 
   // Resolve visibility: if we have a specific department, check its access.
@@ -676,6 +793,22 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
     )
   }
 
+  const effectiveCanViewDepartmentLogs =
+    viewerDepartmentAccess.can_view_department_logs || (!pageState.departmentId && hasAnyLeadPermission)
+
+  // Skip cache for granular filters (profession or entryKind) to prevent cache explosion
+  const hasGranularFilters = !!(pageState.professionRoleId || pageState.entryKind)
+
+  // Fetch filter options when department is selected
+  const [professionRoles, entryKinds] = await Promise.all([
+    pageState.departmentId && !isBasicUser
+      ? fetchDepartmentProfessionRoles(supabase, pageState.departmentId)
+      : Promise.resolve([]),
+    pageState.departmentId && !isBasicUser
+      ? fetchDepartmentEntryKinds(supabase, pageState.departmentId, pageState.professionRoleId)
+      : Promise.resolve([]),
+  ])
+
   // Define cached logs fetcher for atomic, permission-aware isolation
   const getCachedUserLogs = unstable_cache(
     async (userId: string, filters: any) => {
@@ -685,33 +818,55 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
     ["user-logs-v2"],
     {
       revalidate: 60,
-      tags: [`user-${user.id}`, ...(pageState.searchName ? [`search-${pageState.searchName}`] : [])],
+      tags: [
+        `user-${user.id}`,
+        ...(pageState.searchName ? [`search-${pageState.searchName}`] : []),
+        ...(pageState.date ? [`date-${pageState.date}`] : []),
+        ...(pageState.departmentId ? [`dept-${pageState.departmentId}`] : []),
+      ],
     }
   )
-
-  const effectiveCanViewDepartmentLogs =
-    viewerDepartmentAccess.can_view_department_logs || (!pageState.departmentId && hasAnyLeadPermission)
 
   const [departments, listResult, monthLogs] = await Promise.all([
     fetchUserDepartments(supabase, userId, forcedDepartmentId),
     pageState.view === "list"
-      ? getCachedUserLogs(user.id, {
-          date: pageState.date,
-          departmentId: pageState.departmentId,
-          cursor:
-            (rawParams as any).nextCursorDate && (rawParams as any).nextCursorId
-              ? { date: (rawParams as any).nextCursorDate, id: (rawParams as any).nextCursorId }
-              : null,
-          limit: 30, // Increased for virtualization
-          canViewDepartmentLogs: effectiveCanViewDepartmentLogs,
-          searchName: pageState.searchName,
-        })
+      ? hasGranularFilters
+        ? // Skip cache for granular filters
+          fetchUserLogs(supabase, user.id, {
+            date: pageState.date,
+            departmentId: pageState.departmentId,
+            cursor:
+              (rawParams as any).nextCursorDate && (rawParams as any).nextCursorId
+                ? { date: (rawParams as any).nextCursorDate, id: (rawParams as any).nextCursorId }
+                : null,
+            limit: 30,
+            canViewDepartmentLogs: effectiveCanViewDepartmentLogs,
+            searchName: pageState.searchName,
+            professionRoleId: pageState.professionRoleId,
+            entryKind: pageState.entryKind,
+          })
+        : // Use cache for base queries and date-only queries
+          getCachedUserLogs(user.id, {
+            date: pageState.date,
+            departmentId: pageState.departmentId,
+            cursor:
+              (rawParams as any).nextCursorDate && (rawParams as any).nextCursorId
+                ? { date: (rawParams as any).nextCursorDate, id: (rawParams as any).nextCursorId }
+                : null,
+            limit: 30,
+            canViewDepartmentLogs: effectiveCanViewDepartmentLogs,
+            searchName: pageState.searchName,
+            professionRoleId: pageState.professionRoleId,
+            entryKind: pageState.entryKind,
+          })
       : Promise.resolve({ logs: [], count: 0, hasMore: false, nextCursor: null }),
     pageState.view === "calendar"
       ? fetchLogsForMonth(supabase, userId, {
           departmentId: pageState.departmentId,
           month: pageState.month,
           canViewDepartmentLogs: effectiveCanViewDepartmentLogs,
+          professionRoleId: pageState.professionRoleId,
+          entryKind: pageState.entryKind,
         })
       : Promise.resolve([]),
   ])
@@ -753,7 +908,12 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
     isMarketingDepartmentName(primaryDepartment.name) &&
     isSalesPromoterProfessionKey(viewerProfession?.profession_key)
 
-  const hasFilters = !!pageState.date || (!isBasicUser && !!pageState.departmentId) || !!pageState.searchName
+  const hasFilters =
+    !!pageState.date ||
+    (!isBasicUser && !!pageState.departmentId) ||
+    !!pageState.searchName ||
+    !!pageState.professionRoleId ||
+    !!pageState.entryKind
   const calendarDaySummaries = pageState.view === "calendar" ? summarizeCalendarDays(monthLogs) : []
   const selectedDateLogs =
     pageState.view === "calendar" && pageState.date ? monthLogs.filter((log) => log.date === pageState.date) : []
@@ -809,6 +969,10 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
             isBasicUser={isBasicUser}
             month={pageState.month}
             searchName={pageState.searchName}
+            professionRoleId={pageState.professionRoleId}
+            entryKind={pageState.entryKind}
+            professionRoles={professionRoles}
+            entryKinds={entryKinds}
           />
         </CardContent>
       </Card>
@@ -869,6 +1033,45 @@ export default async function LogsPage({ searchParams }: { searchParams: Promise
             <div className="mb-4 rounded-md bg-blue-50 px-4 py-2 text-sm text-blue-700 dark:bg-blue-950 dark:text-blue-300">
               Top results sorted by relevance. More results sorted by recent activity.
             </div>
+          )}
+
+          {/* Intelligent empty state when filters return no results */}
+          {hasFilters && listResult.logs.length === 0 && (
+            <Card>
+              <CardContent className="py-6 text-center">
+                <p className="text-muted-foreground text-sm">
+                  No logs match your filters.
+                  {pageState.professionRoleId && (
+                    <span className="ml-2">
+                      Profession: {professionRoles.find((r) => r.id === pageState.professionRoleId)?.label}
+                    </span>
+                  )}
+                  {pageState.entryKind && (
+                    <span className="ml-2">
+                      Entry Kind: {entryKinds.find((k) => k.entry_kind === pageState.entryKind)?.label}
+                    </span>
+                  )}
+                </p>
+                {/* Suggestion logic for invalid combos */}
+                {pageState.professionRoleId && pageState.entryKind && (
+                  <Button variant="link" size="sm" asChild className="mt-2">
+                    <Link
+                      href={buildLogsPageHref({
+                        view: pageState.view,
+                        date: pageState.date,
+                        departmentId: pageState.departmentId,
+                        month: ["calendar", "files"].includes(pageState.view) ? pageState.month : undefined,
+                        searchName: pageState.searchName,
+                        professionRoleId: pageState.professionRoleId,
+                        entryKind: undefined, // Clear entry kind
+                      })}
+                    >
+                      Clear entry kind filter
+                    </Link>
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
           )}
 
           <LogsList

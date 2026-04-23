@@ -219,6 +219,8 @@ export function LogReportPreviewPanel({ canAccessAdmin, reportId }: LogReportPre
             view: state.view,
             nextCursorDate: isCursorExpired ? "" : state.nextCursorDate || "",
             nextCursorId: isCursorExpired ? "" : state.nextCursorId || "",
+            professionRoleId: state.professionRoleId || "",
+            entryKind: state.entryKind || "",
           })
           router.replace(closeHref)
         }
