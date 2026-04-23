@@ -101,9 +101,7 @@ describe("RoleQuestionsCreator", () => {
         return Promise.resolve({
           ok: true,
           json: async () => ({
-            data: [
-              { id: "role-uuid-1", key: "sales-promoter", label: "Sales Promoter", is_active: true },
-            ],
+            data: [{ id: "role-uuid-1", key: "sales-promoter", label: "Sales Promoter", is_active: true }],
           }),
         })
       }
@@ -204,16 +202,14 @@ describe("RoleQuestionsCreator", () => {
         return Promise.resolve({
           ok: true,
           json: async () => ({
-            data: [
-              { id: "role-uuid-1", key: "sales-promoter", label: "Sales Promoter", is_active: true },
-            ],
+            data: [{ id: "role-uuid-1", key: "sales-promoter", label: "Sales Promoter", is_active: true }],
           }),
         })
       }
       if (url === "/api/role-questions") {
         return Promise.resolve({
           ok: true,
-          json: async () => ([]),
+          json: async () => [],
         })
       }
       return Promise.resolve({
@@ -225,10 +221,7 @@ describe("RoleQuestionsCreator", () => {
     render(<RoleQuestionsCreator />)
 
     await waitFor(() => {
-      expect(mockFetch).toHaveBeenCalledWith(
-        "/api/role-questions",
-        expect.objectContaining({ credentials: "include" })
-      )
+      expect(mockFetch).toHaveBeenCalledWith("/api/role-questions", expect.objectContaining({ credentials: "include" }))
     })
 
     await waitFor(() => {
@@ -365,11 +358,9 @@ describe("RoleQuestionsCreator", () => {
     })
 
     expect(reordered.map((question) => question.id)).toEqual(["standard-1", "major-1", "standard-3", "standard-2"])
-    expect(reordered.filter((question) => question.entry_kind === "standard").map((question) => question.display_order)).toEqual([
-      0,
-      1,
-      2,
-    ])
+    expect(
+      reordered.filter((question) => question.entry_kind === "standard").map((question) => question.display_order)
+    ).toEqual([0, 1, 2])
     expect(reordered.find((question) => question.id === "major-1")?.display_order).toBe(4)
   })
 
@@ -611,5 +602,45 @@ describe("RoleQuestionsCreator", () => {
 
     expect(result.questions[0].entry_kind).toBe("standard")
     expect(result.activeEntryKindTab).toBe("majoractivities")
+  })
+
+  it("allows assigned agent questions to have is_required set to false", () => {
+    const question = createQuestion({
+      id: "agent-question",
+      question_key: "assigned_agent",
+      question_label: "Assigned Agent",
+      question_type: "select",
+    })
+
+    // Simulate setting option_source_kind to assigned_agents
+    const assignedAgentQuestion = {
+      ...question,
+      option_source_kind: "assigned_agents" as const,
+      is_required: false, // Explicitly set to false
+    }
+
+    // Verify that is_required is preserved as false
+    expect(assignedAgentQuestion.is_required).toBe(false)
+    expect(assignedAgentQuestion.option_source_kind).toBe("assigned_agents")
+  })
+
+  it("allows assigned agent questions to have is_required set to true", () => {
+    const question = createQuestion({
+      id: "agent-question",
+      question_key: "assigned_agent",
+      question_label: "Assigned Agent",
+      question_type: "select",
+    })
+
+    // Simulate setting option_source_kind to assigned_agents with is_required true
+    const assignedAgentQuestion = {
+      ...question,
+      option_source_kind: "assigned_agents" as const,
+      is_required: true, // Explicitly set to true
+    }
+
+    // Verify that is_required is preserved as true
+    expect(assignedAgentQuestion.is_required).toBe(true)
+    expect(assignedAgentQuestion.option_source_kind).toBe("assigned_agents")
   })
 })

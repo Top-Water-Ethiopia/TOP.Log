@@ -429,10 +429,7 @@ export async function POST(request: Request) {
             : question.options && question.options.length > 0
               ? question.options
               : null,
-        is_required:
-          getQuestionOptionSource(question.metadata)?.kind === ASSIGNED_AGENTS_OPTION_SOURCE_KIND
-            ? true
-            : question.is_required || false,
+        is_required: question.is_required || false,
         display_order: question.display_order ?? index,
         validation_rules: question.validation_rules || null,
         is_active: question.is_active !== false,
@@ -720,10 +717,7 @@ export async function PUT(request: Request) {
               : question.options && question.options.length > 0
                 ? question.options
                 : null,
-          is_required:
-            getQuestionOptionSource(question.metadata)?.kind === ASSIGNED_AGENTS_OPTION_SOURCE_KIND
-              ? true
-              : question.is_required || false,
+          is_required: question.is_required || false,
           display_order: question.display_order ?? index,
           validation_rules: question.validation_rules || null,
           is_active: question.is_active !== false,

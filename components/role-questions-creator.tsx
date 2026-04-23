@@ -1039,7 +1039,7 @@ export function RoleQuestionsCreator() {
               : q.options && q.options.length > 0
                 ? q.options
                 : null,
-          is_required: q.option_source_kind === ASSIGNED_AGENTS_OPTION_SOURCE_KIND ? true : q.is_required,
+          is_required: q.is_required,
           display_order: q.display_order,
           validation_rules: null,
           is_active: q.is_active,
@@ -1892,7 +1892,7 @@ function QuestionForm({
           question.option_source_kind === ASSIGNED_AGENTS_OPTION_SOURCE_KIND
             ? question.max_logs_per_agent_per_day
             : null,
-        is_required: isAssignedAgentQuestion ? true : question.is_required,
+        is_required: question.is_required,
       })
       return
     }
@@ -1931,9 +1931,8 @@ function QuestionForm({
               </div>
               <div className="flex items-center gap-2">
                 <Switch
-                  checked={isAssignedAgentQuestion ? true : question.is_required}
+                  checked={question.is_required}
                   onCheckedChange={(checked) => onUpdate({ is_required: checked })}
-                  disabled={isAssignedAgentQuestion}
                 />
                 <span className="text-muted-foreground text-xs">Required</span>
               </div>
@@ -2260,7 +2259,7 @@ function QuestionForm({
                       value === ASSIGNED_AGENTS_OPTION_SOURCE_KIND ? ASSIGNED_AGENTS_OPTION_SOURCE_KIND : "static",
                     max_logs_per_agent_per_day:
                       value === ASSIGNED_AGENTS_OPTION_SOURCE_KIND ? question.max_logs_per_agent_per_day : null,
-                    is_required: value === ASSIGNED_AGENTS_OPTION_SOURCE_KIND ? true : question.is_required,
+                    is_required: question.is_required,
                     options: value === ASSIGNED_AGENTS_OPTION_SOURCE_KIND ? null : question.options,
                   })
                 }
@@ -2365,9 +2364,9 @@ function QuestionForm({
                 className="h-28 min-h-[100px] resize-y bg-white font-mono text-xs shadow-inner"
               />
               <p className="text-muted-foreground text-[10px] leading-relaxed">
-                Operators: <code className="font-bold">equals</code>,{" "}
-                <code className="font-bold">not_equals</code>, <code className="font-bold">contains</code>,{" "}
-                <code className="font-bold">checked</code>, <code className="font-bold">not_checked</code>.
+                Operators: <code className="font-bold">equals</code>, <code className="font-bold">not_equals</code>,{" "}
+                <code className="font-bold">contains</code>, <code className="font-bold">checked</code>,{" "}
+                <code className="font-bold">not_checked</code>.
               </p>
               {allQuestions.length > 1 && (
                 <div className="mt-2 text-[10px] text-purple-700">
