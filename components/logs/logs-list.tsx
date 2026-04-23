@@ -150,9 +150,7 @@ export function LogsList({
   const isSingleDepartmentContext = useMemo(() => {
     if (state.departmentId) return true
     const uniqueDepartmentIds = new Set(
-      (logs || [])
-        .map((log) => log.department_id)
-        .filter((id): id is string => typeof id === "string" && id.length > 0)
+      (logs || []).map((log) => log.department_id).filter((id): id is string => typeof id === "string" && id.length > 0)
     )
     return uniqueDepartmentIds.size === 1
   }, [logs, state.departmentId])
@@ -383,26 +381,24 @@ export function LogsList({
                   </div>
                 ) : isDateHeader ? (
                   <div
-                    className={cn(
-                      "flex h-full items-center",
-                      previousItem?.type === "row" ? "pt-4" : "pt-2",
-                      "pb-2"
-                    )}
+                    className={cn("flex h-full items-center", previousItem?.type === "row" ? "pt-3" : "pt-2", "pb-0")}
                   >
-                    <div className="bg-muted/20 border-primary/40 text-muted-foreground flex items-center rounded-md border-l-2 px-3 py-1.5 text-xs font-medium uppercase tracking-wide">
-                      {item.date
-                        ? new Date(item.date).toLocaleDateString("en-US", {
-                            weekday: "short",
-                            month: "short",
-                            day: "numeric",
-                          })
-                        : ""}
+                    <div className="px-3 sm:px-4">
+                      <div className="bg-muted/20 border-primary/40 text-muted-foreground supports-[backdrop-filter]:bg-background/70 mb-1 flex items-center rounded-md border-l-2 px-3 py-1.5 text-xs font-medium tracking-wide uppercase backdrop-blur">
+                        {item.date
+                          ? new Date(item.date).toLocaleDateString("en-US", {
+                              weekday: "short",
+                              month: "short",
+                              day: "numeric",
+                            })
+                          : ""}
+                      </div>
                     </div>
                   </div>
                 ) : (
-                  <div className="py-2">
+                  <div className={cn(previousItem?.type === "dateHeader" ? "pt-1 pb-2" : "py-2")}>
                     <Card
-                      className="cursor-pointer overflow-hidden transition-shadow hover:shadow-md"
+                      className="cursor-pointer overflow-hidden transition-all duration-150 ease-out hover:-translate-y-px hover:shadow-md active:scale-[0.99] motion-reduce:transition-none"
                       onClick={() => {
                         const href = buildLogsPageHrefFromState({
                           date: state.date || "",
@@ -452,17 +448,23 @@ export function LogsList({
                               const showAgentPrimary = isSingleDepartmentContext && isAgentRelated && !!agentName
 
                               return (
-                                <div className="hidden items-center gap-2 sm:mt-1 sm:flex">
+                                <div className="hidden items-center gap-2 sm:mt-1 sm:flex sm:leading-tight">
                                   {showAgentPrimary ? (
                                     <>
                                       <PhoneCall className="text-muted-foreground h-3.5 w-3.5" aria-hidden="true" />
-                                      <span className="max-w-[18rem] truncate text-sm font-medium" title={agentName || undefined}>
+                                      <span
+                                        className="max-w-[18rem] truncate text-sm font-medium"
+                                        title={agentName || undefined}
+                                      >
                                         {agentName}
                                       </span>
                                       {agentLocation ? (
                                         <>
                                           <span className="text-muted-foreground text-sm">•</span>
-                                          <span className="max-w-[16rem] truncate text-sm text-slate-600" title={agentLocation}>
+                                          <span
+                                            className="max-w-[16rem] truncate text-sm text-slate-600"
+                                            title={agentLocation}
+                                          >
                                             {agentLocation}
                                           </span>
                                         </>
@@ -471,23 +473,33 @@ export function LogsList({
                                   ) : (
                                     <>
                                       <Building2 className="text-muted-foreground h-3.5 w-3.5" aria-hidden="true" />
-                                      <span className="text-sm font-medium sm:font-normal" title={log.department_name || undefined}>
+                                      <span
+                                        className="text-sm font-medium sm:font-normal"
+                                        title={log.department_name || undefined}
+                                      >
                                         {log.department_name}
                                       </span>
                                       {isAgentRelated && agentName ? (
                                         <>
                                           <span className="text-muted-foreground text-sm">•</span>
-                                          <span className="max-w-[14rem] truncate text-sm text-slate-600" title={agentName}>
+                                          <span
+                                            className="max-w-[14rem] truncate text-sm text-slate-600"
+                                            title={agentName}
+                                          >
                                             {agentName}
                                           </span>
                                         </>
                                       ) : null}
                                     </>
                                   )}
+                                  <span className="text-muted-foreground text-sm">·</span>
+                                  <span className="text-sm text-slate-600">
+                                    {log.response_count} response{log.response_count !== 1 ? "s" : ""}
+                                  </span>
                                 </div>
                               )
                             })()}
-                            <div className="mt-1 hidden text-xs text-slate-500 sm:block">
+                            <div className="sr-only sm:block">
                               {item.data?.response_count} response{item.data?.response_count !== 1 ? "s" : ""}
                             </div>
                             {(() => {
@@ -509,14 +521,20 @@ export function LogsList({
                                     {showAgentPrimary ? (
                                       <>
                                         <PhoneCall className="text-muted-foreground h-3.5 w-3.5" aria-hidden="true" />
-                                        <span className="max-w-[16rem] truncate font-medium" title={agentName || undefined}>
+                                        <span
+                                          className="max-w-[16rem] truncate font-medium"
+                                          title={agentName || undefined}
+                                        >
                                           {agentName}
                                         </span>
                                       </>
                                     ) : (
                                       <>
                                         <Building2 className="text-muted-foreground h-3.5 w-3.5" aria-hidden="true" />
-                                        <span className="max-w-[16rem] truncate font-medium" title={log.department_name || undefined}>
+                                        <span
+                                          className="max-w-[16rem] truncate font-medium"
+                                          title={log.department_name || undefined}
+                                        >
                                           {log.department_name}
                                         </span>
                                       </>
@@ -570,6 +588,7 @@ export function LogsList({
                             <Button
                               variant="ghost"
                               size="sm"
+                              className="text-sm font-medium"
                               onClick={(e) => {
                                 e.stopPropagation()
                                 const href = buildLogsPageHrefFromState({
