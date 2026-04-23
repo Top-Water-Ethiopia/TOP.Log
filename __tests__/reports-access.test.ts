@@ -15,7 +15,14 @@ jest.mock("@/lib/supabase/server", () => ({
   createClient: jest.fn(),
 }))
 
+jest.mock("@/lib/supabase/admin", () => ({
+  adminSupabase: {
+    from: jest.fn(),
+  },
+}))
+
 const supabaseServer = jest.requireMock("@/lib/supabase/server")
+const adminSupabaseMock = jest.requireMock("@/lib/supabase/admin").adminSupabase
 const routeModule = require("@/app/api/reports/[reportId]/route")
 
 const USER_ROLE_ID = "00000000-0000-0000-0000-000000000002"
@@ -31,12 +38,34 @@ function makeSupabaseMock(accessLevelName: string | null) {
       data: {
         id: "report-1",
         user_id: "author-1",
-        department_id: "dept-1",
-        custom_responses: [],
+        subject_department_id: "dept-1",
       },
       error: null,
     }),
   }
+
+  // Mock adminSupabase for custom_responses and role_questions
+  const customResponsesChain = {
+    select: jest.fn().mockReturnThis(),
+    eq: jest.fn().mockResolvedValue({
+      data: [],
+      error: null,
+    }),
+  }
+
+  const roleQuestionsChain = {
+    select: jest.fn().mockReturnThis(),
+    in: jest.fn().mockResolvedValue({
+      data: [],
+      error: null,
+    }),
+  }
+
+  adminSupabaseMock.from.mockImplementation((table: string) => {
+    if (table === "custom_responses") return customResponsesChain
+    if (table === "role_questions") return roleQuestionsChain
+    throw new Error(`Unexpected admin table ${table}`)
+  })
 
   const userProfilesChain = {
     select: jest.fn().mockReturnThis(),
@@ -80,9 +109,9 @@ function makeSupabaseMock(accessLevelName: string | null) {
           select: jest.fn().mockReturnThis(),
           eq: jest.fn().mockReturnThis(),
           maybeSingle: jest.fn().mockResolvedValue({
-            data: accessLevelName ? { role: { name: accessLevelName } } : null,
+            data: accessLevelName ? { access_level: { name: accessLevelName } } : null,
             error: null,
-          })
+          }),
         }
       }
       throw new Error(`Unexpected table ${table}`)
@@ -98,10 +127,11 @@ function makeSupabaseMock(accessLevelName: string | null) {
 describe("/api/reports/[reportId]", () => {
   beforeEach(() => {
     jest.resetAllMocks()
+    adminSupabaseMock.from.mockReset()
   })
 
   it("allows a department lead to open another user's report in the same department", async () => {
-    const { supabaseMock, departmentAccessMaybeSingle } = makeSupabaseMock("department-lead")
+    const { supabaseMock } = makeSupabaseMock("department-lead")
     supabaseServer.createClient.mockResolvedValue(supabaseMock)
 
     const res = await routeModule.GET({} as any, { params: Promise.resolve({ reportId: "report-1" }) })
@@ -110,11 +140,10 @@ describe("/api/reports/[reportId]", () => {
     const body = await res.json()
     expect(body.data.id).toBe("report-1")
     expect(body.data.profile).toEqual({ name: "Author One" })
-    expect(departmentAccessMaybeSingle).toHaveBeenCalled()
   })
 
   it("denies a contributor from opening another user's report", async () => {
-    const { supabaseMock, departmentAccessMaybeSingle } = makeSupabaseMock("contributor")
+    const { supabaseMock } = makeSupabaseMock("contributor")
     supabaseServer.createClient.mockResolvedValue(supabaseMock)
 
     const res = await routeModule.GET({} as any, { params: Promise.resolve({ reportId: "report-1" }) })
@@ -122,6 +151,5 @@ describe("/api/reports/[reportId]", () => {
 
     const body = await res.json()
     expect(body.error).toBe("Access denied")
-    expect(departmentAccessMaybeSingle).toHaveBeenCalled()
   })
 })

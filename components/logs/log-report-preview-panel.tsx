@@ -306,8 +306,15 @@ export function LogReportPreviewPanel({ canAccessAdmin, reportId }: LogReportPre
             <div className="space-y-4">
               {responses.map((response, index) => (
                 <div key={`${response.question_id}-${index}`} className="space-y-2">
-                  <div className="text-sm font-semibold">{response.question_label || response.question_key}</div>
-                  <div className="bg-muted/40 rounded-lg border p-3 text-sm whitespace-pre-wrap">
+                  <div className="flex gap-2">
+                    <div className="text-muted-foreground w-6 text-right text-sm font-semibold tabular-nums">
+                      {index + 1}.
+                    </div>
+                    <div className="flex-1 text-sm font-semibold">
+                      {response.question_label || response.question_key}
+                    </div>
+                  </div>
+                  <div className="bg-muted/40 ml-8 rounded-lg border p-3 text-sm whitespace-pre-wrap">
                     {renderResponseValue(response)}
                   </div>
                 </div>

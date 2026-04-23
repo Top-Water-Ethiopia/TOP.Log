@@ -15,6 +15,20 @@ interface ResponseValue {
   question_label: string | null
   question_type: string | null
   value: unknown
+  display_order?: number | null
+}
+
+interface RawCustomResponse {
+  question_id: string
+  question_key: string
+  question_label: string | null
+  question_type: string | null
+  value: unknown
+}
+
+interface RoleQuestionDisplayOrder {
+  id: string
+  display_order: number | null
 }
 
 /**
@@ -57,7 +71,12 @@ function collectIdsFromResponses(responses: ResponseValue[]): {
       const key = response.question_key?.toLowerCase() || ""
       if (key.includes("user") || key.includes("assignee") || key.includes("member") || key.includes("owner")) {
         userIds.add(id)
-      } else if (key.includes("role") || key.includes("profession") || key.includes("access_level") || key.includes("accesslevel")) {
+      } else if (
+        key.includes("role") ||
+        key.includes("profession") ||
+        key.includes("access_level") ||
+        key.includes("accesslevel")
+      ) {
         roleIds.add(id)
       } else if (key.includes("agent") || key.includes("assigned_agent") || key.includes("assignedagent")) {
         marketingAgentIds.add(id)
@@ -130,10 +149,7 @@ async function resolveIdNames(
 
   // Resolve role/profession/access level display names
   if (roleIds.size > 0) {
-    const { data: roles } = await resolver
-      .from("roles")
-      .select("id, name, display_name")
-      .in("id", Array.from(roleIds))
+    const { data: roles } = await resolver.from("roles").select("id, name, display_name").in("id", Array.from(roleIds))
 
     roles?.forEach((role) => {
       if (!role.id) return
@@ -168,10 +184,8 @@ function enrichValueWithNames(
   value: unknown,
   questionKey: string,
   userNames: Map<string, string>,
-  departmentNames: Map<string, string>
-  ,
-  roleNames: Map<string, string>
-  ,
+  departmentNames: Map<string, string>,
+  roleNames: Map<string, string>,
   marketingAgentNames: Map<string, string>
 ): unknown {
   // Preserve already-enriched objects (or enrich by their id field if possible)
@@ -196,10 +210,19 @@ function enrichValueWithNames(
     ) {
       return { id: value, name: userNames.get(value)! }
     }
-    if ((key.includes("role") || key.includes("profession") || key.includes("access_level") || key.includes("accesslevel")) && roleNames.has(value)) {
+    if (
+      (key.includes("role") ||
+        key.includes("profession") ||
+        key.includes("access_level") ||
+        key.includes("accesslevel")) &&
+      roleNames.has(value)
+    ) {
       return { id: value, name: roleNames.get(value)! }
     }
-    if ((key.includes("agent") || key.includes("assigned_agent") || key.includes("assignedagent")) && marketingAgentNames.has(value)) {
+    if (
+      (key.includes("agent") || key.includes("assigned_agent") || key.includes("assignedagent")) &&
+      marketingAgentNames.has(value)
+    ) {
       return { id: value, name: marketingAgentNames.get(value)! }
     }
     if ((key.includes("department") || key.includes("dept")) && departmentNames.has(value)) {
@@ -221,7 +244,9 @@ function enrichValueWithNames(
   }
 
   if (Array.isArray(value)) {
-    return value.map((item) => enrichValueWithNames(item, questionKey, userNames, departmentNames, roleNames, marketingAgentNames))
+    return value.map((item) =>
+      enrichValueWithNames(item, questionKey, userNames, departmentNames, roleNames, marketingAgentNames)
+    )
   }
 
   return value
@@ -250,18 +275,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     // on user_profiles can incorrectly make the report look "not found").
     const { data: report, error: reportError } = await supabase
       .from("captain_log_entries")
-      .select(
-        `
-        *,
-        custom_responses (
-          question_id,
-          question_key,
-          question_label,
-          question_type,
-          value
-        )
-      `
-      )
+      .select("*")
       .eq("id", reportId)
       .single()
 
@@ -332,8 +346,40 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       .eq("user_id", submittedByUserId)
       .single()
 
-    // Enrich custom_responses with display names for user/department IDs
-    const customResponses = (report.custom_responses || []) as ResponseValue[]
+    // Fetch custom_responses
+    const { data: rawCustomResponses } = await adminSupabase
+      .from("custom_responses")
+      .select("question_id, question_key, question_label, question_type, value")
+      .eq("entry_id", reportId)
+
+    // Fetch role_questions to get display_order for ordering
+    const questionIds = (rawCustomResponses || [])
+      .map((r: RawCustomResponse) => r.question_id)
+      .filter((id: string | null): id is string => id !== null)
+    let displayOrderMap = new Map<string, number>()
+
+    if (questionIds.length > 0) {
+      const { data: roleQuestions } = await adminSupabase
+        .from("role_questions")
+        .select("id, display_order")
+        .in("id", questionIds)
+
+      if (roleQuestions) {
+        displayOrderMap = new Map(
+          (roleQuestions as RoleQuestionDisplayOrder[]).map((rq) => [rq.id, rq.display_order ?? 0])
+        )
+      }
+    }
+
+    // Sort responses by display_order
+    const customResponses = (rawCustomResponses || [])
+      .map(
+        (r: RawCustomResponse): ResponseValue => ({
+          ...r,
+          display_order: displayOrderMap.get(r.question_id) ?? 0,
+        })
+      )
+      .sort((a, b) => (a.display_order ?? 0) - (b.display_order ?? 0))
     const { userIds, departmentIds, roleIds, marketingAgentIds } = collectIdsFromResponses(customResponses)
     const { userNames, departmentNames, roleNames, marketingAgentNames } = await resolveIdNames(
       supabase,
