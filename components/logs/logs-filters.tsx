@@ -15,6 +15,7 @@ import {
 
 interface LogsFiltersProps {
   currentView: LogsViewMode
+  canViewDepartmentLogs: boolean
   date?: string
   departmentId?: string
   departments: Array<{ id: string; name: string }>
@@ -30,6 +31,7 @@ interface LogsFiltersProps {
 
 export function LogsFilters({
   currentView,
+  canViewDepartmentLogs,
   date,
   departmentId,
   departments,
@@ -328,34 +330,32 @@ export function LogsFilters({
           </div>
         ) : null}
 
-        {!isBasicUser ? (
-          <div className="flex flex-col gap-1.5">
-            <label htmlFor="logs-search-filter" className="text-sm font-medium">
-              Search by name
-            </label>
-            <input
-              id="logs-search-filter"
-              type="text"
-              name="searchName"
-              value={draftSearchRaw}
-              onChange={(e) => {
-                markInteracting()
-                setDraftSearchRaw(e.target.value)
-                draftRef.current = {
-                  ...draftRef.current,
-                  searchRaw: e.target.value,
-                }
-                updateDirtyKey("searchName")
+        <div className="flex flex-col gap-1.5">
+          <label htmlFor="logs-search-filter" className="text-sm font-medium">
+            Search by name
+          </label>
+          <input
+            id="logs-search-filter"
+            type="text"
+            name="searchName"
+            value={draftSearchRaw}
+            onChange={(e) => {
+              markInteracting()
+              setDraftSearchRaw(e.target.value)
+              draftRef.current = {
+                ...draftRef.current,
+                searchRaw: e.target.value,
+              }
+              updateDirtyKey("searchName")
 
-                // Only auto-apply search if department draft matches applied department (no applying against pending switch).
-                if ((draftDepartmentId || "") !== appliedDepartmentId) return
-                scheduleApply(400)
-              }}
-              placeholder="Enter name to search..."
-              className="border-input bg-background h-9 rounded-md border px-3 py-1 text-sm shadow-sm"
-            />
-          </div>
-        ) : null}
+              // Only auto-apply search if department draft matches applied department (no applying against pending switch).
+              if ((draftDepartmentId || "") !== appliedDepartmentId) return
+              scheduleApply(400)
+            }}
+            placeholder="Enter name to search..."
+            className="border-input bg-background h-9 rounded-md border px-3 py-1 text-sm shadow-sm"
+          />
+        </div>
 
         <div className="flex gap-2">
           <Button
@@ -418,7 +418,7 @@ export function LogsFilters({
       ) : null}
 
       {/* Secondary row: profession, entry kind (only shown when department selected) */}
-      {draftDepartmentId && !isBasicUser && (
+      {draftDepartmentId && canViewDepartmentLogs && (
         <div className="flex flex-wrap items-end gap-4">
           <div className="flex flex-col gap-1.5">
             <label htmlFor="logs-profession-filter" className="text-sm font-medium">
