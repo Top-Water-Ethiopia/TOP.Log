@@ -112,10 +112,10 @@ export async function getProfessionRoleForUserInDepartment(userId: string, depar
 
   if (!row || !row.role) return null
 
-  return { 
-    roleId: row.role.id, 
+  return {
+    roleId: row.role.id,
     roleName: row.role.label,
-    roleKey: row.role.key
+    roleKey: row.role.key,
   }
 }
 
@@ -184,6 +184,52 @@ export async function createEntry(entry: CaptainLogEntryInsert) {
     version: entry.version || 1,
   }
 
+  // Populate snapshot fields for editing if entry_kind is provided
+  if (entryWithDefaults.entry_kind && entryWithDefaults.subject_department_id) {
+    try {
+      // Fetch edit window from scope_entry_kinds
+      const { data: scopeEntryKind } = await supabase
+        .from("scope_entry_kinds")
+        .select("edit_window_days, is_editable")
+        .eq("department_id", entryWithDefaults.subject_department_id)
+        .eq("entry_kind", entryWithDefaults.entry_kind)
+        .maybeSingle()
+
+      // Fetch questions snapshot from role_questions
+      // For now, we'll set these to null and they can be backfilled
+      // In a future update, we'd fetch the actual question schema here
+      ;(entryWithDefaults as any).entry_date = entryWithDefaults.date || entryWithDefaults.date
+      ;(entryWithDefaults as any).edit_window_days_applied = (scopeEntryKind as any)?.edit_window_days ?? null
+      ;(entryWithDefaults as any).is_editable_applied = (scopeEntryKind as any)?.is_editable ?? true
+      // Only set snapshot fields to null if not already provided by the form
+      if (!entryWithDefaults.questions_snapshot) {
+        ;(entryWithDefaults as any).questions_snapshot = null // Will be populated in a future update
+      }
+      if (!entryWithDefaults.questions_snapshot_hash) {
+        ;(entryWithDefaults as any).questions_snapshot_hash = null // Will be populated in a future update
+      }
+      if (!entryWithDefaults.questions_snapshot_version) {
+        ;(entryWithDefaults as any).questions_snapshot_version = null // Will be populated in a future update
+      }
+    } catch (error) {
+      console.warn("[createEntry] Failed to fetch scope_entry_kinds, using defaults", error)
+      // Set defaults even if fetch fails
+      ;(entryWithDefaults as any).entry_date = entryWithDefaults.date || entryWithDefaults.date
+      ;(entryWithDefaults as any).edit_window_days_applied = 2 // Default 2-day window
+      ;(entryWithDefaults as any).is_editable_applied = true
+      // Only set snapshot fields to null if not already provided by the form
+      if (!entryWithDefaults.questions_snapshot) {
+        ;(entryWithDefaults as any).questions_snapshot = null
+      }
+      if (!entryWithDefaults.questions_snapshot_hash) {
+        ;(entryWithDefaults as any).questions_snapshot_hash = null
+      }
+      if (!entryWithDefaults.questions_snapshot_version) {
+        ;(entryWithDefaults as any).questions_snapshot_version = null
+      }
+    }
+  }
+
   console.log("[createEntry] inserting", {
     id: entryWithDefaults.id ?? null,
     user_id: entryWithDefaults.user_id ?? null,
@@ -196,6 +242,9 @@ export async function createEntry(entry: CaptainLogEntryInsert) {
     subject_agent_snapshot: entryWithDefaults.subject_agent_snapshot ?? null,
     subject_department_id: entryWithDefaults.subject_department_id ?? null,
     subject_profession_id: entryWithDefaults.subject_profession_id ?? null,
+    entry_date: entryWithDefaults.entry_date ?? null,
+    edit_window_days_applied: entryWithDefaults.edit_window_days_applied ?? null,
+    is_editable_applied: entryWithDefaults.is_editable_applied ?? null,
   })
 
   // Avoid selecting the inserted row: in some deployments, INSERT is allowed by RLS but SELECT is not,

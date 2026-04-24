@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { useParams, useRouter } from "next/navigation"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -11,6 +11,10 @@ import { ImageResponsePreview } from "@/components/image-response-preview"
 import { ArrowLeft, Calendar, MapPin, Phone } from "lucide-react"
 import { format, parseISO } from "date-fns"
 import { normalizeImageResponseValue } from "@/lib/image-upload"
+import { RoleBasedQuestionFields } from "@/components/role-based-question-fields"
+import { hashSnapshot } from "@/lib/report-edit/snapshot"
+import { canEditReport } from "@/lib/report-edit/can-edit-report"
+import { toast } from "sonner"
 
 type CustomResponse = {
   question_id: string
@@ -25,6 +29,12 @@ type ReportEntry = {
   user_id: string
   date: string
   entry_kind?: string | null
+  entry_date?: string | null
+  questions_snapshot?: any[] | null
+  questions_snapshot_version?: number | null
+  questions_snapshot_hash?: string | null
+  edit_window_days_applied?: number | null
+  is_editable_applied?: boolean | null
   created_at: string
   updated_at: string
   custom_responses?: CustomResponse[]
@@ -56,6 +66,11 @@ export default function ReportViewPage() {
   const [report, setReport] = useState<ReportEntry | null>(null)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [etag, setEtag] = useState<string | null>(null)
+  const [isEditing, setIsEditing] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const [editResponses, setEditResponses] = useState<Record<string, unknown>>({})
+  const [editErrors, setEditErrors] = useState<Record<string, string>>({})
 
   useEffect(() => {
     if (!isLoading && !user) {
@@ -63,45 +78,41 @@ export default function ReportViewPage() {
     }
   }, [user, isLoading, router])
 
+  const loadReport = useCallback(async (id: string) => {
+    try {
+      setLoading(true)
+      setLoadError(null)
+      const res = await fetch(`/api/reports/${id}`)
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        const message = json.message || json.error || `HTTP ${res.status}`
+        if (res.status === 400) {
+          setReport(null)
+          setLoadError(String(message))
+          return
+        }
+        if (res.status === 404 || res.status === 403) {
+          setReport(null)
+          setLoadError(String(message))
+          return
+        }
+        throw new Error(message)
+      }
+      setEtag(res.headers.get("ETag"))
+      setReport((json.data || {}) as ReportEntry)
+    } catch (error) {
+      console.error("Failed to load report:", error)
+      setLoadError(error instanceof Error ? error.message : "Failed to load report")
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
   useEffect(() => {
     if (!user || !reportId) return
-
-    // Avoid refetching if we already have the data for this reportId
-    if (report?.id === reportId) {
-      return
-    }
-
-    const loadReport = async () => {
-      try {
-        setLoading(true)
-        setLoadError(null)
-        const res = await fetch(`/api/reports/${reportId}`)
-        const json = await res.json().catch(() => ({}))
-        if (!res.ok) {
-          const message = json.message || json.error || `HTTP ${res.status}`
-          if (res.status === 400) {
-            setReport(null)
-            setLoadError(String(message))
-            return
-          }
-          if (res.status === 404 || res.status === 403) {
-            setReport(null)
-            setLoadError(String(message))
-            return
-          }
-          throw new Error(message)
-        }
-        setReport((json.data || {}) as ReportEntry)
-      } catch (error) {
-        console.error("Failed to load report:", error)
-        setLoadError(error instanceof Error ? error.message : "Failed to load report")
-      } finally {
-        setLoading(false)
-      }
-    }
-
-    loadReport()
-  }, [user, reportId, report?.id])
+    if (report?.id === reportId) return
+    void loadReport(reportId)
+  }, [loadReport, report?.id, reportId, user])
 
   const formatResponseValue = (value: unknown) => {
     if (value === null || value === undefined || value === "") return "Not provided"
@@ -162,6 +173,193 @@ export default function ReportViewPage() {
       return true
     })
   }, [report])
+
+  const canEdit = useMemo(() => {
+    if (!report) return false
+    if (!user) return false
+
+    const submittedBy = report.user_id
+    if (submittedBy !== user.id) return false
+
+    const editCheck = canEditReport(
+      {
+        entry_date: report.entry_date || report.date || null,
+        edit_window_days_applied: report.edit_window_days_applied ?? null,
+        is_editable_applied: report.is_editable_applied === true,
+        questions_snapshot: report.questions_snapshot ?? null,
+        submitted_by_user_id: report.user_id,
+      },
+      user.id
+    )
+
+    return editCheck.can_edit
+  }, [report, user])
+
+  useEffect(() => {
+    if (!report) return
+    if (!isEditing) return
+
+    const initial: Record<string, unknown> = {}
+    ;(report.questions_snapshot || []).forEach((q: any) => {
+      const key = typeof q?.key === "string" ? q.key : null
+      if (!key) return
+      initial[key] = ""
+    })
+    ;(report.custom_responses || []).forEach((r) => {
+      if (typeof r.question_key !== "string") return
+      initial[r.question_key] = r.value
+    })
+
+    setEditResponses(initial)
+    setEditErrors({})
+  }, [isEditing, report])
+
+  const handleSaveEdit = async () => {
+    if (!report) return
+    if (!etag) {
+      toast.error("Missing report version. Please refresh and try again.")
+      return
+    }
+
+    // For legacy reports without snapshot, skip snapshot validation
+    const hasSnapshot =
+      !!report.questions_snapshot && !!report.questions_snapshot_hash && !!report.questions_snapshot_version
+    if (!hasSnapshot) {
+      toast.warning("This is a legacy report without snapshot protection. Edits will use current question schema.")
+    }
+
+    setIsSaving(true)
+    setEditErrors({})
+    try {
+      const idempotencyKey =
+        typeof crypto !== "undefined" && "randomUUID" in crypto ? (crypto as any).randomUUID() : String(Date.now())
+
+      let payloadResponses: any[] = []
+      if (hasSnapshot) {
+        payloadResponses = (report.questions_snapshot || []).map((q: any) => {
+          const key = typeof q?.key === "string" ? q.key : ""
+          return {
+            question_id: typeof q?.id === "string" ? q.id : `snap_${key}`,
+            question_key: key,
+            question_label: typeof q?.label === "string" ? q.label : null,
+            question_type: typeof q?.type === "string" ? q.type : null,
+            value: editResponses[key],
+          }
+        })
+
+        // Client-side guard: ensure snapshot hash matches what we render.
+        const computedHash = await hashSnapshot(report.questions_snapshot)
+        if (computedHash !== report.questions_snapshot_hash) {
+          toast.error("This report's schema changed unexpectedly. Please refresh.")
+          return
+        }
+      } else {
+        // Legacy report: use current editResponses as payload
+        payloadResponses = Object.entries(editResponses).map(([key, value]) => ({
+          question_id: `legacy_${key}`,
+          question_key: key,
+          question_label: key,
+          question_type: "text",
+          value,
+        }))
+      }
+
+      const body: any = {
+        responses: payloadResponses,
+      }
+
+      if (hasSnapshot) {
+        body.snapshot_version = report.questions_snapshot_version
+        body.snapshot_hash = report.questions_snapshot_hash
+      }
+
+      const res = await fetch(`/api/reports/${report.id}`, {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+          "If-Match": etag,
+          "Idempotency-Key": idempotencyKey,
+        },
+        body: JSON.stringify(body),
+      })
+
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        if (res.status === 409) {
+          // Fetch fresh report
+          const freshRes = await fetch(`/api/reports/${report.id}`)
+          const freshJson = await freshRes.json().catch(() => ({}))
+
+          if (!freshRes.ok || !freshJson.data) {
+            toast.error("Report was modified elsewhere. Please refresh.")
+            await loadReport(report.id)
+            setIsEditing(false)
+            return
+          }
+
+          const fresh = freshJson.data as ReportEntry
+
+          if (!fresh.questions_snapshot) {
+            toast.error("Report was modified elsewhere. Please refresh.")
+            await loadReport(report.id)
+            setIsEditing(false)
+            return
+          }
+
+          // Build merged responses: schema-aware merge per question key
+          const mergedResponses: Record<string, unknown> = {}
+
+          // First, load fresh values from snapshot
+          const freshResponses: Record<string, unknown> = {}
+          fresh.custom_responses?.forEach((r: any) => {
+            if (typeof r?.question_key === "string") {
+              freshResponses[r.question_key] = r.value
+            }
+          })
+
+          // Then, apply user's unsaved changes only for keys they modified
+          for (const question of fresh.questions_snapshot) {
+            const key = typeof question?.key === "string" ? question.key : null
+            if (!key) continue
+
+            // If user modified this field, use their value
+            if (editResponses[key] !== undefined && editResponses[key] !== freshResponses[key]) {
+              mergedResponses[key] = editResponses[key]
+            } else {
+              // Otherwise use fresh value
+              mergedResponses[key] = freshResponses[key]
+            }
+          }
+
+          // Update responses state with merged data
+          setEditResponses(mergedResponses)
+
+          // Update ETag
+          const nextEtag = freshRes.headers.get("ETag")
+          if (nextEtag) setEtag(nextEtag)
+
+          toast.error("Report changed elsewhere. Your changes have been merged.")
+          return
+        }
+        const key = typeof json?.key === "string" ? json.key : null
+        if (key && typeof json?.error === "string") {
+          setEditErrors({ [key]: json.error })
+        }
+        throw new Error(json?.error || "Failed to save report")
+      }
+
+      const nextEtag = res.headers.get("ETag")
+      if (nextEtag) setEtag(nextEtag)
+      toast.success(json?.no_change ? "No changes to save" : "Report updated")
+      setIsEditing(false)
+      await loadReport(report.id)
+    } catch (error) {
+      console.error("Failed to save report edit:", error)
+      toast.error(error instanceof Error ? error.message : "Failed to save report")
+    } finally {
+      setIsSaving(false)
+    }
+  }
 
   if (isLoading || !user) {
     return (
@@ -234,6 +432,22 @@ export default function ReportViewPage() {
         <div className="flex items-center gap-2">
           {report.entry_kind === "agent_call" ? <Badge variant="outline">Agent Call</Badge> : null}
           <Badge variant="secondary">{responses.length} responses</Badge>
+          {canEdit ? (
+            isEditing ? (
+              <>
+                <Button variant="outline" size="sm" onClick={() => setIsEditing(false)} disabled={isSaving}>
+                  Cancel
+                </Button>
+                <Button size="sm" onClick={() => void handleSaveEdit()} disabled={isSaving}>
+                  {isSaving ? "Saving..." : "Save"}
+                </Button>
+              </>
+            ) : (
+              <Button variant="outline" size="sm" onClick={() => setIsEditing(true)}>
+                Edit
+              </Button>
+            )
+          ) : null}
         </div>
       </div>
 
@@ -276,7 +490,39 @@ export default function ReportViewPage() {
             </div>
           ) : null}
 
-          {responses.length === 0 ? (
+          {!report.questions_snapshot && report.is_editable_applied ? (
+            <Card>
+              <CardContent className="p-6">
+                <p className="text-muted-foreground text-sm">
+                  This report was created before edit support was introduced and cannot be edited. The questions used to
+                  create this report are no longer available in the system.
+                </p>
+              </CardContent>
+            </Card>
+          ) : null}
+
+          {isEditing && report.questions_snapshot && Array.isArray(report.questions_snapshot) ? (
+            <div className="space-y-4">
+              <div className="text-muted-foreground text-sm">
+                Editing uses the question snapshot saved when this report was submitted.
+              </div>
+              <RoleBasedQuestionFields
+                questions={report.questions_snapshot as any}
+                responses={editResponses}
+                errors={editErrors}
+                onChange={(questionKey, value) => {
+                  setEditResponses((prev) => ({ ...prev, [questionKey]: value }))
+                  setEditErrors((prev) => {
+                    if (!prev[questionKey]) return prev
+                    const next = { ...prev }
+                    delete next[questionKey]
+                    return next
+                  })
+                }}
+                renderMode="full"
+              />
+            </div>
+          ) : responses.length === 0 ? (
             <div className="text-muted-foreground bg-muted/30 rounded-lg border p-6 text-center">
               No responses for this report.
             </div>
