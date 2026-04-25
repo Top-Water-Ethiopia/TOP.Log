@@ -27,6 +27,11 @@ import {
 import { getFileUploadMode, FILE_MAX_FILES } from "@/lib/upload-config"
 import { getFileMaxSizeBytes } from "@/lib/upload-types"
 import { FileUploadField } from "@/components/file-upload-field"
+import {
+  ASSIGNED_AGENTS_OPTION_SOURCE_KIND,
+  type AssignedAgentOption,
+  parseAgentResponseValue,
+} from "@/lib/marketing-agents"
 
 type UploadState = {
   isUploading: boolean
@@ -92,6 +97,33 @@ function isCloudinaryAsset(value: unknown): value is CloudinaryUploadAsset {
   return candidate.provider === "cloudinary" && typeof candidate.secureUrl === "string"
 }
 
+function isAssignedAgentsQuestion(question: any): boolean {
+  if (!question || typeof question !== "object") return false
+  const metadata = question.metadata
+  if (!metadata || typeof metadata !== "object") return false
+  const optionSource = (metadata as { option_source?: unknown }).option_source
+  if (!optionSource || typeof optionSource !== "object") return false
+  const kind = (optionSource as { kind?: unknown }).kind
+  return kind === ASSIGNED_AGENTS_OPTION_SOURCE_KIND
+}
+
+function parseAssignedAgentValues(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .map((v) => {
+        if (typeof v === "string") return v.trim()
+        if (typeof v === "object" && v !== null) {
+          const parsed = parseAgentResponseValue(v)
+          return parsed?.value || ""
+        }
+        return ""
+      })
+      .filter((v) => v.length > 0)
+  }
+  const parsed = parseAgentResponseValue(value)
+  return parsed?.value ? [parsed.value] : []
+}
+
 interface RoleBasedQuestionFieldsProps {
   questions: (
     | CustomQuestion
@@ -116,6 +148,10 @@ interface RoleBasedQuestionFieldsProps {
   onChange: (questionKey: string, value: any) => void
   onUploadPendingStateChange?: (questionKey: string, hasBlockingUploads: boolean) => void
   renderMode?: "full" | "fieldsOnly" | "grouped"
+  // Props for assigned agents functionality
+  departmentId?: string
+  entryDate?: string
+  entryKind?: string
 }
 
 export function RoleBasedQuestionFields({
@@ -125,6 +161,9 @@ export function RoleBasedQuestionFields({
   onChange,
   onUploadPendingStateChange,
   renderMode = "full",
+  departmentId,
+  entryDate,
+  entryKind,
 }: RoleBasedQuestionFieldsProps) {
   const { user, profile } = useSupabaseAuth()
   const hasQuestions = questions.length > 0
@@ -133,6 +172,9 @@ export function RoleBasedQuestionFields({
   const [fileUploadSlots, setFileUploadSlots] = useState<Record<string, FileUploadSlot[]>>({})
   const [imageDragStates, setImageDragStates] = useState<Record<string, boolean>>({})
   const [imageAnnouncements, setImageAnnouncements] = useState<Record<string, string>>({})
+  const [assignedAgents, setAssignedAgents] = useState<AssignedAgentOption[]>([])
+  const [isAssignedAgentsLoading, setIsAssignedAgentsLoading] = useState(false)
+  const [assignedAgentsError, setAssignedAgentsError] = useState<string | null>(null)
   const activeImageUploadsRef = useRef<Record<string, XMLHttpRequest>>({})
   const imageUploadSlotsRef = useRef<Record<string, ImageUploadSlot[]>>({})
   const fileUploadSlotsRef = useRef<Record<string, FileUploadSlot[]>>({})
@@ -194,6 +236,63 @@ export function RoleBasedQuestionFields({
       onUploadPendingStateChange(questionKey, hasBlockingUploads)
     })
   }, [imageUploadSlots, onUploadPendingStateChange, questions])
+
+  // Fetch assigned agents if there are assigned agent questions and required props are provided
+  useEffect(() => {
+    const assignedAgentQuestions = questions.filter(isAssignedAgentsQuestion)
+    if (assignedAgentQuestions.length === 0 || !departmentId || !entryDate || !entryKind) {
+      return
+    }
+
+    const controller = new AbortController()
+    const loadAssignedAgents = async () => {
+      try {
+        setIsAssignedAgentsLoading(true)
+        setAssignedAgentsError(null)
+
+        const questionKeys = assignedAgentQuestions
+          .map((q) => `&questionKey=${encodeURIComponent(String(q.key))}`)
+          .join("")
+        const response = await fetch(
+          `/api/reporting/assigned-agents?departmentId=${encodeURIComponent(departmentId)}&date=${encodeURIComponent(entryDate)}&entryKind=${encodeURIComponent(entryKind)}${questionKeys}`,
+          {
+            cache: "no-store",
+            signal: controller.signal,
+          }
+        )
+        const payload = await response.json().catch(() => ({}))
+
+        if (!response.ok) {
+          throw new Error(
+            typeof payload?.error === "string"
+              ? payload.error
+              : `Failed to load assigned agents (HTTP ${response.status})`
+          )
+        }
+
+        const nextAgents = Array.isArray(payload?.data) ? (payload.data as AssignedAgentOption[]) : []
+        setAssignedAgents(nextAgents)
+      } catch (error) {
+        if ((error as Error).name === "AbortError") {
+          return
+        }
+
+        console.error("Failed to load assigned agents:", error)
+        setAssignedAgents([])
+        setAssignedAgentsError(error instanceof Error ? error.message : "Failed to load assigned agents")
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsAssignedAgentsLoading(false)
+        }
+      }
+    }
+
+    void loadAssignedAgents()
+
+    return () => {
+      controller.abort()
+    }
+  }, [questions, departmentId, entryDate, entryKind])
 
   useEffect(() => {
     return () => {
@@ -825,20 +924,41 @@ export function RoleBasedQuestionFields({
       case "select":
       case "priority":
       case "status":
+        const isAgentSelect = isAssignedAgentsQuestion(question)
+        const selectOptions = isAgentSelect
+          ? assignedAgents.map((agent) => ({ value: agent.id, label: agent.name }))
+          : question.options
+              ?.map((option: QuestionOption) => normalizeQuestionOption(option))
+              .filter((option): option is { value: string; label: string } => option !== null) || []
+
+        // Parse current value for agent questions
+        const selectValue = isAgentSelect ? parseAssignedAgentValues(value)[0] || "" : (value ?? "")
+
         return (
-          <Select value={value ?? ""} onValueChange={(newValue) => onChange(question.key, newValue)}>
+          <Select
+            value={selectValue}
+            onValueChange={(newValue) => onChange(question.key, newValue)}
+            disabled={isAgentSelect && isAssignedAgentsLoading}
+          >
             <SelectTrigger className={error ? "border-destructive" : ""}>
               <SelectValue placeholder={question.placeholder || "Select an option"} />
             </SelectTrigger>
             <SelectContent>
-              {question.options
-                ?.map((option: QuestionOption) => normalizeQuestionOption(option))
-                .filter((option): option is { value: string; label: string } => option !== null)
-                .map((option) => (
+              {isAssignedAgentsLoading && isAgentSelect ? (
+                <SelectItem value="_loading" disabled>
+                  Loading agents...
+                </SelectItem>
+              ) : assignedAgentsError && isAgentSelect ? (
+                <SelectItem value="_error" disabled>
+                  Error loading agents
+                </SelectItem>
+              ) : (
+                selectOptions.map((option) => (
                   <SelectItem key={option.value} value={option.value}>
                     {option.label}
                   </SelectItem>
-                ))}
+                ))
+              )}
             </SelectContent>
           </Select>
         )
@@ -850,57 +970,69 @@ export function RoleBasedQuestionFields({
               ?.map((option: QuestionOption) => normalizeQuestionOption(option))
               .filter((option): option is { value: string; label: string } => option !== null)
               .map((option) => (
-              <div key={option.value} className="flex items-center space-x-2">
-                <input
-                  type="radio"
-                  id={`${question.key}-${option.value}`}
-                  name={question.key}
-                  value={option.value}
-                  checked={value === option.value}
-                  onChange={(event) => onChange(question.key, event.target.value)}
-                  className="text-primary focus:ring-primary h-4 w-4 border-gray-300 focus:ring-2"
-                />
-                <Label htmlFor={`${question.key}-${option.value}`} className="cursor-pointer text-sm font-normal">
-                  {option.label}
-                </Label>
-              </div>
-            ))}
+                <div key={option.value} className="flex items-center space-x-2">
+                  <input
+                    type="radio"
+                    id={`${question.key}-${option.value}`}
+                    name={question.key}
+                    value={option.value}
+                    checked={value === option.value}
+                    onChange={(event) => onChange(question.key, event.target.value)}
+                    className="text-primary focus:ring-primary h-4 w-4 border-gray-300 focus:ring-2"
+                  />
+                  <Label htmlFor={`${question.key}-${option.value}`} className="cursor-pointer text-sm font-normal">
+                    {option.label}
+                  </Label>
+                </div>
+              ))}
           </div>
         )
 
       case "multiselect":
       case "tags":
+        const isAgentMultiselect = isAssignedAgentsQuestion(question)
+        const multiselectOptions = isAgentMultiselect
+          ? assignedAgents.map((agent) => ({ value: agent.id, label: agent.name }))
+          : question.options
+              ?.map((option: QuestionOption) => normalizeQuestionOption(option))
+              .filter((option): option is { value: string; label: string } => option !== null) || []
+
+        // Parse current values for agent questions
+        const currentValues = isAgentMultiselect ? parseAssignedAgentValues(value) : Array.isArray(value) ? value : []
+
         return (
           <div className="space-y-2">
-            {question.options
-              ?.map((option: QuestionOption) => normalizeQuestionOption(option))
-              .filter((option): option is { value: string; label: string } => option !== null)
-              .map((option) => {
-              const currentValues = Array.isArray(value) ? value : []
-              const checkboxId = `${question.key}-${option.value}`
+            {isAssignedAgentsLoading && isAgentMultiselect ? (
+              <div className="text-muted-foreground text-sm">Loading agents...</div>
+            ) : assignedAgentsError && isAgentMultiselect ? (
+              <div className="text-destructive text-sm">Error loading agents</div>
+            ) : (
+              multiselectOptions.map((option) => {
+                const checkboxId = `${question.key}-${option.value}`
 
-              return (
-                <div key={option.value} className="flex items-center space-x-2">
-                  <Checkbox
-                    id={checkboxId}
-                    checked={currentValues.includes(option.value)}
-                    onCheckedChange={(checked) => {
-                      if (checked) {
-                        onChange(question.key, [...currentValues, option.value])
-                      } else {
-                        onChange(
-                          question.key,
-                          currentValues.filter((item: string) => item !== option.value)
-                        )
-                      }
-                    }}
-                  />
-                  <Label htmlFor={checkboxId} className="cursor-pointer text-sm font-normal">
-                    {option.label}
-                  </Label>
-                </div>
-              )
-            })}
+                return (
+                  <div key={option.value} className="flex items-center space-x-2">
+                    <Checkbox
+                      id={checkboxId}
+                      checked={currentValues.includes(option.value)}
+                      onCheckedChange={(checked) => {
+                        if (checked) {
+                          onChange(question.key, [...currentValues, option.value])
+                        } else {
+                          onChange(
+                            question.key,
+                            currentValues.filter((item: string) => item !== option.value)
+                          )
+                        }
+                      }}
+                    />
+                    <Label htmlFor={checkboxId} className="cursor-pointer text-sm font-normal">
+                      {option.label}
+                    </Label>
+                  </div>
+                )
+              })
+            )}
           </div>
         )
 
@@ -1368,8 +1500,8 @@ export function RoleBasedQuestionFields({
         {groups.map((group, groupIndex) => (
           <div key={`${group.sectionLabel ?? "no-section"}-${groupIndex}`} className="space-y-6">
             {group.sectionLabel ? (
-              <div className="mb-2 border-b-2 border-primary/10 pb-2">
-                <h2 className="text-lg font-bold text-primary">{group.sectionLabel}</h2>
+              <div className="border-primary/10 mb-2 border-b-2 pb-2">
+                <h2 className="text-primary text-lg font-bold">{group.sectionLabel}</h2>
               </div>
             ) : null}
 
@@ -1386,9 +1518,7 @@ export function RoleBasedQuestionFields({
                         {question.category === "department_report" ? "Department Question" : "Profession Question"}
                       </Badge>
                       <h3 className="text-sm font-medium">{question.label}</h3>
-                      {question.required ? (
-                        <span className="text-muted-foreground text-xs">Required field</span>
-                      ) : null}
+                      {question.required ? <span className="text-muted-foreground text-xs">Required field</span> : null}
                     </div>
                     {question.description ? (
                       <p className="text-muted-foreground text-sm">{question.description}</p>

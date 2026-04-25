@@ -30,6 +30,7 @@ type ReportEntry = {
   date: string
   entry_kind?: string | null
   entry_date?: string | null
+  department_id?: string | null
   questions_snapshot?: any[] | null
   questions_snapshot_version?: number | null
   questions_snapshot_hash?: string | null
@@ -520,6 +521,9 @@ export default function ReportViewPage() {
                   })
                 }}
                 renderMode="full"
+                departmentId={report.department_id ?? undefined}
+                entryDate={report.entry_date ?? report.date ?? undefined}
+                entryKind={report.entry_kind ?? undefined}
               />
             </div>
           ) : responses.length === 0 ? (
