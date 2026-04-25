@@ -6,16 +6,12 @@ import { buildLogsPageHrefFromState } from "@/lib/logs-page-filters"
 import { cn } from "@/lib/utils"
 import type { LogsViewMode } from "@/lib/logs-page-filters"
 import { useMemo, useRef, useState, useEffect, useCallback } from "react"
-import {
-  normalizeDraft,
-  toSnapshotKey,
-  type LogsFiltersDraft,
-  FILTER_KEYS,
-} from "@/lib/logs/filters-state"
+import { normalizeDraft, toSnapshotKey, type LogsFiltersDraft, FILTER_KEYS } from "@/lib/logs/filters-state"
+import Link from "next/link"
+import { buildLogsPageHref } from "@/lib/logs-page-filters"
 
 interface LogsFiltersProps {
   currentView: LogsViewMode
-  canViewDepartmentLogs: boolean
   date?: string
   departmentId?: string
   departments: Array<{ id: string; name: string }>
@@ -31,7 +27,6 @@ interface LogsFiltersProps {
 
 export function LogsFilters({
   currentView,
-  canViewDepartmentLogs,
   date,
   departmentId,
   departments,
@@ -172,24 +167,21 @@ export function LogsFilters({
     return () => window.removeEventListener("popstate", handler)
   }, [clearPendingApply])
 
-  const buildHrefFromSnapshot = useCallback(
-    (next: ReturnType<typeof normalizeDraft>) => {
-      return buildLogsPageHrefFromState({
-        view: next.view,
-        month: next.month,
-        date: next.date || "",
-        departmentId: next.departmentId || "",
-        page: 1,
-        searchName: next.searchName || "",
-        selectedLogId: "",
-        nextCursorDate: "",
-        nextCursorId: "",
-        professionRoleId: next.professionRoleId || "",
-        entryKind: next.entryKind || "",
-      })
-    },
-    []
-  )
+  const buildHrefFromSnapshot = useCallback((next: ReturnType<typeof normalizeDraft>) => {
+    return buildLogsPageHrefFromState({
+      view: next.view,
+      month: next.month,
+      date: next.date || "",
+      departmentId: next.departmentId || "",
+      page: 1,
+      searchName: next.searchName || "",
+      selectedLogId: "",
+      nextCursorDate: "",
+      nextCursorId: "",
+      professionRoleId: next.professionRoleId || "",
+      entryKind: next.entryKind || "",
+    })
+  }, [])
 
   const scheduleApply = useCallback(
     (delayMs: number) => {
@@ -215,7 +207,7 @@ export function LogsFilters({
         router.replace(buildHrefFromSnapshot(latestSnapshot))
       }, delayMs)
     },
-    [draft, router, buildHrefFromSnapshot]
+    [router, buildHrefFromSnapshot]
   )
 
   const updateDirtyKey = useCallback((key: (typeof FILTER_KEYS)[number]) => {
@@ -417,8 +409,8 @@ export function LogsFilters({
         </div>
       ) : null}
 
-      {/* Secondary row: profession, entry kind (only shown when department selected) */}
-      {draftDepartmentId && canViewDepartmentLogs && (
+      {/* Secondary row: profession, entry kind (only shown when department selected and user is not basic) */}
+      {draftDepartmentId && !isBasicUser && (
         <div className="flex flex-wrap items-end gap-4">
           <div className="flex flex-col gap-1.5">
             <label htmlFor="logs-profession-filter" className="text-sm font-medium">
