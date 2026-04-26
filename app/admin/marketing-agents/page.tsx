@@ -1,13 +1,15 @@
 "use client"
 
-import { useEffect } from "react"
+import { useEffect, useState } from "react"
 import Link from "next/link"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams, usePathname } from "next/navigation"
 import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { useRBAC } from "@/hooks/use-rbac"
 import { MarketingAgentsManager } from "@/components/marketing-agents-manager"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Skeleton } from "@/components/ui/skeleton"
+import { Button } from "@/components/ui/button"
+import { Plus, RefreshCw } from "lucide-react"
 import {
   Breadcrumb,
   BreadcrumbItem,
@@ -20,8 +22,11 @@ import {
 export default function AdminMarketingAgentsPage() {
   const { user, profile, isLoading } = useSupabaseAuth()
   const router = useRouter()
+  const pathname = usePathname()
+  const searchParams = useSearchParams()
   const { hasPermission, rbacChecked, rbacLoading } = useRBAC()
   const canAccessAdmin = hasPermission("admin.system")
+  const [isRefreshing, setIsRefreshing] = useState(false)
 
   useEffect(() => {
     if (isLoading) return
@@ -37,6 +42,17 @@ export default function AdminMarketingAgentsPage() {
       router.push("/")
     }
   }, [canAccessAdmin, isLoading, rbacChecked, rbacLoading, router, user])
+
+  const handleAddAgent = () => {
+    const params = new URLSearchParams(searchParams.toString())
+    params.set("sidebar", "create")
+    router.push(`${pathname}?${params.toString()}`)
+  }
+
+  const handleRefresh = () => {
+    setIsRefreshing(true)
+    setTimeout(() => setIsRefreshing(false), 500)
+  }
 
   if (isLoading || rbacLoading || !user || !profile) {
     return (
@@ -73,24 +89,36 @@ export default function AdminMarketingAgentsPage() {
 
   return (
     <div className="space-y-6">
-      <div>
-        <Breadcrumb>
-          <BreadcrumbList>
-            <BreadcrumbItem>
-              <BreadcrumbLink asChild>
-                <Link href="/admin">Overview</Link>
-              </BreadcrumbLink>
-            </BreadcrumbItem>
-            <BreadcrumbSeparator />
-            <BreadcrumbItem>
-              <BreadcrumbPage>Marketing Agents</BreadcrumbPage>
-            </BreadcrumbItem>
-          </BreadcrumbList>
-        </Breadcrumb>
-        <h1 className="text-3xl font-bold tracking-tight">Marketing Agents</h1>
-        <p className="text-muted-foreground mt-2">
-          Manage the external agent contacts assigned to Marketing Sales Promoters for recurring call reports.
-        </p>
+      <div className="flex items-center justify-between">
+        <div>
+          <Breadcrumb>
+            <BreadcrumbList>
+              <BreadcrumbItem>
+                <BreadcrumbLink asChild>
+                  <Link href="/admin">Overview</Link>
+                </BreadcrumbLink>
+              </BreadcrumbItem>
+              <BreadcrumbSeparator />
+              <BreadcrumbItem>
+                <BreadcrumbPage>Marketing Agents</BreadcrumbPage>
+              </BreadcrumbItem>
+            </BreadcrumbList>
+          </Breadcrumb>
+          <h1 className="mt-4 text-3xl font-bold tracking-tight">Marketing Agents</h1>
+          <p className="text-muted-foreground mt-2">
+            Manage the external agent contacts assigned to Marketing Sales Promoters for recurring call reports.
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={handleRefresh} disabled={isRefreshing}>
+            <RefreshCw className={`mr-2 h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
+          <Button onClick={handleAddAgent}>
+            <Plus className="mr-2 h-4 w-4" />
+            Add Agent
+          </Button>
+        </div>
       </div>
 
       <MarketingAgentsManager />

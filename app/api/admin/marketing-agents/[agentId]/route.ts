@@ -59,11 +59,13 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ ag
     const body = await request.json().catch(() => ({}))
 
     const name = "name" in body ? getOptionalString(body.name) : undefined
-    const location = "location" in body ? getOptionalString(body.location) : undefined
-    const phone = "phone" in body ? getOptionalString(body.phone) : undefined
     const salesPromoterUserId =
       "sales_promoter_user_id" in body ? getOptionalString(body.sales_promoter_user_id) : undefined
     const isActive = typeof body.is_active === "boolean" ? body.is_active : undefined
+    const phones: Array<{ phone_e164?: string; phone_raw?: string; is_primary: boolean }> = body.phones || []
+    const plates: Array<{ plate_number: string }> = body.plates || []
+    const coverage: Array<{ coverage_type: string; region_id?: string; city_id?: string; route_id?: string }> =
+      body.coverage || []
 
     if (name !== undefined && !name) {
       return NextResponse.json({ error: "Agent name is required" }, { status: 400 })
@@ -76,31 +78,26 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ ag
 
       const assignment = await getSalesPromoterAssignment(adminSupabase, salesPromoterUserId, marketingDepartment.id)
       if (!assignment) {
-        return NextResponse.json(
-          { error: "Selected user must be an active Marketing Sales Promoter" },
-          { status: 400 }
-        )
+        return NextResponse.json({ error: "Selected user must be an active Marketing Sales Promoter" }, { status: 400 })
       }
     }
 
-    const normalizedPhone = phone ? normalizeEthiopianPhone(phone) : phone === null ? null : undefined
-    if (phone && !normalizedPhone) {
-      return NextResponse.json({ error: "Enter a valid Ethiopian phone number" }, { status: 400 })
-    }
+    // Normalize phone numbers
+    const normalizedPhones = phones.map((phone) => ({
+      phone_e164: phone.phone_e164 || (phone.phone_raw ? normalizeEthiopianPhone(phone.phone_raw) : null),
+      phone_raw: phone.phone_raw,
+      is_primary: phone.is_primary,
+    }))
 
     const updatePayload: MarketingAgentUpdate = {
       updated_at: new Date().toISOString(),
     }
 
     if (name !== undefined) updatePayload.name = name
-    if (location !== undefined) updatePayload.location = location
     if (salesPromoterUserId !== undefined) updatePayload.sales_promoter_user_id = salesPromoterUserId
     if (isActive !== undefined) updatePayload.is_active = isActive
-    if (phone !== undefined) {
-      updatePayload.phone_e164 = normalizedPhone ?? null
-      updatePayload.phone_raw = phone ?? null
-    }
 
+    // Update main agent record
     const { data, error } = await adminSupabase
       .from("marketing_agents")
       .update(updatePayload)
@@ -122,11 +119,62 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ ag
       )
     }
 
+    // Update phones: delete all and re-insert
+    await (adminSupabase as any).from("agent_phones").delete().eq("agent_id", agentId)
+    if (normalizedPhones.length > 0) {
+      const phoneInserts = normalizedPhones.map((phone) => ({
+        agent_id: agentId,
+        phone_e164: phone.phone_e164,
+        phone_raw: phone.phone_raw,
+        is_primary: phone.is_primary,
+      }))
+      const { error: phonesError } = await (adminSupabase as any).from("agent_phones").insert(phoneInserts)
+      if (phonesError) {
+        console.error("Failed to update agent phones:", phonesError)
+        // Don't fail the whole operation, just log the error
+      }
+    }
+
+    // Update plates: delete all and re-insert
+    await (adminSupabase as any).from("agent_plates").delete().eq("agent_id", agentId)
+    if (plates.length > 0) {
+      const plateInserts = plates.map((plate) => ({
+        agent_id: agentId,
+        plate_number: plate.plate_number,
+      }))
+      const { error: platesError } = await (adminSupabase as any).from("agent_plates").insert(plateInserts)
+      if (platesError) {
+        console.error("Failed to update agent plates:", platesError)
+        // Don't fail the whole operation, just log the error
+      }
+    }
+
+    // Update coverage: delete all and re-insert
+    await (adminSupabase as any).from("agent_coverage").delete().eq("agent_id", agentId)
+    if (coverage.length > 0) {
+      const coverageInserts = coverage.map((c) => ({
+        agent_id: agentId,
+        coverage_type: c.coverage_type,
+        region_id: c.region_id || null,
+        city_id: c.city_id || null,
+        route_id: c.route_id || null,
+        is_active: true,
+      }))
+      const { error: coverageError } = await (adminSupabase as any).from("agent_coverage").insert(coverageInserts)
+      if (coverageError) {
+        console.error("Failed to update agent coverage:", coverageError)
+        // Don't fail the whole operation, just log the error
+      }
+    }
+
     return NextResponse.json({ data })
   } catch (error) {
     console.error("Unexpected error in PATCH /api/admin/marketing-agents/[agentId]:", error)
     return NextResponse.json(
-      { error: "Failed to update marketing agent", message: getUnexpectedErrorMessage(error, "Unexpected server error") },
+      {
+        error: "Failed to update marketing agent",
+        message: getUnexpectedErrorMessage(error, "Unexpected server error"),
+      },
       { status: 500 }
     )
   }
@@ -160,7 +208,10 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
       .eq("id", agentId)
 
     if (error) {
-      return NextResponse.json({ error: "Failed to deactivate marketing agent", message: error.message }, { status: 500 })
+      return NextResponse.json(
+        { error: "Failed to deactivate marketing agent", message: error.message },
+        { status: 500 }
+      )
     }
 
     return NextResponse.json({ ok: true, id: agentId })
