@@ -46,6 +46,7 @@ import {
 import { toast } from "sonner"
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet"
 import { apiFetch, getErrorMessage } from "@/lib/api-client"
+import { getDateRange, resolveUserName } from "@/lib/admin-reports-utils"
 import useSWR from "swr"
 import { AdminReportsFilters } from "@/components/admin-reports-filters"
 import { AdminReportsDashboardTab } from "@/components/features/admin-reports/admin-reports-dashboard-tab"
@@ -214,37 +215,57 @@ export function AdminReportsView() {
   // Calculate dashboard statistics
   const stats: DashboardStats = useMemo(() => {
     const now = new Date()
-    const weekAgo = subDays(now, 7)
-    const monthAgo = subMonths(now, 1)
-    const twoWeeksAgo = subDays(now, 14)
+    const { start: weekStart } = getDateRange("week", now)
+    const { start: monthStart } = getDateRange("month", now)
+    const twoWeeksAgo = subDays(weekStart, 7) // Prior calendar week start
 
-    const entriesThisWeek = entries.filter((e) => parseISO(e.created_at) >= weekAgo).length
-
-    const entriesLastWeek = entries.filter((e) => {
-      const date = parseISO(e.created_at)
-      return date >= twoWeeksAgo && date < weekAgo
+    const entriesThisWeek = entries.filter((e) => {
+      const entryDate = parseISO(e.created_at)
+      return entryDate >= weekStart
     }).length
 
-    const entriesThisMonth = entries.filter((e) => parseISO(e.created_at) >= monthAgo).length
+    const entriesLastWeek = entries.filter((e) => {
+      const entryDate = parseISO(e.created_at)
+      return entryDate >= twoWeeksAgo && entryDate < weekStart
+    }).length
+
+    const entriesThisMonth = entries.filter((e) => {
+      const entryDate = parseISO(e.created_at)
+      return entryDate >= monthStart
+    }).length
 
     const uniqueUsers = new Set(entries.map((e) => e.user_id)).size
 
     const totalResponses = entries.reduce((sum, e) => sum + (e.custom_responses?.length || 0), 0)
     const avgResponsesPerEntry = entries.length > 0 ? totalResponses / entries.length : 0
 
-    // Most active users
-    const userCounts = new Map<string, { name: string; count: number }>()
+    // Most active contributors aggregation with safe fallbacks
+    const contributorsMap = new Map<string, { userId: string; name: string; count: number }>()
+
     entries.forEach((entry) => {
-      if (entry.user_profile) {
-        const current = userCounts.get(entry.user_id) || {
-          name: entry.user_profile.name,
-          count: 0,
+      const userId = entry.user_id
+      if (!userId) return
+
+      const existing = contributorsMap.get(userId)
+      if (existing) {
+        existing.count++
+        // Update name if we find a better one in subsequent entries
+        if (existing.name.startsWith("User ") || existing.name.startsWith("Deleted User")) {
+          const newName = resolveUserName(entry as any)
+          if (!newName.startsWith("User ") && !newName.startsWith("Deleted User")) {
+            existing.name = newName
+          }
         }
-        userCounts.set(entry.user_id, { ...current, count: current.count + 1 })
+      } else {
+        contributorsMap.set(userId, {
+          userId,
+          name: resolveUserName(entry as any),
+          count: 1,
+        })
       }
     })
 
-    const mostActiveUsers = Array.from(userCounts.values())
+    const mostActiveUsers = Array.from(contributorsMap.values())
       .sort((a, b) => b.count - a.count)
       .slice(0, 5)
 
@@ -331,84 +352,73 @@ export function AdminReportsView() {
 
   // Filter entries
   const filteredEntries = useMemo(() => {
-    let filtered = [...entries]
+    const now = new Date()
+    const query = searchQuery.trim().toLowerCase()
     const normalizedSelectedUser = String(selectedUser).trim()
+    const selectedDepartmentName =
+      selectedDepartment === "all" ? null : allDepartments.find((d) => d.id === selectedDepartment)?.name
 
-    // Filter by user (if selected, this takes highest priority)
-    if (selectedUser !== "all") {
-      return filtered.filter((e) => String(e.user_id).trim() === normalizedSelectedUser)
-    }
-
-    // If no user selected, apply department and role filters
-    if (selectedDepartment !== "all") {
-      const selectedDepartmentName = allDepartments.find((d) => d.id === selectedDepartment)?.name
-      filtered = filtered.filter((e) => e.user_profile?.department_name === selectedDepartmentName)
-
-      // If role is also selected, filter by role within the department
-      if (selectedRole !== "all") {
-        filtered = filtered.filter((e) => e.profession_role_name === selectedRole)
-      }
-    } else if (selectedRole !== "all") {
-      // If only role is selected (no department), filter by role
-      filtered = filtered.filter((e) => e.profession_role_name === selectedRole)
-    }
-
-    // Filter by date range
-    if (dateRange !== "all") {
-      const now = new Date()
-      let startDate: Date
-      let endDate: Date = endOfDay(now)
-
-      if (dateRange === "custom") {
-        if (customDateRange.start && customDateRange.end) {
-          startDate = startOfDay(parseISO(customDateRange.start))
-          endDate = endOfDay(parseISO(customDateRange.end))
-        } else {
-          // If custom dates are not fully set, skip date filtering entirely
-          return filtered
+    return entries
+      .filter((entry) => {
+        // 1. User Filter (Hybrid AND: must match if set)
+        if (selectedUser !== "all" && String(entry.user_id).trim() !== normalizedSelectedUser) {
+          return false
         }
-      } else {
-        switch (dateRange) {
-          case "today":
-            startDate = startOfDay(now)
-            break
-          case "week":
-            startDate = startOfDay(subDays(now, 7))
-            break
-          case "month":
-            startDate = startOfDay(subDays(now, 30))
-            break
-          case "quarter":
-            startDate = startOfDay(subDays(now, 90))
-            break
-          default:
-            startDate = startOfDay(now)
+
+        // 2. Department Filter
+        if (selectedDepartment !== "all" && entry.user_profile?.department_name !== selectedDepartmentName) {
+          return false
         }
-      }
 
-      filtered = filtered.filter((e) => {
-        const compareDate = e.date ? parseISO(e.date) : parseISO(e.created_at)
-        return compareDate >= startDate && compareDate <= endDate
+        // 3. Role Filter
+        if (selectedRole !== "all" && entry.profession_role_name !== selectedRole) {
+          return false
+        }
+
+        // 4. Date Range Filter
+        if (dateRange !== "all") {
+          let start: Date
+          let end: Date = endOfDay(now)
+
+          if (dateRange === "custom") {
+            if (customDateRange.start && customDateRange.end) {
+              start = startOfDay(parseISO(customDateRange.start))
+              end = endOfDay(parseISO(customDateRange.end))
+            } else {
+              return true // Skip date filter if custom range incomplete
+            }
+          } else {
+            const range = getDateRange(dateRange as any, now)
+            start = range.start
+            end = range.end
+          }
+
+          const entryDate = entry.date ? parseISO(entry.date) : parseISO(entry.created_at)
+          if (entryDate < start || entryDate > end) {
+            return false
+          }
+        }
+
+        // 5. Search Filter (Partial match, case-insensitive)
+        if (query) {
+          const searchableText = [
+            entry.user_profile?.name,
+            entry.user_profile?.email,
+            entry.user_profile?.department_name,
+            entry.profession_role_name,
+          ]
+            .filter((val): val is string => typeof val === "string" && val.length > 0)
+            .join(" ")
+            .toLowerCase()
+
+          if (!searchableText.includes(query)) {
+            return false
+          }
+        }
+
+        return true
       })
-    }
-
-    // Filter by search query
-    if (searchQuery.trim()) {
-      const query = searchQuery.toLowerCase()
-      filtered = filtered.filter((entry) => {
-        // Search in user name
-        if ((entry.user_profile?.name || "").toLowerCase().includes(query)) return true
-        if ((entry.user_profile?.email || "").toLowerCase().includes(query)) return true
-
-        if ((entry.user_profile?.department_name || "").toLowerCase().includes(query)) return true
-        if ((entry.profession_role_name || "").toLowerCase().includes(query)) return true
-
-        return false
-      })
-    }
-
-    // Sort by date (newest first)
-    return filtered.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+      .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
   }, [
     entries,
     selectedUser,
