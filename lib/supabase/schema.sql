@@ -78,7 +78,8 @@ CREATE TABLE IF NOT EXISTS user_profiles (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   metadata JSONB,
-  last_login TIMESTAMPTZ
+  last_login TIMESTAMPTZ,
+  phone_e164 TEXT UNIQUE
 );
 
 -- Insert default roles
@@ -102,13 +103,22 @@ VALUES
   (uuid_generate_v4(), '00000000-0000-0000-0000-000000000001', 'users', 'read'),
   (uuid_generate_v4(), '00000000-0000-0000-0000-000000000001', 'users', 'update'),
   (uuid_generate_v4(), '00000000-0000-0000-0000-000000000001', 'users', 'delete'),
+  (uuid_generate_v4(), '00000000-0000-0000-0000-000000000001', 'departments', 'create'),
+  (uuid_generate_v4(), '00000000-0000-0000-0000-000000000001', 'departments', 'read'),
+  (uuid_generate_v4(), '00000000-0000-0000-0000-000000000001', 'departments', 'update'),
+  (uuid_generate_v4(), '00000000-0000-0000-0000-000000000001', 'departments', 'delete'),
+  (uuid_generate_v4(), '00000000-0000-0000-0000-000000000001', 'roles', 'create'),
+  (uuid_generate_v4(), '00000000-0000-0000-0000-000000000001', 'roles', 'read'),
+  (uuid_generate_v4(), '00000000-0000-0000-0000-000000000001', 'roles', 'update'),
+  (uuid_generate_v4(), '00000000-0000-0000-0000-000000000001', 'roles', 'delete'),
   
   -- Standard user permissions (own resources only)
   (uuid_generate_v4(), '00000000-0000-0000-0000-000000000002', 'entries', 'create'),
   (uuid_generate_v4(), '00000000-0000-0000-0000-000000000002', 'entries', 'read'),
   (uuid_generate_v4(), '00000000-0000-0000-0000-000000000002', 'entries', 'update'),
   (uuid_generate_v4(), '00000000-0000-0000-0000-000000000002', 'entries', 'delete'),
-  (uuid_generate_v4(), '00000000-0000-0000-0000-000000000002', 'entries', 'export')
+  (uuid_generate_v4(), '00000000-0000-0000-0000-000000000002', 'entries', 'export'),
+  (uuid_generate_v4(), '00000000-0000-0000-0000-000000000002', 'departments', 'read')
 ON CONFLICT DO NOTHING;
 
 -- Enable Row Level Security
@@ -163,6 +173,10 @@ CREATE POLICY "Users can view their own audit logs"
 CREATE POLICY "Users can view their own profile" 
   ON user_profiles FOR SELECT
   USING (auth.uid() = user_id);
+
+CREATE POLICY "Users can create their own profile"
+  ON user_profiles FOR INSERT
+  WITH CHECK (auth.uid() = user_id);
 
 CREATE POLICY "Users can update their own profile" 
   ON user_profiles FOR UPDATE

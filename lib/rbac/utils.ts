@@ -1,21 +1,28 @@
 "use client"
 
-import type { User, Role, Permission, Session, CustomQuestion, RoleQuestionSet, QuestionResponse, PermissionCheck, RoleHierarchy, Department, AccessScope } from "./types"
+import type {
+  User,
+  Role,
+  CustomQuestion,
+  RoleQuestionSet,
+  QuestionResponse,
+  PermissionCheck,
+  RoleHierarchy,
+  Department,
+  AccessScope,
+} from "./types"
 import { DEFAULT_QUESTION_SETS, DEFAULT_DEPARTMENTS, DEFAULT_ACCESS_SCOPES } from "./types"
+import { normalizeImageResponseValue } from "@/lib/image-upload"
 
 // ==================== PERMISSION CHECKING UTILITIES ====================
 
 /**
  * Check if a user has a specific permission
  */
-export function hasPermission(
-  user: User | null,
-  permission: string,
-  roles: Role[] = []
-): boolean {
+export function hasPermission(user: User | null, permission: string, roles: Role[] = []): boolean {
   if (!user || !user.isActive) return false
 
-  const userRole = roles.find(role => role.name === user.role)
+  const userRole = roles.find((role) => role.name === user.role)
   if (!userRole) return false
 
   return userRole.permissions.includes(permission)
@@ -33,7 +40,7 @@ export function canPerformAction(
   if (!user || !user.isActive) return false
 
   const permission = `${check.resource}.${check.action}`
-  
+
   // Check for direct permission
   if (hasPermission(user, permission, roles)) {
     return true
@@ -53,11 +60,7 @@ export function canPerformAction(
 /**
  * Check if a user has a role level equal to or higher than required
  */
-export function hasRoleLevel(
-  user: User | null,
-  requiredLevel: number,
-  roleHierarchy: RoleHierarchy
-): boolean {
+export function hasRoleLevel(user: User | null, requiredLevel: number, roleHierarchy: RoleHierarchy): boolean {
   if (!user || !user.isActive) return false
 
   const userLevel = roleHierarchy[user.role] || 0
@@ -67,11 +70,7 @@ export function hasRoleLevel(
 /**
  * Check if a user can manage another user (role hierarchy based)
  */
-export function canManageUser(
-  manager: User | null,
-  targetUser: User | null,
-  roleHierarchy: RoleHierarchy
-): boolean {
+export function canManageUser(manager: User | null, targetUser: User | null, roleHierarchy: RoleHierarchy): boolean {
   if (!manager || !targetUser || !manager.isActive) return false
 
   const managerLevel = roleHierarchy[manager.role] || 0
@@ -86,7 +85,7 @@ export function canManageUser(
 export function getUserPermissions(user: User | null, roles: Role[] = []): string[] {
   if (!user || !user.isActive) return []
 
-  const userRole = roles.find(role => role.name === user.role)
+  const userRole = roles.find((role) => role.name === user.role)
   return userRole?.permissions || []
 }
 
@@ -102,7 +101,7 @@ export function filterByPermission<T extends { id: string; userId?: string }>(
   if (!user) return []
 
   const userPermissions = getUserPermissions(user, roles)
-  
+
   // If user has general permission, return all
   if (userPermissions.includes(permission)) {
     return resources
@@ -111,7 +110,7 @@ export function filterByPermission<T extends { id: string; userId?: string }>(
   // Check for own-specific permission
   const ownPermission = `${permission}.own`
   if (userPermissions.includes(ownPermission)) {
-    return resources.filter(resource => resource.userId === user.id)
+    return resources.filter((resource) => resource.userId === user.id)
   }
 
   return []
@@ -123,21 +122,17 @@ export function filterByPermission<T extends { id: string; userId?: string }>(
  * Get role by name
  */
 export function getRoleByName(roleName: string, roles: Role[] = []): Role | undefined {
-  return roles.find(role => role.name === roleName)
+  return roles.find((role) => role.name === roleName)
 }
 
 /**
  * Get roles that a user can assign to others (based on hierarchy)
  */
-export function getAssignableRoles(
-  user: User | null,
-  allRoles: Role[] = [],
-  roleHierarchy: RoleHierarchy
-): Role[] {
+export function getAssignableRoles(user: User | null, allRoles: Role[] = [], roleHierarchy: RoleHierarchy): Role[] {
   if (!user) return []
 
   const userLevel = roleHierarchy[user.role] || 0
-  return allRoles.filter(role => role.level < userLevel)
+  return allRoles.filter((role) => role.level < userLevel)
 }
 
 /**
@@ -240,7 +235,7 @@ export function createSession(userId: string, durationHours: number = 24) {
 
 const STORAGE_KEYS = {
   USERS: "captain-log-users",
-  ROLES: "captain-log-roles", 
+  ROLES: "captain-log-roles",
   PERMISSIONS: "captain-log-permissions",
   DEPARTMENTS: "captain-log-departments",
   ACCESS_SCOPES: "captain-log-access-scopes",
@@ -251,21 +246,25 @@ const STORAGE_KEYS = {
 
 /**
  * Save data to localStorage with error handling
+ * Only works on client-side; returns silently on server
  */
 export function saveToStorage<T>(key: keyof typeof STORAGE_KEYS, data: T): void {
   try {
+    if (typeof window === "undefined") return // Server-side, skip
     localStorage.setItem(STORAGE_KEYS[key], JSON.stringify(data))
   } catch (error) {
     console.error(`Failed to save ${key} to storage:`, error)
-    throw new Error(`Storage error: Unable to save ${key}`)
+    // Don't throw on server-side or when localStorage is unavailable
   }
 }
 
 /**
  * Load data from localStorage with error handling
+ * Only works on client-side; returns default value on server
  */
 export function loadFromStorage<T>(key: keyof typeof STORAGE_KEYS, defaultValue: T): T {
   try {
+    if (typeof window === "undefined") return defaultValue // Server-side, return default
     const stored = localStorage.getItem(STORAGE_KEYS[key])
     if (!stored) return defaultValue
 
@@ -292,7 +291,7 @@ export function removeFromStorage(key: keyof typeof STORAGE_KEYS): void {
  * Clear all RBAC-related data from storage
  */
 export function clearRbacStorage(): void {
-  Object.values(STORAGE_KEYS).forEach(key => {
+  Object.values(STORAGE_KEYS).forEach((key) => {
     try {
       localStorage.removeItem(key)
     } catch (error) {
@@ -310,11 +309,21 @@ export function clearRbacStorage(): void {
 export async function hashPassword(password: string): Promise<string> {
   // This is a simple hash for demonstration
   // In production, use a proper hashing library
-  const encoder = new TextEncoder()
-  const data = encoder.encode(password + "salt") // Add salt in production
-  const hashBuffer = await crypto.subtle.digest("SHA-256", data)
-  const hashArray = Array.from(new Uint8Array(hashBuffer))
-  return hashArray.map(b => b.toString(16).padStart(2, "0")).join("")
+  const cryptoLib = typeof window !== "undefined" ? crypto : require("crypto")
+
+  if (typeof window !== "undefined") {
+    // Browser (Web Crypto)
+    const encoder = new TextEncoder()
+    const data = encoder.encode(password + "salt") // Add salt in production
+    const hashBuffer = await cryptoLib.subtle.digest("SHA-256", data)
+    const hashArray = Array.from(new Uint8Array(hashBuffer))
+    return hashArray.map((b) => b.toString(16).padStart(2, "0")).join("")
+  } else {
+    // Node.js
+    const hasher = cryptoLib.createHash("sha256")
+    hasher.update(password + "salt") // Add salt in production
+    return hasher.digest("hex")
+  }
 }
 
 /**
@@ -445,7 +454,7 @@ export function initializeDefaultOrgStructures(): void {
  */
 export function getQuestionSetForRole(roleName: string): RoleQuestionSet | null {
   const questionSets = loadFromStorage("QUESTION_SETS", [] as RoleQuestionSet[])
-  return questionSets.find(set => set.roleName === roleName && set.isActive) || null
+  return questionSets.find((set) => set.roleName === roleName && set.isActive) || null
 }
 
 /**
@@ -460,14 +469,14 @@ export function getAllQuestionSets(): RoleQuestionSet[] {
  */
 export function saveQuestionSet(questionSet: RoleQuestionSet): void {
   const questionSets = getAllQuestionSets()
-  const existingIndex = questionSets.findIndex(set => set.roleId === questionSet.roleId)
-  
+  const existingIndex = questionSets.findIndex((set) => set.roleId === questionSet.roleId)
+
   if (existingIndex >= 0) {
     questionSets[existingIndex] = questionSet
   } else {
     questionSets.push(questionSet)
   }
-  
+
   saveToStorage("QUESTION_SETS", questionSets)
 }
 
@@ -476,103 +485,195 @@ export function saveQuestionSet(questionSet: RoleQuestionSet): void {
  */
 export function getQuestionsForUser(user: User | null): CustomQuestion[] {
   if (!user) return []
-  
+
   const questionSet = getQuestionSetForRole(user.role)
   return questionSet ? questionSet.questions.sort((a, b) => a.order - b.order) : []
 }
 
 /**
  * Validate question response based on question configuration
+ * Supports both the legacy CustomQuestion format and the database format with validationRules
  */
-export function validateQuestionResponse(question: CustomQuestion, value: any): string | null {
-  // Required field validation
-  if (question.required && (value === null || value === undefined || value === "")) {
-    return `${question.label} is required`
+export function validateQuestionResponse(question: CustomQuestion | unknown, value: unknown): string | null {
+  // Type guard to check if it's a valid question object
+  const q = question as Partial<CustomQuestion>
+  if (!q || typeof q !== "object") {
+    return "Invalid question format"
   }
-  
+
+  if (q.type === "image") {
+    const imageAssets = normalizeImageResponseValue(value)
+    if (q.required && imageAssets.length === 0) {
+      return "Please upload at least one image"
+    }
+    if (!q.required && imageAssets.length === 0) {
+      return null
+    }
+  }
+
+  // Required field validation
+  if (q.required && (value === null || value === undefined || value === "")) {
+    return "This field is required"
+  }
+
   // Skip validation for optional empty fields
-  if (!question.required && (value === null || value === undefined || value === "")) {
+  if (!q.required && (value === null || value === undefined || value === "")) {
     return null
   }
-  
+
+  // Get validation rules - support both formats:
+  // 1. Legacy format: question.validation = { min, max, pattern }
+  // 2. Database format: question.validationRules = { min_length, max_length, min_value, max_value, pattern }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const validationRules = (q as any).validationRules || q.validation || {}
+
   // Type-specific validation
-  switch (question.type) {
+  switch (q.type) {
     case "text":
     case "textarea":
+    case "email":
+    case "url":
+    case "phone":
       if (typeof value !== "string") {
-        return `${question.label} must be text`
+        return "Please enter valid text"
       }
-      if (question.validation?.min && value.length < question.validation.min) {
-        return `${question.label} must be at least ${question.validation.min} characters`
+      // Check min_length (database format) or min (legacy format)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const minLength = (validationRules as any).min_length ?? (validationRules as any).min
+      if (minLength !== undefined && minLength !== null && value.length < minLength) {
+        return `Minimum ${minLength} character${minLength !== 1 ? "s" : ""} required`
       }
-      if (question.validation?.max && value.length > question.validation.max) {
-        return `${question.label} must not exceed ${question.validation.max} characters`
+      // Check max_length (database format) or max (legacy format)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const maxLength = (validationRules as any).max_length ?? (validationRules as any).max
+      if (maxLength !== undefined && maxLength !== null && value.length > maxLength) {
+        return `Maximum ${maxLength} character${maxLength !== 1 ? "s" : ""} allowed`
       }
-      if (question.validation?.pattern && !new RegExp(question.validation.pattern).test(value)) {
-        return `${question.label} format is invalid`
+      // Check pattern validation
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      if ((validationRules as any).pattern) {
+        try {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          if (!new RegExp((validationRules as any).pattern).test(value)) {
+            return "Invalid format"
+          }
+        } catch (e) {
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          console.error("Invalid regex pattern:", (validationRules as any).pattern, e)
+        }
       }
       break
-      
+
     case "number":
+    case "rating":
       const numValue = Number(value)
       if (isNaN(numValue)) {
-        return `${question.label} must be a number`
+        return "Please enter a valid number"
       }
-      if (question.validation?.min !== undefined && numValue < question.validation.min) {
-        return `${question.label} must be at least ${question.validation.min}`
+      // Check min_value (database format) or min (legacy format)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const minValue = (validationRules as any).min_value ?? (validationRules as any).min
+      if (minValue !== undefined && minValue !== null && numValue < minValue) {
+        return `Minimum value is ${minValue}`
       }
-      if (question.validation?.max !== undefined && numValue > question.validation.max) {
-        return `${question.label} must not exceed ${question.validation.max}`
+      // Check max_value (database format) or max (legacy format)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const maxValue = (validationRules as any).max_value ?? (validationRules as any).max
+      if (maxValue !== undefined && maxValue !== null && numValue > maxValue) {
+        return `Maximum value is ${maxValue}`
+      }
+      // Check step validation
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      if ((validationRules as any).step !== undefined && (validationRules as any).step !== null) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const step = Number((validationRules as any).step)
+        if (!isNaN(step) && step > 0) {
+          const remainder = (numValue - (minValue ?? 0)) % step
+          if (Math.abs(remainder) > 0.000001) {
+            // Use small epsilon for floating point comparison
+            return `Value must be in increments of ${step}`
+          }
+        }
       }
       break
-      
+
     case "select":
-      if (question.options && !question.options.includes(value)) {
-        return `${question.label} must be one of the predefined options`
+    case "radio":
+      if (q.options && !(q.options as string[]).includes(value as string)) {
+        return "Please select a valid option"
       }
       break
-      
+
     case "multiselect":
       if (!Array.isArray(value)) {
-        return `${question.label} must be an array of values`
+        return "Please select at least one option"
       }
-      if (question.options && !value.every(v => question.options!.includes(v))) {
-        return `${question.label} contains invalid options`
+
+      if (q.options && !value.every((v) => (q.options as string[]).includes(v as string))) {
+        return "One or more selected options are invalid"
       }
       break
-      
+
     case "checkbox":
+      if (Array.isArray(q.options) && q.options.length > 0) {
+        if (!Array.isArray(value) || value.length === 0) {
+          return "Please select at least one option"
+        }
+        if (!value.every((v) => (q.options as string[]).includes(v as string))) {
+          return "One or more selected options are invalid"
+        }
+        break
+      }
+
       if (typeof value !== "boolean") {
-        return `${question.label} must be true or false`
+        return "Please check or uncheck this field"
       }
       break
-      
+
     case "date":
+    case "datetime":
       if (typeof value !== "string") {
-        return `${question.label} must be a date string`
+        return "Please enter a valid date"
       }
       const date = new Date(value)
       if (isNaN(date.getTime())) {
-        return `${question.label} must be a valid date`
+        return "Please enter a valid date"
+      }
+      // Check min_date validation
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      if ((validationRules as any).min_date) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const minDate = new Date((validationRules as any).min_date)
+        if (!isNaN(minDate.getTime()) && date < minDate) {
+          return `Date must be on or after ${minDate.toLocaleDateString()}`
+        }
+      }
+      // Check max_date validation
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      if ((validationRules as any).max_date) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const maxDate = new Date((validationRules as any).max_date)
+        if (!isNaN(maxDate.getTime()) && date > maxDate) {
+          return `Date must be on or before ${maxDate.toLocaleDateString()}`
+        }
       }
       break
   }
-  
-  // Custom validation
-  if (question.validation?.custom) {
-    return question.validation.custom(value)
+
+  // Custom validation (legacy format only)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  if ((q.validation as any)?.custom) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return (q.validation as any).custom(value)
   }
-  
+
   return null
 }
 
 /**
  * Create a question response object
  */
-export function createQuestionResponse(
-  question: CustomQuestion,
-  value: any
-): QuestionResponse {
+export function createQuestionResponse(question: CustomQuestion, value: unknown): QuestionResponse {
   return {
     questionId: question.id,
     questionKey: question.key,
@@ -589,22 +690,22 @@ export function createQuestionResponse(
  */
 export function processQuestionResponses(
   questions: CustomQuestion[],
-  responses: Record<string, any>
+  responses: Record<string, unknown>
 ): { valid: boolean; errors: Record<string, string>; processedResponses: QuestionResponse[] } {
   const errors: Record<string, string> = {}
   const processedResponses: QuestionResponse[] = []
-  
+
   for (const question of questions) {
     const value = responses[question.key]
     const error = validateQuestionResponse(question, value)
-    
+
     if (error) {
       errors[question.key] = error
     } else {
       processedResponses.push(createQuestionResponse(question, value))
     }
   }
-  
+
   return {
     valid: Object.keys(errors).length === 0,
     errors,
@@ -617,7 +718,7 @@ export function processQuestionResponses(
  */
 export function initializeDefaultQuestionSets(): void {
   const existingSets = getAllQuestionSets()
-  
+
   if (existingSets.length === 0) {
     saveToStorage("QUESTION_SETS", DEFAULT_QUESTION_SETS)
   }

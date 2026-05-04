@@ -1,0 +1,4244 @@
+"use client"
+
+import { useState, useEffect, useCallback, useMemo, useRef } from "react"
+import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
+import { supabase } from "@/lib/supabase/client"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
+import { Badge } from "@/components/ui/badge"
+import { Switch } from "@/components/ui/switch"
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group"
+import { Checkbox } from "@/components/ui/checkbox"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { useToast } from "@/components/ui/use-toast"
+import { useScopeEntryKinds, type ScopeEntryKind } from "@/hooks/use-entry-kinds"
+import { getEntryKindLabel, getEntryKindColor, getEntryKindIcon, findEntryKindConfig } from "@/lib/entry-kinds"
+import {
+  Plus,
+  Pencil,
+  Trash2,
+  Shield,
+  Eye,
+  Copy,
+  RefreshCw,
+  Search,
+  Download,
+  MoreVertical,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+  CheckSquare,
+  X,
+  BarChart3,
+  FileText,
+  ChevronLeft,
+  ChevronRight,
+  GripVertical,
+  ChevronDown,
+  ChevronUp,
+  Users,
+} from "lucide-react"
+import { QuestionTemplates, type QuestionTemplate } from "@/components/question-templates"
+import Link from "next/link"
+import { ActionMenu } from "@/components/ui/action-menu"
+import { Separator } from "@/components/ui/separator"
+import { ApiError, apiFetch, getErrorMessage } from "@/lib/api-client"
+import { matchesDepartmentRoleFilter } from "@/lib/role-question-filters"
+import { buildRoleQuestionsApiUrl } from "@/lib/role-question-urls"
+
+const ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000001"
+const SYSTEM_ADMIN_ROLE_ID = "00000000-0000-0000-0000-000000000010"
+
+interface Role {
+  id: string
+  name: string
+  description: string | null
+  department_id: string | null
+}
+
+interface RoleQuestion {
+  id: string
+  role_id: string | null
+  department_id?: string | null
+  department_profession_id?: string | null
+  department_role?: string | null
+  entry_kind?: string // 'agent_call', 'daily_summary', 'standard', or undefined
+  question_key: string
+  question_label: string
+  question_type: string
+  question_description: string | null
+  placeholder: string | null
+  options: string[] | null
+  is_required: boolean
+  display_order: number
+  validation_rules: Record<string, any> | null
+  is_active: boolean
+  created_at: string
+  updated_at: string
+  min_value?: number | null
+  max_value?: number | null
+  min_length?: number | null
+  max_length?: number | null
+  pattern?: string | null
+  step?: number | null
+  min_date?: string | null
+  max_date?: string | null
+}
+
+interface RoleQuestionWithRole extends RoleQuestion {
+  role?: Role | null
+  department_profession?: {
+    id: string
+    key: string
+    label: string
+  } | null
+}
+
+type RoleQuestionsManagerProps = {
+  externalSearchQuery?: string
+  refreshKey?: number
+  fixedRoleId?: string
+  fixedRole?: Role | null
+  departmentId?: string
+  departmentOnly?: boolean
+  departmentRole?: string
+  hideHeader?: boolean
+  hideStatistics?: boolean
+  hideFilters?: boolean
+  disableRoleCollapse?: boolean
+}
+
+function deriveQuestionKey(question: any): string {
+  if (typeof question?.question_key === "string" && question.question_key.trim()) {
+    return question.question_key
+  }
+  if (typeof question?.metadata?.legacy_question_key === "string" && question.metadata.legacy_question_key.trim()) {
+    return question.metadata.legacy_question_key
+  }
+  return typeof question?.id === "string" && question.id ? question.id : ""
+}
+
+function getGroupIdForQuestion(question: RoleQuestionWithRole): string {
+  if (typeof question.role_id === "string" && question.role_id) return question.role_id
+  if (typeof question.department_id === "string" && question.department_id)
+    return `__department:${question.department_id}`
+  return "__unscoped"
+}
+
+function isDepartmentGroupId(groupId: string): boolean {
+  return groupId.startsWith("__department:")
+}
+
+// Helper function to group questions by entry_kind dynamically using available configs
+function groupQuestionsByEntryKind(
+  questions: RoleQuestionWithRole[],
+  entryKindConfigs: ScopeEntryKind[] = []
+): Record<string, RoleQuestionWithRole[]> {
+  const grouped: Record<string, RoleQuestionWithRole[]> = {}
+
+  // Get all unique entry kinds from configs
+  const allEntryKinds = new Set<string>()
+  entryKindConfigs.forEach((config) => allEntryKinds.add(config.entry_kind))
+  // Also add any entry kinds that appear in questions but not in configs
+  questions.forEach((q) => {
+    const kind = q.entry_kind || "standard"
+    allEntryKinds.add(kind)
+  })
+  // Ensure standard is always present as fallback
+  allEntryKinds.add("standard")
+
+  // Initialize empty arrays for all entry kinds
+  allEntryKinds.forEach((kind) => {
+    grouped[kind] = []
+  })
+
+  // Group questions by entry_kind
+  questions.forEach((q) => {
+    const kind = q.entry_kind || "standard"
+    if (!grouped[kind]) {
+      grouped[kind] = []
+    }
+    grouped[kind].push(q)
+  })
+
+  return grouped
+}
+
+// Helper function to get entry kind label and styles (config-based with fallback)
+function getEntryKindStyles(entryKind: string, entryKindConfigs: ScopeEntryKind[] = []) {
+  const config = findEntryKindConfig(entryKind, entryKindConfigs)
+  const label = getEntryKindLabel(entryKind, config)
+  const color = getEntryKindColor(entryKind, config)
+  const icon = getEntryKindIcon(entryKind, config)
+  const isInactive = config?.is_active === false
+
+  // Map icon names to actual icon components
+  const iconName = icon || "FileText"
+
+  // Generate colors based on the hex color from config
+  const baseColor = color || "#6B7280"
+  const isBlue = baseColor.includes("3B82F6") || iconName === "Phone"
+  const isGreen = baseColor.includes("10B981")
+
+  if (isInactive) {
+    return {
+      label: `${label} (Inactive)`,
+      icon: iconName,
+      borderColor: "border-l-gray-300",
+      badgeColor: "bg-gray-100 text-gray-500 border-gray-200",
+      sectionBg: "bg-gray-50/30",
+      isInactive: true,
+    }
+  }
+
+  switch (entryKind) {
+    case "agent_call":
+      return {
+        label,
+        icon: iconName,
+        borderColor: "border-l-blue-500",
+        badgeColor: "bg-blue-100 text-blue-700 border-blue-200",
+        sectionBg: "bg-blue-50/50",
+        isInactive: false,
+      }
+    case "daily_summary":
+      return {
+        label,
+        icon: iconName,
+        borderColor: "border-l-green-500",
+        badgeColor: "bg-green-100 text-green-700 border-green-200",
+        sectionBg: "bg-green-50/50",
+        isInactive: false,
+      }
+    default:
+      return {
+        label,
+        icon: iconName,
+        borderColor: isBlue ? "border-l-blue-400" : isGreen ? "border-l-green-400" : "border-l-gray-400",
+        badgeColor: isBlue
+          ? "bg-blue-50 text-blue-600 border-blue-200"
+          : isGreen
+            ? "bg-green-50 text-green-600 border-green-200"
+            : "bg-gray-100 text-gray-700 border-gray-200",
+        sectionBg: isBlue ? "bg-blue-50/30" : isGreen ? "bg-green-50/30" : "bg-gray-50/50",
+        isInactive: false,
+      }
+  }
+}
+
+export function RoleQuestionsManager({
+  externalSearchQuery,
+  refreshKey,
+  fixedRoleId,
+  fixedRole,
+  departmentId,
+  departmentOnly,
+  departmentRole,
+  hideHeader,
+  hideStatistics,
+  hideFilters,
+  disableRoleCollapse,
+}: RoleQuestionsManagerProps) {
+  const SYSTEM_ROLE_IDS = useMemo(
+    () =>
+      new Set([
+        "00000000-0000-0000-0000-000000000000",
+        "00000000-0000-0000-0000-000000000001",
+        "00000000-0000-0000-0000-000000000002",
+        "00000000-0000-0000-0000-000000000010",
+      ]),
+    []
+  )
+
+  const { user: currentUser, profile: currentProfile } = useSupabaseAuth()
+  const effectiveFixedRoleId = fixedRoleId || fixedRole?.id
+
+  // Fetch scope entry kinds for config-based labels and colors
+  const targetDepartmentId = departmentId || null
+  const targetProfessionId = departmentRole || null
+  const { entryKinds, isLoading: isLoadingEntryKinds } = useScopeEntryKinds(targetDepartmentId, targetProfessionId)
+
+  const [questions, setQuestions] = useState<RoleQuestionWithRole[]>([])
+  const [roles, setRoles] = useState<Role[]>([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [isCreating, setIsCreating] = useState(false)
+  const [isUpdating, setIsUpdating] = useState(false)
+  const [selectedRole, setSelectedRole] = useState<string>("all")
+  const [showCreateDialog, setShowCreateDialog] = useState(false)
+  const [editingQuestion, setEditingQuestion] = useState<RoleQuestionWithRole | null>(null)
+  const [showDeleteDialog, setShowDeleteDialog] = useState(false)
+  const [questionToDelete, setQuestionToDelete] = useState<RoleQuestion | null>(null)
+  const [previewQuestion, setPreviewQuestion] = useState<RoleQuestionWithRole | null>(null)
+  const [showPreviewModal, setShowPreviewModal] = useState(false)
+  const { toast } = useToast()
+
+  // Enhanced filtering and sorting state
+  const [searchQuery, setSearchQuery] = useState("")
+  const [filterType, setFilterType] = useState<string>("all")
+  const [filterStatus, setFilterStatus] = useState<string>("all")
+  const [sortField, setSortField] = useState<"role" | "label" | "type" | "display_order" | "created_at">(
+    "display_order"
+  )
+  const [sortDirection, setSortDirection] = useState<"asc" | "desc">("asc")
+  const [selectedQuestions, setSelectedQuestions] = useState<Set<string>>(new Set())
+  const [currentPage, setCurrentPage] = useState(1)
+  const [itemsPerPage, setItemsPerPage] = useState(25)
+  const [showBulkActions, setShowBulkActions] = useState(false)
+  const [expandedRoles, setExpandedRoles] = useState<Set<string>>(new Set())
+  const [dragState, setDragState] = useState<{ roleId: string; questionId: string } | null>(null)
+
+  const showGroupedView = true
+
+  useEffect(() => {
+    if (externalSearchQuery === undefined) return
+    if (externalSearchQuery === searchQuery) return
+    setSearchQuery(externalSearchQuery)
+    setCurrentPage(1)
+  }, [externalSearchQuery, searchQuery])
+
+  useEffect(() => {
+    if (!effectiveFixedRoleId) return
+    if (selectedRole === effectiveFixedRoleId) return
+    setSelectedRole(effectiveFixedRoleId)
+    setCurrentPage(1)
+  }, [effectiveFixedRoleId, selectedRole])
+
+  // Cache tracking to prevent unnecessary refetches
+  const dataLoadedRef = useRef(false)
+  const lastFetchTimeRef = useRef<number>(0)
+  const CACHE_DURATION = 30000 // 30 seconds - only refetch if data is older than this
+
+  const isAdmin = currentProfile?.role_id === ADMIN_ROLE_ID || currentProfile?.role_id === SYSTEM_ADMIN_ROLE_ID
+
+  const [formData, setFormData] = useState<Partial<RoleQuestion>>({
+    role_id: "",
+    department_id: null,
+    question_label: "",
+    question_type: "text",
+    question_description: "",
+    placeholder: "",
+    options: null,
+    is_required: false,
+    display_order: 0,
+    validation_rules: null,
+    is_active: true,
+    min_value: null,
+    max_value: null,
+    min_length: null,
+    max_length: null,
+    pattern: null,
+    step: null,
+    min_date: null,
+    max_date: null,
+  })
+
+  const [formErrors, setFormErrors] = useState<Record<string, string>>({})
+  const [optionInput, setOptionInput] = useState("")
+  const [showTemplates, setShowTemplates] = useState(false)
+
+  const [quickAddByRole, setQuickAddByRole] = useState<Record<string, string>>({})
+
+  const isDepartmentScopedForm = useMemo(() => {
+    if (departmentOnly && departmentId) return true
+    if (editingQuestion && !editingQuestion.role_id && !!editingQuestion.department_id) return true
+    if (!formData.role_id && !!formData.department_id) return true
+    return false
+  }, [departmentOnly, departmentId, editingQuestion, formData.role_id, formData.department_id])
+
+  const toQuestionKey = useCallback((label: string) => {
+    return label
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-_]/g, "")
+      .replace(/\s+/g, "-")
+      .replace(/-+/g, "-")
+  }, [])
+
+  const openCreateDialogForRole = useCallback(
+    (roleId: string, displayOrder: number, presetLabel?: string) => {
+      const label = presetLabel?.trim() || ""
+      const isDepartmentGroup = isDepartmentGroupId(roleId)
+      const isUnscopedGroup = roleId === "__unscoped"
+
+      if (isUnscopedGroup) return
+
+      const parsedDepartmentId = isDepartmentGroup ? roleId.replace("__department:", "") : null
+      const departmentIdForCreate = parsedDepartmentId || (departmentOnly && departmentId ? departmentId : null)
+
+      setFormData({
+        role_id: isDepartmentGroup ? "" : roleId,
+        department_id: isDepartmentGroup ? departmentIdForCreate : null,
+        question_label: label,
+        question_type: "text",
+        question_description: "",
+        placeholder: "",
+        options: null,
+        is_required: false,
+        display_order: displayOrder,
+        validation_rules: null,
+        is_active: true,
+        min_value: null,
+        max_value: null,
+        min_length: null,
+        max_length: null,
+        pattern: null,
+        step: null,
+        min_date: null,
+        max_date: null,
+      })
+      setEditingQuestion(null)
+      setFormErrors({})
+      setShowCreateDialog(true)
+    },
+    [departmentId, departmentOnly]
+  )
+
+  const loadData = useCallback(
+    async (forceRefresh = false) => {
+      try {
+        // Check if we should skip loading (data is fresh and not forced)
+        const now = Date.now()
+        const timeSinceLastFetch = now - lastFetchTimeRef.current
+
+        if (!forceRefresh && dataLoadedRef.current && timeSinceLastFetch < CACHE_DURATION) {
+          return
+        }
+
+        setIsLoading(true)
+
+        // First, verify we can access the database
+
+        // Load roles using direct Supabase query
+        const { data: roleData, error: roleError } = await supabase
+          .from("roles")
+          .select("*")
+          .order("name", { ascending: true })
+          .limit(1000)
+
+        const roleDataWithDept: Role[] = ((roleData as unknown as Role[]) || []).map((r) => ({
+          ...r,
+          department_id: r.department_id ?? null,
+        }))
+
+        if (roleError) {
+          const roleErrorObj: any = roleError
+          let extractedError: Record<string, any> = {}
+
+          extractedError.code = roleErrorObj?.code || roleErrorObj?.error_code || roleErrorObj?.statusCode
+          extractedError.message = roleErrorObj?.message || roleErrorObj?.error_description || roleErrorObj?.error_msg
+          extractedError.details = roleErrorObj?.details || roleErrorObj?.error_details
+          extractedError.hint = roleErrorObj?.hint || roleErrorObj?.error_hint
+          extractedError.name = roleErrorObj?.name
+
+          if (roleErrorObj?.error) {
+            extractedError.postgrest_error = roleErrorObj.error
+            extractedError.code = extractedError.code || roleErrorObj.error.code
+            extractedError.message = extractedError.message || roleErrorObj.error.message
+            extractedError.details = extractedError.details || roleErrorObj.error.details
+            extractedError.hint = extractedError.hint || roleErrorObj.error.hint
+          }
+
+          try {
+            const ownProps = Object.getOwnPropertyNames(roleErrorObj)
+            const ownPropValues: Record<string, any> = {}
+            ownProps.forEach((prop) => {
+              try {
+                ownPropValues[prop] = roleErrorObj[prop]
+              } catch {
+                ownPropValues[prop] = "[cannot access]"
+              }
+            })
+            if (Object.keys(ownPropValues).length > 0) {
+              extractedError.ownProperties = ownPropValues
+            }
+          } catch {}
+
+          try {
+            extractedError.jsonString = JSON.stringify(
+              roleErrorObj,
+              (key, value) => {
+                if (key === "parent" || key === "original") return "[Circular]"
+                return value
+              },
+              2
+            )
+          } catch (e: any) {
+            extractedError.jsonStringError = e.message
+          }
+
+          extractedError.stringRepresentation = String(roleError)
+          extractedError.toStringResult = roleError.toString?.()
+
+          console.error("❌ Error loading roles:", extractedError)
+
+          toast({
+            title: "Error Loading Roles",
+            description:
+              extractedError.message || roleError.message || "Failed to load roles. Check console for details.",
+            variant: "destructive",
+          })
+          // Don't throw - set empty array so UI can still render
+          setRoles([])
+        } else {
+        }
+
+        // Load questions using API route (ensures all questions are fetched, bypasses RLS issues)
+        let questionData: RoleQuestionWithRole[] = []
+        let questionError: unknown = null
+
+        try {
+          const apiUrl = buildRoleQuestionsApiUrl({
+            departmentId,
+            departmentOnly,
+            departmentRole,
+          })
+          const questionsFromAPI = await apiFetch<RoleQuestionWithRole[]>(apiUrl, {
+            method: "GET",
+            headers: {
+              "Content-Type": "application/json",
+            },
+          })
+
+          // Join with roles data - use existing role if present, otherwise find from loaded roles
+          questionData = (Array.isArray(questionsFromAPI) ? questionsFromAPI : []).map((q) => {
+            const roleId =
+              typeof (q as { role_id?: unknown })?.role_id === "string" ? (q as { role_id: string }).role_id : null
+            return {
+              ...q,
+              question_key: deriveQuestionKey(q),
+              role: q.role || (roleId ? roleDataWithDept.find((r) => r.id === roleId) : null) || null,
+            }
+          })
+        } catch (apiError: unknown) {
+          console.error("❌ Error loading questions from API:", apiError)
+          console.error("API Error Details:", {
+            message: getErrorMessage(apiError, "Failed to load role questions"),
+            stack: apiError instanceof Error ? apiError.stack : undefined,
+            isAdmin,
+            currentUser: currentUser?.id,
+            currentProfile: currentProfile?.role_id,
+          })
+          questionError = apiError
+
+          // Check if it's an authentication/authorization error
+          const isAuthError =
+            apiError instanceof ApiError
+              ? apiError.status === 401
+              : apiError instanceof Error
+                ? apiError.message?.toLowerCase().includes("unauthorized") ||
+                  apiError.message?.toLowerCase().includes("401")
+                : false
+
+          const isForbiddenError =
+            apiError instanceof ApiError
+              ? apiError.status === 403
+              : apiError instanceof Error
+                ? apiError.message?.toLowerCase().includes("forbidden") ||
+                  apiError.message?.toLowerCase().includes("403") ||
+                  apiError.message?.toLowerCase().includes("user profile not found")
+                : false
+
+          if (isAuthError) {
+            toast({
+              title: "Authentication Required",
+              description: "Please sign in to access the admin panel.",
+              variant: "destructive",
+            })
+            setIsLoading(false)
+            return
+          }
+
+          if (isForbiddenError) {
+            toast({
+              title: "Access Denied",
+              description: "You don't have permission to access role questions. Admin privileges required.",
+              variant: "destructive",
+            })
+            setIsLoading(false)
+            return
+          }
+
+          // Fallback: Try direct Supabase query with explicit limit removal
+          try {
+            // Fetch all questions without limit (Supabase default is 1000, but we'll handle pagination if needed)
+            const { data: questionsWithRoles, error: joinError } = await supabase
+              .from("role_questions")
+              .select(
+                `
+          *,
+          role:roles(*)
+        `
+              )
+              .order("display_order", { ascending: true })
+              .limit(10000) // Set a high limit to ensure we get all questions
+
+            if (joinError) {
+              // Try without join
+              const { data: questionsOnly, error: questionsOnlyError } = await supabase
+                .from("role_questions")
+                .select("*")
+                .order("display_order", { ascending: true })
+                .limit(10000)
+
+              if (questionsOnlyError) {
+                questionError = questionsOnlyError
+              } else {
+                questionData = ((questionsOnly as unknown as RoleQuestionWithRole[]) || []).map((q: any) => {
+                  const roleId = typeof q?.role_id === "string" ? (q.role_id as string) : null
+                  return {
+                    ...q,
+                    question_key: deriveQuestionKey(q),
+                    role: roleId ? roleDataWithDept.find((r) => r.id === roleId) || null : null,
+                  }
+                })
+              }
+            } else {
+              questionData = ((questionsWithRoles as unknown as RoleQuestionWithRole[]) || []).map((q: any) => {
+                const roleId = typeof q?.role_id === "string" ? (q.role_id as string) : null
+                return {
+                  ...q,
+                  question_key: deriveQuestionKey(q),
+                  role: q.role || (roleId ? roleDataWithDept.find((r) => r.id === roleId) : null) || null,
+                }
+              })
+            }
+          } catch (fallbackError: unknown) {
+            console.error("❌ Fallback also failed:", fallbackError)
+            questionError = fallbackError
+          }
+        }
+
+        if (questionError && questionData.length === 0) {
+          console.error("❌ Error loading questions:", questionError)
+          console.error("Error details:", questionError)
+
+          // Check if it's an RLS policy error
+          const isRLSError =
+            typeof questionError === "object" &&
+            questionError !== null &&
+            ((questionError as any).code === "42501" ||
+              (typeof (questionError as any).message === "string" &&
+                ((questionError as any).message.toLowerCase().includes("permission") ||
+                  (questionError as any).message.toLowerCase().includes("policy") ||
+                  (questionError as any).message.toLowerCase().includes("row-level security"))))
+
+          if (isRLSError) {
+            toast({
+              title: "Access Denied - RLS Policy Issue",
+              description:
+                "Your role questions are blocked by Row Level Security policies. Please apply the latest role questions RLS migration in Supabase SQL Editor.",
+              variant: "destructive",
+            })
+          } else {
+            toast({
+              title: "Error Loading Questions",
+              description: getErrorMessage(questionError, "Failed to load questions. Check console for details."),
+              variant: "destructive",
+            })
+          }
+          // Don't throw - set empty array instead so UI can still render
+          setQuestions([])
+          return
+        }
+
+        if (!roleError) {
+          let rolesForUi = roleDataWithDept
+
+          if (departmentId && !effectiveFixedRoleId) {
+            const roleIdsWithQuestions = new Set(
+              (questionData || [])
+                .map((q) =>
+                  typeof (q as { role_id?: unknown })?.role_id === "string" ? (q as { role_id: string }).role_id : null
+                )
+                .filter((id): id is string => !!id)
+            )
+
+            rolesForUi = roleDataWithDept.filter(
+              (r) => r.department_id === departmentId && roleIdsWithQuestions.has(r.id)
+            )
+          }
+
+          setRoles(rolesForUi)
+        }
+
+        setQuestions(questionData || [])
+
+        // Mark data as loaded and update timestamp
+        dataLoadedRef.current = true
+        lastFetchTimeRef.current = Date.now()
+      } catch (error: any) {
+        console.error("Error loading data:", error)
+        toast({
+          title: "Error",
+          description: error?.message || "Failed to load questions and roles",
+          variant: "destructive",
+        })
+      } finally {
+        setIsLoading(false)
+      }
+    },
+    [currentUser, currentProfile, isAdmin, toast, departmentId, effectiveFixedRoleId, departmentOnly, departmentRole]
+  )
+
+  useEffect(() => {
+    // Only proceed if we have a user
+    if (!currentUser) {
+      return
+    }
+
+    // If profile is explicitly null (not loading), user is not admin
+    if (currentProfile === null) {
+      setIsLoading(false)
+      return
+    }
+
+    // If profile is still loading (undefined), wait for it
+    if (currentProfile === undefined) {
+      return
+    }
+
+    // If user is admin, load data (only if not already loaded recently)
+    if (isAdmin) {
+      // Call loadData directly without including it in dependencies
+      loadData(false).catch((error) => {
+        console.error("Error loading data:", error)
+      })
+    } else {
+      setIsLoading(false)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentUser?.id, currentProfile?.role_id]) // Removed computed values to prevent unnecessary re-renders
+
+  useEffect(() => {
+    if (refreshKey === undefined) return
+    if (!currentUser) return
+    if (currentProfile === undefined) return
+    if (currentProfile === null) return
+    if (!isAdmin) return
+
+    loadData(true).catch((error) => {
+      console.error("Error loading data:", error)
+    })
+  }, [refreshKey, currentUser, currentProfile, isAdmin, loadData])
+
+  // Enhanced filtering, sorting, and pagination
+  const filteredAndSortedQuestions = useMemo(() => {
+    let filtered = questions
+
+    if (departmentOnly && departmentId) {
+      filtered = filtered.filter(
+        (q) =>
+          q.department_id === departmentId &&
+          (q.department_profession_id === null || q.department_profession_id === undefined) &&
+          (q.department_role === null || q.department_role === undefined)
+      )
+    }
+
+    // Department profession filter with legacy key fallback.
+    if (departmentRole && departmentId) {
+      filtered = filtered.filter((q) => matchesDepartmentRoleFilter(q, departmentId, departmentRole))
+    }
+
+    // Role filter
+    if (!departmentOnly && selectedRole !== "all") {
+      filtered = filtered.filter((q) => q.role_id === selectedRole)
+    }
+
+    // Search query filter
+    if (searchQuery.trim()) {
+      const query = searchQuery.toLowerCase()
+      filtered = filtered.filter(
+        (q) =>
+          q.question_label.toLowerCase().includes(query) ||
+          q.question_key.toLowerCase().includes(query) ||
+          q.question_description?.toLowerCase().includes(query) ||
+          q.role?.name.toLowerCase().includes(query)
+      )
+    }
+
+    // Type filter
+    if (filterType !== "all") {
+      filtered = filtered.filter((q) => q.question_type === filterType)
+    }
+
+    // Status filter
+    if (filterStatus !== "all") {
+      filtered = filtered.filter((q) => (filterStatus === "active" ? q.is_active : !q.is_active))
+    }
+
+    // Sorting
+    filtered = [...filtered].sort((a, b) => {
+      let comparison = 0
+      switch (sortField) {
+        case "role":
+          comparison = (a.role?.name || "").localeCompare(b.role?.name || "")
+          break
+        case "label":
+          comparison = a.question_label.localeCompare(b.question_label)
+          break
+        case "type":
+          comparison = a.question_type.localeCompare(b.question_type)
+          break
+        case "display_order":
+          comparison = (a.display_order || 0) - (b.display_order || 0)
+          break
+        case "created_at":
+          comparison = new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+          break
+      }
+      return sortDirection === "asc" ? comparison : -comparison
+    })
+
+    return filtered
+  }, [
+    questions,
+    selectedRole,
+    searchQuery,
+    filterType,
+    filterStatus,
+    sortField,
+    sortDirection,
+    departmentOnly,
+    departmentId,
+    departmentRole,
+  ])
+
+  // Group questions by role for grouped view
+  const questionsByRole = useMemo(() => {
+    const grouped: Record<string, RoleQuestionWithRole[]> = {}
+
+    filteredAndSortedQuestions.forEach((question) => {
+      const roleId = getGroupIdForQuestion(question)
+
+      if (!grouped[roleId]) {
+        grouped[roleId] = []
+      }
+
+      // Sort questions within each role by display_order
+      grouped[roleId].push(question)
+    })
+
+    if (effectiveFixedRoleId && !grouped[effectiveFixedRoleId]) {
+      grouped[effectiveFixedRoleId] = []
+    }
+
+    // Sort questions within each role by display_order
+    Object.keys(grouped).forEach((roleId) => {
+      grouped[roleId].sort((a, b) => (a.display_order || 0) - (b.display_order || 0))
+    })
+
+    if (departmentOnly && departmentId) {
+      const deptGroupId = `__department:${departmentId}`
+      const deptQuestions = grouped[deptGroupId] || []
+      const deptOnlyGrouped: Record<string, RoleQuestionWithRole[]> = {
+        [deptGroupId]: deptQuestions,
+      }
+      const sortedRoles: Role[] = [
+        {
+          id: deptGroupId,
+          name: "Department Questions",
+          description: null,
+          department_id: null,
+        },
+      ]
+      return { grouped: deptOnlyGrouped, sortedRoles }
+    }
+
+    // Build the list of roles to display in the grouped view.
+    // Prefer the roles state when it has entries, but fall back to deriving
+    // role definitions directly from the grouped questions so the UI works
+    // even if the roles query is empty or restricted by RLS.
+    let rolesForGrouping: Role[]
+
+    if (effectiveFixedRoleId) {
+      const roleFromState = roles.find((r) => r.id === effectiveFixedRoleId) || null
+      const fixedRoleForDisplay = fixedRole || roleFromState
+      rolesForGrouping = [
+        fixedRoleForDisplay || {
+          id: effectiveFixedRoleId,
+          name: "Unknown Role",
+          description: null,
+          department_id: null,
+        },
+      ]
+    } else if (roles && roles.length > 0) {
+      // Use roles from state, filtered to only those that have questions
+      const syntheticRoles: Role[] = Object.keys(grouped)
+        .filter((id) => isDepartmentGroupId(id) || id === "__unscoped")
+        .map((id) => ({
+          id,
+          name: id === "__unscoped" ? "Unscoped Questions" : `Department Questions`,
+          description: null,
+          department_id: null,
+        }))
+
+      rolesForGrouping = [
+        ...roles.filter((role) => !SYSTEM_ROLE_IDS.has(role.id) && grouped[role.id] && grouped[role.id].length > 0),
+        ...syntheticRoles,
+      ]
+    } else {
+      // Derive roles from the questions themselves
+      const derivedRoleMap = new Map<string, Role>()
+
+      Object.entries(grouped).forEach(([roleId, roleQuestions]) => {
+        // Use the first question in the group to infer the role name
+        const sample = roleQuestions[0]
+        const inferredName = isDepartmentGroupId(roleId)
+          ? "Department Questions"
+          : roleId === "__unscoped"
+            ? "Unscoped Questions"
+            : sample.role?.name || "Unknown Role"
+
+        if (!derivedRoleMap.has(roleId)) {
+          derivedRoleMap.set(roleId, {
+            id: roleId,
+            name: inferredName,
+            description: null,
+            department_id: null,
+          })
+        }
+      })
+
+      rolesForGrouping = Array.from(derivedRoleMap.values())
+    }
+
+    // Sort roles by name
+    const sortedRoles = rolesForGrouping.sort((a, b) => a.name.localeCompare(b.name))
+
+    return { grouped, sortedRoles }
+  }, [
+    filteredAndSortedQuestions,
+    roles,
+    effectiveFixedRoleId,
+    fixedRole,
+    SYSTEM_ROLE_IDS,
+    departmentOnly,
+    departmentId,
+  ])
+
+  // Ensure consistent sorting for both views
+  const sortedQuestionsForTable = useMemo(() => {
+    return [...filteredAndSortedQuestions].sort((a, b) => {
+      let comparison = 0
+      switch (sortField) {
+        case "role":
+          comparison = (a.role?.name || "").localeCompare(b.role?.name || "")
+          break
+        case "label":
+          comparison = a.question_label.localeCompare(b.question_label)
+          break
+        case "type":
+          comparison = a.question_type.localeCompare(b.question_type)
+          break
+        case "display_order":
+          comparison = (a.display_order || 0) - (b.display_order || 0)
+          break
+        case "created_at":
+          comparison = new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+          break
+      }
+      return sortDirection === "asc" ? comparison : -comparison
+    })
+  }, [filteredAndSortedQuestions, sortField, sortDirection])
+
+  // Pagination
+  const paginatedQuestions = useMemo(() => {
+    const startIndex = (currentPage - 1) * itemsPerPage
+    return sortedQuestionsForTable.slice(startIndex, startIndex + itemsPerPage)
+  }, [sortedQuestionsForTable, currentPage, itemsPerPage])
+
+  const totalPages = Math.ceil(filteredAndSortedQuestions.length / itemsPerPage)
+
+  // Statistics
+  const statistics = useMemo(() => {
+    const scopedQuestions = effectiveFixedRoleId
+      ? questions.filter((q) => q.role_id === effectiveFixedRoleId)
+      : questions
+    const scopedRoles = effectiveFixedRoleId ? roles.filter((r) => r.id === effectiveFixedRoleId) : roles
+    const total = scopedQuestions.length
+    const active = scopedQuestions.filter((q) => q.is_active).length
+    const inactive = total - active
+    const byRole = scopedRoles.reduce(
+      (acc, role) => {
+        acc[role.id] = scopedQuestions.filter((q) => q.role_id === role.id).length
+        return acc
+      },
+      {} as Record<string, number>
+    )
+    const byType = scopedQuestions.reduce(
+      (acc, q) => {
+        acc[q.question_type] = (acc[q.question_type] || 0) + 1
+        return acc
+      },
+      {} as Record<string, number>
+    )
+    const required = scopedQuestions.filter((q) => q.is_required).length
+
+    return {
+      total,
+      active,
+      inactive,
+      byRole,
+      byType,
+      required,
+      optional: total - required,
+    }
+  }, [questions, roles, effectiveFixedRoleId])
+
+  const visibleRoles = useMemo(() => {
+    const base = roles.filter((r) => !SYSTEM_ROLE_IDS.has(r.id))
+    if (departmentId) {
+      return base.filter((r) => (statistics.byRole[r.id] || 0) > 0)
+    }
+    return base
+  }, [roles, statistics.byRole, departmentId, SYSTEM_ROLE_IDS])
+
+  // Helper function to build validation_rules from individual validation fields
+  const buildValidationRules = (): Record<string, any> | null => {
+    const rules: Record<string, any> = {}
+
+    // Add validation fields if they are set
+    if (formData.min_value !== null && formData.min_value !== undefined) {
+      rules.min_value = formData.min_value
+    }
+    if (formData.max_value !== null && formData.max_value !== undefined) {
+      rules.max_value = formData.max_value
+    }
+    if (formData.min_length !== null && formData.min_length !== undefined) {
+      rules.min_length = formData.min_length
+    }
+    if (formData.max_length !== null && formData.max_length !== undefined) {
+      rules.max_length = formData.max_length
+    }
+    if (formData.pattern) {
+      rules.pattern = formData.pattern
+    }
+    if (formData.step !== null && formData.step !== undefined) {
+      rules.step = formData.step
+    }
+    if (formData.min_date) {
+      rules.min_date = formData.min_date
+    }
+    if (formData.max_date) {
+      rules.max_date = formData.max_date
+    }
+
+    // Return null if no validation rules are set, otherwise return the rules object
+    return Object.keys(rules).length > 0 ? rules : null
+  }
+
+  const validateForm = (): boolean => {
+    const errors: Record<string, string> = {}
+
+    if (isDepartmentScopedForm) {
+      if (!formData.department_id && !departmentId) {
+        errors.department_id = "Department is required"
+      }
+    } else {
+      if (!formData.role_id) {
+        errors.role_id = "Role is required"
+      }
+    }
+    if (!formData.question_label?.trim()) {
+      errors.question_label = "Question label is required"
+    }
+    if (!formData.question_type) {
+      errors.question_type = "Question type is required"
+    }
+    if (
+      (formData.question_type === "select" ||
+        formData.question_type === "multiselect" ||
+        formData.question_type === "radio" ||
+        formData.question_type === "rating") &&
+      (!formData.options || formData.options.length === 0)
+    ) {
+      errors.options = "Options are required for this question type"
+    }
+
+    // Validation for rating scale
+    if (formData.question_type === "rating") {
+      if (!formData.options || formData.options.length === 0) {
+        errors.options = "Rating scale requires numeric options (e.g., 1,2,3,4,5)"
+      }
+    }
+
+    // Validation for number fields
+    if (formData.question_type === "number") {
+      if (formData.min_value != null && formData.max_value != null && formData.min_value > formData.max_value) {
+        errors.max_value = "Maximum value must be greater than minimum value"
+      }
+    }
+
+    // Validation for text length
+    if (formData.min_length != null && formData.max_length != null && formData.min_length > formData.max_length) {
+      errors.max_length = "Maximum length must be greater than minimum length"
+    }
+
+    setFormErrors(errors)
+    return Object.keys(errors).length === 0
+  }
+
+  const handleCreate = async () => {
+    const isValid = validateForm()
+
+    if (!isValid) {
+      return
+    }
+
+    if (!currentUser) {
+      toast({
+        title: "Error",
+        description: "You must be logged in to create questions.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Verify user has permission before attempting create
+    if (!currentProfile) {
+      toast({
+        title: "Error",
+        description: "Unable to verify your profile. Please try refreshing the page.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Check if profile is active
+    if (currentProfile.is_active === false) {
+      toast({
+        title: "Error",
+        description: "Your profile is inactive. Please contact an administrator to activate your account.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Verify user has admin role
+    if (!isAdmin) {
+      toast({
+        title: "Error",
+        description: "You do not have permission to create questions. Only admins can create questions.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsCreating(true)
+    try {
+      const effectiveDepartmentId =
+        (typeof formData.department_id === "string" && formData.department_id) || (departmentOnly ? departmentId : null)
+
+      if (isDepartmentScopedForm && !effectiveDepartmentId) {
+        toast({
+          title: "Error",
+          description: "Department scope is missing. Please refresh and try again.",
+          variant: "destructive",
+        })
+        return
+      }
+
+      const baseKey = toQuestionKey(formData.question_label!.trim()) || "question"
+      const existingKeysForScope = new Set(
+        questions
+          .filter((q) => {
+            if (isDepartmentScopedForm) {
+              return typeof q.department_id === "string" && q.department_id === effectiveDepartmentId
+            }
+            return q.role_id === formData.role_id
+          })
+          .map((q) => (typeof q.question_key === "string" ? q.question_key : ""))
+          .filter(Boolean)
+      )
+      let legacyQuestionKey = baseKey
+      let suffix = 2
+      while (existingKeysForScope.has(legacyQuestionKey)) {
+        legacyQuestionKey = `${baseKey}_${suffix}`
+        suffix += 1
+      }
+
+      // Get the next display_order for this role
+      let nextDisplayOrder = 0
+      try {
+        let orderQuery = supabase
+          .from("role_questions")
+          .select("display_order")
+          .order("display_order", { ascending: false })
+          .limit(1)
+
+        if (isDepartmentScopedForm) {
+          if (effectiveDepartmentId) {
+            orderQuery = orderQuery.eq("department_id", effectiveDepartmentId)
+          }
+        } else {
+          orderQuery = orderQuery.eq("role_id", formData.role_id!)
+        }
+
+        const { data: lastQuestion, error: orderError } = await orderQuery
+
+        if (orderError) {
+          // Check if it's a timeout error
+          if (
+            orderError.message?.includes("fetch failed") ||
+            orderError.message?.includes("timeout") ||
+            orderError.message?.includes("AbortError")
+          ) {
+            console.warn("Timeout getting display order, using default value 0")
+            // Use default display_order of 0
+          } else {
+            throw orderError
+          }
+        } else {
+          nextDisplayOrder = lastQuestion && lastQuestion.length > 0 ? lastQuestion[0].display_order + 1 : 0
+        }
+      } catch (err: any) {
+        // Handle network/timeout errors gracefully
+        if (err.message?.includes("fetch failed") || err.message?.includes("timeout") || err.name === "AbortError") {
+          console.warn("Network timeout getting display order, using default 0")
+          nextDisplayOrder = 0
+        } else {
+          throw err
+        }
+      }
+
+      // Build validation_rules from individual validation fields
+      const validationRules = buildValidationRules()
+
+      // Build insert data - only include columns that exist in the schema
+      // Valid columns: role_id, question_key, question_label, question_type, question_description,
+      // placeholder, options, is_required, display_order, validation_rules, is_active,
+      // created_by, updated_by, metadata
+      // Note: Advanced fields like conditional_logic, default_value, help_text, etc. are not in schema
+      // and could be stored in validation_rules or metadata JSONB fields if needed
+      const insertData: any = {
+        ...(isDepartmentScopedForm
+          ? { role_id: null, department_id: effectiveDepartmentId }
+          : { role_id: formData.role_id!, department_id: null }),
+        question_label: formData.question_label!.trim(),
+        question_type: formData.question_type!,
+        question_description: formData.question_description?.trim() || null,
+        placeholder: formData.placeholder?.trim() || null,
+        options: formData.options && formData.options.length > 0 ? formData.options : null,
+        is_required: formData.is_required || false,
+        display_order: nextDisplayOrder,
+        validation_rules: validationRules,
+        is_active: formData.is_active !== false,
+        metadata: {
+          legacy_question_key: legacyQuestionKey,
+        },
+        created_by: currentUser.id,
+        updated_by: currentUser.id,
+      }
+
+      // Log the insert data for debugging
+      console.log("Creating question with data:", {
+        insertData,
+        currentUser: currentUser?.id,
+        currentProfile: currentProfile,
+        isAdmin,
+        profileRoleId: currentProfile?.role_id,
+        profileIsActive: currentProfile?.is_active,
+        expectedAdminRoleId: ADMIN_ROLE_ID,
+        expectedSystemAdminRoleId: SYSTEM_ADMIN_ROLE_ID,
+      })
+
+      let { error } = await supabase.from("role_questions").insert(insertData)
+
+      // Handle PGRST204 (missing column) errors by retrying without the problematic column
+      if (error && (error as any)?.code === "PGRST204") {
+        const errorMessage = (error as any)?.message || ""
+        // Extract column name from error message: "Could not find the 'column_name' column..."
+        const columnMatch = errorMessage.match(/['"]([^'"]+)['"]/)
+        const missingColumn = columnMatch ? columnMatch[1] : null
+
+        if (missingColumn && insertData.hasOwnProperty(missingColumn)) {
+          console.warn(`Column '${missingColumn}' not found in schema. Retrying insert without it.`)
+
+          // Create a new insert object without the missing column
+          const retryInsertData = { ...insertData }
+          delete retryInsertData[missingColumn]
+
+          // Retry the insert without the problematic column
+          const retryResult = await supabase.from("role_questions").insert(retryInsertData)
+
+          if (retryResult.error) {
+            // If retry also fails, use the original error
+            error = retryResult.error
+          } else {
+            // Success on retry
+            error = null
+            console.log(`Successfully created question after removing column '${missingColumn}'`)
+          }
+        }
+      }
+
+      if (error) {
+        const errorObj = error as any
+
+        // Extract all possible error properties using multiple methods
+        let extractedError: Record<string, any> = {}
+
+        // Method 1: Direct property access
+        extractedError.code = errorObj?.code || errorObj?.error_code || errorObj?.statusCode
+        extractedError.message = errorObj?.message || errorObj?.error_description || errorObj?.error_msg
+        extractedError.details = errorObj?.details || errorObj?.error_details
+        extractedError.hint = errorObj?.hint || errorObj?.error_hint
+        extractedError.name = errorObj?.name
+
+        // Method 2: Try to access PostgREST error structure
+        if (errorObj?.error) {
+          extractedError.postgrest_error = errorObj.error
+          extractedError.code = extractedError.code || errorObj.error.code
+          extractedError.message = extractedError.message || errorObj.error.message
+          extractedError.details = extractedError.details || errorObj.error.details
+          extractedError.hint = extractedError.hint || errorObj.error.hint
+        }
+
+        // Method 3: Get all own property names
+        try {
+          const ownProps = Object.getOwnPropertyNames(errorObj)
+          const ownPropValues: Record<string, any> = {}
+          ownProps.forEach((prop) => {
+            try {
+              ownPropValues[prop] = errorObj[prop]
+            } catch (e) {
+              ownPropValues[prop] = "[cannot access]"
+            }
+          })
+          if (Object.keys(ownPropValues).length > 0) {
+            extractedError.ownProperties = ownPropValues
+          }
+        } catch (e) {
+          // Ignore errors in property extraction
+        }
+
+        // Method 4: Try JSON stringification with replacer
+        try {
+          extractedError.jsonString = JSON.stringify(
+            errorObj,
+            (key, value) => {
+              // Skip circular references
+              if (key === "parent" || key === "original") return "[Circular]"
+              return value
+            },
+            2
+          )
+        } catch (e: any) {
+          extractedError.jsonStringError = e.message
+        }
+
+        // Convert error to string as fallback
+        extractedError.stringRepresentation = String(error)
+        extractedError.toStringResult = error.toString?.()
+
+        const errorInfo = {
+          ...extractedError,
+          // Context information
+          context: {
+            formData,
+            currentUser: currentUser?.id,
+            userRole: currentProfile?.role_id,
+            isAdmin,
+            timestamp: new Date().toISOString(),
+          },
+        }
+
+        console.error("Supabase create error:", errorInfo)
+        console.error("Raw error object:", error)
+        console.error("Error type:", typeof error)
+        console.error("Error constructor:", error?.constructor?.name)
+
+        // Check for specific error codes
+        const errorCode = extractedError.code || errorObj?.code
+        if (errorCode === "23505") {
+          throw new Error("A question with this key already exists for this role. Please use a different question key.")
+        }
+
+        // Check for missing column errors (should have been handled above, but just in case)
+        if (errorCode === "PGRST204") {
+          const errorMessage = extractedError.message || ""
+          const columnMatch = errorMessage.match(/['"]([^'"]+)['"]/)
+          const missingColumn = columnMatch ? columnMatch[1] : "unknown column"
+          throw new Error(
+            `Database schema mismatch: The column '${missingColumn}' doesn't exist in the role_questions table. Please run database migrations to add this column.`
+          )
+        }
+
+        // Check for RLS/permission errors (42501 is PostgreSQL permission denied)
+        if (
+          errorCode === "42501" ||
+          errorCode === "PGRST301" ||
+          errorCode === "PGRST302" ||
+          extractedError.message?.toLowerCase().includes("permission") ||
+          extractedError.message?.toLowerCase().includes("policy") ||
+          extractedError.message?.toLowerCase().includes("row-level security")
+        ) {
+          // Try to verify the user's profile via RLS to diagnose the issue
+          // IMPORTANT: Use select('*') first since specific column select might be blocked by RLS
+          // Then extract the needed fields from the result
+          const { data: profileCheckFull, error: profileCheckError } = await supabase
+            .from("user_profiles")
+            .select("*")
+            .eq("user_id", currentUser.id)
+            .maybeSingle()
+
+          const profileCheck = profileCheckFull
+            ? {
+                role_id: profileCheckFull.role_id,
+                is_active: profileCheckFull.is_active,
+                user_id: profileCheckFull.user_id,
+              }
+            : null
+
+          // Also try to test if the RLS policy check would pass by simulating it
+          // This helps us understand if the issue is with the RLS policy itself
+          console.log("🔍 Testing RLS policy check simulation:", {
+            authUid: currentUser.id,
+            profileFromContext: {
+              user_id: currentProfile?.user_id || currentUser.id,
+              role_id: currentProfile?.role_id,
+              is_active: currentProfile?.is_active,
+            },
+            profileFromRLS: profileCheck,
+            profileCheckError: profileCheckError,
+            expectedCheck: `EXISTS (SELECT 1 FROM user_profiles WHERE user_id = auth.uid() AND (role_id = '${ADMIN_ROLE_ID}' OR role_id = '${SYSTEM_ADMIN_ROLE_ID}') AND is_active = true)`,
+            wouldPass:
+              profileCheck &&
+              (profileCheck.role_id === ADMIN_ROLE_ID || profileCheck.role_id === SYSTEM_ADMIN_ROLE_ID) &&
+              profileCheck.is_active === true,
+          })
+
+          console.error("RLS INSERT blocked - diagnostic info:", {
+            errorCode,
+            errorMessage: extractedError.message,
+            currentUser: currentUser?.id,
+            currentProfile: currentProfile,
+            profileFromContext: {
+              role_id: currentProfile?.role_id,
+              is_active: currentProfile?.is_active,
+            },
+            profileFromRLS: profileCheck,
+            profileCheckError: profileCheckError,
+            isAdmin,
+            expectedAdminRoleId: ADMIN_ROLE_ID,
+            profileMatchesAdmin: currentProfile?.role_id === ADMIN_ROLE_ID,
+            rlsPolicyCheck: {
+              // What the RLS policy is checking
+              checkUserProfile:
+                "EXISTS (SELECT 1 FROM user_profiles WHERE user_id = auth.uid() AND (role_id = admin OR role_id = system_admin) AND is_active = true)",
+              userCanSeeOwnProfile: profileCheck ? "Yes" : "No (RLS on user_profiles may be blocking)",
+            },
+          })
+
+          // Provide helpful error message with instructions to fix RLS
+          let rlsErrorMsg = "Permission denied: You don't have permission to create questions. "
+
+          if (!currentProfile) {
+            rlsErrorMsg += "Your profile was not found in context. Please refresh the page or contact an administrator."
+          } else if (profileCheckError) {
+            rlsErrorMsg += `Unable to verify your profile via RLS: ${profileCheckError.message}. This suggests the RLS policy on user_profiles table may be blocking the check.`
+          } else if (!profileCheck) {
+            rlsErrorMsg += "Your profile was not found in the database. Please contact an administrator."
+          } else if (profileCheck.is_active === false) {
+            rlsErrorMsg +=
+              "Your profile is inactive (is_active = false). Please contact an administrator to activate your account."
+          } else if (profileCheck.role_id !== ADMIN_ROLE_ID && profileCheck.role_id !== SYSTEM_ADMIN_ROLE_ID) {
+            rlsErrorMsg += `Your profile has role ID ${profileCheck.role_id}, but you need admin (${ADMIN_ROLE_ID}) or system admin (${SYSTEM_ADMIN_ROLE_ID}) role to create questions.`
+          } else {
+            rlsErrorMsg += `The RLS policy check is failing even though your profile looks correct (role_id: ${profileCheck.role_id}, is_active: ${profileCheck.is_active}). This might be a timing issue or the RLS policy on user_profiles is blocking the check. Please verify the user_profiles RLS policies allow reading your own profile.`
+          }
+
+          throw new Error(rlsErrorMsg)
+        }
+
+        // Extract error message
+        const errorMessage =
+          extractedError.message ||
+          extractedError.details ||
+          extractedError.hint ||
+          (typeof error === "string" ? error : errorCode ? `Database error (${errorCode})` : "Unknown error")
+
+        throw new Error(errorMessage || "Failed to create question. Please check console for details.")
+      }
+
+      toast({
+        title: "Success",
+        description: "Question created successfully",
+      })
+
+      setShowCreateDialog(false)
+      resetForm()
+      loadData(true) // Force refresh after create
+      setIsCreating(false)
+    } catch (error: any) {
+      const errorObj = error as any
+
+      // Check if it's a timeout/network error
+      const isTimeoutError =
+        errorObj?.message?.includes("fetch failed") ||
+        errorObj?.message?.includes("timeout") ||
+        errorObj?.message?.includes("AbortError") ||
+        errorObj?.name === "AbortError"
+
+      const errorDetails = {
+        message: errorObj?.message || errorObj?.error_description || errorObj?.errorMessage,
+        code: errorObj?.code || errorObj?.error_code || errorObj?.statusCode,
+        details: errorObj?.details,
+        hint: errorObj?.hint,
+        isTimeout: isTimeoutError,
+        stringified: (() => {
+          try {
+            return JSON.stringify(error, Object.getOwnPropertyNames(error), 2)
+          } catch (e) {
+            try {
+              return JSON.stringify(
+                {
+                  message: errorObj?.message,
+                  code: errorObj?.code,
+                  details: errorObj?.details,
+                  hint: errorObj?.hint,
+                },
+                null,
+                2
+              )
+            } catch {
+              return String(error)
+            }
+          }
+        })(),
+      }
+
+      console.error("Error creating question:", errorDetails)
+      console.error("Raw error object:", error)
+
+      let errorMessage: string
+      let errorTitle = "Error"
+
+      if (isTimeoutError) {
+        errorTitle = "Network Timeout"
+        errorMessage =
+          "The request timed out while connecting to the database. This could be due to slow network connectivity or database performance issues. Please try again in a moment. If the problem persists, contact your system administrator."
+      } else {
+        errorMessage =
+          errorObj?.message ||
+          errorObj?.details ||
+          errorObj?.hint ||
+          errorObj?.error_description ||
+          "Failed to create question"
+      }
+
+      toast({
+        title: errorTitle,
+        description: errorMessage,
+        variant: "destructive",
+      })
+    } finally {
+      setIsCreating(false)
+    }
+  }
+
+  const handleUpdate = async () => {
+    if (!editingQuestion || !validateForm()) return
+
+    if (!currentUser) {
+      toast({
+        title: "Error",
+        description: "You must be logged in to update questions.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Use profile from context instead of querying again
+    // Verify user has permission to update
+    if (!currentProfile) {
+      toast({
+        title: "Error",
+        description: "Unable to verify your profile. Please try refreshing the page.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Check if profile is active (if the field exists)
+    if (currentProfile.is_active === false) {
+      toast({
+        title: "Error",
+        description: "Your profile is inactive. Please contact an administrator to activate your account.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    // Verify user has admin role
+    if (!isAdmin) {
+      toast({
+        title: "Error",
+        description: "You do not have permission to update questions. Only admins can update questions.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    setIsUpdating(true)
+    try {
+      let displayOrder = formData.display_order || editingQuestion.display_order || 0
+      let roleIdToUpdate: string | undefined = undefined
+
+      // If the role changed, check for duplicate question_key in the new role
+      if (formData.role_id && formData.role_id !== editingQuestion.role_id) {
+        roleIdToUpdate = formData.role_id
+      }
+
+      // Build validation_rules from individual validation fields
+      const validationRules = buildValidationRules()
+
+      // Build update data - only include columns that exist in the schema
+      // Valid columns: role_id, question_key, question_label, question_type, question_description,
+      // placeholder, options, is_required, display_order, validation_rules, is_active,
+      // created_by, updated_by, metadata
+      // Note: Advanced fields like conditional_logic, default_value, help_text, etc. are not in schema
+      // and could be stored in validation_rules or metadata JSONB fields if needed
+      const updateData: any = {
+        question_label: formData.question_label!.trim(),
+        question_type: formData.question_type!,
+        question_description: formData.question_description?.trim() || null,
+        placeholder: formData.placeholder?.trim() || null,
+        options: formData.options && formData.options.length > 0 ? formData.options : null,
+        is_required: formData.is_required || false,
+        display_order: displayOrder,
+        validation_rules: validationRules,
+        is_active: formData.is_active !== false,
+        updated_by: currentUser.id,
+      }
+
+      // Only update role_id if it changed
+      if (roleIdToUpdate) {
+        updateData.role_id = roleIdToUpdate
+      }
+
+      // Clean up updateData - remove undefined values and ensure proper types
+      const cleanedUpdateData: any = {}
+      Object.keys(updateData).forEach((key) => {
+        const value = updateData[key]
+        // Only include defined values (null is allowed, undefined is not)
+        if (value !== undefined) {
+          // Convert empty strings to null for optional fields
+          if (
+            typeof value === "string" &&
+            value.trim() === "" &&
+            (key === "question_description" || key === "placeholder" || key === "pattern")
+          ) {
+            cleanedUpdateData[key] = null
+          } else {
+            cleanedUpdateData[key] = value
+          }
+        }
+      })
+
+      // Log the update data for debugging
+      console.log("Updating question with data:", {
+        questionId: editingQuestion.id,
+        originalUpdateData: updateData,
+        cleanedUpdateData,
+        formData,
+        currentUser: currentUser?.id,
+        currentProfile: currentProfile,
+        isAdmin,
+        editingQuestion,
+        // Verify what RLS will see
+        expectedRoleIds: {
+          admin: ADMIN_ROLE_ID,
+          systemAdmin: SYSTEM_ADMIN_ROLE_ID,
+        },
+      })
+
+      let { data, error } = await supabase
+        .from("role_questions")
+        .update(cleanedUpdateData)
+        .eq("id", editingQuestion.id)
+        .select()
+
+      // Handle PGRST204 (missing column) errors by retrying without the problematic column
+      if (error && (error as any)?.code === "PGRST204") {
+        const errorMessage = (error as any)?.message || ""
+        // Extract column name from error message: "Could not find the 'column_name' column..."
+        const columnMatch = errorMessage.match(/['"]([^'"]+)['"]/)
+        const missingColumn = columnMatch ? columnMatch[1] : null
+
+        if (missingColumn && cleanedUpdateData.hasOwnProperty(missingColumn)) {
+          console.warn(`Column '${missingColumn}' not found in schema. Retrying update without it.`)
+
+          // Create a new update object without the missing column
+          const retryUpdateData = { ...cleanedUpdateData }
+          delete retryUpdateData[missingColumn]
+
+          // Retry the update without the problematic column
+          const retryResult = await supabase
+            .from("role_questions")
+            .update(retryUpdateData)
+            .eq("id", editingQuestion.id)
+            .select()
+
+          if (retryResult.error) {
+            // If retry also fails, use the original error
+            error = retryResult.error
+            data = retryResult.data
+          } else {
+            // Success on retry
+            error = null
+            data = retryResult.data
+            console.log(`Successfully updated question after removing column '${missingColumn}'`)
+          }
+        }
+      }
+
+      if (error) {
+        // Properly extract error information (handles non-enumerable properties)
+        const errorObj = error as any
+
+        // Extract all possible error properties using multiple methods
+        let extractedError: Record<string, any> = {}
+
+        // Method 1: Direct property access
+        extractedError.code = errorObj?.code || errorObj?.error_code || errorObj?.statusCode
+        extractedError.message = errorObj?.message || errorObj?.error_description || errorObj?.error_msg
+        extractedError.details = errorObj?.details || errorObj?.error_details
+        extractedError.hint = errorObj?.hint || errorObj?.error_hint
+        extractedError.name = errorObj?.name
+
+        // Method 2: Try to access PostgREST error structure
+        if (errorObj?.error) {
+          extractedError.postgrest_error = errorObj.error
+          extractedError.code = extractedError.code || errorObj.error.code
+          extractedError.message = extractedError.message || errorObj.error.message
+          extractedError.details = extractedError.details || errorObj.error.details
+          extractedError.hint = extractedError.hint || errorObj.error.hint
+        }
+
+        // Method 3: Get all own property names
+        try {
+          const ownProps = Object.getOwnPropertyNames(errorObj)
+          const ownPropValues: Record<string, any> = {}
+          ownProps.forEach((prop) => {
+            try {
+              ownPropValues[prop] = errorObj[prop]
+            } catch (e) {
+              ownPropValues[prop] = "[cannot access]"
+            }
+          })
+          if (Object.keys(ownPropValues).length > 0) {
+            extractedError.ownProperties = ownPropValues
+          }
+        } catch (e) {
+          // Ignore errors in property extraction
+        }
+
+        // Method 4: Try JSON stringification with replacer
+        try {
+          extractedError.jsonString = JSON.stringify(
+            errorObj,
+            (key, value) => {
+              // Skip circular references
+              if (key === "parent" || key === "original") return "[Circular]"
+              return value
+            },
+            2
+          )
+        } catch (e: any) {
+          extractedError.jsonStringError = e.message
+        }
+
+        // Convert error to string as fallback
+        extractedError.stringRepresentation = String(error)
+        extractedError.toStringResult = error.toString?.()
+
+        const errorInfo = {
+          ...extractedError,
+          // Context information
+          context: {
+            cleanedUpdateData,
+            originalUpdateData: updateData,
+            questionId: editingQuestion.id,
+            currentUser: currentUser?.id,
+            userRole: currentProfile?.role_id,
+            isAdmin,
+            timestamp: new Date().toISOString(),
+          },
+        }
+
+        // Log comprehensive error information
+        console.error("Supabase update error:", errorInfo)
+
+        // Also log the raw error separately for inspection
+        console.error("Raw error object:", error)
+        console.error("Error type:", typeof error)
+        console.error("Error constructor:", error?.constructor?.name)
+
+        // Check for specific error codes
+        const errorCode = extractedError.code || errorObj?.code
+        if (errorCode === "23505") {
+          throw new Error("A question with this key already exists for this role")
+        }
+
+        // Check for missing column errors (should have been handled above, but just in case)
+        if (errorCode === "PGRST204") {
+          const errorMessage = extractedError.message || ""
+          const columnMatch = errorMessage.match(/['"]([^'"]+)['"]/)
+          const missingColumn = columnMatch ? columnMatch[1] : "unknown column"
+          throw new Error(
+            `Database schema mismatch: The column '${missingColumn}' doesn't exist in the role_questions table. Please run database migrations to add this column.`
+          )
+        }
+
+        // Check for RLS/permission errors (42501 is PostgreSQL permission denied)
+        if (
+          errorCode === "42501" ||
+          errorCode === "PGRST301" ||
+          errorCode === "PGRST302" ||
+          extractedError.message?.toLowerCase().includes("permission") ||
+          extractedError.message?.toLowerCase().includes("policy") ||
+          extractedError.message?.toLowerCase().includes("row-level security")
+        ) {
+          throw new Error(
+            "Permission denied: You don't have permission to update this question. Please check your role permissions."
+          )
+        }
+
+        // Extract error message from various possible properties
+        const errorMessage =
+          extractedError.message ||
+          extractedError.details ||
+          extractedError.hint ||
+          (typeof error === "string" ? error : errorCode ? `Database error (${errorCode})` : "Unknown error")
+
+        throw new Error(errorMessage || "Failed to update question. Please check console for details.")
+      }
+
+      // Check if update succeeded but SELECT returned empty (RLS on SELECT may block it)
+      // When UPDATE succeeds but SELECT is blocked by RLS, we get: error = null, data = []
+      // This is expected behavior - the UPDATE worked, we just can't see the result immediately via SELECT
+      if (!error && (!data || data.length === 0)) {
+        console.log(
+          "✅ Update succeeded (200 OK) but SELECT returned empty - RLS blocked SELECT. This is expected. Reloading data to show updated question..."
+        )
+        // Treat as success - we'll reload the data below to get the updated question
+      } else if (error) {
+        // Error was already handled above, but this shouldn't execute
+        throw error
+      }
+
+      toast({
+        title: "Success",
+        description: "Question updated successfully",
+      })
+
+      // After a successful update, close the dialog and clear edit state
+      setShowCreateDialog(false)
+      setEditingQuestion(null)
+      resetForm()
+      loadData(true) // Force refresh after update
+    } catch (error: any) {
+      // Extract comprehensive error information
+      const errorObj = error as any
+      const errorDetails = {
+        // Try all possible error properties
+        message: errorObj?.message || errorObj?.error_description || errorObj?.errorMessage,
+        code: errorObj?.code || errorObj?.error_code || errorObj?.statusCode,
+        details: errorObj?.details,
+        hint: errorObj?.hint,
+        name: errorObj?.name,
+        // Safe serialization
+        stringified: (() => {
+          try {
+            return JSON.stringify(error, Object.getOwnPropertyNames(error), 2)
+          } catch (e) {
+            try {
+              return JSON.stringify(
+                {
+                  message: errorObj?.message,
+                  code: errorObj?.code,
+                  details: errorObj?.details,
+                  hint: errorObj?.hint,
+                },
+                null,
+                2
+              )
+            } catch {
+              return String(error)
+            }
+          }
+        })(),
+      }
+
+      console.error("Error updating question:", errorDetails)
+      console.error("Raw error object:", error)
+
+      // Extract error message from various possible sources
+      const errorMessage =
+        errorObj?.message ||
+        errorObj?.details ||
+        errorObj?.hint ||
+        errorObj?.error_description ||
+        (typeof error === "string" ? error : "Failed to update question")
+
+      toast({
+        title: "Error",
+        description: errorMessage,
+        variant: "destructive",
+      })
+    } finally {
+      setIsUpdating(false)
+    }
+  }
+
+  const handleDelete = async () => {
+    if (!questionToDelete) return
+
+    try {
+      const { error } = await supabase.from("role_questions").delete().eq("id", questionToDelete.id)
+
+      if (error) throw error
+
+      toast({
+        title: "Success",
+        description: "Question deleted successfully",
+      })
+
+      setShowDeleteDialog(false)
+      setQuestionToDelete(null)
+      loadData(true) // Force refresh after delete
+    } catch (error: unknown) {
+      console.error("Error deleting question:", error)
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to delete question",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const resetForm = () => {
+    setFormData({
+      role_id: "",
+      department_id: null,
+      question_label: "",
+      question_type: "text",
+      question_description: "",
+      placeholder: "",
+      options: null,
+      is_required: false,
+      display_order: 0,
+      validation_rules: null,
+      is_active: true,
+      min_value: null,
+      max_value: null,
+      min_length: null,
+      max_length: null,
+      pattern: null,
+      step: null,
+      min_date: null,
+      max_date: null,
+    })
+    setFormErrors({})
+    setOptionInput("")
+    setShowTemplates(false)
+  }
+
+  const applyTemplate = (template: QuestionTemplate) => {
+    setFormData({
+      ...formData,
+      question_type: template.question_type,
+      question_label: template.question_label,
+      question_description: template.question_description || "",
+      placeholder: template.placeholder || "",
+      options: template.options || null,
+      is_required: template.is_required,
+      min_length: template.validation?.min_length || null,
+      max_length: template.validation?.max_length || null,
+      min_value: template.validation?.min_value || null,
+      max_value: template.validation?.max_value || null,
+      pattern: template.validation?.pattern || null,
+    })
+    if (template.options) {
+      setOptionInput(template.options.join(", "))
+    }
+    setShowTemplates(false)
+    toast({
+      title: "Template Applied",
+      description: `"${template.name}" template has been applied.`,
+    })
+  }
+
+  const openEditDialog = async (question: RoleQuestionWithRole) => {
+    // Ensure roles are loaded before opening dialog
+    if (roles.length === 0) {
+      console.log("⚠️ No roles loaded, fetching roles before opening edit dialog...")
+      try {
+        const { data: directRoleData, error: roleError } = await supabase
+          .from("roles")
+          .select("*")
+          .order("name", { ascending: true })
+          .limit(1000)
+
+        if (roleError) {
+          console.error("❌ Error loading roles for edit dialog:", roleError)
+          setRoles([])
+        } else {
+          const directRoleDataWithDept: Role[] = (directRoleData || []).map((r: any) => ({
+            ...r,
+            department_id: r.department_id ?? null,
+          }))
+
+          if (departmentId && !effectiveFixedRoleId) {
+            const roleIdsWithQuestions = new Set(
+              (questions || [])
+                .map((q) =>
+                  typeof (q as { role_id?: unknown })?.role_id === "string" ? (q as { role_id: string }).role_id : null
+                )
+                .filter((id): id is string => !!id)
+            )
+
+            const rolesForUi = directRoleDataWithDept.filter(
+              (r) => r.department_id === departmentId && roleIdsWithQuestions.has(r.id)
+            )
+            setRoles(rolesForUi)
+            console.log("✅ Loaded roles via direct query for edit dialog (filtered):", rolesForUi.length)
+          } else {
+            setRoles(directRoleDataWithDept)
+            console.log("✅ Loaded roles via direct query for edit dialog:", directRoleDataWithDept.length)
+          }
+        }
+      } catch (error) {
+        console.error("❌ Error loading roles for edit dialog:", error)
+        setRoles([])
+      }
+    }
+
+    // Extract validation rules from the validation_rules JSONB field
+    const validationRules = question.validation_rules || {}
+
+    setEditingQuestion(question)
+    setFormData({
+      role_id: question.role_id ?? "",
+      department_id: question.department_id ?? null,
+      question_label: question.question_label,
+      question_type: question.question_type,
+      question_description: question.question_description || "",
+      placeholder: question.placeholder || "",
+      options: question.options || null,
+      is_required: question.is_required,
+      display_order: question.display_order,
+      validation_rules: question.validation_rules,
+      is_active: question.is_active,
+      // Extract validation fields from validation_rules JSONB
+      min_value: (validationRules as any).min_value ?? null,
+      max_value: (validationRules as any).max_value ?? null,
+      min_length: (validationRules as any).min_length ?? null,
+      max_length: (validationRules as any).max_length ?? null,
+      pattern: (validationRules as any).pattern || null,
+      step: (validationRules as any).step ?? null,
+      min_date: (validationRules as any).min_date || null,
+      max_date: (validationRules as any).max_date || null,
+    })
+    setOptionInput((question.options as any)?.join(", ") || "")
+    setShowCreateDialog(true)
+  }
+
+  const openDeleteDialog = (question: RoleQuestion) => {
+    setQuestionToDelete(question)
+    setShowDeleteDialog(true)
+  }
+
+  const addOption = () => {
+    if (!optionInput.trim()) return
+    const options = formData.options || []
+    if (!options.includes(optionInput.trim())) {
+      setFormData({
+        ...formData,
+        options: [...options, optionInput.trim()],
+      })
+    }
+    setOptionInput("")
+  }
+
+  const removeOption = (option: string) => {
+    const options = formData.options || []
+    setFormData({
+      ...formData,
+      options: options.filter((o) => o !== option),
+    })
+  }
+
+  // Bulk operations
+  const toggleQuestionSelection = (questionId: string) => {
+    const newSelected = new Set(selectedQuestions)
+    if (newSelected.has(questionId)) {
+      newSelected.delete(questionId)
+    } else {
+      newSelected.add(questionId)
+    }
+    setSelectedQuestions(newSelected)
+    setShowBulkActions(newSelected.size > 0)
+  }
+
+  const toggleAllSelection = () => {
+    if (selectedQuestions.size === paginatedQuestions.length) {
+      setSelectedQuestions(new Set())
+      setShowBulkActions(false)
+    } else {
+      setSelectedQuestions(new Set(paginatedQuestions.map((q) => q.id)))
+      setShowBulkActions(true)
+    }
+  }
+
+  const handleBulkActivate = async () => {
+    if (selectedQuestions.size === 0) return
+    try {
+      const { error } = await supabase
+        .from("role_questions")
+        .update({ is_active: true })
+        .in("id", Array.from(selectedQuestions))
+
+      if (error) throw error
+
+      toast({
+        title: "Success",
+        description: `${selectedQuestions.size} question(s) activated`,
+      })
+      setSelectedQuestions(new Set())
+      setShowBulkActions(false)
+      loadData(true) // Force refresh after bulk activate
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to activate questions",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleBulkDeactivate = async () => {
+    if (selectedQuestions.size === 0) return
+    try {
+      const { error } = await supabase
+        .from("role_questions")
+        .update({ is_active: false })
+        .in("id", Array.from(selectedQuestions))
+
+      if (error) throw error
+
+      toast({
+        title: "Success",
+        description: `${selectedQuestions.size} question(s) deactivated`,
+      })
+      setSelectedQuestions(new Set())
+      setShowBulkActions(false)
+      loadData(true) // Force refresh after bulk deactivate
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to deactivate questions",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleBulkDelete = async () => {
+    if (selectedQuestions.size === 0) return
+    try {
+      const { error } = await supabase.from("role_questions").delete().in("id", Array.from(selectedQuestions))
+
+      if (error) throw error
+
+      toast({
+        title: "Success",
+        description: `${selectedQuestions.size} question(s) deleted`,
+      })
+      setSelectedQuestions(new Set())
+      setShowBulkActions(false)
+      loadData(true) // Force refresh after bulk delete
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete questions",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleExport = (format: "csv" | "json") => {
+    const data = filteredAndSortedQuestions.map((q) => ({
+      role: q.role?.name || "Unknown",
+      question_key: q.question_key,
+      question_label: q.question_label,
+      question_type: q.question_type,
+      is_required: q.is_required,
+      is_active: q.is_active,
+      display_order: q.display_order,
+      created_at: q.created_at,
+    }))
+
+    if (format === "csv") {
+      const headers = Object.keys(data[0] || {})
+      const csv = [
+        headers.join(","),
+        ...data.map((row) => headers.map((h) => JSON.stringify(row[h as keyof typeof row] || "")).join(",")),
+      ].join("\n")
+      const blob = new Blob([csv], { type: "text/csv" })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `role-questions-${new Date().toISOString().split("T")[0]}.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+    } else {
+      const json = JSON.stringify(data, null, 2)
+      const blob = new Blob([json], { type: "application/json" })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `role-questions-${new Date().toISOString().split("T")[0]}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+    }
+
+    toast({
+      title: "Export Successful",
+      description: `Exported ${data.length} questions as ${format.toUpperCase()}`,
+    })
+  }
+
+  const handleReorderQuestion = async (roleId: string, questionId: string, direction: "up" | "down") => {
+    if (!isAdmin) {
+      toast({
+        title: "Insufficient Permissions",
+        description: "Only admins can manage question ordering.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    try {
+      const roleQuestions = questions
+        .filter((q) => q.role_id === roleId)
+        .sort((a, b) => (a.display_order || 0) - (b.display_order || 0))
+
+      const currentIndex = roleQuestions.findIndex((q) => q.id === questionId)
+      if (currentIndex === -1) return
+
+      const targetIndex = direction === "up" ? currentIndex - 1 : currentIndex + 1
+      if (targetIndex < 0 || targetIndex >= roleQuestions.length) return
+
+      const reordered = [...roleQuestions]
+      const [moved] = reordered.splice(currentIndex, 1)
+      reordered.splice(targetIndex, 0, moved)
+
+      const updatedForRole = reordered.map((q, index) => ({
+        ...q,
+        display_order: index,
+      }))
+
+      const updatedIds = new Set(updatedForRole.map((q) => q.id))
+
+      // Optimistic local update
+      setQuestions((prev) =>
+        prev.map((q) => {
+          if (!updatedIds.has(q.id)) return q
+          const updated = updatedForRole.find((u) => u.id === q.id)
+          return updated || q
+        })
+      )
+
+      // Persist to Supabase
+      await Promise.all(
+        updatedForRole.map((q) =>
+          supabase.from("role_questions").update({ display_order: q.display_order }).eq("id", q.id)
+        )
+      )
+
+      toast({
+        title: "Order Updated",
+        description: "Question order for this role has been updated.",
+      })
+    } catch (error: any) {
+      console.error("❌ Error updating question order:", error)
+      toast({
+        title: "Error Updating Order",
+        description: error?.message || "Failed to update question ordering.",
+        variant: "destructive",
+      })
+      // Reload from source of truth
+      loadData(true).catch((e) => console.error("Error reloading data after order failure:", e))
+    }
+  }
+
+  const handleDragReorderQuestion = async (roleId: string, sourceQuestionId: string, targetQuestionId: string) => {
+    if (!isAdmin) return
+
+    try {
+      const roleQuestions = questions
+        .filter((q) => q.role_id === roleId)
+        .sort((a, b) => (a.display_order || 0) - (b.display_order || 0))
+
+      const fromIndex = roleQuestions.findIndex((q) => q.id === sourceQuestionId)
+      const toIndex = roleQuestions.findIndex((q) => q.id === targetQuestionId)
+
+      if (fromIndex === -1 || toIndex === -1 || fromIndex === toIndex) return
+
+      const reordered = [...roleQuestions]
+      const [moved] = reordered.splice(fromIndex, 1)
+      reordered.splice(toIndex, 0, moved)
+
+      const updatedForRole = reordered.map((q, index) => ({
+        ...q,
+        display_order: index,
+      }))
+
+      const updatedIds = new Set(updatedForRole.map((q) => q.id))
+
+      setQuestions((prev) =>
+        prev.map((q) => {
+          if (!updatedIds.has(q.id)) return q
+          const updated = updatedForRole.find((u) => u.id === q.id)
+          return updated || q
+        })
+      )
+
+      await Promise.all(
+        updatedForRole.map((q) =>
+          supabase.from("role_questions").update({ display_order: q.display_order }).eq("id", q.id)
+        )
+      )
+    } catch (error) {
+      console.error("❌ Error during drag reorder:", error)
+      loadData(true).catch((e) => console.error("Error reloading data after drag reorder failure:", e))
+    } finally {
+      setDragState(null)
+    }
+  }
+
+  const handleDuplicate = async (question: RoleQuestion) => {
+    if (!currentUser) {
+      toast({
+        title: "Error",
+        description: "You must be logged in to duplicate questions.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    const canDuplicateDepartmentScoped =
+      departmentOnly &&
+      !!departmentId &&
+      typeof (question as RoleQuestion).department_id === "string" &&
+      (question as RoleQuestion).department_id === departmentId
+
+    if (!question.role_id && !canDuplicateDepartmentScoped) {
+      toast({
+        title: "Error",
+        description: "This question cannot be duplicated from this screen.",
+        variant: "destructive",
+      })
+      return
+    }
+
+    try {
+      const usedKeys = new Set(
+        questions
+          .filter((q) => {
+            if (question.role_id) return q.role_id === question.role_id
+            if (canDuplicateDepartmentScoped) return q.department_id === departmentId
+            return false
+          })
+          .map((q) => (typeof q.question_key === "string" ? q.question_key : ""))
+          .filter(Boolean)
+      )
+
+      const baseKey = `${question.question_key || deriveQuestionKey(question)}_copy`
+      let uniqueKey = baseKey
+      let counter = 2
+      while (usedKeys.has(uniqueKey)) {
+        uniqueKey = `${baseKey}${counter}`
+        counter += 1
+      }
+
+      let orderQuery = supabase
+        .from("role_questions")
+        .select("display_order")
+        .order("display_order", { ascending: false })
+        .limit(1)
+
+      if (question.role_id) {
+        orderQuery = orderQuery.eq("role_id", question.role_id)
+      } else {
+        if (!departmentId) {
+          throw new Error("Department is required")
+        }
+        orderQuery = orderQuery.eq("department_id", departmentId)
+      }
+
+      const { data: lastQuestion, error: orderError } = await orderQuery
+
+      if (orderError) throw orderError
+
+      const nextDisplayOrder = lastQuestion && lastQuestion.length > 0 ? lastQuestion[0].display_order + 1 : 0
+
+      const insertPayload = {
+        ...(question.role_id
+          ? { role_id: question.role_id, department_id: null }
+          : { role_id: null, department_id: departmentId }),
+        question_label: `${question.question_label} (Copy)`,
+        question_type: question.question_type,
+        question_description: question.question_description,
+        placeholder: question.placeholder,
+        options: question.options,
+        is_required: question.is_required,
+        display_order: nextDisplayOrder,
+        validation_rules: question.validation_rules,
+        is_active: false, // Start as inactive
+        metadata: {
+          legacy_question_key: uniqueKey,
+        },
+        created_by: currentUser.id,
+        updated_by: currentUser.id,
+      }
+
+      const { error } = await supabase.from("role_questions").insert(insertPayload as any)
+
+      if (error) throw error
+
+      toast({
+        title: "Success",
+        description: "Question duplicated successfully",
+      })
+      loadData(true) // Force refresh after duplicate
+    } catch (error: any) {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to duplicate question",
+        variant: "destructive",
+      })
+    }
+  }
+
+  const handleSort = (field: typeof sortField) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === "asc" ? "desc" : "asc")
+    } else {
+      setSortField(field)
+      setSortDirection("asc")
+    }
+  }
+
+  const SortIcon = ({ field }: { field: typeof sortField }) => {
+    if (sortField !== field) return <ArrowUpDown className="ml-1 h-4 w-4 opacity-50" />
+    return sortDirection === "asc" ? <ArrowUp className="ml-1 h-4 w-4" /> : <ArrowDown className="ml-1 h-4 w-4" />
+  }
+
+  if (!isAdmin) {
+    return (
+      <div className="text-muted-foreground py-8 text-center">You don't have permission to manage role questions.</div>
+    )
+  }
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-8">
+        <div className="text-muted-foreground">Loading questions...</div>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-6">
+      {!hideStatistics && (
+        <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Total Questions</CardTitle>
+              <FileText className="text-muted-foreground h-4 w-4" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{statistics.total}</div>
+              <p className="text-muted-foreground text-xs">
+                {statistics.active} active, {statistics.inactive} inactive
+              </p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Active Questions</CardTitle>
+              <CheckSquare className="text-muted-foreground h-4 w-4" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold text-green-600">{statistics.active}</div>
+              <p className="text-muted-foreground text-xs">
+                {statistics.total > 0 ? Math.round((statistics.active / statistics.total) * 100) : 0}% of total
+              </p>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+              <CardTitle className="text-sm font-medium">Required Fields</CardTitle>
+              <Shield className="text-muted-foreground h-4 w-4" />
+            </CardHeader>
+            <CardContent>
+              <div className="text-2xl font-bold">{statistics.required}</div>
+              <p className="text-muted-foreground text-xs">{statistics.optional} optional questions</p>
+            </CardContent>
+          </Card>
+          {!effectiveFixedRoleId && (
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                <CardTitle className="text-sm font-medium">Roles with Questions</CardTitle>
+                <BarChart3 className="text-muted-foreground h-4 w-4" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-bold">
+                  {visibleRoles.filter((r) => (statistics.byRole[r.id] || 0) > 0).length}
+                </div>
+                <p className="text-muted-foreground text-xs">Out of {visibleRoles.length} total roles</p>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      )}
+
+      {/* Header with Actions */}
+      {!hideHeader && (
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-2xl font-bold">Role Questions</h2>
+            <p className="text-muted-foreground">Create and manage custom questions for specific roles.</p>
+          </div>
+          <div className="flex gap-2">
+            <ActionMenu
+              trigger={
+                <Button variant="outline">
+                  <Download className="mr-2 h-4 w-4" />
+                  Export
+                </Button>
+              }
+              items={[
+                {
+                  type: "item",
+                  label: "Export as CSV",
+                  icon: <FileText className="mr-2 h-4 w-4" />,
+                  onSelect: () => handleExport("csv"),
+                },
+                {
+                  type: "item",
+                  label: "Export as JSON",
+                  icon: <FileText className="mr-2 h-4 w-4" />,
+                  onSelect: () => handleExport("json"),
+                },
+              ]}
+            />
+            <Link href="/admin/questions/new">
+              <Button variant="default">
+                <Plus className="mr-2 h-4 w-4" />
+                Create Multiple Questions
+              </Button>
+            </Link>
+          </div>
+        </div>
+      )}
+
+      {/* Question Templates */}
+      {showTemplates && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle>Question Templates</CardTitle>
+                <CardDescription>Choose from pre-built question templates to get started quickly</CardDescription>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => setShowTemplates(false)}>
+                Close
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <QuestionTemplates onSelectTemplate={applyTemplate} />
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Advanced Filters and Search */}
+      {!hideFilters && (
+        <Card>
+          <CardHeader>
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-lg">Filters & Search</CardTitle>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setSearchQuery("")
+                  setSelectedRole("all")
+                  setFilterType("all")
+                  setFilterStatus("all")
+                  setCurrentPage(1)
+                }}
+              >
+                <X className="mr-2 h-4 w-4" />
+                Clear Filters
+              </Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-5">
+              <div className="lg:col-span-2">
+                <Label htmlFor="search">Search</Label>
+                <div className="relative">
+                  <Search className="text-muted-foreground absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 transform" />
+                  <Input
+                    id="search"
+                    placeholder="Search by label, key, description, or role..."
+                    value={searchQuery}
+                    onChange={(e) => {
+                      setSearchQuery(e.target.value)
+                      setCurrentPage(1)
+                    }}
+                    className="pl-9"
+                  />
+                </div>
+              </div>
+              {!effectiveFixedRoleId && (
+                <div>
+                  <Label>Role</Label>
+                  <Select
+                    value={selectedRole}
+                    onValueChange={(value) => {
+                      setSelectedRole(value)
+                      setCurrentPage(1)
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">All Roles</SelectItem>
+                      {visibleRoles.map((role) => (
+                        <SelectItem key={role.id} value={role.id}>
+                          {role.name} ({statistics.byRole[role.id] || 0})
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
+              <div>
+                <Label>Type</Label>
+                <Select
+                  value={filterType}
+                  onValueChange={(value) => {
+                    setFilterType(value)
+                    setCurrentPage(1)
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Types</SelectItem>
+                    {Object.keys(statistics.byType).map((type) => (
+                      <SelectItem key={type} value={type}>
+                        {type} ({statistics.byType[type]})
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Status</Label>
+                <Select
+                  value={filterStatus}
+                  onValueChange={(value) => {
+                    setFilterStatus(value)
+                    setCurrentPage(1)
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Status</SelectItem>
+                    <SelectItem value="active">Active ({statistics.active})</SelectItem>
+                    <SelectItem value="inactive">Inactive ({statistics.inactive})</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+            <div className="mt-4 flex items-center justify-between border-t pt-4">
+              <div className="text-muted-foreground text-sm">
+                Showing {sortedQuestionsForTable.length} of {statistics.total} questions
+              </div>
+              <Button variant="outline" size="sm" onClick={() => loadData(true)} disabled={isLoading}>
+                <RefreshCw className={`mr-2 h-4 w-4 ${isLoading ? "animate-spin" : ""}`} />
+                Refresh
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Bulk Actions Bar */}
+      {showBulkActions && (
+        <Card className="bg-primary/5 border-primary/20">
+          <CardContent className="py-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <span className="text-sm font-medium">
+                  {selectedQuestions.size} question{selectedQuestions.size !== 1 ? "s" : ""} selected
+                </span>
+                <Separator orientation="vertical" className="h-4" />
+                <Button variant="outline" size="sm" onClick={handleBulkActivate}>
+                  Activate
+                </Button>
+                <Button variant="outline" size="sm" onClick={handleBulkDeactivate}>
+                  Deactivate
+                </Button>
+                <Button variant="outline" size="sm" onClick={handleBulkDelete} className="text-destructive">
+                  <Trash2 className="mr-2 h-4 w-4" />
+                  Delete
+                </Button>
+              </div>
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setSelectedQuestions(new Set())
+                  setShowBulkActions(false)
+                }}
+              >
+                <X className="h-4 w-4" />
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* View Mode: Grouped by Role */}
+      {showGroupedView ? (
+        <div className="space-y-4">
+          {questionsByRole.sortedRoles.length === 0 ? (
+            <Card>
+              <CardContent className="text-muted-foreground py-12 text-center">
+                {filteredAndSortedQuestions.length === 0 && statistics.total === 0
+                  ? "No questions found. Create your first question."
+                  : "No questions match your filters. Try adjusting your search criteria."}
+              </CardContent>
+            </Card>
+          ) : (
+            questionsByRole.sortedRoles.map((role) => {
+              const roleQuestions = questionsByRole.grouped[role.id] || []
+              const isDepartmentGroup = isDepartmentGroupId(role.id) || role.id === "__unscoped"
+              // If no roles are explicitly expanded/collapsed, show all expanded
+              const isExpanded = disableRoleCollapse ? true : expandedRoles.size === 0 || expandedRoles.has(role.id)
+
+              return (
+                <Card key={role.id} className="overflow-hidden">
+                  <CardHeader className="pb-4">
+                    <div className="flex items-center justify-between">
+                      <div
+                        className={
+                          "flex flex-1 items-center gap-4" +
+                          (disableRoleCollapse
+                            ? ""
+                            : " cursor-pointer transition-opacity duration-150 ease-in-out hover:opacity-80")
+                        }
+                        onClick={
+                          disableRoleCollapse
+                            ? undefined
+                            : () => {
+                                const newExpanded = new Set(expandedRoles)
+                                if (newExpanded.has(role.id)) {
+                                  newExpanded.delete(role.id)
+                                } else {
+                                  newExpanded.add(role.id)
+                                }
+                                setExpandedRoles(newExpanded)
+                              }
+                        }
+                      >
+                        {!disableRoleCollapse &&
+                          (isExpanded ? (
+                            <ChevronDown className="text-muted-foreground h-5 w-5 transition-transform" />
+                          ) : (
+                            <ChevronRight className="text-muted-foreground h-5 w-5 transition-transform" />
+                          ))}
+                        <div>
+                          <CardTitle className="text-lg font-semibold">
+                            {isDepartmentGroup
+                              ? role.name
+                              : role.name.charAt(0).toUpperCase() + role.name.slice(1).replace(/-/g, " ")}
+                          </CardTitle>
+                          <CardDescription className="mt-2">
+                            {role.description ||
+                              `${roleQuestions.length} question${roleQuestions.length !== 1 ? "s" : ""}`}
+                          </CardDescription>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <Badge variant="secondary" className="text-xs">
+                          {roleQuestions.length} question{roleQuestions.length !== 1 ? "s" : ""}
+                        </Badge>
+                        <Badge variant="outline" className="text-xs">
+                          {roleQuestions.filter((q) => q.is_active).length} active
+                        </Badge>
+                        {(() => {
+                          const isUnscopedGroup = role.id === "__unscoped"
+                          const canAddDepartmentQuestions =
+                            departmentOnly &&
+                            !!departmentId &&
+                            isDepartmentGroupId(role.id) &&
+                            role.id === `__department:${departmentId}`
+                          const disableAdd = isUnscopedGroup || (isDepartmentGroup && !canAddDepartmentQuestions)
+
+                          return (
+                            <Button
+                              variant="default"
+                              size="sm"
+                              disabled={disableAdd}
+                              onClick={(e) => {
+                                e.stopPropagation()
+                                if (disableAdd) return
+                                openCreateDialogForRole(role.id, roleQuestions.length)
+                              }}
+                              className="gap-2"
+                            >
+                              <Plus className="h-4 w-4" />
+                              Add Question
+                            </Button>
+                          )
+                        })()}
+                      </div>
+                    </div>
+                  </CardHeader>
+                  {isExpanded && (
+                    <CardContent className="pt-0">
+                      <div className="space-y-4">
+                        {roleQuestions.length === 0 && (
+                          <div className="text-muted-foreground rounded-lg border border-dashed py-10 text-center">
+                            No questions for this role yet.
+                          </div>
+                        )}
+
+                        {/* Group questions by entry_kind */}
+                        {(() => {
+                          const groupedByKind = groupQuestionsByEntryKind(roleQuestions, entryKinds)
+
+                          // Get sorted entry kinds based on sort_order from configs
+                          const sortedEntryKinds = Object.keys(groupedByKind).sort((a, b) => {
+                            const configA = entryKinds.find((k) => k.entry_kind === a)
+                            const configB = entryKinds.find((k) => k.entry_kind === b)
+                            const orderA = configA?.sort_order ?? 0
+                            const orderB = configB?.sort_order ?? 0
+                            if (orderA !== orderB) return orderA - orderB
+                            return a.localeCompare(b)
+                          })
+
+                          const renderQuestionSection = (
+                            questions: RoleQuestionWithRole[],
+                            entryKind: string,
+                            sectionIndex: number
+                          ) => {
+                            // Skip empty sections if no questions at all for this role
+                            if (questions.length === 0) return null
+
+                            const styles = getEntryKindStyles(entryKind, entryKinds)
+                            const IconComponent =
+                              entryKind === "agent_call" ? Users : entryKind === "daily_summary" ? FileText : FileText
+
+                            return (
+                              <div key={entryKind} className="space-y-3">
+                                {/* Section Header */}
+                                <div
+                                  className={`flex items-center gap-3 rounded-lg border px-4 py-3 ${styles.sectionBg}`}
+                                >
+                                  <div
+                                    className={`flex h-8 w-8 items-center justify-center rounded-full ${entryKind === "agent_call" ? "bg-blue-100" : entryKind === "daily_summary" ? "bg-green-100" : "bg-gray-100"}`}
+                                  >
+                                    <IconComponent
+                                      className={`h-4 w-4 ${entryKind === "agent_call" ? "text-blue-600" : entryKind === "daily_summary" ? "text-green-600" : "text-gray-600"}`}
+                                    />
+                                  </div>
+                                  <div className="flex-1">
+                                    <h4 className="text-sm font-semibold">{styles.label} Questions</h4>
+                                    <p className="text-muted-foreground text-xs">
+                                      {questions.length} question{questions.length !== 1 ? "s" : ""} ·{" "}
+                                      {questions.filter((q) => q.is_active).length} active
+                                    </p>
+                                  </div>
+                                  <Badge variant="outline" className={`text-xs ${styles.badgeColor}`}>
+                                    {styles.label}
+                                  </Badge>
+                                </div>
+
+                                {/* Questions in this section */}
+                                <div className="space-y-3 pl-2">
+                                  {questions.map((question, index) => (
+                                    <Card
+                                      key={question.id}
+                                      className={`${styles.borderColor} border-l-4`}
+                                      onDragOver={(e) => {
+                                        if (!isAdmin) return
+                                        if (!dragState || dragState.roleId !== role.id) return
+                                        e.preventDefault()
+                                      }}
+                                      onDrop={(e) => {
+                                        if (!isAdmin) return
+                                        if (!dragState || dragState.roleId !== role.id) return
+                                        e.preventDefault()
+                                        void handleDragReorderQuestion(role.id, dragState.questionId, question.id)
+                                      }}
+                                    >
+                                      <CardContent className="pt-4">
+                                        <div className="flex items-start gap-4">
+                                          <div className="pt-0.5">
+                                            <button
+                                              type="button"
+                                              draggable={isAdmin && !isDepartmentGroup}
+                                              aria-label="Reorder question"
+                                              onDragStart={() => {
+                                                if (!isAdmin || isDepartmentGroup) return
+                                                setDragState({ roleId: role.id, questionId: question.id })
+                                              }}
+                                              onDragEnd={() => setDragState(null)}
+                                              className={
+                                                "bg-background text-muted-foreground hover:bg-muted focus:ring-primary inline-flex h-9 w-9 items-center justify-center rounded-md border transition-colors focus:ring-2 focus:outline-none " +
+                                                (!isAdmin
+                                                  ? "cursor-not-allowed opacity-40"
+                                                  : "cursor-grab active:cursor-grabbing")
+                                              }
+                                            >
+                                              <GripVertical className="h-4 w-4" />
+                                            </button>
+                                          </div>
+
+                                          <div className="flex-1 space-y-2">
+                                            <div className="flex flex-wrap items-center gap-2">
+                                              <Badge variant="outline" className="text-xs">
+                                                #{sectionIndex + index + 1}
+                                              </Badge>
+                                              <span className="text-base font-semibold">{question.question_label}</span>
+                                              {question.is_required && (
+                                                <Badge variant="destructive" className="text-xs">
+                                                  Required
+                                                </Badge>
+                                              )}
+                                              {!question.is_active && (
+                                                <Badge variant="secondary" className="text-xs">
+                                                  Inactive
+                                                </Badge>
+                                              )}
+                                              {/* Entry Kind Badge */}
+                                              <Badge variant="outline" className={`text-xs ${styles.badgeColor}`}>
+                                                {styles.label}
+                                              </Badge>
+                                            </div>
+                                            <div className="flex flex-wrap items-center gap-2">
+                                              <code className="bg-muted rounded px-2 py-1 font-mono text-xs">
+                                                {question.question_label}
+                                              </code>
+                                              <Badge variant="secondary" className="text-xs">
+                                                {question.question_type}
+                                              </Badge>
+                                            </div>
+                                            {question.question_description && (
+                                              <p className="text-muted-foreground text-sm">
+                                                {question.question_description}
+                                              </p>
+                                            )}
+                                            {question.options && question.options.length > 0 && (
+                                              <div className="mt-2 flex flex-wrap gap-2">
+                                                {question.options.slice(0, 5).map((opt, idx) => (
+                                                  <Badge key={idx} variant="outline" className="text-xs">
+                                                    {opt}
+                                                  </Badge>
+                                                ))}
+                                                {question.options.length > 5 && (
+                                                  <Badge variant="outline" className="text-xs">
+                                                    +{question.options.length - 5} more
+                                                  </Badge>
+                                                )}
+                                              </div>
+                                            )}
+                                          </div>
+                                          <div className="flex items-center gap-1">
+                                            {isAdmin && (
+                                              <div className="mr-2 flex flex-col items-center">
+                                                <Button
+                                                  variant="ghost"
+                                                  size="icon"
+                                                  className="h-6 w-6"
+                                                  disabled={isDepartmentGroup || question.display_order === 0}
+                                                  onClick={() => handleReorderQuestion(role.id, question.id, "up")}
+                                                >
+                                                  <ChevronUp className="h-3 w-3" />
+                                                </Button>
+                                                <Button
+                                                  variant="ghost"
+                                                  size="icon"
+                                                  className="h-6 w-6"
+                                                  disabled={isDepartmentGroup || index === questions.length - 1}
+                                                  onClick={() => handleReorderQuestion(role.id, question.id, "down")}
+                                                >
+                                                  <ChevronDown className="h-3 w-3" />
+                                                </Button>
+                                              </div>
+                                            )}
+                                            <Button
+                                              variant="ghost"
+                                              size="sm"
+                                              onClick={() => {
+                                                setPreviewQuestion(question)
+                                                setShowPreviewModal(true)
+                                              }}
+                                              title="Preview"
+                                            >
+                                              <Eye className="h-4 w-4" />
+                                            </Button>
+                                            <Button
+                                              variant="ghost"
+                                              size="sm"
+                                              onClick={() => handleDuplicate(question)}
+                                              title="Duplicate"
+                                              disabled={
+                                                !question.role_id &&
+                                                !(
+                                                  (departmentOnly || !!departmentRole) &&
+                                                  !!departmentId &&
+                                                  question.department_id === departmentId
+                                                )
+                                              }
+                                            >
+                                              <Copy className="h-4 w-4" />
+                                            </Button>
+                                            <ActionMenu
+                                              align="end"
+                                              trigger={
+                                                <Button variant="ghost" size="sm">
+                                                  <MoreVertical className="h-4 w-4" />
+                                                </Button>
+                                              }
+                                              items={[
+                                                {
+                                                  type: "item",
+                                                  label: "Edit",
+                                                  icon: <Pencil className="mr-2 h-4 w-4" />,
+                                                  disabled:
+                                                    !question.role_id &&
+                                                    !(
+                                                      (departmentOnly || !!departmentRole) &&
+                                                      !!departmentId &&
+                                                      question.department_id === departmentId
+                                                    ),
+                                                  onSelect: () => openEditDialog(question),
+                                                },
+                                                {
+                                                  type: "item",
+                                                  label: "Preview",
+                                                  icon: <Eye className="mr-2 h-4 w-4" />,
+                                                  onSelect: () => {
+                                                    setPreviewQuestion(question)
+                                                    setShowPreviewModal(true)
+                                                  },
+                                                },
+                                                {
+                                                  type: "item",
+                                                  label: "Duplicate",
+                                                  icon: <Copy className="mr-2 h-4 w-4" />,
+                                                  disabled:
+                                                    !question.role_id &&
+                                                    !(
+                                                      (departmentOnly || !!departmentRole) &&
+                                                      !!departmentId &&
+                                                      question.department_id === departmentId
+                                                    ),
+                                                  onSelect: () => handleDuplicate(question),
+                                                },
+                                                { type: "separator" },
+                                                {
+                                                  type: "item",
+                                                  label: "Delete",
+                                                  icon: <Trash2 className="mr-2 h-4 w-4" />,
+                                                  destructive: true,
+                                                  onSelect: () => openDeleteDialog(question),
+                                                },
+                                              ]}
+                                            />
+                                          </div>
+                                        </div>
+                                      </CardContent>
+                                    </Card>
+                                  ))}
+                                </div>
+                              </div>
+                            )
+                          }
+
+                          // Calculate running section index for question numbering
+                          let runningIndex = 0
+
+                          return (
+                            <div className="space-y-6">
+                              {sortedEntryKinds.map((entryKind) => {
+                                const questions = groupedByKind[entryKind] || []
+                                const section = renderQuestionSection(questions, entryKind, runningIndex)
+                                runningIndex += questions.length
+                                return section
+                              })}
+                            </div>
+                          )
+                        })()}
+
+                        <Card className="bg-muted/20 border-dashed">
+                          <CardContent className="py-4">
+                            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                              <div className="flex-1">
+                                <Input
+                                  value={quickAddByRole[role.id] || ""}
+                                  disabled={
+                                    role.id === "__unscoped" ||
+                                    (isDepartmentGroup &&
+                                      !(
+                                        departmentOnly &&
+                                        !!departmentId &&
+                                        isDepartmentGroupId(role.id) &&
+                                        role.id === `__department:${departmentId}`
+                                      ))
+                                  }
+                                  onChange={(e) =>
+                                    setQuickAddByRole((prev) => ({
+                                      ...prev,
+                                      [role.id]: e.target.value,
+                                    }))
+                                  }
+                                  onKeyDown={(e) => {
+                                    if (
+                                      role.id === "__unscoped" ||
+                                      (isDepartmentGroup &&
+                                        !(
+                                          departmentOnly &&
+                                          !!departmentId &&
+                                          isDepartmentGroupId(role.id) &&
+                                          role.id === `__department:${departmentId}`
+                                        ))
+                                    )
+                                      return
+                                    if (e.key !== "Enter") return
+                                    e.preventDefault()
+                                    const label = (quickAddByRole[role.id] || "").trim()
+                                    if (!label) return
+                                    openCreateDialogForRole(role.id, roleQuestions.length, label)
+                                    setQuickAddByRole((prev) => ({ ...prev, [role.id]: "" }))
+                                  }}
+                                  placeholder="Type a new question and press Enter..."
+                                />
+                              </div>
+                              <Button
+                                variant="default"
+                                size="sm"
+                                className="gap-2"
+                                disabled={
+                                  role.id === "__unscoped" ||
+                                  (isDepartmentGroup &&
+                                    !(
+                                      departmentOnly &&
+                                      !!departmentId &&
+                                      isDepartmentGroupId(role.id) &&
+                                      role.id === `__department:${departmentId}`
+                                    ))
+                                }
+                                onClick={() => {
+                                  if (
+                                    role.id === "__unscoped" ||
+                                    (isDepartmentGroup &&
+                                      !(
+                                        departmentOnly &&
+                                        !!departmentId &&
+                                        isDepartmentGroupId(role.id) &&
+                                        role.id === `__department:${departmentId}`
+                                      ))
+                                  )
+                                    return
+                                  const label = (quickAddByRole[role.id] || "").trim()
+                                  if (!label) return
+                                  openCreateDialogForRole(role.id, roleQuestions.length, label)
+                                  setQuickAddByRole((prev) => ({ ...prev, [role.id]: "" }))
+                                }}
+                              >
+                                <Plus className="h-4 w-4" />
+                                Add
+                              </Button>
+                            </div>
+                          </CardContent>
+                        </Card>
+                      </div>
+                    </CardContent>
+                  )}
+                </Card>
+              )
+            })
+          )}
+        </div>
+      ) : (
+        /* Enhanced Table with Sorting and Bulk Selection */
+        <Card>
+          <CardContent className="p-0">
+            <div className="overflow-hidden rounded-lg border">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-muted/50">
+                    <TableHead className="w-12">
+                      <Checkbox
+                        checked={selectedQuestions.size === paginatedQuestions.length && paginatedQuestions.length > 0}
+                        onCheckedChange={toggleAllSelection}
+                      />
+                    </TableHead>
+                    <TableHead className="hover:bg-muted/80 cursor-pointer" onClick={() => handleSort("role")}>
+                      <div className="flex items-center">
+                        Role
+                        <SortIcon field="role" />
+                      </div>
+                    </TableHead>
+                    <TableHead className="hover:bg-muted/80 cursor-pointer" onClick={() => handleSort("label")}>
+                      <div className="flex items-center">
+                        Question Label
+                        <SortIcon field="label" />
+                      </div>
+                    </TableHead>
+                    <TableHead className="hover:bg-muted/80 cursor-pointer" onClick={() => handleSort("type")}>
+                      <div className="flex items-center">
+                        Type
+                        <SortIcon field="type" />
+                      </div>
+                    </TableHead>
+                    <TableHead>Required</TableHead>
+                    <TableHead>Status</TableHead>
+                    <TableHead className="hover:bg-muted/80 cursor-pointer" onClick={() => handleSort("display_order")}>
+                      <div className="flex items-center">
+                        Order
+                        <SortIcon field="display_order" />
+                      </div>
+                    </TableHead>
+                    <TableHead className="text-right">Actions</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {paginatedQuestions.length === 0 ? (
+                    <TableRow>
+                      <TableCell colSpan={8} className="text-muted-foreground py-12 text-center">
+                        {filteredAndSortedQuestions.length === 0 && statistics.total === 0
+                          ? "No questions found. Create your first question."
+                          : "No questions match your filters. Try adjusting your search criteria."}
+                      </TableCell>
+                    </TableRow>
+                  ) : (
+                    paginatedQuestions.map((question) => (
+                      <TableRow
+                        key={question.id}
+                        className={`hover:bg-muted/50 transition-colors ${!question.is_active ? "opacity-70" : ""}`}
+                      >
+                        <TableCell>
+                          <Checkbox
+                            checked={selectedQuestions.has(question.id)}
+                            onCheckedChange={() => toggleQuestionSelection(question.id)}
+                          />
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{question.role?.name || "Unknown"}</Badge>
+                        </TableCell>
+                        <TableCell>
+                          <div className="space-y-1">
+                            <div className={`font-medium ${!question.is_active ? "line-through" : ""}`}>
+                              {question.question_label}
+                            </div>
+                            <div className="text-muted-foreground font-mono text-xs">{question.question_key}</div>
+                            {question.question_description && (
+                              <div className="text-muted-foreground line-clamp-1 text-xs">
+                                {question.question_description}
+                              </div>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="secondary">{question.question_type}</Badge>
+                        </TableCell>
+                        <TableCell>
+                          {question.is_required ? (
+                            <Badge variant="destructive">Required</Badge>
+                          ) : (
+                            <Badge variant="outline">Optional</Badge>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={question.is_active ? "default" : "secondary"}>
+                            {question.is_active ? "Active" : "Inactive"}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          <div className="text-muted-foreground flex items-center gap-1 text-sm">
+                            <GripVertical className="h-4 w-4" />
+                            {question.display_order}
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <div className="flex justify-end gap-1">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => {
+                                setPreviewQuestion(question)
+                                setShowPreviewModal(true)
+                              }}
+                              title="Preview"
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() => handleDuplicate(question)}
+                              title="Duplicate"
+                            >
+                              <Copy className="h-4 w-4" />
+                            </Button>
+                            <ActionMenu
+                              align="end"
+                              trigger={
+                                <Button variant="ghost" size="sm">
+                                  <MoreVertical className="h-4 w-4" />
+                                </Button>
+                              }
+                              items={[
+                                {
+                                  type: "item",
+                                  label: "Edit",
+                                  icon: <Pencil className="mr-2 h-4 w-4" />,
+                                  onSelect: () => openEditDialog(question),
+                                },
+                                {
+                                  type: "item",
+                                  label: "Preview",
+                                  icon: <Eye className="mr-2 h-4 w-4" />,
+                                  onSelect: () => {
+                                    setPreviewQuestion(question)
+                                    setShowPreviewModal(true)
+                                  },
+                                },
+                                {
+                                  type: "item",
+                                  label: "Duplicate",
+                                  icon: <Copy className="mr-2 h-4 w-4" />,
+                                  onSelect: () => handleDuplicate(question),
+                                },
+                                { type: "separator" },
+                                {
+                                  type: "item",
+                                  label: "Delete",
+                                  icon: <Trash2 className="mr-2 h-4 w-4" />,
+                                  destructive: true,
+                                  onSelect: () => openDeleteDialog(question),
+                                },
+                              ]}
+                            />
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Pagination - Only for Table View */}
+      {false && totalPages > 1 && (
+        <Card>
+          <CardContent className="py-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Label htmlFor="itemsPerPage" className="text-sm">
+                  Items per page:
+                </Label>
+                <Select
+                  value={itemsPerPage.toString()}
+                  onValueChange={(value) => {
+                    setItemsPerPage(Number(value))
+                    setCurrentPage(1)
+                  }}
+                >
+                  <SelectTrigger className="w-20">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="10">10</SelectItem>
+                    <SelectItem value="25">25</SelectItem>
+                    <SelectItem value="50">50</SelectItem>
+                    <SelectItem value="100">100</SelectItem>
+                  </SelectContent>
+                </Select>
+                <span className="text-muted-foreground text-sm">
+                  Showing {(currentPage - 1) * itemsPerPage + 1} to{" "}
+                  {Math.min(currentPage * itemsPerPage, sortedQuestionsForTable.length)} of{" "}
+                  {sortedQuestionsForTable.length}
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={currentPage === 1}
+                >
+                  <ChevronLeft className="h-4 w-4" />
+                  Previous
+                </Button>
+                <div className="flex items-center gap-1">
+                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                    let pageNum: number
+                    if (totalPages <= 5) {
+                      pageNum = i + 1
+                    } else if (currentPage <= 3) {
+                      pageNum = i + 1
+                    } else if (currentPage >= totalPages - 2) {
+                      pageNum = totalPages - 4 + i
+                    } else {
+                      pageNum = currentPage - 2 + i
+                    }
+                    return (
+                      <Button
+                        key={pageNum}
+                        variant={currentPage === pageNum ? "default" : "outline"}
+                        size="sm"
+                        onClick={() => setCurrentPage(pageNum)}
+                        className="w-8"
+                      >
+                        {pageNum}
+                      </Button>
+                    )
+                  })}
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={currentPage === totalPages}
+                >
+                  Next
+                  <ChevronRight className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Create/Edit Dialog */}
+      <Dialog open={showCreateDialog} onOpenChange={setShowCreateDialog}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[1100px]">
+          <DialogHeader>
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <DialogTitle>{editingQuestion ? "Edit Question" : "Create Question"}</DialogTitle>
+                <DialogDescription>
+                  {editingQuestion
+                    ? "Update question information"
+                    : "Create a new question for a role. Use 'Create Multiple Questions' to add several questions at once."}
+                </DialogDescription>
+              </div>
+              <div className="flex items-center gap-4">
+                <div className="flex items-center gap-2">
+                  <Switch
+                    id="dialog_is_active"
+                    checked={formData.is_active !== false}
+                    onCheckedChange={(checked) => setFormData({ ...formData, is_active: checked })}
+                  />
+                  <Label htmlFor="dialog_is_active" className="cursor-pointer">
+                    Active
+                  </Label>
+                </div>
+                <div className="flex items-center gap-2">
+                  <Switch
+                    id="dialog_is_required"
+                    checked={formData.is_required || false}
+                    onCheckedChange={(checked) => setFormData({ ...formData, is_required: checked })}
+                  />
+                  <Label htmlFor="dialog_is_required" className="cursor-pointer">
+                    Required
+                  </Label>
+                </div>
+              </div>
+            </div>
+          </DialogHeader>
+          <div className="grid gap-6 py-4 lg:grid-cols-3">
+            <div className="space-y-4 lg:col-span-2">
+              {!isDepartmentScopedForm && (
+                <div className="space-y-2">
+                  <Label htmlFor="role_id">
+                    Role <span className="text-destructive">*</span>
+                  </Label>
+                  <Select
+                    value={formData.role_id || ""}
+                    onValueChange={(value) => setFormData({ ...formData, role_id: value, department_id: null })}
+                    disabled={!!editingQuestion}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder={roles.length === 0 ? "Loading roles..." : "Select a role"} />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {roles.length === 0 ? (
+                        editingQuestion ? (
+                          <SelectItem value={editingQuestion.role_id ?? "__unknown_role__"}>
+                            <div className="flex w-full items-center justify-between">
+                              <span>{editingQuestion.role?.name || editingQuestion.role_id || "Current role"}</span>
+                            </div>
+                          </SelectItem>
+                        ) : (
+                          <SelectItem value="__no_roles__" disabled>
+                            {isLoading ? "Loading roles..." : "No roles available"}
+                          </SelectItem>
+                        )
+                      ) : (
+                        <>
+                          {editingQuestion &&
+                            editingQuestion.role_id &&
+                            !roles.some((role) => role.id === editingQuestion.role_id) && (
+                              <SelectItem value={editingQuestion.role_id}>
+                                <div className="flex w-full items-center justify-between">
+                                  <span>{editingQuestion.role?.name || editingQuestion.role_id || "Current role"}</span>
+                                </div>
+                              </SelectItem>
+                            )}
+                          {roles.map((role) => {
+                            const questionCount = questions.filter((q) => q.role_id === role.id).length
+                            const isAssignedRole = !!editingQuestion && role.id === editingQuestion.role_id
+
+                            return (
+                              <SelectItem key={role.id} value={role.id}>
+                                <div className="flex w-full items-center justify-between">
+                                  <span className="flex items-center gap-2">
+                                    <span>{role.name}</span>
+                                    {isAssignedRole && (
+                                      <Badge
+                                        variant="default"
+                                        className="flex items-center gap-1 text-[10px] font-medium"
+                                      >
+                                        <CheckSquare className="h-3 w-3" />
+                                        Assigned
+                                      </Badge>
+                                    )}
+                                  </span>
+                                  {questionCount > 0 && (
+                                    <Badge variant="secondary" className="ml-2">
+                                      {questionCount} question{questionCount !== 1 ? "s" : ""}
+                                    </Badge>
+                                  )}
+                                </div>
+                              </SelectItem>
+                            )
+                          })}
+                        </>
+                      )}
+                    </SelectContent>
+                  </Select>
+                  {formErrors.role_id && <p className="text-destructive text-sm">{formErrors.role_id}</p>}
+                  {editingQuestion && (
+                    <p className="text-muted-foreground text-xs">Role cannot be changed after creation.</p>
+                  )}
+                </div>
+              )}
+              <div className="space-y-2">
+                <Label htmlFor="question_label">
+                  Question Label <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  id="question_label"
+                  value={formData.question_label || ""}
+                  onChange={(e) => setFormData({ ...formData, question_label: e.target.value })}
+                  placeholder="e.g., What tasks did you complete today?"
+                  className="bg-[#f3f3f5]"
+                />
+                {formErrors.question_label && <p className="text-destructive text-sm">{formErrors.question_label}</p>}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="question_type">
+                  Question Type <span className="text-destructive">*</span>
+                </Label>
+                <Select
+                  value={formData.question_type || "text"}
+                  onValueChange={(value) => setFormData({ ...formData, question_type: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent className="max-h-[400px]">
+                    {/* Text Input Types */}
+                    <SelectItem value="text">📝 Text Input (Short)</SelectItem>
+                    <SelectItem value="textarea">📄 Textarea (Long Text)</SelectItem>
+
+                    {/* Validated Input Types */}
+                    <SelectItem value="email">📧 Email Address</SelectItem>
+                    <SelectItem value="url">🔗 URL/Website Link</SelectItem>
+                    <SelectItem value="phone">📱 Phone Number</SelectItem>
+
+                    {/* Numeric Types */}
+                    <SelectItem value="number">🔢 Number (Integer/Decimal)</SelectItem>
+                    <SelectItem value="currency">💰 Currency/Money</SelectItem>
+                    <SelectItem value="percentage">📊 Percentage</SelectItem>
+
+                    {/* Date and Time Types */}
+                    <SelectItem value="date">📅 Date Picker</SelectItem>
+                    <SelectItem value="time">🕐 Time Picker</SelectItem>
+                    <SelectItem value="datetime">📅🕐 Date & Time</SelectItem>
+                    <SelectItem value="daterange">📅➡️📅 Date Range</SelectItem>
+                    <SelectItem value="duration">⏱️ Duration (Hours/Minutes)</SelectItem>
+
+                    {/* Selection Types */}
+                    <SelectItem value="select">▼ Dropdown Select (Single)</SelectItem>
+                    <SelectItem value="radio">◉ Radio Buttons (Single)</SelectItem>
+                    <SelectItem value="multiselect">☑️ Multi-Select (Checkboxes)</SelectItem>
+                    <SelectItem value="checkbox">✓ Checkbox (Yes/No)</SelectItem>
+
+                    {/* Rating and Scale Types */}
+                    <SelectItem value="rating">⭐ Rating Scale (Stars)</SelectItem>
+                    <SelectItem value="slider">━ Slider Scale</SelectItem>
+                    <SelectItem value="nps">📈 NPS Score (0-10)</SelectItem>
+
+                    {/* File and Media Types */}
+                    <SelectItem value="file">📎 File Upload (Documents)</SelectItem>
+                    <SelectItem value="image">🖼️ Image Upload</SelectItem>
+
+                    {/* Special Business Types */}
+                    <SelectItem value="priority">🎯 Priority Level</SelectItem>
+                    <SelectItem value="status">🚦 Status Indicator</SelectItem>
+                    <SelectItem value="tags">🏷️ Tags (Multiple)</SelectItem>
+                    <SelectItem value="rich-text">✍️ Rich Text Editor</SelectItem>
+                  </SelectContent>
+                </Select>
+                {formErrors.question_type && <p className="text-destructive text-sm">{formErrors.question_type}</p>}
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="question_description">Description</Label>
+                <Textarea
+                  id="question_description"
+                  value={formData.question_description || ""}
+                  onChange={(e) => setFormData({ ...formData, question_description: e.target.value })}
+                  placeholder="Additional context for the question"
+                  rows={2}
+                  className="bg-[#f3f3f5]"
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="placeholder">Placeholder</Label>
+                <Input
+                  id="placeholder"
+                  value={formData.placeholder || ""}
+                  onChange={(e) => setFormData({ ...formData, placeholder: e.target.value })}
+                  placeholder="Placeholder text"
+                  className="bg-[#f3f3f5]"
+                />
+              </div>
+              {/* Options for select, multiselect, radio, rating, priority, status, nps, tags */}
+              {(formData.question_type === "select" ||
+                formData.question_type === "multiselect" ||
+                formData.question_type === "radio" ||
+                formData.question_type === "rating" ||
+                formData.question_type === "priority" ||
+                formData.question_type === "status" ||
+                formData.question_type === "tags") && (
+                <div className="space-y-2">
+                  <Label>
+                    Options
+                    {formData.question_type === "rating" && " (e.g., 1,2,3,4,5 or Poor,Fair,Good,Very Good,Excellent)"}
+                    {formData.question_type === "priority" && " (e.g., Low, Medium, High, Critical)"}
+                    {formData.question_type === "status" && " (e.g., Not Started, In Progress, Completed, Blocked)"}
+                    {formData.question_type === "tags" && " (Multiple tags available for selection)"}
+                    <span className="text-destructive">*</span>
+                  </Label>
+                  <div className="flex gap-2">
+                    <Input
+                      value={optionInput}
+                      onChange={(e) => setOptionInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") {
+                          e.preventDefault()
+                          addOption()
+                        }
+                      }}
+                      placeholder={
+                        formData.question_type === "rating"
+                          ? "Enter rating option (e.g., 1 or Poor)"
+                          : formData.question_type === "priority"
+                            ? "Enter priority level (e.g., High)"
+                            : formData.question_type === "status"
+                              ? "Enter status option (e.g., In Progress)"
+                              : formData.question_type === "tags"
+                                ? "Enter tag option (e.g., Bug, Feature)"
+                                : "Enter option and press Enter"
+                      }
+                      className="bg-[#f3f3f5]"
+                    />
+                    <Button type="button" onClick={addOption}>
+                      Add
+                    </Button>
+                  </div>
+                  {formData.options && formData.options.length > 0 && (
+                    <div className="mt-2 flex flex-wrap gap-2">
+                      {formData.options.map((option) => (
+                        <Badge
+                          key={option}
+                          variant="secondary"
+                          className="cursor-pointer"
+                          onClick={() => removeOption(option)}
+                        >
+                          {option} ×
+                        </Badge>
+                      ))}
+                    </div>
+                  )}
+                  {formErrors.options && <p className="text-destructive text-sm">{formErrors.options}</p>}
+                </div>
+              )}
+
+              <div className="mt-4 space-y-4">
+                {/* Text validation */}
+                {(formData.question_type === "text" ||
+                  formData.question_type === "textarea" ||
+                  formData.question_type === "email" ||
+                  formData.question_type === "url" ||
+                  formData.question_type === "phone") && (
+                  <>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="min_length">Minimum Length</Label>
+                        <Input
+                          id="min_length"
+                          type="number"
+                          min="0"
+                          value={formData.min_length || ""}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              min_length: e.target.value ? parseInt(e.target.value) : null,
+                            })
+                          }
+                          placeholder="Min characters"
+                          className="bg-[#f3f3f5]"
+                        />
+                        {formErrors.min_length && <p className="text-destructive text-sm">{formErrors.min_length}</p>}
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="max_length">Maximum Length</Label>
+                        <Input
+                          id="max_length"
+                          type="number"
+                          min="0"
+                          value={formData.max_length || ""}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              max_length: e.target.value ? parseInt(e.target.value) : null,
+                            })
+                          }
+                          placeholder="Max characters"
+                          className="bg-[#f3f3f5]"
+                        />
+                        {formErrors.max_length && <p className="text-destructive text-sm">{formErrors.max_length}</p>}
+                      </div>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="pattern">Pattern (Regex)</Label>
+                      <Input
+                        id="pattern"
+                        value={formData.pattern || ""}
+                        onChange={(e) => setFormData({ ...formData, pattern: e.target.value })}
+                        placeholder="e.g., ^[A-Za-z]+$ (letters only)"
+                        className="bg-[#f3f3f5]"
+                      />
+                      <p className="text-muted-foreground text-xs">Regular expression pattern for validation</p>
+                    </div>
+                  </>
+                )}
+
+                {/* Number validation */}
+                {(formData.question_type === "number" ||
+                  formData.question_type === "currency" ||
+                  formData.question_type === "percentage") && (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="min_value">Minimum Value</Label>
+                      <Input
+                        id="min_value"
+                        type="number"
+                        value={formData.min_value || ""}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            min_value: e.target.value ? parseFloat(e.target.value) : null,
+                          })
+                        }
+                        placeholder={formData.question_type === "percentage" ? "0" : "Min value"}
+                        className="bg-[#f3f3f5]"
+                      />
+                      {formErrors.min_value && <p className="text-destructive text-sm">{formErrors.min_value}</p>}
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="max_value">Maximum Value</Label>
+                      <Input
+                        id="max_value"
+                        type="number"
+                        value={formData.max_value || ""}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            max_value: e.target.value ? parseFloat(e.target.value) : null,
+                          })
+                        }
+                        placeholder={formData.question_type === "percentage" ? "100" : "Max value"}
+                        className="bg-[#f3f3f5]"
+                      />
+                      {formErrors.max_value && <p className="text-destructive text-sm">{formErrors.max_value}</p>}
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="step">Step</Label>
+                      <Input
+                        id="step"
+                        type="number"
+                        step="0.01"
+                        value={formData.step || ""}
+                        onChange={(e) =>
+                          setFormData({
+                            ...formData,
+                            step: e.target.value ? parseFloat(e.target.value) : null,
+                          })
+                        }
+                        placeholder={
+                          formData.question_type === "percentage" ? "1" : "e.g., 0.1 for decimals, 1 for integers"
+                        }
+                        className="bg-[#f3f3f5]"
+                      />
+                      <p className="text-muted-foreground text-xs">
+                        {formData.question_type === "currency" && "Increment step (e.g., 0.01 for cents)"}
+                        {formData.question_type === "percentage" && "Percentage increment (default: 1)"}
+                        {formData.question_type === "number" && "Increment step for number input"}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Slider/NPS validation */}
+                {(formData.question_type === "slider" || formData.question_type === "nps") && (
+                  <div className="space-y-4">
+                    <p className="text-muted-foreground text-sm">
+                      {formData.question_type === "nps"
+                        ? "NPS scores are automatically configured from 0-10 (Net Promoter Score standard)"
+                        : "Configure the min/max range for the slider"}
+                    </p>
+                    {formData.question_type === "slider" && (
+                      <div className="grid grid-cols-3 gap-4">
+                        <div className="space-y-2">
+                          <Label htmlFor="min_value">Minimum</Label>
+                          <Input
+                            id="min_value"
+                            type="number"
+                            value={formData.min_value || "0"}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                min_value: e.target.value ? parseFloat(e.target.value) : 0,
+                              })
+                            }
+                            placeholder="0"
+                            className="bg-[#f3f3f5]"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="max_value">Maximum</Label>
+                          <Input
+                            id="max_value"
+                            type="number"
+                            value={formData.max_value || "100"}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                max_value: e.target.value ? parseFloat(e.target.value) : 100,
+                              })
+                            }
+                            placeholder="100"
+                            className="bg-[#f3f3f5]"
+                          />
+                        </div>
+                        <div className="space-y-2">
+                          <Label htmlFor="step">Step</Label>
+                          <Input
+                            id="step"
+                            type="number"
+                            value={formData.step || "1"}
+                            onChange={(e) =>
+                              setFormData({
+                                ...formData,
+                                step: e.target.value ? parseFloat(e.target.value) : 1,
+                              })
+                            }
+                            placeholder="1"
+                            className="bg-[#f3f3f5]"
+                          />
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Date validation */}
+                {(formData.question_type === "date" ||
+                  formData.question_type === "datetime" ||
+                  formData.question_type === "daterange") && (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div className="space-y-2">
+                      <Label htmlFor="min_date">Minimum Date</Label>
+                      <Input
+                        id="min_date"
+                        type="date"
+                        value={formData.min_date || ""}
+                        onChange={(e) => setFormData({ ...formData, min_date: e.target.value })}
+                        className="bg-[#f3f3f5]"
+                      />
+                      <p className="text-muted-foreground text-xs">
+                        {formData.question_type === "daterange" && "Start date cannot be before this"}
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <Label htmlFor="max_date">Maximum Date</Label>
+                      <Input
+                        id="max_date"
+                        type="date"
+                        value={formData.max_date || ""}
+                        onChange={(e) => setFormData({ ...formData, max_date: e.target.value })}
+                        className="bg-[#f3f3f5]"
+                      />
+                      <p className="text-muted-foreground text-xs">
+                        {formData.question_type === "daterange" && "End date cannot be after this"}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Duration validation */}
+                {formData.question_type === "duration" && (
+                  <div className="space-y-4">
+                    <p className="text-muted-foreground text-sm">
+                      Duration fields allow users to enter time periods (e.g., "2 hours 30 minutes" or "150 minutes")
+                    </p>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="space-y-2">
+                        <Label htmlFor="min_value">Minimum (minutes)</Label>
+                        <Input
+                          id="min_value"
+                          type="number"
+                          min="0"
+                          value={formData.min_value || ""}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              min_value: e.target.value ? parseFloat(e.target.value) : null,
+                            })
+                          }
+                          placeholder="Min duration in minutes"
+                          className="bg-[#f3f3f5]"
+                        />
+                      </div>
+                      <div className="space-y-2">
+                        <Label htmlFor="max_value">Maximum (minutes)</Label>
+                        <Input
+                          id="max_value"
+                          type="number"
+                          min="0"
+                          value={formData.max_value || ""}
+                          onChange={(e) =>
+                            setFormData({
+                              ...formData,
+                              max_value: e.target.value ? parseFloat(e.target.value) : null,
+                            })
+                          }
+                          placeholder="Max duration in minutes"
+                          className="bg-[#f3f3f5]"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="lg:col-span-1">
+              <div className="sticky top-6 space-y-4">
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Question Preview</CardTitle>
+                    <CardDescription>Preview how this question will appear to users</CardDescription>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <Label className="text-sm font-medium">
+                          {formData.question_label || "Question Label"}
+                          {formData.is_required && <span className="text-destructive ml-1">*</span>}
+                        </Label>
+                        {formData.question_description && (
+                          <p className="text-muted-foreground text-xs">{formData.question_description}</p>
+                        )}
+                      </div>
+
+                      {formData.question_type === "textarea" ? (
+                        <Textarea placeholder={formData.placeholder || ""} rows={4} disabled className="bg-[#f3f3f5]" />
+                      ) : formData.question_type === "select" && formData.options ? (
+                        <Select disabled>
+                          <SelectTrigger>
+                            <SelectValue placeholder={formData.placeholder || "Select an option"} />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {formData.options.map((opt) => (
+                              <SelectItem key={opt} value={opt}>
+                                {opt}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                      ) : formData.question_type === "radio" && formData.options ? (
+                        <RadioGroup disabled>
+                          {formData.options.map((opt) => (
+                            <div key={opt} className="flex items-center space-x-2">
+                              <RadioGroupItem value={opt} id={`preview-${opt}`} />
+                              <Label htmlFor={`preview-${opt}`} className="cursor-pointer font-normal">
+                                {opt}
+                              </Label>
+                            </div>
+                          ))}
+                        </RadioGroup>
+                      ) : formData.question_type === "multiselect" && formData.options ? (
+                        <div className="space-y-2">
+                          {formData.options.map((opt) => (
+                            <div key={opt} className="flex items-center space-x-2">
+                              <Checkbox disabled />
+                              <Label className="text-sm font-normal">{opt}</Label>
+                            </div>
+                          ))}
+                        </div>
+                      ) : formData.question_type === "checkbox" ? (
+                        <div className="flex items-center space-x-2">
+                          <Checkbox disabled />
+                          <Label className="text-sm font-normal">{formData.placeholder || "Yes"}</Label>
+                        </div>
+                      ) : formData.question_type === "rating" && formData.options ? (
+                        <div className="flex flex-wrap gap-2">
+                          {formData.options.map((opt) => (
+                            <Button key={opt} type="button" variant="outline" disabled>
+                              {opt}
+                            </Button>
+                          ))}
+                        </div>
+                      ) : formData.question_type === "file" ? (
+                        <Input type="file" disabled className="bg-[#f3f3f5]" />
+                      ) : (
+                        <Input
+                          type={
+                            formData.question_type === "email"
+                              ? "email"
+                              : formData.question_type === "url"
+                                ? "url"
+                                : formData.question_type === "phone"
+                                  ? "tel"
+                                  : formData.question_type === "number" ||
+                                      formData.question_type === "currency" ||
+                                      formData.question_type === "percentage"
+                                    ? "number"
+                                    : formData.question_type === "date"
+                                      ? "date"
+                                      : formData.question_type === "time"
+                                        ? "time"
+                                        : formData.question_type === "datetime"
+                                          ? "datetime-local"
+                                          : "text"
+                          }
+                          placeholder={formData.placeholder || ""}
+                          disabled
+                          className="bg-[#f3f3f5]"
+                        />
+                      )}
+                    </div>
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          </div>
+
+          <DialogFooter className="flex items-center justify-between">
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowCreateDialog(false)
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={() => {
+                  console.log("🔵 Create button clicked", { editingQuestion, isUpdating, isCreating })
+                  if (editingQuestion) {
+                    handleUpdate()
+                  } else {
+                    handleCreate()
+                  }
+                }}
+                disabled={isUpdating || isCreating}
+                type="button"
+              >
+                {(isUpdating || isCreating) && <RefreshCw className="mr-2 h-4 w-4 animate-spin" />}
+                {editingQuestion ? (isUpdating ? "Updating..." : "Update") : isCreating ? "Creating..." : "Create"}
+              </Button>
+            </div>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Question Preview Modal */}
+      <Dialog open={showPreviewModal} onOpenChange={setShowPreviewModal}>
+        <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-[600px]">
+          <DialogHeader>
+            <DialogTitle>Question Preview</DialogTitle>
+            <DialogDescription>Preview how this question will appear to users</DialogDescription>
+          </DialogHeader>
+          {previewQuestion && (
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <Label className="text-base font-semibold">
+                    {previewQuestion.question_label}
+                    {previewQuestion.is_required && <span className="text-destructive ml-1">*</span>}
+                  </Label>
+                  <Badge variant="outline">{previewQuestion.role?.name || "Unknown"}</Badge>
+                </div>
+                {previewQuestion.question_description && (
+                  <p className="text-muted-foreground text-sm">{previewQuestion.question_description}</p>
+                )}
+              </div>
+
+              <Separator />
+
+              <div className="space-y-2">
+                <Label className="text-sm font-medium">Question Details</Label>
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div>
+                    <span className="text-muted-foreground">Type:</span>
+                    <Badge variant="secondary" className="ml-2">
+                      {previewQuestion.question_type}
+                    </Badge>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Key:</span>
+                    <code className="bg-muted ml-2 rounded px-1 py-0.5 text-xs">{previewQuestion.question_key}</code>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Status:</span>
+                    <Badge variant={previewQuestion.is_active ? "default" : "secondary"} className="ml-2">
+                      {previewQuestion.is_active ? "Active" : "Inactive"}
+                    </Badge>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Required:</span>
+                    <Badge variant={previewQuestion.is_required ? "destructive" : "outline"} className="ml-2">
+                      {previewQuestion.is_required ? "Yes" : "No"}
+                    </Badge>
+                  </div>
+                  {previewQuestion.placeholder && (
+                    <div className="col-span-2">
+                      <span className="text-muted-foreground">Placeholder:</span>
+                      <span className="ml-2">{previewQuestion.placeholder}</span>
+                    </div>
+                  )}
+                  {previewQuestion.options && previewQuestion.options.length > 0 && (
+                    <div className="col-span-2">
+                      <span className="text-muted-foreground">Options:</span>
+                      <div className="mt-2 flex flex-wrap gap-2">
+                        {previewQuestion.options.map((opt, idx) => (
+                          <Badge key={idx} variant="outline">
+                            {opt}
+                          </Badge>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowPreviewModal(false)}>
+              Close
+            </Button>
+            {previewQuestion && (
+              <Button
+                onClick={() => {
+                  setShowPreviewModal(false)
+                  openEditDialog(previewQuestion)
+                }}
+              >
+                <Pencil className="mr-2 h-4 w-4" />
+                Edit Question
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={showDeleteDialog} onOpenChange={setShowDeleteDialog}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will permanently delete the question "{questionToDelete?.question_label}". This action cannot be
+              undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleDelete} className="bg-destructive">
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </div>
+  )
+}

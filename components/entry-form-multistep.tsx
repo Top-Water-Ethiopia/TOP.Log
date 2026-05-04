@@ -1,107 +1,1282 @@
 "use client"
 
+import Link from "next/link"
 import type React from "react"
-import { useState, useEffect, useMemo, useCallback } from "react"
+import { useState, useEffect, useMemo, useCallback, useRef } from "react"
+import { z } from "zod"
+import { Input } from "@/components/ui/input"
 import { Button } from "@/components/ui/button"
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { useCaptainLog } from "@/contexts/captain-log-context"
+import { Badge } from "@/components/ui/badge"
+import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card"
+import { Progress } from "@/components/ui/progress"
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover"
+import { Calendar } from "@/components/ui/calendar"
+import type { Matcher } from "react-day-picker"
+import { useCaptainLog } from "@/contexts/supabase-log-context"
+import { useAuth } from "@/contexts/auth-context"
+import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
 import { useRBAC } from "@/hooks/use-rbac"
+import { useRoleQuestions, type RoleQuestion } from "@/hooks/use-role-questions"
 import { RoleBasedQuestionFields } from "@/components/role-based-question-fields"
-import type { QuestionResponse } from "@/lib/rbac/types"
-import { ArrowLeft, ArrowRight, Save, Eye, CheckCircle2, Target, CheckCircle, AlertTriangle, AlertCircle, Sparkles, Calendar, ListChecks } from "lucide-react"
+import { ImageResponsePreview } from "@/components/image-response-preview"
+import { QuickDateChips } from "@/components/features/daily-log/molecules"
+import { EntryKindDropdown } from "@/components/entry-kind-dropdown"
+import type { CustomQuestion, QuestionResponse } from "@/lib/rbac/types"
+import { getQuestionReactKey } from "@/lib/role-question-identity"
+import {
+  ArrowLeft,
+  ArrowRight,
+  Save,
+  Eye,
+  AlertCircle,
+  ListChecks,
+  Pencil,
+  CalendarDays,
+  Lock,
+  Loader2,
+  MapPin,
+  Phone,
+  Search,
+  X,
+} from "lucide-react"
+import { Skeleton } from "@/components/ui/skeleton"
 import { toast } from "sonner"
+import {
+  canCreateEntryForDate,
+  formatLocalDate,
+  formatDateHuman,
+  getAllowedDates,
+  getDateRestrictionMessage,
+  getToday,
+} from "@/lib/date-restrictions"
+import {
+  ASSIGNED_AGENTS_OPTION_SOURCE_KIND,
+  type AssignedAgentOption,
+  getAssignedAgentsDailyLimit,
+  parseAgentResponseValue,
+} from "@/lib/marketing-agents"
+import { evaluateConditionalLogic } from "@/lib/reporting-logic"
 
 interface EntryFormMultistepProps {
   date?: string
-  onSave: () => void
-  onCancel: () => void
+  departmentId: string
+  departmentName?: string
+  allowedDates?: string[]
+  initialExistingEntryId?: string | null
+  onDateChange?: (date: string) => void
+  onSave: (result?: { entryKind: string; date: string }) => void
+  onCancel: (selectedDate?: string) => void
+  stayOnAgentCallSave?: boolean
+  role?: string | null
+  initialRoleQuestions?: unknown[]
+  initialQuestionsByKind?: Record<string, unknown[]>
+  initialAvailableEntryKinds?: Array<{
+    entry_kind: string
+    label?: string
+    is_default?: boolean
+    allow_multiple_per_day?: boolean
+  }>
+  effectiveRoleName?: string | null
+  resolutionMeta?: Record<string, any>
 }
 
-export function EntryFormMultistep({ date: initialDate, onSave, onCancel }: EntryFormMultistepProps) {
-  const { entries, addEntry, updateEntry } = useCaptainLog()
-  const { questions: roleQuestions, validateResponse, processResponses } = useRBAC()
+type AssignedAgentUsageMap = Record<string, Record<string, number>>
+
+const EMPTY_FORM_DATA = {
+  objectives: "",
+  keyResults: "",
+  challenges: "",
+  developmentTasks: "",
+  featuresCompleted: "",
+  challengesAndBlockers: "",
+  codeAndPriorities: "",
+  systemImprovements: "",
+  projectUpdates: "",
+}
+
+type FormQuestion = {
+  id?: string
+  key: string
+  label: string
+  title?: string
+  type: string
+  description?: string
+  placeholder?: string
+  options?: unknown
+  category?: string
+  required: boolean
+  order: number
+  validationRules?: unknown
+  defaultValue?: unknown
+  metadata?: any
+  optionSourceKind?: string
+  maxLogsPerAgentPerDay?: number | null
+  step?: number | null
+  conditional_logic?: any | null
+}
+
+type StepKey = "date" | `question_${string}` | `question-${string}` | `step-${string}` | "preview"
+
+interface Step {
+  key: StepKey
+  title: string
+  number: number
+}
+
+interface LockedFlow {
+  entryKind: string
+  steps: Step[]
+  questions: FormQuestion[]
+}
+
+interface Draft {
+  version: number
+  schemaVersion: number
+  savedAt: string
+  entryKind: string | null
+  questionIds: string[]
+  selectedDate: string
+  departmentId: string
+  currentStep: number
+  formData: Record<string, string>
+  customResponses: Record<string, unknown>
+}
+
+function getQuestionKeyFromStepKey(stepKey: string): string | null {
+  if (stepKey.startsWith("question_")) {
+    return stepKey.slice("question_".length)
+  }
+
+  if (stepKey.startsWith("question-")) {
+    return stepKey.slice("question-".length)
+  }
+
+  return null
+}
+
+function getStepNumberFromStepKey(stepKey: string): number | null {
+  if (stepKey.startsWith("step-")) {
+    return parseInt(stepKey.slice("step-".length), 10)
+  }
+  return null
+}
+
+function findQuestionStepNumber(steps: Step[], question: Record<string, any>): number | null {
+  const stepVal = typeof question.step === "number" ? question.step : null
+  if (stepVal !== null) {
+    const stepIndex = steps.findIndex((s) => getStepNumberFromStepKey(s.key) === stepVal)
+    return stepIndex >= 0 ? steps[stepIndex].number : null
+  }
+
+  const questionKey = String(question.key)
+  const questionStepIndex = steps.findIndex((step) => getQuestionKeyFromStepKey(step.key) === questionKey)
+  return questionStepIndex >= 0 ? steps[questionStepIndex].number : null
+}
+
+function getLegacyQuestionKeyFromMetadata(metadata: unknown): string | null {
+  if (!metadata || typeof metadata !== "object") {
+    return null
+  }
+
+  const legacyQuestionKey = (metadata as { legacy_question_key?: unknown }).legacy_question_key
+  return typeof legacyQuestionKey === "string" && legacyQuestionKey.trim().length > 0 ? legacyQuestionKey : null
+}
+
+function normalizeInitialQuestion(question: unknown, index: number): FormQuestion | null {
+  if (!question || typeof question !== "object") {
+    return null
+  }
+
+  const candidate = question as Record<string, unknown>
+  const metadata = candidate.metadata
+  const id = typeof candidate.id === "string" ? candidate.id : undefined
+  const keyCandidate =
+    (typeof candidate.key === "string" && candidate.key) ||
+    (typeof candidate.question_key === "string" && candidate.question_key) ||
+    getLegacyQuestionKeyFromMetadata(metadata) ||
+    id ||
+    `question_${index + 1}`
+  const labelCandidate =
+    (typeof candidate.label === "string" && candidate.label) ||
+    (typeof candidate.question_label === "string" && candidate.question_label) ||
+    keyCandidate
+  const titleCandidate =
+    (typeof candidate.title === "string" && candidate.title) ||
+    (typeof candidate.question_title === "string" && candidate.question_title) ||
+    labelCandidate
+  const typeCandidate =
+    (typeof candidate.type === "string" && candidate.type) ||
+    (typeof candidate.question_type === "string" && candidate.question_type) ||
+    "text"
+
+  return {
+    id,
+    key: keyCandidate,
+    label: labelCandidate,
+    title: titleCandidate,
+    type: typeCandidate,
+    description:
+      (typeof candidate.description === "string" && candidate.description) ||
+      (typeof candidate.question_description === "string" && candidate.question_description) ||
+      undefined,
+    placeholder: typeof candidate.placeholder === "string" ? candidate.placeholder : undefined,
+    options: candidate.options,
+    category: typeof candidate.category === "string" ? candidate.category : undefined,
+    required:
+      typeof candidate.required === "boolean"
+        ? candidate.required
+        : typeof candidate.is_required === "boolean"
+          ? candidate.is_required
+          : false,
+    order:
+      typeof candidate.order === "number"
+        ? candidate.order
+        : typeof candidate.display_order === "number"
+          ? candidate.display_order
+          : index,
+    validationRules: candidate.validationRules ?? candidate.validation_rules,
+    defaultValue: candidate.defaultValue,
+    metadata,
+    optionSourceKind:
+      (typeof candidate.optionSourceKind === "string" && candidate.optionSourceKind) ||
+      (typeof candidate.option_source_kind === "string" && candidate.option_source_kind) ||
+      ((metadata as { option_source?: { kind?: unknown } } | null)?.option_source?.kind as string | undefined),
+    maxLogsPerAgentPerDay: getAssignedAgentsDailyLimit(metadata),
+    step: typeof candidate.step === "number" ? candidate.step : null,
+    conditional_logic: candidate.conditional_logic || null,
+  }
+}
+
+function parseAssignedAgentValues(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => {
+        if (typeof item === "string") return item.trim()
+        return parseAgentResponseValue(item)?.value ?? null
+      })
+      .filter((item): item is string => !!item)
+  }
+
+  const parsed = parseAgentResponseValue(value)
+  return parsed?.value ? [parsed.value] : []
+}
+
+function getDefaultEntryKind(
+  hasGroupedQuestions: boolean,
+  questionsByKind: Record<string, FormQuestion[]>,
+  availableEntryKinds: string[],
+  configuredEntryKinds?: Array<{ entry_kind: string; is_default?: boolean }>
+): string | null {
+  if (!hasGroupedQuestions) {
+    return "standard"
+  }
+
+  const configuredDefault = configuredEntryKinds?.find(
+    (kind) => kind.is_default && availableEntryKinds.includes(kind.entry_kind)
+  )?.entry_kind
+  if (configuredDefault) {
+    return configuredDefault
+  }
+
+  if (availableEntryKinds.length === 1) {
+    return availableEntryKinds[0]
+  }
+
+  if ((questionsByKind.standard || []).length > 0) {
+    return "standard"
+  }
+
+  return null
+}
+
+export function EntryFormMultistep({
+  date: initialDate,
+  departmentId,
+  departmentName,
+  allowedDates,
+  initialExistingEntryId,
+  onDateChange,
+  onSave,
+  onCancel,
+  stayOnAgentCallSave = false,
+  role,
+  initialRoleQuestions,
+  initialQuestionsByKind,
+  initialAvailableEntryKinds,
+  effectiveRoleName,
+  resolutionMeta,
+}: EntryFormMultistepProps) {
+  const { addEntry } = useCaptainLog()
+  const { isAuthenticated, user } = useAuth()
+  const { user: supabaseUser } = useSupabaseAuth() // Supabase authentication
+  const { validateResponse, processResponses } = useRBAC()
+  const normalizedQuestionsByKind = useMemo<Record<string, FormQuestion[]>>(() => {
+    if (!initialQuestionsByKind) {
+      return {}
+    }
+
+    return Object.fromEntries(
+      Object.entries(initialQuestionsByKind).map(([kind, questions]) => [
+        kind,
+        Array.isArray(questions)
+          ? questions
+              .map((question, index) => normalizeInitialQuestion(question, index))
+              .filter((question): question is FormQuestion => question !== null)
+              .sort((a, b) => a.order - b.order)
+          : [],
+      ])
+    )
+  }, [initialQuestionsByKind])
+  const [questionsByKind] = useState<Record<string, FormQuestion[]>>(() => normalizedQuestionsByKind)
+  const availableEntryKinds = useMemo(() => {
+    return Object.keys(questionsByKind).filter((kind) => (questionsByKind[kind] || []).length > 0)
+  }, [questionsByKind])
+  const defaultEntryKind = useMemo(() => {
+    return getDefaultEntryKind(
+      !!initialQuestionsByKind,
+      questionsByKind,
+      availableEntryKinds,
+      initialAvailableEntryKinds
+    )
+  }, [availableEntryKinds, initialAvailableEntryKinds, initialQuestionsByKind, questionsByKind])
+  const [entryKind, setEntryKind] = useState<string | null>(() => defaultEntryKind)
+  const requiresEntryKindSelection = initialQuestionsByKind && availableEntryKinds.length > 1
+  const showEntryKindSelector = !!initialQuestionsByKind
+
+  // Filter questions client-side based on selected entryKind (from grouped data)
+  const filteredRoleQuestions = useMemo(() => {
+    if (!entryKind) return []
+    return questionsByKind[entryKind] || []
+  }, [entryKind, questionsByKind])
+
+  // Keep useRoleQuestions for fallback if no initialQuestionsByKind
+  const { questions: fetchedQuestions, isLoading: isRoleQuestionsLoading } = useRoleQuestions(
+    !initialQuestionsByKind ? (initialRoleQuestions as RoleQuestion[] | undefined) : undefined,
+    departmentId,
+    entryKind || undefined,
+    role
+  )
+
+  // Use fetched questions if no initial data
+  const effectiveRoleQuestions = initialQuestionsByKind ? filteredRoleQuestions : fetchedQuestions
+  const effectiveIsLoading = initialQuestionsByKind ? false : isRoleQuestionsLoading
+  const effectiveRoleQuestionsRef = useRef(effectiveRoleQuestions)
+  const quickPickDates = useMemo(() => {
+    if (Array.isArray(allowedDates) && allowedDates.length > 0) {
+      return allowedDates
+    }
+    return getAllowedDates()
+  }, [allowedDates])
+  const effectiveRoleQuestionsSignature = useMemo(() => {
+    return effectiveRoleQuestions
+      .map((q) => {
+        if (!q || typeof q !== "object") return ""
+        const key = (q as { key?: unknown }).key
+        const type = (q as { type?: unknown }).type
+        const required = (q as { required?: unknown }).required
+        const defaultValue = (q as { defaultValue?: unknown }).defaultValue
+        const step = (q as { step?: unknown }).step
+        const logic = (q as { conditional_logic?: unknown }).conditional_logic
+        return `${String(key ?? "")}:${String(type ?? "")}:${String(!!required)}:${String(defaultValue ?? "")}:${String(step ?? "")}:${String(!!logic)}`
+      })
+      .join("|")
+  }, [effectiveRoleQuestions])
+  const normalizedDepartmentName = departmentName?.trim() || "Department"
+  const hasVisibleQuestions = effectiveRoleQuestions.length > 0
+  const assignedAgentQuestions = useMemo(
+    () =>
+      effectiveRoleQuestions.filter(
+        (question) => (question as FormQuestion).optionSourceKind === ASSIGNED_AGENTS_OPTION_SOURCE_KIND
+      ) as FormQuestion[],
+    [effectiveRoleQuestions]
+  )
+  const assignedAgentsQuestion = assignedAgentQuestions[0]
+  const primaryAssignedAgentQuestion = useMemo(
+    () => assignedAgentQuestions.find((question) => question.type === "select"),
+    [assignedAgentQuestions]
+  )
+  const hasAssignedAgentsQuestion = !!assignedAgentsQuestion
+  const hasDepartmentReportQuestions = useMemo(
+    () => effectiveRoleQuestions.some((question) => (question as FormQuestion).category === "department_report"),
+    [effectiveRoleQuestions]
+  )
+  const departmentReportQuestions = useMemo(
+    () =>
+      effectiveRoleQuestions.filter(
+        (question) => (question as FormQuestion).category === "department_report"
+      ) as FormQuestion[],
+    [effectiveRoleQuestions]
+  )
+  const professionQuestions = useMemo(
+    () =>
+      effectiveRoleQuestions.filter(
+        (question) => (question as FormQuestion).category !== "department_report"
+      ) as FormQuestion[],
+    [effectiveRoleQuestions]
+  )
+
+  useEffect(() => {
+    effectiveRoleQuestionsRef.current = effectiveRoleQuestions
+  }, [effectiveRoleQuestions])
+
   const [currentStep, setCurrentStep] = useState(1)
   const [isSubmitting, setIsSubmitting] = useState(false)
-  const [selectedDate, setSelectedDate] = useState<string>(initialDate || new Date().toISOString().split("T")[0])
-  
-  const [formData, setFormData] = useState({
-    // Step 1: Objectives
-    objectives: "",
-    
-    // Step 2: Key Results
-    keyResults: "",
-    
-    // Step 3: Challenges
-    challenges: "",
-    
-    // Legacy fields (for backward compatibility)
-    developmentTasks: "",
-    featuresCompleted: "",
-    challengesAndBlockers: "",
-    codeAndPriorities: "",
-    systemImprovements: "",
-    projectUpdates: "",
+  const [lockedFlow, setLockedFlow] = useState<LockedFlow | null>(null)
+  const [selectedDate, setSelectedDate] = useState<string>(() => {
+    if (initialDate && canCreateEntryForDate(initialDate).isValid) {
+      return initialDate
+    }
+    return getToday()
   })
-  const [customResponses, setCustomResponses] = useState<Record<string, any>>({})
+  const [isDatePickerOpen, setIsDatePickerOpen] = useState(false)
+
+  useEffect(() => {
+    if (initialDate && canCreateEntryForDate(initialDate).isValid) {
+      setSelectedDate((currentDate) => (currentDate === initialDate ? currentDate : initialDate))
+    }
+  }, [initialDate])
+
+  const [formData, setFormData] = useState({
+    ...EMPTY_FORM_DATA,
+  })
+  const [customResponses, setCustomResponses] = useState<Record<string, unknown>>({})
   const [customErrors, setCustomErrors] = useState<Record<string, string>>({})
+  const [pendingUploadQuestions, setPendingUploadQuestions] = useState<Record<string, boolean>>({})
+  const [dateError, setDateError] = useState<string | null>(null)
+  const [liveMessage, setLiveMessage] = useState("")
+  const [draftSavedAt, setDraftSavedAt] = useState<string | null>(null)
+  const [assignedAgents, setAssignedAgents] = useState<AssignedAgentOption[]>([])
+  const [assignedAgentUsageByQuestion, setAssignedAgentUsageByQuestion] = useState<AssignedAgentUsageMap>({})
+  const [isAssignedAgentsLoading, setIsAssignedAgentsLoading] = useState(false)
+  const [assignedAgentsError, setAssignedAgentsError] = useState<string | null>(null)
+  const [assignedAgentsSearch, setAssignedAgentsSearch] = useState("")
+  const [assignedAgentsReloadKey, setAssignedAgentsReloadKey] = useState(0)
+  const [isEntryAvailabilityLoading, setIsEntryAvailabilityLoading] = useState(false)
+  const [entryAvailabilityError, setEntryAvailabilityError] = useState<string | null>(null)
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
+  const [wasDraftRestored, setWasDraftRestored] = useState(false)
+  const [agentCallSuccessMessage, setAgentCallSuccessMessage] = useState<string | null>(null)
+  const [existingEntryId, setExistingEntryId] = useState<string | null>(initialExistingEntryId ?? null)
+  const [allowMultiplePerDay, setAllowMultiplePerDay] = useState(false)
+
+  const handleEntryKindChange = useCallback((nextEntryKind: string | null) => {
+    setEntryKind((currentEntryKind) => {
+      const normalizedNextEntryKind = nextEntryKind || null
+      if (currentEntryKind === normalizedNextEntryKind) {
+        return currentEntryKind
+      }
+
+      setLockedFlow(null)
+      setCurrentStep(1)
+      setCustomErrors({})
+      setAgentCallSuccessMessage(null)
+      setHasUnsavedChanges(false)
+      return normalizedNextEntryKind
+    })
+  }, [])
+
+  const selectedDateAsDate = useMemo(() => {
+    const d = new Date(selectedDate + "T00:00:00")
+    return Number.isNaN(d.getTime()) ? undefined : d
+  }, [selectedDate])
+
+  const isSelectedDateLockedForEdits = useMemo(() => {
+    return !canCreateEntryForDate(selectedDate).isValid
+  }, [selectedDate])
+
+  const userIdForDraft = useMemo(() => {
+    const userWithId = user as unknown as { id?: unknown; email?: unknown }
+    const id = typeof userWithId?.id === "string" ? userWithId.id : null
+    const email = typeof userWithId?.email === "string" ? userWithId.email : null
+    return supabaseUser?.id || id || email || "anon"
+  }, [supabaseUser?.id, user])
+
+  const draftKeyPrefix = useMemo(() => {
+    return `dailyLogDraft:v1:${userIdForDraft}:${departmentId}:`
+  }, [departmentId, userIdForDraft])
+
+  const draftKeyForDate = useCallback(
+    (date: string) => {
+      return `${draftKeyPrefix}${date}`
+    },
+    [draftKeyPrefix]
+  )
+
+  const markAsChanged = useCallback(() => {
+    setHasUnsavedChanges(true)
+    setAgentCallSuccessMessage(null)
+  }, [])
+
+  const handleDateSelection = useCallback(
+    (newDate: string) => {
+      if (newDate === selectedDate) {
+        return
+      }
+
+      // Check if there are any answers that would be lost
+      const hasAnswers = Object.entries(customResponses).some(([key, value]) => {
+        // Skip empty/default values
+        if (value === "" || value === null || value === undefined) return false
+        if (Array.isArray(value) && value.length === 0) return false
+        if (typeof value === "boolean" && !value) return false
+        return true
+      })
+
+      // Show confirmation if there are unsaved answers
+      if (hasAnswers) {
+        const confirmed = window.confirm("Changing the date will clear your current responses. Continue?")
+        if (!confirmed) {
+          return
+        }
+        // Clear the old draft when changing dates (fix draft key bug)
+        try {
+          window.localStorage.removeItem(draftKeyForDate(selectedDate))
+        } catch {
+          // ignore
+        }
+      }
+
+      setSelectedDate(newDate)
+      setAssignedAgentsSearch("")
+      markAsChanged()
+      onDateChange?.(newDate)
+
+      const validation = canCreateEntryForDate(newDate)
+      setDateError(validation.isValid ? null : validation.error || "Invalid date")
+    },
+    [markAsChanged, onDateChange, selectedDate, customResponses, draftKeyForDate]
+  )
+
+  const effectiveRoleQuestionsSchema = useMemo(() => {
+    const shape: Record<string, z.ZodTypeAny> = {}
+    effectiveRoleQuestions.forEach((q) => {
+      const question = q as unknown as {
+        key?: unknown
+        label?: unknown
+        required?: unknown
+        type?: unknown
+        options?: unknown
+      }
+      const key = typeof question.key === "string" ? question.key : null
+      const label = typeof question.label === "string" ? question.label : "Field"
+      const required = !!question.required
+      const type = typeof question.type === "string" ? question.type : "text"
+      const hasCheckboxOptions = type === "checkbox" && Array.isArray(question.options) && question.options.length > 0
+
+      if (!key) return
+
+      if (!required) {
+        shape[key] = z.unknown().optional()
+        return
+      }
+
+      shape[key] = z.unknown().refine(
+        (value) => {
+          if (type === "checkbox") {
+            return hasCheckboxOptions ? Array.isArray(value) && value.length > 0 : value === true
+          }
+          if (Array.isArray(value)) {
+            return value.length > 0
+          }
+          if (typeof value === "string") {
+            return value.trim().length > 0
+          }
+          if (typeof value === "number") {
+            return !Number.isNaN(value)
+          }
+          return value !== null && value !== undefined
+        },
+        { message: `${label} is required` }
+      )
+    })
+    return z.object(shape)
+  }, [effectiveRoleQuestions])
+
+  const getZodErrors = useCallback(
+    (responses: Record<string, unknown>) => {
+      const result = effectiveRoleQuestionsSchema.safeParse(responses)
+      if (result.success) return {}
+
+      const errors: Record<string, string> = {}
+      result.error.issues.forEach((issue) => {
+        const key = issue.path[0]
+        if (typeof key === "string" && !errors[key]) {
+          errors[key] = issue.message
+        }
+      })
+      return errors
+    },
+    [effectiveRoleQuestionsSchema]
+  )
+
+  const draftSavedLabel = useMemo(() => {
+    if (!draftSavedAt) return null
+    const d = new Date(draftSavedAt)
+    if (Number.isNaN(d.getTime())) return "Saved"
+    return `Saved ${d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+  }, [draftSavedAt])
+
+  const reportedAssignedAgentsCount = useMemo(
+    () => assignedAgents.filter((agent) => agent.alreadyReported).length,
+    [assignedAgents]
+  )
+  const availableAssignedAgents = useMemo(
+    () => assignedAgents.filter((agent) => !agent.alreadyReported),
+    [assignedAgents]
+  )
+  const assignedAgentQuestionKey = primaryAssignedAgentQuestion?.key
+  const selectedAssignedAgentResponse = assignedAgentQuestionKey
+    ? customResponses[String(assignedAgentQuestionKey)]
+    : undefined
+  const selectedAssignedAgentIds = useMemo(() => {
+    return parseAssignedAgentValues(selectedAssignedAgentResponse)
+  }, [selectedAssignedAgentResponse])
+  const selectedAssignedAgentId = useMemo(() => {
+    return selectedAssignedAgentIds[0] ?? null
+  }, [selectedAssignedAgentIds])
+  const selectedAssignedAgent = useMemo(
+    () => assignedAgents.find((agent) => agent.id === selectedAssignedAgentId) ?? null,
+    [assignedAgents, selectedAssignedAgentId]
+  )
+  const getAssignedAgentUsageCount = useCallback(
+    (questionKey: string, agentId: string) => assignedAgentUsageByQuestion[questionKey]?.[agentId] || 0,
+    [assignedAgentUsageByQuestion]
+  )
+  const getQuestionAvailableAgents = useCallback(
+    (question: FormQuestion | undefined, selectedIds: string[] = []) => {
+      if (!question) return availableAssignedAgents
+      const questionKey = String(question.key)
+      const limit = typeof question.maxLogsPerAgentPerDay === "number" ? question.maxLogsPerAgentPerDay : null
+
+      return availableAssignedAgents.filter((agent) => {
+        if (selectedIds.includes(agent.id)) return true
+        if (limit === null) return true
+        return getAssignedAgentUsageCount(questionKey, agent.id) < limit
+      })
+    },
+    [availableAssignedAgents, getAssignedAgentUsageCount]
+  )
+  const getAssignedAgentLimitReachedMessage = useCallback((question: FormQuestion | undefined) => {
+    if (!question) return "No assigned agents are available for this field."
+    const limit = typeof question.maxLogsPerAgentPerDay === "number" ? question.maxLogsPerAgentPerDay : null
+    if (limit === null) {
+      return "No agents are assigned to you yet."
+    }
+    return `All assigned agents have reached this field's daily limit of ${limit}.`
+  }, [])
+  const existingStandardEntryHref = existingEntryId ? `/reports/${existingEntryId}` : null
+  const hasStandardEntryConflict = !allowMultiplePerDay && !!entryKind && !!existingEntryId
+
+  useEffect(() => {
+    setExistingEntryId((currentValue) => {
+      const nextValue = initialExistingEntryId ?? null
+      return currentValue === nextValue ? currentValue : nextValue
+    })
+  }, [initialExistingEntryId])
+
+  useEffect(() => {
+    if (!hasAssignedAgentsQuestion) {
+      setAssignedAgents([])
+      setAssignedAgentUsageByQuestion({})
+      setAssignedAgentsError(null)
+      setIsAssignedAgentsLoading(false)
+      setAssignedAgentsSearch("")
+      return
+    }
+
+    const dateValidation = canCreateEntryForDate(selectedDate)
+    if (!dateValidation.isValid) {
+      setAssignedAgents([])
+      setAssignedAgentUsageByQuestion({})
+      setAssignedAgentsError(dateValidation.error || "Assigned agents are unavailable for this date")
+      setIsAssignedAgentsLoading(false)
+      return
+    }
+
+    const controller = new AbortController()
+    const loadAssignedAgents = async () => {
+      try {
+        setIsAssignedAgentsLoading(true)
+        setAssignedAgentsError(null)
+
+        const response = await fetch(
+          `/api/reporting/assigned-agents?departmentId=${encodeURIComponent(departmentId)}&date=${encodeURIComponent(selectedDate)}&entryKind=${encodeURIComponent(entryKind || "standard")}${assignedAgentQuestions.map((question) => `&questionKey=${encodeURIComponent(String(question.key))}`).join("")}`,
+          {
+            cache: "no-store",
+            signal: controller.signal,
+          }
+        )
+        const payload = await response.json().catch(() => ({}))
+
+        if (!response.ok) {
+          throw new Error(
+            typeof payload?.error === "string"
+              ? payload.error
+              : `Failed to load assigned agents (HTTP ${response.status})`
+          )
+        }
+
+        const nextAgents = Array.isArray(payload?.data) ? (payload.data as AssignedAgentOption[]) : []
+        setAssignedAgents(nextAgents)
+        setAssignedAgentUsageByQuestion(
+          payload?.usageByQuestion && typeof payload.usageByQuestion === "object"
+            ? (payload.usageByQuestion as AssignedAgentUsageMap)
+            : {}
+        )
+      } catch (error) {
+        if ((error as Error).name === "AbortError") {
+          return
+        }
+
+        console.error("Failed to load assigned agents:", error)
+        setAssignedAgents([])
+        setAssignedAgentUsageByQuestion({})
+        setAssignedAgentsError(error instanceof Error ? error.message : "Failed to load assigned agents")
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsAssignedAgentsLoading(false)
+        }
+      }
+    }
+
+    void loadAssignedAgents()
+
+    return () => {
+      controller.abort()
+    }
+  }, [
+    assignedAgentQuestions,
+    assignedAgentsReloadKey,
+    departmentId,
+    entryKind,
+    hasAssignedAgentsQuestion,
+    selectedDate,
+  ])
+
+  useEffect(() => {
+    const dateValidation = canCreateEntryForDate(selectedDate)
+    if (!dateValidation.isValid) {
+      setExistingEntryId(null)
+      setAllowMultiplePerDay(false)
+      setEntryAvailabilityError(dateValidation.error || "Report availability is unavailable for this date")
+      setIsEntryAvailabilityLoading(false)
+      return
+    }
+
+    const controller = new AbortController()
+
+    const loadEntryAvailability = async () => {
+      try {
+        setIsEntryAvailabilityLoading(true)
+        setEntryAvailabilityError(null)
+
+        const response = await fetch(
+          `/api/reporting/entry-availability?departmentId=${encodeURIComponent(departmentId)}&date=${encodeURIComponent(selectedDate)}&entryKind=${encodeURIComponent(entryKind || "standard")}${role ? `&role=${encodeURIComponent(role)}` : ""}`,
+          {
+            cache: "no-store",
+            signal: controller.signal,
+          }
+        )
+        const payload = await response.json().catch(() => ({}))
+
+        if (!response.ok) {
+          throw new Error(
+            typeof payload?.error === "string"
+              ? payload.error
+              : `Failed to check report availability (HTTP ${response.status})`
+          )
+        }
+
+        setExistingEntryId(typeof payload?.data?.existingEntryId === "string" ? payload.data.existingEntryId : null)
+        setAllowMultiplePerDay(payload?.data?.allowMultiplePerDay === true)
+      } catch (error) {
+        if ((error as Error).name === "AbortError") {
+          return
+        }
+
+        console.error("Failed to load entry availability:", error)
+        setExistingEntryId(null)
+        setAllowMultiplePerDay(false)
+        setEntryAvailabilityError(error instanceof Error ? error.message : "Failed to check report availability")
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsEntryAvailabilityLoading(false)
+        }
+      }
+    }
+
+    void loadEntryAvailability()
+
+    return () => {
+      controller.abort()
+    }
+  }, [departmentId, entryKind, role, selectedDate])
+
+  useEffect(() => {
+    if (assignedAgentQuestions.length === 0 || isAssignedAgentsLoading || assignedAgentsError) {
+      return
+    }
+
+    let didTrimSelection = false
+
+    setCustomResponses((prev) => {
+      let nextState = prev
+
+      assignedAgentQuestions.forEach((question) => {
+        const questionKey = String(question.key)
+        const selectedValues = parseAssignedAgentValues(prev[questionKey])
+        if (selectedValues.length === 0) {
+          return
+        }
+
+        const availableAgentsForQuestion = getQuestionAvailableAgents(question, selectedValues)
+        const nextValues = selectedValues.filter((value) =>
+          availableAgentsForQuestion.some((agent) => agent.id === value)
+        )
+        if (nextValues.length === selectedValues.length) {
+          return
+        }
+
+        didTrimSelection = true
+        nextState = {
+          ...nextState,
+          [questionKey]: question.type === "multiselect" ? nextValues : nextValues[0] ? { value: nextValues[0] } : "",
+        }
+      })
+
+      return nextState
+    })
+
+    if (didTrimSelection) {
+      setCustomErrors((prev) => {
+        const nextErrors = { ...prev }
+        assignedAgentQuestions.forEach((question) => {
+          nextErrors[String(question.key)] = ""
+        })
+        return nextErrors
+      })
+      setLiveMessage("Selected agent is no longer available for this date")
+    }
+  }, [
+    assignedAgentQuestions,
+    assignedAgentsError,
+    getQuestionAvailableAgents,
+    customResponses,
+    isAssignedAgentsLoading,
+  ])
+
+  const getAssignedAgentValidationError = useCallback(
+    (question: FormQuestion | undefined, value: unknown) => {
+      if (!question || question.optionSourceKind !== ASSIGNED_AGENTS_OPTION_SOURCE_KIND) {
+        return null
+      }
+
+      if (isAssignedAgentsLoading) {
+        return "Assigned agents are still loading"
+      }
+
+      if (assignedAgentsError) {
+        return assignedAgentsError
+      }
+
+      if (assignedAgents.length === 0) {
+        return "No agents are assigned to you yet."
+      }
+
+      const availableAgentsForQuestion = getQuestionAvailableAgents(question)
+      if (availableAgentsForQuestion.length === 0) {
+        return getAssignedAgentLimitReachedMessage(question)
+      }
+
+      const selectedValues = parseAssignedAgentValues(value)
+      if (selectedValues.length === 0) {
+        return question.required ? `${question.label} is required` : null
+      }
+
+      const invalidSelection = selectedValues.find((selectedValue) => {
+        return !assignedAgents.some((agent) => agent.id === selectedValue)
+      })
+      if (invalidSelection) {
+        return "Select a valid assigned agent"
+      }
+
+      const limitReachedSelection = selectedValues.find((selectedValue) => {
+        const limit = typeof question.maxLogsPerAgentPerDay === "number" ? question.maxLogsPerAgentPerDay : null
+        if (limit === null) return false
+        const usageCount = getAssignedAgentUsageCount(String(question.key), selectedValue)
+        return usageCount >= limit
+      })
+      if (limitReachedSelection) {
+        const limit = question.maxLogsPerAgentPerDay
+        return `This agent has reached the daily limit${typeof limit === "number" ? ` of ${limit}` : ""} for this field.`
+      }
+
+      return null
+    },
+    [
+      assignedAgents,
+      assignedAgentsError,
+      getAssignedAgentLimitReachedMessage,
+      getAssignedAgentUsageCount,
+      getQuestionAvailableAgents,
+      isAssignedAgentsLoading,
+    ]
+  )
 
   const buildInitialCustomResponses = useCallback((existingResponses?: QuestionResponse[]) => {
-    const responseMap: Record<string, any> = {}
+    const responseMap: Record<string, unknown> = {}
 
-    roleQuestions.forEach((question) => {
-      const existing = existingResponses?.find((response) => response.questionKey === question.key)
+    effectiveRoleQuestionsRef.current.forEach((question) => {
+      const q = question as Record<string, unknown>
+      const existing = existingResponses?.find(
+        (response) => response.questionId === q.id || response.questionKey === q.key
+      )
 
       if (existing) {
-        responseMap[question.key] = existing.value
-      } else if (question.defaultValue !== undefined) {
-        responseMap[question.key] = question.defaultValue
-      } else if (question.type === "multiselect") {
-        responseMap[question.key] = []
-      } else if (question.type === "checkbox") {
-        responseMap[question.key] = false
+        responseMap[String(q.key)] = existing.value
+      } else if (q.defaultValue !== undefined) {
+        responseMap[String(q.key)] = q.defaultValue
+      } else if (q.type === "multiselect") {
+        responseMap[String(q.key)] = []
+      } else if (q.type === "checkbox") {
+        responseMap[String(q.key)] = false
       } else {
-        responseMap[question.key] = ""
+        responseMap[String(q.key)] = ""
       }
     })
 
     return responseMap
-  }, [roleQuestions])
+  }, [])
 
-  // Load existing entry if it exists, otherwise reset form
+  // Validate draft before restore - check schemaVersion, entryKind, questionIds
+  const validateDraft = useCallback(
+    (draft: Draft | null, currentEntryKind: string | null): boolean => {
+      if (!draft) return false
+
+      // Check schema version
+      if (draft.schemaVersion !== 1) {
+        console.warn("Draft schema version mismatch, ignoring draft")
+        return false
+      }
+
+      // Check entryKind matches
+      if (draft.entryKind !== currentEntryKind) {
+        console.warn(`Draft entryKind mismatch: ${draft.entryKind} vs ${currentEntryKind}, ignoring draft`)
+        return false
+      }
+
+      // Check all questionIds exist in current questions
+      const currentQuestionIds = new Set(
+        effectiveRoleQuestions
+          .map((q) => {
+            const typedQ = q as { id?: string; key?: string }
+            return typedQ.id || typedQ.key || ""
+          })
+          .filter(Boolean)
+      )
+
+      const missingQuestions = draft.questionIds.filter((id) => !currentQuestionIds.has(id))
+      if (missingQuestions.length > 0) {
+        console.warn(`Draft contains questions that no longer exist: ${missingQuestions.join(", ")}, ignoring draft`)
+        return false
+      }
+
+      return true
+    },
+    [effectiveRoleQuestions]
+  )
+
+  // Initialize create-only form state for the selected date, optionally merged with a local draft.
   useEffect(() => {
-    const existingEntry = entries.find(entry => entry.date === selectedDate)
+    if (!entryKind && defaultEntryKind) {
+      setEntryKind(defaultEntryKind)
+    }
+  }, [defaultEntryKind, entryKind])
 
-    if (existingEntry) {
-      setFormData({
-        objectives: (existingEntry as any).objectives || "",
-        keyResults: (existingEntry as any).keyResults || "",
-        challenges: (existingEntry as any).challenges || "",
-        developmentTasks: existingEntry.developmentTasks || "",
-        featuresCompleted: existingEntry.featuresCompleted || "",
-        challengesAndBlockers: existingEntry.challengesAndBlockers || "",
-        codeAndPriorities: existingEntry.codeAndPriorities || "",
-        systemImprovements: existingEntry.systemImprovements || "",
-        projectUpdates: existingEntry.projectUpdates || "",
-      })
-      setCustomResponses(buildInitialCustomResponses(existingEntry.customResponses))
-    } else {
-      setFormData({
-        objectives: "",
-        keyResults: "",
-        challenges: "",
-        developmentTasks: "",
-        featuresCompleted: "",
-        challengesAndBlockers: "",
-        codeAndPriorities: "",
-        systemImprovements: "",
-        projectUpdates: "",
-      })
-      setCustomResponses(buildInitialCustomResponses())
-      setCurrentStep(1)
+  // Initialize create-only form state for the selected date, optionally merged with a local draft.
+  useEffect(() => {
+    let draft: unknown = null
+    if (typeof window !== "undefined") {
+      try {
+        const raw = window.localStorage.getItem(draftKeyForDate(selectedDate))
+        if (raw) {
+          draft = JSON.parse(raw) as unknown
+        }
+      } catch {
+        draft = null
+      }
     }
 
+    const typedDraft = draft as Draft | null
+
+    // Validate draft before restoring
+    const isDraftValid = validateDraft(typedDraft, entryKind)
+
+    const hasDraft = isDraftValid && typedDraft !== null
+
+    if (hasDraft && typeof typedDraft?.savedAt === "string") {
+      setDraftSavedAt(typedDraft.savedAt)
+    } else {
+      setDraftSavedAt(null)
+    }
+    setWasDraftRestored(hasDraft)
+
+    const baseFormData = {
+      ...EMPTY_FORM_DATA,
+    }
+    const baseResponses = buildInitialCustomResponses()
+    const maxStep = effectiveRoleQuestionsRef.current.length + 2
+    const draftStep =
+      hasDraft && typedDraft?.currentStep && typeof typedDraft.currentStep === "number" ? typedDraft.currentStep : 1
+    setCurrentStep(draftStep)
+
+    const mergedFormData =
+      hasDraft && typedDraft?.formData && typeof typedDraft.formData === "object"
+        ? { ...baseFormData, ...(typedDraft.formData as Record<string, unknown>) }
+        : baseFormData
+    const mergedResponses =
+      hasDraft && typedDraft?.customResponses && typeof typedDraft.customResponses === "object"
+        ? { ...baseResponses, ...(typedDraft.customResponses as Record<string, unknown>) }
+        : baseResponses
+
+    setFormData(mergedFormData as typeof formData)
+    setCustomResponses(mergedResponses as Record<string, unknown>)
+    setCurrentStep(draftStep)
     setCustomErrors({})
-  }, [selectedDate, entries, buildInitialCustomResponses])
+    setHasUnsavedChanges(false)
+    setAgentCallSuccessMessage(null)
+  }, [
+    selectedDate,
+    buildInitialCustomResponses,
+    draftKeyForDate,
+    effectiveRoleQuestionsSignature,
+    entryKind,
+    availableEntryKinds,
+    validateDraft,
+  ])
+
+  useEffect(() => {
+    const handle = window.setTimeout(() => {
+      const errors = getZodErrors(customResponses)
+      effectiveRoleQuestions.forEach((question) => {
+        const typedQuestion = question as FormQuestion
+        const agentError = getAssignedAgentValidationError(typedQuestion, customResponses[String(typedQuestion.key)])
+        if (agentError) {
+          errors[String(typedQuestion.key)] = agentError
+        }
+      })
+      setCustomErrors(errors)
+
+      if (Object.keys(errors).length > 0) {
+        setLiveMessage("Please fix the highlighted fields")
+      }
+    }, 300)
+
+    return () => window.clearTimeout(handle)
+  }, [customResponses, getAssignedAgentValidationError, getZodErrors, effectiveRoleQuestions])
+
+  useEffect(() => {
+    if (typeof window === "undefined") return
+    if (!hasUnsavedChanges) return
+
+    const interval = window.setInterval(() => {
+      try {
+        // Build questionIds from current questions (use activeQuestions if lockedFlow available)
+        const currentQuestions = lockedFlow?.questions ?? effectiveRoleQuestions
+        const questionIds = currentQuestions
+          .map((q) => {
+            const typedQ = q as { id?: string; key?: string }
+            return typedQ.id || typedQ.key || ""
+          })
+          .filter(Boolean)
+
+        const payload: Draft = {
+          version: 1,
+          schemaVersion: 1,
+          savedAt: new Date().toISOString(),
+          entryKind: lockedFlow?.entryKind ?? entryKind,
+          questionIds,
+          selectedDate,
+          departmentId,
+          currentStep,
+          formData,
+          customResponses,
+        }
+        window.localStorage.setItem(draftKeyForDate(selectedDate), JSON.stringify(payload))
+        setDraftSavedAt(payload.savedAt)
+        setHasUnsavedChanges(false)
+      } catch {
+        // ignore
+      }
+    }, 5000)
+
+    return () => window.clearInterval(interval)
+  }, [
+    currentStep,
+    customResponses,
+    departmentId,
+    draftKeyForDate,
+    effectiveRoleQuestions,
+    entryKind,
+    formData,
+    hasUnsavedChanges,
+    lockedFlow,
+    selectedDate,
+  ])
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !hasUnsavedChanges) return
+
+    const message = "You have unsaved changes. Leave this page?"
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault()
+      event.returnValue = message
+      return message
+    }
+
+    const handleDocumentClick = (event: MouseEvent) => {
+      const target = event.target as Element | null
+      const anchor = target?.closest("a[href]") as HTMLAnchorElement | null
+      if (!anchor) return
+      if (anchor.target === "_blank" || anchor.hasAttribute("download")) return
+
+      const href = anchor.getAttribute("href")
+      if (!href || href.startsWith("#") || href.startsWith("javascript:")) return
+
+      const nextUrl = new URL(anchor.href, window.location.href)
+      const currentUrl = new URL(window.location.href)
+      if (
+        nextUrl.origin === currentUrl.origin &&
+        nextUrl.pathname === currentUrl.pathname &&
+        nextUrl.search === currentUrl.search &&
+        nextUrl.hash === currentUrl.hash
+      ) {
+        return
+      }
+
+      if (!window.confirm(message)) {
+        event.preventDefault()
+        event.stopPropagation()
+      }
+    }
+
+    window.addEventListener("beforeunload", handleBeforeUnload)
+    document.addEventListener("click", handleDocumentClick, true)
+
+    return () => {
+      window.removeEventListener("beforeunload", handleBeforeUnload)
+      document.removeEventListener("click", handleDocumentClick, true)
+    }
+  }, [hasUnsavedChanges])
+
+  // Lock the flow when entryKind is first set and we have questions
+  useEffect(() => {
+    if (!entryKind || lockedFlow) return
+    if (effectiveRoleQuestions.length === 0) return
+
+    // If the question set uses step grouping or conditional logic, the flow must remain dynamic
+    // so step-level grouping + visibility can update correctly.
+    const hasDynamicStepsOrLogic = effectiveRoleQuestions.some((question) => {
+      if (!question || typeof question !== "object") return false
+      const q = question as { step?: unknown; conditional_logic?: unknown }
+      return typeof q.step === "number" || !!q.conditional_logic
+    })
+
+    if (hasDynamicStepsOrLogic) {
+      return
+    }
+
+    // Build locked steps with proper StepKey type
+    const lockedSteps: Step[] = [{ key: "date", title: "Select Date", number: 1 }]
+
+    effectiveRoleQuestions.forEach((question, index) => {
+      const q = question as Record<string, unknown>
+      const key = String(q.key || `q${index}`)
+      const title = String(q.title || q.label || `Question ${index + 1}`)
+      lockedSteps.push({
+        key: `question_${key}` as StepKey,
+        title,
+        number: index + 2,
+      })
+    })
+
+    lockedSteps.push({ key: "preview", title: "Preview & Submit", number: lockedSteps.length + 1 })
+
+    setLockedFlow({
+      entryKind,
+      steps: lockedSteps,
+      questions: effectiveRoleQuestions as FormQuestion[],
+    })
+  }, [entryKind, effectiveRoleQuestions, lockedFlow])
+
+  // Derive flowEntryKind from lockedFlow for change detection (unused for now - future use for entryKind change warnings)
+  const flowEntryKind = lockedFlow?.entryKind ?? null
+
+  // Use lockedFlow questions when available, otherwise fall back to dynamic
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  const activeQuestions = useMemo(
+    () => lockedFlow?.questions ?? (effectiveRoleQuestions as FormQuestion[]),
+    [lockedFlow?.questions, effectiveRoleQuestions]
+  )
+
+  // Steps: Date -> each role question -> Preview (use lockedFlow if available)
+  const steps = useMemo(() => {
+    if (lockedFlow?.steps) {
+      return lockedFlow.steps
+    }
+
+    const stepsList: { key: string; title: string }[] = [{ key: "date", title: "Select Date" }]
+
+    // Group questions by step
+    const groupedQuestions = new Map<number, FormQuestion[]>()
+    const nonGroupedQuestions: FormQuestion[] = []
+
+    effectiveRoleQuestions.forEach((q: any) => {
+      const stepVal = typeof q.step === "number" ? q.step : null
+      if (stepVal !== null) {
+        if (!groupedQuestions.has(stepVal)) {
+          groupedQuestions.set(stepVal, [])
+        }
+        groupedQuestions.get(stepVal)!.push(q)
+      } else {
+        nonGroupedQuestions.push(q)
+      }
+    })
+
+    // Sort steps numerically
+    const sortedSteps = Array.from(groupedQuestions.keys()).sort((a, b) => a - b)
+
+    sortedSteps.forEach((stepVal) => {
+      const group = groupedQuestions.get(stepVal)!
+      const firstQ = group[0] as Record<string, any>
+      // Section label from metadata or fall back to first question label
+      const sectionLabel = (firstQ.metadata as any)?.section_label || firstQ.title || firstQ.label || `Step ${stepVal}`
+
+      stepsList.push({
+        key: `step-${stepVal}`,
+        title: sectionLabel,
+      })
+    })
+
+    // Add remaining questions that don't have a specific step (legacy behavior)
+    nonGroupedQuestions.forEach((q, index) => {
+      const title = String(q.title || q.label || `Question ${index + 1}`)
+      stepsList.push({
+        key: `question-${q.key}`,
+        title,
+      })
+    })
+
+    stepsList.push({ key: "preview", title: "Preview & Submit" })
+
+    return stepsList.map(
+      (step, index) =>
+        ({
+          ...step,
+          number: index + 1,
+        }) as Step
+    )
+  }, [lockedFlow?.steps, effectiveRoleQuestions])
 
   useEffect(() => {
     if (currentStep > steps.length) {
@@ -109,134 +1284,583 @@ export function EntryFormMultistep({ date: initialDate, onSave, onCancel }: Entr
     }
   }, [steps, currentStep])
 
-  // Character limits for form fields
-  const CHARACTER_LIMITS = {
-    objectives: 500,
-    keyResults: 1000,
-    challenges: 750,
-  } as const
+  const handleCustomResponseChange = useCallback(
+    (questionKey: string, value: unknown) => {
+      markAsChanged()
+      setCustomResponses((prev) => ({ ...prev, [questionKey]: value }))
+      setCustomErrors((prev) => {
+        if (!prev[questionKey]) {
+          return prev
+        }
+        return { ...prev, [questionKey]: "" }
+      })
+    },
+    [markAsChanged]
+  )
 
-  const steps = useMemo(() => {
-    const baseSteps = [
-      { key: "date", title: "Select Date", icon: Calendar },
-      { key: "objectives", title: "Objectives", icon: Target },
-      { key: "keyResults", title: "Key Results", icon: CheckCircle },
-    ]
+  const visibleQuestionKeys = useMemo(() => {
+    const keys = new Set<string>()
+    effectiveRoleQuestions.forEach((question) => {
+      const q = question as FormQuestion
+      if (evaluateConditionalLogic(q.conditional_logic, customResponses)) {
+        keys.add(String(q.key))
+      }
+    })
+    return keys
+  }, [customResponses, effectiveRoleQuestions, effectiveRoleQuestionsSignature])
 
-    if (roleQuestions.length > 0) {
-      baseSteps.push({ key: "custom", title: "Role Questions", icon: ListChecks })
+  // When questions become hidden, clear their values + errors and re-evaluate until stable.
+  useEffect(() => {
+    if (effectiveRoleQuestions.length === 0) return
+
+    let didChange = false
+
+    setCustomResponses((prev) => {
+      let next = prev
+
+      const deleteHiddenValues = (responses: Record<string, unknown>) => {
+        let updated = responses
+        effectiveRoleQuestions.forEach((question) => {
+          const q = question as FormQuestion
+          const key = String(q.key)
+          if (!Object.prototype.hasOwnProperty.call(updated, key)) return
+          if (evaluateConditionalLogic(q.conditional_logic, updated)) return
+
+          const { [key]: _removed, ...rest } = updated
+          updated = rest
+        })
+        return updated
+      }
+
+      // Iterate because clearing answers can hide additional dependent questions.
+      for (let i = 0; i < 10; i++) {
+        const updated = deleteHiddenValues(next)
+        if (updated === next) {
+          break
+        }
+        didChange = true
+        next = updated
+      }
+
+      return next
+    })
+
+    if (didChange) {
+      setCustomErrors((prev) => {
+        const next: Record<string, string> = { ...prev }
+        Object.keys(next).forEach((key) => {
+          if (!visibleQuestionKeys.has(key)) {
+            delete next[key]
+          }
+        })
+        return next
+      })
+    }
+  }, [customResponses, effectiveRoleQuestions, effectiveRoleQuestionsSignature, visibleQuestionKeys])
+
+  const getVisibleQuestionsForStep = useCallback(
+    (step: Step | undefined) => {
+      if (!step) return []
+      const questionKey = getQuestionKeyFromStepKey(step.key)
+      if (questionKey) {
+        const q = effectiveRoleQuestions.find((row: any) => String(row.key) === questionKey) as FormQuestion | undefined
+        if (!q) return []
+        return evaluateConditionalLogic(q.conditional_logic, customResponses) ? [q] : []
+      }
+
+      const stepNumber = getStepNumberFromStepKey(step.key)
+      if (stepNumber === null) {
+        return []
+      }
+
+      return (effectiveRoleQuestions as FormQuestion[]).filter(
+        (q) => q.step === stepNumber && evaluateConditionalLogic(q.conditional_logic, customResponses)
+      )
+    },
+    [customResponses, effectiveRoleQuestions]
+  )
+
+  // If the current step becomes empty due to conditional logic, auto-navigate to the next valid step.
+  useEffect(() => {
+    const step = steps[currentStep - 1]
+    if (!step) return
+    if (step.key === "date" || step.key === "preview") return
+
+    const visibleQuestions = getVisibleQuestionsForStep(step)
+    if (visibleQuestions.length > 0) return
+
+    const findNext = () => {
+      for (let i = currentStep; i < steps.length; i++) {
+        const candidate = steps[i]
+        if (candidate.key === "preview") return i + 1
+        if (candidate.key === "date") continue
+        if (getVisibleQuestionsForStep(candidate).length > 0) return i + 1
+      }
+      for (let i = currentStep - 2; i >= 0; i--) {
+        const candidate = steps[i]
+        if (candidate.key === "date") return i + 1
+        if (candidate.key === "preview") continue
+        if (getVisibleQuestionsForStep(candidate).length > 0) return i + 1
+      }
+      return null
     }
 
-    baseSteps.push({ key: "challenges", title: "Challenges", icon: AlertTriangle })
-    baseSteps.push({ key: "preview", title: "Preview & Submit", icon: Eye })
-
-    return baseSteps.map((step, index) => ({
-      ...step,
-      number: index + 1,
-    }))
-  }, [roleQuestions.length])
-
-  const handleChange = (field: string, value: string) => {
-    const limit = CHARACTER_LIMITS[field as keyof typeof CHARACTER_LIMITS]
-    if (limit && value.length > limit) {
-      return // Prevent input beyond limit
+    const nextStep = findNext()
+    if (nextStep && nextStep !== currentStep) {
+      setCurrentStep(nextStep)
     }
-    setFormData((prev) => ({
-      ...prev,
-      [field]: value,
-    }))
-  }
+  }, [currentStep, getVisibleQuestionsForStep, steps])
 
-  const handleCustomResponseChange = useCallback((questionKey: string, value: any) => {
-    setCustomResponses((prev) => ({ ...prev, [questionKey]: value }))
-    setCustomErrors((prev) => {
+  const handleUploadPendingStateChange = useCallback((questionKey: string, hasBlockingUploads: boolean) => {
+    setPendingUploadQuestions((prev) => {
+      if (hasBlockingUploads) {
+        if (prev[questionKey]) {
+          return prev
+        }
+
+        return { ...prev, [questionKey]: true }
+      }
+
       if (!prev[questionKey]) {
         return prev
       }
-      return { ...prev, [questionKey]: "" }
+
+      const next = { ...prev }
+      delete next[questionKey]
+      return next
     })
   }, [])
 
   const validateCustomResponses = useCallback(() => {
-    if (roleQuestions.length === 0) {
+    if (effectiveRoleQuestions.length === 0) {
       return true
     }
 
-    const newErrors: Record<string, string> = {}
+    const zodErrors = getZodErrors(customResponses)
+    const mergedErrors: Record<string, string> = { ...zodErrors }
 
-    roleQuestions.forEach((question) => {
-      const error = validateResponse(question, customResponses[question.key])
-      if (error) {
-        newErrors[question.key] = error
+    effectiveRoleQuestions.forEach((question) => {
+      const q = question as Record<string, unknown>
+      if (mergedErrors[String(q.key)]) return
+      const agentError = getAssignedAgentValidationError(q as FormQuestion, customResponses[String(q.key)])
+      if (agentError) {
+        mergedErrors[String(q.key)] = agentError
+        return
+      }
+      try {
+        const error = validateResponse(q as unknown as CustomQuestion, customResponses[String(q.key)])
+        if (error) {
+          mergedErrors[String(q.key)] = error
+        }
+      } catch {
+        // ignore
       }
     })
 
-    setCustomErrors(newErrors)
-    return Object.keys(newErrors).length === 0
-  }, [roleQuestions, customResponses, validateResponse])
+    setCustomErrors(mergedErrors)
+    return Object.keys(mergedErrors).length === 0
+  }, [effectiveRoleQuestions, customResponses, validateResponse, getZodErrors, getAssignedAgentValidationError])
+
+  // Validate a specific step by its index (0-based in the steps array)
+  const validateStepByIndex = useCallback(
+    (stepIndex: number) => {
+      const step = steps[stepIndex]
+      if (!step) return true
+
+      // Only role-question steps have per-step validation; other steps currently always pass
+      const questionKey = getQuestionKeyFromStepKey(step.key)
+      if (!questionKey) {
+        return true
+      }
+      const question = effectiveRoleQuestions.find((q: Record<string, unknown>) => q.key === questionKey) as Record<
+        string,
+        unknown
+      >
+
+      if (!question) {
+        return true
+      }
+
+      const assignedAgentError = getAssignedAgentValidationError(
+        question as FormQuestion,
+        customResponses[String(question.key)]
+      )
+      if (assignedAgentError) {
+        setCustomErrors((prev) => ({ ...prev, [String(question.key)]: assignedAgentError }))
+        setLiveMessage("Please fix the highlighted fields")
+        return false
+      }
+
+      const zodErrors = getZodErrors(customResponses)
+      const mergedErrors: Record<string, string> = { ...zodErrors }
+      try {
+        const error = validateResponse(question as unknown as CustomQuestion, customResponses[String(question.key)])
+        if (error) {
+          mergedErrors[String(question.key)] = error
+        }
+      } catch {
+        // ignore
+      }
+
+      if (mergedErrors[String(question.key)]) {
+        setCustomErrors((prev) => ({ ...prev, [String(question.key)]: mergedErrors[String(question.key)] }))
+        setLiveMessage("Please fix the highlighted fields")
+        return false
+      }
+
+      return true
+    },
+    [steps, effectiveRoleQuestions, customResponses, validateResponse, getZodErrors, getAssignedAgentValidationError]
+  )
 
   const handleNext = () => {
-    const currentStepData = steps[currentStep - 1]
-
-    if (currentStepData?.key === "custom" && !validateCustomResponses()) {
-      toast.error("Please resolve the highlighted role-specific questions before continuing.")
+    if (isCurrentStepUploadBlocked) {
+      setLiveMessage("Finish uploading all images before continuing.")
       return
     }
 
+    const currentIndex = currentStep - 1
+    if (!validateStepByIndex(currentIndex)) {
+      return
+    }
+
+    // Step 1 (date selection): allow any past date through today.
+    if (currentStepConfig?.key === "date") {
+      if (requiresEntryKindSelection && !entryKind) {
+        const message = "Select a report type to continue"
+        setLiveMessage(message)
+        toast.error(message)
+        return
+      }
+
+      const createValidation = canCreateEntryForDate(selectedDate)
+      if (!createValidation.isValid) {
+        const message = createValidation.error || "This date is not available for a new report"
+        setDateError(message)
+        toast.error(message)
+        return
+      }
+    }
+
     if (currentStep < steps.length) {
-      setCurrentStep(currentStep + 1)
+      markAsChanged()
+
+      // Skip steps with no visible questions
+      let nextStep = currentStep + 1
+      while (nextStep < steps.length) {
+        const nextConfig = steps[nextStep - 1]
+        if (nextConfig.key === "preview") break
+
+        const nextQuestionKey = getQuestionKeyFromStepKey(nextConfig.key)
+        const nextStepNumber = getStepNumberFromStepKey(nextConfig.key)
+
+        let nextQuestions: FormQuestion[] = []
+        if (nextQuestionKey) {
+          const q = effectiveRoleQuestions.find((row) => row.key === nextQuestionKey)
+          if (q) nextQuestions = [q]
+        } else if (nextStepNumber !== null) {
+          nextQuestions = (effectiveRoleQuestions as FormQuestion[]).filter((q) => q.step === nextStepNumber)
+        }
+
+        const anyVisible = nextQuestions.some((q) => evaluateConditionalLogic(q.conditional_logic, customResponses))
+        if (anyVisible) break
+        nextStep++
+      }
+
+      setCurrentStep(nextStep)
     }
   }
 
   const handlePrevious = () => {
     if (currentStep > 1) {
-      setCurrentStep(currentStep - 1)
+      markAsChanged()
+
+      // Skip steps with no visible questions
+      let prevStep = currentStep - 1
+      while (prevStep > 1) {
+        const prevConfig = steps[prevStep - 1]
+        if (prevConfig.key === "date") break
+
+        const prevQuestionKey = getQuestionKeyFromStepKey(prevConfig.key)
+        const prevStepNumber = getStepNumberFromStepKey(prevConfig.key)
+
+        let prevQuestions: FormQuestion[] = []
+        if (prevQuestionKey) {
+          const q = effectiveRoleQuestions.find((row) => row.key === prevQuestionKey)
+          if (q) prevQuestions = [q]
+        } else if (prevStepNumber !== null) {
+          prevQuestions = (effectiveRoleQuestions as FormQuestion[]).filter((q) => q.step === prevStepNumber)
+        }
+
+        const anyVisible = prevQuestions.some((q) => evaluateConditionalLogic(q.conditional_logic, customResponses))
+        if (anyVisible) break
+        prevStep--
+      }
+
+      setCurrentStep(prevStep)
     }
   }
 
-  const handleSubmit = async () => {
+  // Handle clicking directly on a step title in the progress header
+  const handleStepClick = (targetStepNumber: number) => {
+    if (targetStepNumber === currentStep) return
+
+    // Always allow going backwards without validation
+    if (targetStepNumber < currentStep) {
+      markAsChanged()
+      setCurrentStep(targetStepNumber)
+      return
+    }
+
+    // Moving forward: validate only the current step before jumping ahead
+    if (isCurrentStepUploadBlocked) {
+      setLiveMessage("Finish uploading all images before continuing.")
+      return
+    }
+
+    const currentIndex = currentStep - 1
+    if (!validateStepByIndex(currentIndex)) {
+      return
+    }
+
+    markAsChanged()
+    setCurrentStep(targetStepNumber)
+  }
+
+  // Check if Next button should be disabled
+  const isNextDisabled = useMemo(() => {
+    const currentIndex = currentStep - 1
+    const step = steps[currentIndex]
+    if (!step) return false
+
+    // For question steps, check if there are errors
+    const questionKey = getQuestionKeyFromStepKey(step.key)
+    if (questionKey) {
+      const question = effectiveRoleQuestions.find((q: unknown) => {
+        if (!q || typeof q !== "object") return false
+        return (q as { key?: unknown }).key === questionKey
+      }) as FormQuestion | undefined
+
+      if (question?.optionSourceKind === ASSIGNED_AGENTS_OPTION_SOURCE_KIND) {
+        const selectedIds = parseAssignedAgentValues(customResponses[questionKey])
+        const availableAgents = getQuestionAvailableAgents(question, selectedIds)
+        return isAssignedAgentsLoading || !!assignedAgentsError || availableAgents.length === 0
+      }
+
+      return customErrors[questionKey] !== undefined && customErrors[questionKey] !== ""
+    }
+
+    return false
+  }, [
+    assignedAgentsError,
+    currentStep,
+    customResponses,
+    customErrors,
+    getQuestionAvailableAgents,
+    isAssignedAgentsLoading,
+    effectiveRoleQuestions,
+    steps,
+  ])
+
+  const formatQuestionResponseValue = useCallback(
+    (question: FormQuestion, value: unknown) => {
+      if (question.optionSourceKind === ASSIGNED_AGENTS_OPTION_SOURCE_KIND) {
+        const selectedIds = parseAssignedAgentValues(value)
+        if (selectedIds.length === 0) {
+          return "Not provided"
+        }
+        const selectedLabels = selectedIds.map((selectedId) => {
+          const agent = assignedAgents.find((item) => item.id === selectedId)
+          return agent?.name || selectedId
+        })
+        return selectedLabels.join(", ")
+      }
+
+      if (Array.isArray(value)) {
+        return value.length ? value.join(", ") : "Not provided"
+      }
+
+      if (value === "" || value === undefined || value === null) {
+        return "Not provided"
+      }
+
+      return String(value)
+    },
+    [assignedAgents]
+  )
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+
+    // Double submit guard - early return if already submitting
+    if (isSubmitting) {
+      return
+    }
+
+    if (!hasVisibleQuestions) {
+      setLiveMessage("No questions available for this report")
+      return
+    }
+    if (hasStandardEntryConflict) {
+      openExistingStandardReport()
+      return
+    }
+
     setIsSubmitting(true)
 
     try {
-      const processedCustom = roleQuestions.length > 0
-        ? processResponses(roleQuestions, customResponses)
-        : { valid: true, errors: {}, processedResponses: [] }
-
-      if (!processedCustom.valid) {
-        setCustomErrors(processedCustom.errors)
-        const customStepPosition = steps.findIndex((step) => step.key === "custom")
-        if (customStepPosition >= 0) {
-          setCurrentStep(customStepPosition + 1)
-        }
-        toast.error("Please resolve the role-specific questions before submitting.")
+      // Validate custom responses before submission (fresh validation)
+      if (!validateCustomResponses()) {
         setIsSubmitting(false)
         return
       }
 
-      const existingEntry = entries.find(entry => entry.date === selectedDate)
+      let selectedAgentForEntry: AssignedAgentOption | null = null
+      let responsesForProcessing = { ...customResponses }
+      if (primaryAssignedAgentQuestion) {
+        const selectedAgentError = getAssignedAgentValidationError(
+          primaryAssignedAgentQuestion,
+          customResponses[String(primaryAssignedAgentQuestion.key)]
+        )
 
-      if (existingEntry) {
-        // Update existing entry
-        await updateEntry(existingEntry.id, {
-          ...formData,
-          date: selectedDate,
-          customResponses: processedCustom.processedResponses,
-        })
-        toast.success("Entry updated successfully!")
-      } else {
-        // Create new entry
-        await addEntry({
-          date: selectedDate,
-          ...formData,
-          customResponses: processedCustom.processedResponses,
-        })
-        toast.success("Entry created successfully!")
+        if (selectedAgentError) {
+          setCustomErrors((prev) => ({ ...prev, [String(primaryAssignedAgentQuestion.key)]: selectedAgentError }))
+          setLiveMessage("Please fix the highlighted fields")
+          setIsSubmitting(false)
+          return
+        }
+
+        const selectedValue =
+          parseAgentResponseValue(customResponses[String(primaryAssignedAgentQuestion.key)])?.value ?? null
+        selectedAgentForEntry = assignedAgents.find((agent) => agent.id === selectedValue) ?? null
+
+        if (!selectedAgentForEntry) {
+          setCustomErrors((prev) => ({
+            ...prev,
+            [String(primaryAssignedAgentQuestion.key)]: "Select a valid assigned agent",
+          }))
+          setLiveMessage("Please fix the highlighted fields")
+          setIsSubmitting(false)
+          return
+        }
+
+        responsesForProcessing = {
+          ...responsesForProcessing,
+          [String(primaryAssignedAgentQuestion.key)]: {
+            value: selectedAgentForEntry.id,
+            label: selectedAgentForEntry.name,
+          },
+        }
       }
 
-      onSave()
+      // Validate date before submission
+      const dateValidation = canCreateEntryForDate(selectedDate)
+
+      if (!dateValidation.isValid) {
+        toast.error(dateValidation.error || "Invalid date selected")
+        setIsSubmitting(false)
+        return
+      }
+
+      // Process custom responses for storage
+      const processedCustom = processResponses(
+        effectiveRoleQuestions.map((q) => q as unknown as CustomQuestion),
+        responsesForProcessing
+      )
+
+      // Synchronize standard fields from customResponses back to formData
+      // This ensures that SupabaseLogContext sees the data in the "standard" properties it expects
+      const updatedFormData = { ...formData }
+      Object.keys(customResponses).forEach((key) => {
+        if (key in updatedFormData) {
+          updatedFormData[key as keyof typeof formData] = String(customResponses[key] || "")
+        }
+      })
+
+      // Add authentication check before any operation
+      // Check both localStorage auth and Supabase auth
+      const isUserAuthenticated = (isAuthenticated && user) || supabaseUser
+      if (!isUserAuthenticated) {
+        toast.error("Please sign in to submit logs.")
+        setIsSubmitting(false)
+        return
+      }
+
+      const finalEntryKind = entryKind || "standard"
+      const submissionData = {
+        date: selectedDate,
+        ...updatedFormData,
+        customResponses: processedCustom.processedResponses,
+        entry_kind: finalEntryKind,
+        subject_agent_id: selectedAgentForEntry?.id || null,
+        subject_agent_snapshot: selectedAgentForEntry
+          ? {
+              name: selectedAgentForEntry.name,
+              location: selectedAgentForEntry.location,
+              phone: selectedAgentForEntry.phone,
+            }
+          : null,
+      }
+
+      const submissionMeta = resolutionMeta?.[finalEntryKind]
+      const now = new Date().toISOString()
+      await addEntry({
+        department_id: departmentId,
+        ...submissionData,
+        entry_kind_version_id: submissionMeta?.entry_kind_version_id,
+        question_set_version_id: submissionMeta?.question_set_version_id,
+        submitted_for_date: selectedDate,
+        createdAt: now,
+        updatedAt: now,
+        metadata: null,
+      })
+      toast.success("Entry created successfully!")
+
+      try {
+        window.localStorage.removeItem(draftKeyForDate(selectedDate))
+      } catch {
+        // ignore
+      }
+      setDraftSavedAt(null)
+      setWasDraftRestored(false)
+      setHasUnsavedChanges(false)
+      setLiveMessage("Log submitted")
+
+      if (selectedAgentForEntry && finalEntryKind === "agent_call" && stayOnAgentCallSave) {
+        setFormData({ ...EMPTY_FORM_DATA })
+        setCustomResponses(buildInitialCustomResponses())
+        setCustomErrors({})
+        setCurrentStep(effectiveRoleQuestions.length > 0 ? 2 : 1)
+        setAssignedAgentsSearch("")
+        setAssignedAgentsReloadKey((prev) => prev + 1)
+        setAgentCallSuccessMessage(
+          `Saved the call report for ${selectedAgentForEntry.name}. You can now log the next assigned agent.`
+        )
+        onSave({ entryKind: "agent_call", date: selectedDate })
+        return
+      }
+
+      onSave({
+        entryKind: finalEntryKind,
+        date: selectedDate,
+      })
     } catch (error) {
       console.error("Failed to save entry:", error)
-      toast.error("Failed to save entry. Please try again.")
+      setLiveMessage("Failed to save entry")
+      const maybeError = error as Record<string, unknown>
+      if (maybeError && maybeError.name === "CaptainLogError") {
+        if (maybeError.code === "AUTH_ERROR") {
+          toast.error("Please sign in to submit logs.")
+        } else if (maybeError.code === "PERMISSION_ERROR") {
+          toast.error("You don't have permission to create or update entries.")
+        } else if (typeof maybeError.message === "string") {
+          toast.error(maybeError.message)
+        } else {
+          toast.error("Failed to save entry. Please try again.")
+        }
+      } else {
+        toast.error("Failed to save entry. Please try again.")
+      }
     } finally {
       setIsSubmitting(false)
     }
@@ -248,112 +1872,516 @@ export function EntryFormMultistep({ date: initialDate, onSave, onCancel }: Entr
   }
 
   const currentStepConfig = steps[currentStep - 1]
+  const currentQuestionKey = useMemo(() => getQuestionKeyFromStepKey(currentStepConfig?.key || ""), [currentStepConfig])
+  const isCurrentStepUploadBlocked = useMemo(() => {
+    if (!currentQuestionKey) {
+      return false
+    }
 
-  const challengesStepNumber = useMemo(() => {
-    const found = steps.find((step) => step.key === "challenges")
-    return found ? found.number : -1
-  }, [steps])
+    return !!pendingUploadQuestions[currentQuestionKey]
+  }, [currentQuestionKey, pendingUploadQuestions])
+  const currentAssignedAgentQuestion = useMemo(() => {
+    if (!currentQuestionKey) return null
+    return assignedAgentQuestions.find((question) => String(question.key) === currentQuestionKey) || null
+  }, [assignedAgentQuestions, currentStepConfig])
+  const currentAssignedAgentSelectedIds = useMemo(() => {
+    if (!currentAssignedAgentQuestion) return []
+    return parseAssignedAgentValues(customResponses[String(currentAssignedAgentQuestion.key)])
+  }, [currentAssignedAgentQuestion, customResponses])
+  const availableAssignedAgentsForCurrentQuestion = useMemo(
+    () => getQuestionAvailableAgents(currentAssignedAgentQuestion || undefined, currentAssignedAgentSelectedIds),
+    [currentAssignedAgentQuestion, currentAssignedAgentSelectedIds, getQuestionAvailableAgents]
+  )
+  const noAvailableAssignedAgents =
+    !!currentAssignedAgentQuestion &&
+    !isAssignedAgentsLoading &&
+    !assignedAgentsError &&
+    availableAssignedAgentsForCurrentQuestion.length === 0
+  const filteredAssignedAgents = useMemo(() => {
+    const search = assignedAgentsSearch.trim().toLowerCase()
+    if (!search) {
+      return availableAssignedAgentsForCurrentQuestion
+    }
 
-  const customStepNumber = useMemo(() => {
-    const found = steps.find((step) => step.key === "custom")
-    return found ? found.number : -1
-  }, [steps])
+    return availableAssignedAgentsForCurrentQuestion.filter((agent) =>
+      [agent.name, agent.location, agent.phone]
+        .filter((value): value is string => typeof value === "string" && value.trim().length > 0)
+        .some((value) => value.toLowerCase().includes(search))
+    )
+  }, [assignedAgentsSearch, availableAssignedAgentsForCurrentQuestion])
+  const noMatchingAssignedAgents =
+    !!currentAssignedAgentQuestion &&
+    !isAssignedAgentsLoading &&
+    !assignedAgentsError &&
+    availableAssignedAgentsForCurrentQuestion.length > 0 &&
+    filteredAssignedAgents.length === 0
 
+  // Track if there are any custom errors (currently unused)
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const hasCustomErrors = useMemo(() => Object.values(customErrors).some(Boolean), [customErrors])
 
+  const progressPercent = useMemo(() => {
+    if (steps.length === 0) return 0
+    return Math.round((currentStep / steps.length) * 100)
+  }, [currentStep, steps.length])
+
+  const quickDateOptions = useMemo(() => {
+    const formatShort = (dateString: string) => {
+      const d = new Date(dateString + "T00:00:00")
+      return d.toLocaleDateString("default", { month: "short", day: "numeric" })
+    }
+
+    return quickPickDates.map((date, index) => ({
+      key: `available-${index}`,
+      label: formatShort(date),
+      date,
+    }))
+  }, [quickPickDates])
+  const getQuestionCategoryLabel = useCallback((category?: string, plural = false) => {
+    if (category === "department_report") {
+      return plural ? "Department Report Questions" : "Department Report"
+    }
+    return plural ? "Profession Questions" : "Profession Question"
+  }, [])
+  const getQuestionCategoryDescription = useCallback(
+    (category?: string) => {
+      if (category === "department_report") {
+        return `These answers represent the ${normalizedDepartmentName} department.`
+      }
+      return `These answers apply to your assigned profession in ${normalizedDepartmentName}.`
+    },
+    [normalizedDepartmentName]
+  )
+  const submitButtonLabel = !hasVisibleQuestions
+    ? "No Questions Available"
+    : hasStandardEntryConflict
+      ? "Open Existing Report"
+      : noAvailableAssignedAgents
+        ? assignedAgents.length === 0
+          ? "No Assigned Agents Available"
+          : "No Available Assigned Agents"
+        : isSubmitting
+          ? "Saving..."
+          : "Submit Log"
+
+  const handleDiscardDraft = useCallback(() => {
+    if (typeof window !== "undefined") {
+      try {
+        window.localStorage.removeItem(draftKeyForDate(selectedDate))
+      } catch {
+        // ignore
+      }
+    }
+
+    setFormData({ ...EMPTY_FORM_DATA })
+    setCustomResponses(buildInitialCustomResponses())
+    setCustomErrors({})
+    setCurrentStep(1)
+    setDraftSavedAt(null)
+    setWasDraftRestored(false)
+    setHasUnsavedChanges(false)
+    setAssignedAgentsSearch("")
+    setAgentCallSuccessMessage(null)
+    setLiveMessage("Draft discarded")
+  }, [buildInitialCustomResponses, draftKeyForDate, selectedDate])
+
+  const handleCancelClick = useCallback(() => {
+    if (hasUnsavedChanges && typeof window !== "undefined") {
+      const shouldLeave = window.confirm("You have unsaved changes. Leave this page?")
+      if (!shouldLeave) {
+        return
+      }
+    }
+
+    onCancel(selectedDate)
+  }, [hasUnsavedChanges, onCancel, selectedDate])
+
+  const openExistingStandardReport = useCallback(() => {
+    if (!existingStandardEntryHref || typeof window === "undefined") {
+      return
+    }
+
+    window.location.assign(existingStandardEntryHref)
+  }, [existingStandardEntryHref])
+
   return (
-    <div className="flex flex-col h-full space-y-4">
+    <div className="mx-auto flex h-full w-full max-w-3xl flex-col space-y-4">
+      <div className="sr-only" aria-live="polite" aria-atomic="true">
+        {liveMessage}
+      </div>
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-2xl font-semibold text-foreground">Daily Log Entry</h2>
-          <p className="text-sm text-muted-foreground mt-1">{formatDate(selectedDate)}</p>
+          <h2 className="text-foreground text-3xl font-bold">Daily Log Entry</h2>
+          <p className="text-muted-foreground mt-2 text-sm">Reporting for {normalizedDepartmentName}</p>
+          {effectiveRoleName ? (
+            <div className="mt-2">
+              <Badge variant="secondary">{effectiveRoleName}</Badge>
+            </div>
+          ) : null}
+          <p className="text-muted-foreground mt-1 text-base">{formatDate(selectedDate)}</p>
         </div>
-        <Button variant="outline" size="sm" onClick={onCancel} className="gap-2">
+        <Button variant="outline" size="sm" onClick={handleCancelClick} className="gap-2">
           <ArrowLeft className="h-4 w-4" />
           Cancel
         </Button>
       </div>
 
-      {/* Progress Steps */}
-      <div className="flex items-center justify-between">
-        {steps.map((step, index) => (
-          <div key={step.key} className="flex items-center flex-1">
-            <div className="flex flex-col items-center">
-              <div
-                className={`w-10 h-10 rounded-full flex items-center justify-center text-lg font-medium transition-colors ${
-                  currentStep === step.number
-                    ? "bg-primary text-primary-foreground"
-                    : currentStep > step.number
-                      ? "text-white"
-                      : "bg-muted text-muted-foreground"
-                }`}
-                style={currentStep > step.number ? { backgroundColor: '#099748' } : undefined}
-              >
-                {currentStep > step.number ? <CheckCircle2 className="h-5 w-5" /> : <step.icon className="h-5 w-5" />}
-              </div>
-              <span className="text-xs mt-2 text-center hidden md:block">{step.title}</span>
-            </div>
-            {index < steps.length - 1 && (
-              <div
-                className={`flex-1 h-1 mx-2 rounded transition-colors ${
-                  currentStep > step.number ? "bg-muted" : "bg-muted"
-                }`}
-                style={currentStep > step.number ? { backgroundColor: '#099748' } : undefined}
-              />
-            )}
+      {draftSavedLabel ? (
+        <div className="bg-muted/40 flex items-center justify-between gap-3 rounded-lg border p-4">
+          <div className="space-y-1">
+            <p className="text-sm font-medium">{wasDraftRestored ? "Draft restored" : "Draft saved"}</p>
+            <p className="text-muted-foreground text-xs">{draftSavedLabel}</p>
           </div>
-        ))}
-      </div>
+          <Button variant="ghost" size="sm" onClick={handleDiscardDraft} className="gap-2">
+            <X className="h-4 w-4" />
+            Discard Draft
+          </Button>
+        </div>
+      ) : null}
 
       {/* Step Content */}
-      <Card className="flex-1 flex flex-col overflow-hidden shadow-sm">
-        <CardHeader className="flex-shrink-0">
-          <CardTitle className="flex items-center gap-2">
-            {currentStepConfig ? (
-              <>
-                <currentStepConfig.icon className="h-6 w-6" />
-                {currentStepConfig.title}
-              </>
-            ) : null}
-          </CardTitle>
-          <CardDescription>
-            Step {currentStep} of {steps.length}
-          </CardDescription>
+      <Card className="flex flex-1 flex-col overflow-hidden shadow-sm">
+        <CardHeader className="shrink-0 space-y-2">
+          <div className="flex items-start justify-between gap-6">
+            <CardDescription>
+              Step {currentStep} of {steps.length}
+            </CardDescription>
+            <div className="flex flex-col items-end gap-2">
+              <div className="text-muted-foreground text-sm">Progress ({progressPercent}%)</div>
+              <Progress value={progressPercent} className="h-2 w-36" />
+            </div>
+          </div>
+          {hasDepartmentReportQuestions ? (
+            <div className="rounded-lg border border-sky-500/30 bg-sky-500/10 p-4">
+              <p className="flex items-center gap-2 text-sm font-medium text-sky-700 dark:text-sky-300">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                Department report included
+              </p>
+              <p className="text-muted-foreground mt-2 text-sm">
+                These answers represent the {normalizedDepartmentName} department.
+              </p>
+            </div>
+          ) : null}
+          {hasStandardEntryConflict ? (
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
+              <p className="flex items-center gap-2 text-sm font-medium text-amber-700 dark:text-amber-300">
+                <AlertCircle className="h-4 w-4 shrink-0" />A report for this type already exists on this date
+              </p>
+              <p className="text-muted-foreground mt-2 text-sm">
+                Open the existing report for {normalizedDepartmentName} on {formatDateHuman(selectedDate)} instead of
+                creating another one.
+              </p>
+            </div>
+          ) : null}
+          {entryAvailabilityError ? (
+            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-4">
+              <p className="flex items-center gap-2 text-sm text-amber-700 dark:text-amber-300">
+                <AlertCircle className="h-4 w-4 shrink-0" />
+                {entryAvailabilityError}
+              </p>
+            </div>
+          ) : null}
+          {agentCallSuccessMessage ? (
+            <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-4">
+              <p className="text-sm font-medium text-emerald-700 dark:text-emerald-300">
+                Ready for the next call report
+              </p>
+              <p className="text-muted-foreground mt-2 text-sm">{agentCallSuccessMessage}</p>
+            </div>
+          ) : null}
         </CardHeader>
-        <CardContent className="flex-1 overflow-y-auto space-y-6">
+        <CardContent className="flex-1 space-y-6 overflow-y-auto">
+          {/* Skeleton loading state while questions load */}
+          {effectiveIsLoading && currentStep > 1 && (
+            <div className="space-y-4">
+              <Skeleton className="h-6 w-48" />
+              <Skeleton className="h-4 w-full" />
+              <Skeleton className="h-32 w-full" />
+              <div className="flex items-center gap-2">
+                <Skeleton className="h-4 w-4" />
+                <Skeleton className="h-4 w-24" />
+              </div>
+            </div>
+          )}
           {/* Step 1: Select Date */}
           {currentStepConfig?.key === "date" && (
             <div className="space-y-4">
               <div className="space-y-2">
-                <label htmlFor="date" className="text-sm font-medium text-foreground text-lg">
-                  Select Report Date <span className="text-destructive">*</span>
+                <label htmlFor="date" className="text-foreground text-lg font-semibold">
+                  When is this log for?
                 </label>
-                <p className="text-sm text-muted-foreground">Choose the date for this daily log entry</p>
-                <input
-                  type="date"
-                  id="date"
-                  value={selectedDate}
-                  onChange={(e) => setSelectedDate(e.target.value)}
-                  max={new Date().toISOString().split("T")[0]}
-                  className="w-full px-4 py-3 text-lg rounded-md border border-input bg-background text-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-                  required
-                  autoFocus
+                <p className="text-muted-foreground text-sm">Select the date you are reporting for.</p>
+                {showEntryKindSelector ? (
+                  <EntryKindDropdown
+                    departmentId={departmentId}
+                    role={role}
+                    date={selectedDate || null}
+                    value={entryKind}
+                    onChange={handleEntryKindChange}
+                    label="Report Type"
+                  />
+                ) : null}
+                <Popover open={isDatePickerOpen} onOpenChange={setIsDatePickerOpen}>
+                  <PopoverTrigger asChild>
+                    <Button
+                      variant="outline"
+                      type="button"
+                      className="border-input bg-background text-foreground focus:ring-primary w-full justify-between rounded-md border px-4 py-3 text-base focus:ring-2 focus:outline-none"
+                      aria-label="Select report date"
+                    >
+                      <span className={selectedDateAsDate ? "" : "text-muted-foreground"}>
+                        {selectedDateAsDate ? formatDateHuman(selectedDate) : "Select date"}
+                      </span>
+                      <CalendarDays className="text-muted-foreground h-5 w-5" />
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    side="bottom"
+                    align="center"
+                    sideOffset={8}
+                    collisionPadding={8}
+                    className="data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 data-[side=bottom]:slide-in-from-top-2 data-[side=left]:slide-in-from-right-2 data-[side=right]:slide-in-from-left-2 data-[side=top]:slide-in-from-bottom-2 min-h-[340px] w-full max-w-none p-3"
+                    style={{ width: "100%" }}
+                  >
+                    <Calendar
+                      mode="single"
+                      selected={selectedDateAsDate}
+                      onSelect={(date) => {
+                        if (!date) return
+                        handleDateSelection(formatLocalDate(date))
+                        setIsDatePickerOpen(false)
+                      }}
+                      disabled={((date: Date) => !canCreateEntryForDate(formatLocalDate(date)).isValid) as Matcher}
+                      initialFocus
+                      className="w-full"
+                      classNames={{
+                        weekday:
+                          "text-muted-foreground rounded-md flex-1 text-center text-[0.7rem] font-semibold tracking-wide select-none",
+                        today: "ring-1 ring-primary/40 rounded-md bg-transparent text-foreground",
+                        disabled: "text-muted-foreground opacity-50 pointer-events-none",
+                      }}
+                    />
+                  </PopoverContent>
+                </Popover>
+
+                {/* Hidden for now - three day buttons
+                <QuickDateChips
+                  options={quickDateOptions}
+                  selectedDate={selectedDate}
+                  onSelectDate={handleDateSelection}
                 />
-                <p className="text-xs text-muted-foreground mt-2">
-                  Selected: <span className="font-medium">{formatDate(selectedDate)}</span>
+                */}
+                {dateError && (
+                  <div className="mt-2 rounded-md border border-red-500/50 bg-red-500/10 p-4">
+                    <p className="flex items-center gap-2 text-sm text-red-600 dark:text-red-400">
+                      <AlertCircle className="h-4 w-4 shrink-0" />
+                      {dateError}
+                    </p>
+                  </div>
+                )}
+
+                {isSelectedDateLockedForEdits ? (
+                  <div className="mt-2 rounded-md border border-amber-500/50 bg-amber-500/10 p-4">
+                    <p className="text-foreground flex items-center gap-2 text-sm font-medium">
+                      <Lock className="h-4 w-4" />
+                      Unavailable
+                    </p>
+                    <p className="text-muted-foreground mt-2 text-xs">
+                      Future dates are unavailable. You can create a report for any past date through today.
+                    </p>
+                  </div>
+                ) : null}
+              </div>
+            </div>
+          )}
+
+          {/* Role-Based Questions - one question per step */}
+          {(getQuestionKeyFromStepKey(currentStepConfig?.key || "") ||
+            getStepNumberFromStepKey(currentStepConfig?.key || "")) && (
+            <div className="space-y-4">
+              {(() => {
+                const stepKey = currentStepConfig?.key || ""
+                const questionKey = getQuestionKeyFromStepKey(stepKey)
+                const stepNumber = getStepNumberFromStepKey(stepKey)
+
+                let questionsToRender: FormQuestion[] = []
+
+                if (questionKey) {
+                  const q = effectiveRoleQuestions.find((row: any) => row.key === questionKey)
+                  if (q) questionsToRender = [q]
+                } else if (stepNumber !== null) {
+                  questionsToRender = effectiveRoleQuestions.filter((q: any) => q.step === stepNumber)
+                }
+
+                // Filter by visibility
+                questionsToRender = questionsToRender.filter((q) =>
+                  evaluateConditionalLogic(q.conditional_logic, customResponses)
+                )
+
+                questionsToRender = questionsToRender.map((question) => {
+                  if (question.optionSourceKind !== ASSIGNED_AGENTS_OPTION_SOURCE_KIND) {
+                    return question
+                  }
+
+                  const selectedIds = parseAssignedAgentValues(customResponses[String(question.key)])
+                  const availableAgents = getQuestionAvailableAgents(question, selectedIds)
+
+                  return {
+                    ...question,
+                    options: availableAgents.map((agent) => ({ value: agent.id, label: agent.name })),
+                  }
+                })
+
+                if (questionsToRender.length === 0) return null
+
+                return (
+                  <div className="space-y-8">
+                    <RoleBasedQuestionFields
+                      questions={questionsToRender}
+                      responses={customResponses}
+                      errors={customErrors}
+                      onChange={handleCustomResponseChange}
+                      onUploadPendingStateChange={handleUploadPendingStateChange}
+                      renderMode="grouped"
+                    />
+                  </div>
+                )
+              })()}
+            </div>
+          )}
+
+          {/* Preview */}
+          {currentStepConfig?.key === "preview" && (
+            <div className="space-y-6">
+              <div className="bg-accent/10 border-accent/20 rounded-lg border p-4">
+                <p className="text-accent flex items-center gap-2 text-sm font-medium">
+                  <Eye className="h-4 w-4" />
+                  Review your responses before submitting
                 </p>
               </div>
-              
-              {/* Check if entry exists for selected date */}
-              {entries.find(entry => entry.date === selectedDate) && (
+
+              {hasVisibleQuestions ? (
+                <div className="space-y-4 border-t pt-4">
+                  <h3 className="text-foreground flex items-center gap-2 text-xl font-semibold">
+                    <ListChecks className="h-5 w-5" /> Report Responses
+                  </h3>
+                  <div className="space-y-6">
+                    {[
+                      {
+                        key: "department",
+                        title: getQuestionCategoryLabel("department_report", true),
+                        description: `These answers represent the ${normalizedDepartmentName} department.`,
+                        questions: departmentReportQuestions.filter((q) =>
+                          evaluateConditionalLogic(q.conditional_logic, customResponses)
+                        ),
+                      },
+                      {
+                        key: "profession",
+                        title: getQuestionCategoryLabel("profession_question", true),
+                        description: `These answers apply to your assigned profession in ${normalizedDepartmentName}.`,
+                        questions: professionQuestions.filter((q) =>
+                          evaluateConditionalLogic(q.conditional_logic, customResponses)
+                        ),
+                      },
+                    ]
+                      .filter((group) => group.questions.length > 0)
+                      .map((group) => (
+                        <div key={group.key} className="space-y-3">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <Badge variant={group.key === "department" ? "default" : "secondary"}>
+                                {group.title}
+                              </Badge>
+                            </div>
+                            <p className="text-muted-foreground text-sm">{group.description}</p>
+                          </div>
+                          <div className="space-y-4">
+                            {group.questions.map((question, index) => {
+                              const value = customResponses[String(question.key)]
+                              const isImageQuestion = question.type === "image"
+                              const displayValue = isImageQuestion ? null : formatQuestionResponseValue(question, value)
+
+                              const questionStepNumber = findQuestionStepNumber(steps, question)
+                              const reactKey = getQuestionReactKey(question, index)
+                              const previewAgent =
+                                question.optionSourceKind === ASSIGNED_AGENTS_OPTION_SOURCE_KIND &&
+                                question.type !== "multiselect"
+                                  ? assignedAgents.find((agent) => {
+                                      const selectedId = parseAssignedAgentValues(value)[0]
+                                      return agent.id === selectedId
+                                    }) || null
+                                  : null
+
+                              return (
+                                <div
+                                  key={reactKey}
+                                  className="bg-muted/30 border-border/40 flex items-start justify-between gap-4 rounded-lg border p-4"
+                                >
+                                  <div className="min-w-0 flex-1">
+                                    <button
+                                      type="button"
+                                      onClick={() => questionStepNumber && handleStepClick(questionStepNumber)}
+                                      className="text-foreground hover:text-primary cursor-pointer text-left text-sm font-medium transition-colors duration-150 ease-in-out disabled:cursor-default"
+                                      disabled={!questionStepNumber}
+                                    >
+                                      {question.label}
+                                    </button>
+                                    <div className="mt-2">
+                                      {isImageQuestion ? (
+                                        <ImageResponsePreview value={value} className="max-w-3xl" />
+                                      ) : (
+                                        <p className="text-muted-foreground text-sm whitespace-pre-wrap">
+                                          {displayValue}
+                                        </p>
+                                      )}
+                                    </div>
+                                    {previewAgent ? (
+                                      <div className="text-muted-foreground mt-3 space-y-2 text-xs">
+                                        {previewAgent.location ? (
+                                          <div className="flex items-center gap-2">
+                                            <MapPin className="h-3.5 w-3.5 shrink-0" />
+                                            <span>{previewAgent.location}</span>
+                                          </div>
+                                        ) : null}
+                                        {previewAgent.phone ? (
+                                          <div className="flex items-center gap-2">
+                                            <Phone className="h-3.5 w-3.5 shrink-0" />
+                                            <span>{previewAgent.phone}</span>
+                                          </div>
+                                        ) : null}
+                                      </div>
+                                    ) : null}
+                                  </div>
+                                  {questionStepNumber && (
+                                    <Button
+                                      type="button"
+                                      variant="ghost"
+                                      size="icon"
+                                      className="text-muted-foreground hover:text-primary hover:bg-muted h-8 w-8 cursor-pointer"
+                                      onClick={() => handleStepClick(questionStepNumber)}
+                                      aria-label="Edit response"
+                                    >
+                                      <Pencil className="h-4 w-4" />
+                                    </Button>
+                                  )}
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+                      ))}
+                  </div>
+                </div>
+              ) : (
                 <div className="rounded-lg border border-amber-500/50 bg-amber-500/10 p-4">
-                  <div className="flex items-start gap-3">
-                    <AlertCircle className="h-5 w-5 text-amber-500 mt-0.5" />
+                  <div className="flex items-start gap-4">
+                    <AlertCircle className="mt-0 h-5 w-5 text-amber-500" />
                     <div>
-                      <p className="text-sm font-medium text-foreground">Entry Already Exists</p>
-                      <p className="text-xs text-muted-foreground mt-1">
-                        An entry for this date already exists. Continuing will update the existing entry.
+                      <p className="text-foreground text-sm font-medium">No Report Questions Available</p>
+                      <p className="text-muted-foreground mt-2 text-xs">
+                        No profession or department report questions are configured for {normalizedDepartmentName}.
+                        Contact an administrator before submitting a log for this department.
                       </p>
                     </div>
                   </div>
@@ -361,231 +2389,85 @@ export function EntryFormMultistep({ date: initialDate, onSave, onCancel }: Entr
               )}
             </div>
           )}
-
-          {/* Step 2: Objectives */}
-          {currentStepConfig?.key === "objectives" && (
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground text-lg">
-                What were your objectives today? <span className="text-destructive">*</span>
-              </label>
-              <p className="text-sm text-muted-foreground">What did you set out to accomplish?</p>
-              <textarea
-                value={formData.objectives}
-                onChange={(e) => handleChange("objectives", e.target.value)}
-                className="w-full min-h-[150px] max-h-[300px] p-4 rounded-md border border-input bg-background text-foreground resize-y text-base"
-                placeholder="What were your objectives today?"
-                required
-                autoFocus
-              />
-              <div className="flex justify-end mt-2">
-                <span className={`text-xs ${formData.objectives.length > CHARACTER_LIMITS.objectives * 0.9 ? 'text-destructive' : formData.objectives.length > CHARACTER_LIMITS.objectives * 0.8 ? 'text-orange-500' : 'text-muted-foreground'}
-                `}>
-                  {formData.objectives.length}/{CHARACTER_LIMITS.objectives}
-                </span>
-              </div>
-            </div>
-          )}
-
-          {/* Step 3: Key Results */}
-          {currentStepConfig?.key === "keyResults" && (
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground text-lg">
-                What were your key results? <span className="text-destructive">*</span>
-              </label>
-              <p className="text-sm text-muted-foreground">Measurable outcomes and achievements</p>
-              <textarea
-                value={formData.keyResults}
-                onChange={(e) => handleChange("keyResults", e.target.value)}
-                className="w-full min-h-[150px] max-h-[300px] p-4 rounded-md border border-input bg-background text-foreground resize-y text-base"
-                placeholder="What were your key results?"
-                required
-                autoFocus
-              />
-              <div className="flex justify-end mt-2">
-                <span className={`text-xs ${formData.keyResults.length > CHARACTER_LIMITS.keyResults * 0.9 ? 'text-destructive' : formData.keyResults.length > CHARACTER_LIMITS.keyResults * 0.8 ? 'text-orange-500' : 'text-muted-foreground'}
-                `}>
-                  {formData.keyResults.length}/{CHARACTER_LIMITS.keyResults}
-                </span>
-              </div>
-            </div>
-          )}
-
-          {/* Role-Based Questions */}
-          {currentStepConfig?.key === "custom" && (
-            <div className="space-y-4">
-              <div className="space-y-2">
-                <label className="text-sm font-medium text-foreground text-lg">
-                  Role-Specific Questions
-                </label>
-                <p className="text-sm text-muted-foreground">
-                  Answer the questions tailored to your role to capture relevant metrics.
-                </p>
-              </div>
-              <RoleBasedQuestionFields
-                questions={roleQuestions}
-                responses={customResponses}
-                errors={customErrors}
-                onChange={handleCustomResponseChange}
-              />
-            </div>
-          )}
-
-          {/* Challenges */}
-          {currentStepConfig?.key === "challenges" && (
-            <div className="space-y-2">
-              <label className="text-sm font-medium text-foreground text-lg">
-                What challenges did you face?
-              </label>
-              <p className="text-sm text-muted-foreground">Obstacles, blockers, and difficulties encountered</p>
-              <textarea
-                value={formData.challenges}
-                onChange={(e) => handleChange("challenges", e.target.value)}
-                className="w-full min-h-[150px] max-h-[300px] p-4 rounded-md border border-input bg-background text-foreground resize-y text-base"
-                placeholder="What challenges did you face?"
-                autoFocus
-              />
-              <div className="flex justify-end mt-2">
-                <span className={`text-xs ${formData.challenges.length > CHARACTER_LIMITS.challenges * 0.9 ? 'text-destructive' : formData.challenges.length > CHARACTER_LIMITS.challenges * 0.8 ? 'text-orange-500' : 'text-muted-foreground'}
-                `}>
-                  {formData.challenges.length}/{CHARACTER_LIMITS.challenges}
-                </span>
-              </div>
-              <p className="text-xs text-muted-foreground italic">Optional - Leave blank if no challenges today</p>
-            </div>
-          )}
-
-          {/* Preview */}
-          {currentStepConfig?.key === "preview" && (
-            <div className="space-y-6">
-              <div className="rounded-lg bg-accent/10 p-4 border border-accent/20">
-                <p className="text-sm font-medium text-accent flex items-center gap-2">
-                  <Eye className="h-4 w-4" />
-                  Review your log entry before submitting
-                </p>
-              </div>
-
-              {/* 1. Objectives */}
-              <div className="space-y-4">
-                <h3 className="text-xl font-semibold text-foreground flex items-center gap-2">
-                  <Target className="h-5 w-5" /> Objectives
-                </h3>
-                <div className="bg-muted/30 p-4 rounded-lg">
-                  <p className="text-base text-foreground whitespace-pre-wrap leading-relaxed">
-                    {formData.objectives || (
-                      <span className="italic text-destructive flex items-center gap-2"><AlertCircle className="h-4 w-4" /> Required - Please go back and fill this in</span>
-                    )}
-                  </p>
-                </div>
-              </div>
-
-              {/* 2. Key Results */}
-              <div className="space-y-4 pt-4 border-t">
-                <h3 className="text-xl font-semibold text-foreground flex items-center gap-2">
-                  <CheckCircle className="h-5 w-5" /> Key Results
-                </h3>
-                <div className="bg-muted/30 p-4 rounded-lg">
-                  <p className="text-base text-foreground whitespace-pre-wrap leading-relaxed">
-                    {formData.keyResults || (
-                      <span className="italic text-destructive flex items-center gap-2"><AlertCircle className="h-4 w-4" /> Required - Please go back and fill this in</span>
-                    )}
-                  </p>
-                </div>
-              </div>
-
-              {/* Role-Based Questions */}
-              {roleQuestions.length > 0 && (
-                <div className="space-y-4 pt-4 border-t">
-                  <h3 className="text-xl font-semibold text-foreground flex items-center gap-2">
-                    <ListChecks className="h-5 w-5" /> Role-Specific Responses
-                  </h3>
-                  <div className="space-y-3">
-                    {roleQuestions.map((question) => {
-                      const value = customResponses[question.key]
-                      const displayValue = Array.isArray(value)
-                        ? (value.length ? value.join(", ") : "Not provided")
-                        : value === "" || value === undefined || value === null
-                          ? "Not provided"
-                          : String(value)
-                      return (
-                        <div key={question.id} className="bg-muted/30 p-4 rounded-lg border border-border/40">
-                          <p className="text-sm font-medium text-foreground">{question.label}</p>
-                          <p className="text-sm text-muted-foreground whitespace-pre-wrap mt-1">
-                            {displayValue}
-                          </p>
-                        </div>
-                      )
-                    })}
-                  </div>
-                </div>
-              )}
-
-              {/* 3. Challenges */}
-              <div className="space-y-4 pt-4 border-t">
-                <h3 className="text-xl font-semibold text-foreground flex items-center gap-2">
-                  <AlertTriangle className="h-5 w-5" /> Challenges
-                </h3>
-                <div className="bg-muted/30 p-4 rounded-lg">
-                  <p className="text-base text-foreground whitespace-pre-wrap leading-relaxed">
-                    {formData.challenges || (
-                      <span className="italic text-muted-foreground flex items-center gap-2">No challenges reported today <Sparkles className="h-4 w-4" /></span>
-                    )}
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
         </CardContent>
       </Card>
 
       {/* Navigation Buttons */}
-      <div className="flex items-center justify-between flex-shrink-0">
-        <Button
-          variant="outline"
-          onClick={handlePrevious}
-          disabled={currentStep === 1}
-          className="gap-2"
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Previous
-        </Button>
+      <div className="shrink-0 space-y-2">
+        {isCurrentStepUploadBlocked ? (
+          <p className="text-destructive text-sm">Finish uploading all images before continuing.</p>
+        ) : null}
+        <div className="flex items-center justify-between">
+          {currentStep === 1 ? (
+            <Button
+              variant="outline"
+              className="invisible gap-2"
+              type="button"
+              tabIndex={-1}
+              aria-hidden="true"
+              disabled
+            >
+              <ArrowLeft className="h-4 w-4" />
+              Previous
+            </Button>
+          ) : (
+            <Button variant="outline" onClick={handlePrevious} className="gap-2">
+              <ArrowLeft className="h-4 w-4" />
+              Previous
+            </Button>
+          )}
 
-        <div className="text-sm text-muted-foreground">
-          Step {currentStep} of {steps.length}
+          {currentStep < steps.length ? (
+            hasStandardEntryConflict ? (
+              existingStandardEntryHref && !isEntryAvailabilityLoading ? (
+                <Button asChild className="gap-2">
+                  <Link href={existingStandardEntryHref}>
+                    <Eye className="h-4 w-4" />
+                    Open Existing Report
+                  </Link>
+                </Button>
+              ) : (
+                <Button disabled className="gap-2">
+                  <Eye className="h-4 w-4" />
+                  Open Existing Report
+                </Button>
+              )
+            ) : (
+              <Button
+                onClick={handleNext}
+                disabled={isNextDisabled || isCurrentStepUploadBlocked || isEntryAvailabilityLoading}
+                className="gap-2"
+              >
+                {currentStepConfig?.key === "date" ? "Continue" : "Next"}
+                <ArrowRight className="h-4 w-4" />
+              </Button>
+            )
+          ) : hasStandardEntryConflict ? (
+            existingStandardEntryHref && !isEntryAvailabilityLoading ? (
+              <Button asChild className="gap-2">
+                <Link href={existingStandardEntryHref}>
+                  <Eye className="h-4 w-4" />
+                  Open Existing Report
+                </Link>
+              </Button>
+            ) : (
+              <Button disabled className="gap-2">
+                <Eye className="h-4 w-4" />
+                Open Existing Report
+              </Button>
+            )
+          ) : (
+            <Button
+              onClick={handleSubmit}
+              disabled={isSubmitting || !hasVisibleQuestions || noAvailableAssignedAgents}
+              className="gap-2"
+            >
+              <Save className="h-4 w-4" />
+              {submitButtonLabel}
+            </Button>
+          )}
         </div>
-
-        {currentStep < steps.length ? (
-          <Button onClick={handleNext} className="gap-2">
-            Next
-            <ArrowRight className="h-4 w-4" />
-          </Button>
-        ) : (
-          <Button
-            onClick={handleSubmit}
-            disabled={isSubmitting || !formData.objectives || !formData.keyResults}
-            className="gap-2"
-          >
-            <Save className="h-4 w-4" />
-            {isSubmitting ? "Saving..." : "Submit Log"}
-          </Button>
-        )}
       </div>
-
-      {/* Required Fields Notice */}
-      {customStepNumber > -1 && currentStep === customStepNumber && hasCustomErrors && (
-        <div className="rounded-lg bg-destructive/10 p-4 border border-destructive/20 flex-shrink-0">
-          <p className="text-sm font-medium text-destructive flex items-center gap-2">
-            <AlertCircle className="h-4 w-4" /> Please complete the required role-specific questions before continuing.
-          </p>
-        </div>
-      )}
-
-      {currentStep === challengesStepNumber && (!formData.objectives || !formData.keyResults) && (
-        <div className="rounded-lg bg-destructive/10 p-4 border border-destructive/20 flex-shrink-0">
-          <p className="text-sm font-medium text-destructive flex items-center gap-2">
-            <AlertCircle className="h-4 w-4" /> Required fields missing: {!formData.objectives && "Objectives"}{!formData.objectives && !formData.keyResults && ", "}{!formData.keyResults && "Key Results"}
-          </p>
-        </div>
-      )}
     </div>
   )
 }

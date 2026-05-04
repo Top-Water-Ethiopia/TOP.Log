@@ -1,117 +1,181 @@
-"use client";
+"use client"
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-import Link from "next/link";
-import { useSupabaseAuth } from "@/contexts/supabase-auth-context";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card";
-import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useState, useEffect } from "react"
+import Link from "next/link"
+import { useSupabaseAuth } from "@/contexts/supabase-auth-context"
+import { Button } from "@/components/ui/button"
+import { Input } from "@/components/ui/input"
+import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
+import { Label } from "@/components/ui/label"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
+import { Moon, Sun } from "lucide-react"
+import { useTheme } from "next-themes"
+import { isFeatureEnabledClient } from "@/lib/feature-flags/client"
+
+interface Department {
+  id: string
+  name: string
+  code?: string | null
+}
+
+const NO_DEPARTMENTS_VALUE = "__no_departments__"
 
 export default function RegisterPage() {
-  const router = useRouter();
-  const { register, isLoading, error } = useSupabaseAuth();
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-  const [name, setName] = useState("");
-  const [department, setDepartment] = useState("");
-  const [validationError, setValidationError] = useState("");
+  const { register, isLoading, error } = useSupabaseAuth()
+  const { theme, setTheme } = useTheme()
+  const darkModeEnabled = isFeatureEnabledClient("DARK_MODE")
+  const [identifier, setIdentifier] = useState("")
+  const [password, setPassword] = useState("")
+  const [confirmPassword, setConfirmPassword] = useState("")
+  const [name, setName] = useState("")
+  const [departmentId, setDepartmentId] = useState("")
+  const [validationError, setValidationError] = useState("")
+  const [departments, setDepartments] = useState<Department[]>([])
+  const [loadingDepartments, setLoadingDepartments] = useState(true)
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  // Fetch departments from database
+  useEffect(() => {
+    const controller = new AbortController()
+
+    const fetchDepartments = async () => {
+      try {
+        setLoadingDepartments(true)
+        const resp = await fetch("/api/public/departments", { signal: controller.signal })
+        if (!resp.ok) {
+          const body = await resp.text().catch(() => "")
+          console.error("Error fetching departments:", { status: resp.status, body })
+          setDepartments([])
+          return
+        }
+
+        const json = (await resp.json()) as { data?: Department[] }
+        setDepartments(Array.isArray(json?.data) ? json.data : [])
+      } catch (err) {
+        if (err instanceof DOMException && err.name === "AbortError") return
+        console.error("Error fetching departments:", err)
+        setDepartments([])
+      } finally {
+        setLoadingDepartments(false)
+      }
+    }
+
+    fetchDepartments()
+    return () => controller.abort()
+  }, [])
 
   const handleRegister = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
+    e.preventDefault()
+
     // Reset validation error
-    setValidationError("");
-    
+    setValidationError("")
+
     // Simple validation
     if (password !== confirmPassword) {
-      setValidationError("Passwords do not match");
-      return;
+      setValidationError("Passwords do not match")
+      return
     }
-    
+
     if (password.length < 8) {
-      setValidationError("Password must be at least 8 characters");
-      return;
+      setValidationError("Password must be at least 8 characters")
+      return
     }
-    
+
     try {
-      await register(email, password, name, department);
+      const normalizedDepartmentId = departmentId && departmentId !== NO_DEPARTMENTS_VALUE ? departmentId : undefined
+
+      await register(identifier, password, name, normalizedDepartmentId)
       // Redirect happens in the auth context after successful registration
     } catch (error) {
       // Error handling is done in the auth context
-      console.error("Registration error:", error);
+      console.error("Registration error:", error)
     }
-  };
+  }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-4">
+    <div className="bg-background relative flex min-h-screen items-center justify-center p-4">
+      {/* Theme Toggle */}
+      {darkModeEnabled ? (
+        <div className="absolute top-4 right-4">
+          <Button
+            variant="outline"
+            size="icon"
+            onClick={() => {
+              const newTheme = theme === "dark" ? "light" : "dark"
+              setTheme(newTheme)
+            }}
+            className="h-9 w-9"
+          >
+            {mounted ? (
+              theme === "dark" ? (
+                <Sun className="h-4 w-4" />
+              ) : (
+                <Moon className="h-4 w-4" />
+              )
+            ) : (
+              <Moon className="h-4 w-4" />
+            )}
+            <span className="sr-only">Toggle theme</span>
+          </Button>
+        </div>
+      ) : null}
+
       <Card className="w-full max-w-md">
         <CardHeader className="space-y-1">
           <CardTitle className="text-2xl font-bold">Create an account</CardTitle>
           <CardDescription>Enter your details to create your TOP Log account</CardDescription>
         </CardHeader>
-        
+
         <form onSubmit={handleRegister}>
           <CardContent className="space-y-4">
-            {error && (
-              <div className="p-3 text-sm bg-red-50 text-red-500 rounded-md">
-                {error}
-              </div>
-            )}
-            
-            {validationError && (
-              <div className="p-3 text-sm bg-red-50 text-red-500 rounded-md">
-                {validationError}
-              </div>
-            )}
-            
+            {error && <div className="rounded-md bg-red-50 p-3 text-sm text-red-500">{error}</div>}
+
+            {validationError && <div className="rounded-md bg-red-50 p-3 text-sm text-red-500">{validationError}</div>}
+
             <div className="space-y-2">
               <Label htmlFor="name">Full Name</Label>
-              <Input
-                id="name"
-                placeholder="John Doe"
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                required
-              />
+              <Input id="name" placeholder="John Doe" value={name} onChange={(e) => setName(e.target.value)} required />
             </div>
-            
+
             <div className="space-y-2">
-              <Label htmlFor="email">Email</Label>
+              <Label htmlFor="identifier">Email or phone number</Label>
               <Input
-                id="email"
-                type="email"
-                placeholder="name@example.com"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
+                id="identifier"
+                type="text"
+                placeholder="name@example.com or phone number"
+                value={identifier}
+                onChange={(e) => setIdentifier(e.target.value)}
                 required
+                autoComplete="username"
               />
             </div>
-            
+
             <div className="space-y-2">
               <Label htmlFor="department">Department</Label>
-              <Select value={department} onValueChange={setDepartment}>
+              <Select value={departmentId} onValueChange={setDepartmentId} disabled={loadingDepartments}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Select department" />
+                  <SelectValue placeholder={loadingDepartments ? "Loading departments..." : "Select department"} />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="engineering">Engineering</SelectItem>
-                  <SelectItem value="product">Product</SelectItem>
-                  <SelectItem value="design">Design</SelectItem>
-                  <SelectItem value="operations">Operations</SelectItem>
-                  <SelectItem value="support">Support</SelectItem>
-                  <SelectItem value="marketing">Marketing</SelectItem>
-                  <SelectItem value="sales">Sales</SelectItem>
-                  <SelectItem value="hr">HR</SelectItem>
-                  <SelectItem value="finance">Finance</SelectItem>
-                  <SelectItem value="other">Other</SelectItem>
+                  {departments.length > 0 ? (
+                    departments.map((dept) => (
+                      <SelectItem key={dept.id} value={dept.id}>
+                        {dept.name}
+                      </SelectItem>
+                    ))
+                  ) : (
+                    <SelectItem value={NO_DEPARTMENTS_VALUE} disabled>
+                      No departments available
+                    </SelectItem>
+                  )}
                 </SelectContent>
               </Select>
             </div>
-            
+
             <div className="space-y-2">
               <Label htmlFor="password">Password</Label>
               <Input
@@ -121,11 +185,9 @@ export default function RegisterPage() {
                 onChange={(e) => setPassword(e.target.value)}
                 required
               />
-              <p className="text-xs text-muted-foreground">
-                Password must be at least 8 characters long
-              </p>
+              <p className="text-muted-foreground text-xs">Password must be at least 8 characters long</p>
             </div>
-            
+
             <div className="space-y-2">
               <Label htmlFor="confirmPassword">Confirm Password</Label>
               <Input
@@ -137,22 +199,15 @@ export default function RegisterPage() {
               />
             </div>
           </CardContent>
-          
+
           <CardFooter className="flex flex-col space-y-4">
-            <Button 
-              type="submit" 
-              className="w-full" 
-              disabled={isLoading}
-            >
+            <Button type="submit" className="w-full" disabled={isLoading}>
               {isLoading ? "Creating account..." : "Create account"}
             </Button>
-            
+
             <div className="text-center text-sm">
               Already have an account?{" "}
-              <Link 
-                href="/login" 
-                className="text-primary underline-offset-4 hover:underline"
-              >
+              <Link href="/login" className="text-primary underline-offset-4 hover:underline">
                 Sign in
               </Link>
             </div>
@@ -160,5 +215,5 @@ export default function RegisterPage() {
         </form>
       </Card>
     </div>
-  );
+  )
 }

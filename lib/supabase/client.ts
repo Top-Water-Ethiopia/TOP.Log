@@ -1,27 +1,6 @@
-import { createClient } from '@supabase/supabase-js';
-import type { Database } from './database.types';
+import { supabase } from "@/lib/supabase-client"
 
-let supabaseUrl: string;
-let supabaseKey: string;
-
-// Check if we're in a browser environment
-if (typeof window !== 'undefined') {
-  // Client-side: use the public environment variables
-  supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-  supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-} else {
-  // Server-side: use the private environment variables
-  supabaseUrl = process.env.SUPABASE_URL || '';
-  supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
-}
-
-if (!supabaseUrl || !supabaseKey) {
-  if (typeof window !== 'undefined') {
-    console.error('Supabase credentials not found in environment variables.');
-  }
-}
-
-export const supabase = createClient<Database>(supabaseUrl, supabaseKey);
+export { supabase }
 
 // Helper functions for authentication
 export async function getCurrentUser() {

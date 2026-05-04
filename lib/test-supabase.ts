@@ -52,15 +52,10 @@ export async function createSampleData(userId: string) {
       const entry = await supabaseData.createEntry({
         user_id: userId,
         date,
-        objectives: `Sample objectives for ${date}`,
-        key_results: `Sample key results for ${date}`,
-        challenges: `Sample challenges for ${date}`,
-        development_tasks: `Sample development tasks for ${date}`,
-        features_completed: `Sample features completed for ${date}`,
-        challenges_and_blockers: `Sample challenges and blockers for ${date}`,
-        code_and_priorities: `Sample code and priorities for ${date}`,
-        system_improvements: `Sample system improvements for ${date}`,
-        project_updates: `Sample project updates for ${date}`
+        metadata: {
+          sample: true,
+          note: `Sample entry for ${date}`,
+        },
       });
       
       entries.push(entry);

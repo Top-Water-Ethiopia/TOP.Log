@@ -9,7 +9,7 @@ export const UserSchema = z.object({
   email: z.string().email(),
   name: z.string().min(1).max(100),
   avatar: z.string().url().optional(),
-  role: z.enum(["admin", "manager", "programmer", "qa", "tech-support", "graphic-designer", "viewer"]),
+  role: z.enum(["admin", "system-admin", "manager", "programmer", "qa", "tech-support", "graphic-designer", "viewer"]),
   department: z.string().optional(),
   isActive: z.boolean().default(true),
   lastLogin: z.string().optional(),
@@ -24,7 +24,7 @@ export type User = z.infer<typeof UserSchema>
 
 export const RoleSchema = z.object({
   id: z.string(),
-  name: z.enum(["admin", "manager", "programmer", "qa", "tech-support", "graphic-designer", "viewer"]),
+  name: z.string(),
   displayName: z.string(),
   description: z.string(),
   level: z.number(), // Higher number = more permissions (admin: 5, manager: 4, programmer/qa: 3, tech-support/graphic-designer: 2, viewer: 1)
@@ -102,209 +102,11 @@ export type Session = z.infer<typeof SessionSchema>
 
 // ==================== RBAC CONFIGURATION ====================
 
-export const DEFAULT_ROLES: Role[] = [
-  {
-    id: "role-admin",
-    name: "admin",
-    displayName: "System Administrator",
-    description: "Full access to all system resources and user management",
-    level: 5,
-    permissions: [
-      "entries.create",
-      "entries.read",
-      "entries.update",
-      "entries.delete",
-      "entries.export",
-      "entries.import",
-      "users.create",
-      "users.read",
-      "users.update",
-      "users.delete",
-      "users.manage",
-      "analytics.read",
-      "analytics.advanced",
-      "admin.system",
-      "admin.audit",
-      "admin.backup",
-      "admin.restore",
-      "admin.settings",
-    ],
-    accessScopes: [
-      "scope-system-admin",
-      "scope-team-operations",
-      "scope-delivery-engineering",
-      "scope-quality-assurance",
-      "scope-support-operations",
-      "scope-creative-studio",
-      "scope-observability",
-    ],
-    isSystem: true,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-  {
-    id: "role-manager",
-    name: "manager",
-    displayName: "Manager",
-    description: "Can manage entries and view analytics, limited user management",
-    level: 4,
-    permissions: [
-      "entries.create",
-      "entries.read",
-      "entries.update",
-      "entries.delete",
-      "entries.export",
-      "users.read",
-      "analytics.read",
-      "analytics.team",
-    ],
-    accessScopes: [
-      "scope-team-operations",
-      "scope-delivery-engineering",
-      "scope-observability",
-    ],
-    isSystem: true,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-  {
-    id: "role-programmer",
-    name: "programmer",
-    displayName: "Programmer",
-    description: "Software developer with programming and technical responsibilities",
-    level: 3,
-    permissions: [
-      "entries.create",
-      "entries.read",
-      "entries.update",
-      "entries.delete.own",
-      "entries.export",
-      "entries.import",
-      "analytics.read",
-      "analytics.advanced",
-    ],
-    accessScopes: [
-      "scope-delivery-engineering",
-      "scope-observability",
-    ],
-    isSystem: true,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-  {
-    id: "role-qa",
-    name: "qa",
-    displayName: "Quality Assurance",
-    description: "Quality assurance specialist with testing and quality responsibilities",
-    level: 3,
-    permissions: [
-      "entries.create",
-      "entries.read",
-      "entries.update",
-      "entries.delete.own",
-      "analytics.read",
-      "analytics.advanced",
-    ],
-    accessScopes: [
-      "scope-quality-assurance",
-      "scope-observability",
-    ],
-    isSystem: true,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-  {
-    id: "role-tech-support",
-    name: "tech-support",
-    displayName: "Technical Support",
-    description: "Technical support specialist with customer service responsibilities",
-    level: 2,
-    permissions: [
-      "entries.create",
-      "entries.read",
-      "entries.update",
-      "entries.delete.own",
-      "analytics.read",
-    ],
-    accessScopes: [
-      "scope-support-operations",
-      "scope-observability",
-    ],
-    isSystem: true,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-  {
-    id: "role-graphic-designer",
-    name: "graphic-designer",
-    displayName: "Graphic Designer",
-    description: "Graphic designer with creative and design responsibilities",
-    level: 2,
-    permissions: [
-      "entries.create",
-      "entries.read",
-      "entries.update",
-      "entries.delete.own",
-      "analytics.read",
-    ],
-    accessScopes: [
-      "scope-creative-studio",
-      "scope-observability",
-    ],
-    isSystem: true,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-  {
-    id: "role-viewer",
-    name: "viewer",
-    displayName: "Viewer",
-    description: "Read-only access to entries and basic analytics",
-    level: 1,
-    permissions: [
-      "entries.read",
-      "entries.export.own",
-      "analytics.read.own",
-    ],
-    accessScopes: [
-      "scope-observability",
-    ],
-    isSystem: true,
-    createdAt: new Date().toISOString(),
-    updatedAt: new Date().toISOString(),
-  },
-]
+import { DATABASE_DEFAULT_ROLES, DATABASE_DEFAULT_PERMISSIONS } from "./database-defaults"
 
-export const DEFAULT_PERMISSIONS: Permission[] = [
-  // Entry permissions
-  { id: "perm-entries-create", name: "entries.create", resource: "entries", action: "create", description: "Create new log entries", category: "write" },
-  { id: "perm-entries-read", name: "entries.read", resource: "entries", action: "read", description: "View log entries", category: "read" },
-  { id: "perm-entries-update", name: "entries.update", resource: "entries", action: "update", description: "Update existing log entries", category: "write" },
-  { id: "perm-entries-delete", name: "entries.delete", resource: "entries", action: "delete", description: "Delete log entries", category: "delete" },
-  { id: "perm-entries-export", name: "entries.export", resource: "entries", action: "export", description: "Export all log entries", category: "read" },
-  { id: "perm-entries-export-own", name: "entries.export.own", resource: "entries", action: "export", description: "Export own log entries", category: "read" },
-  { id: "perm-entries-import", name: "entries.import", resource: "entries", action: "import", description: "Import log entries", category: "write" },
-  
-  // User permissions
-  { id: "perm-users-create", name: "users.create", resource: "users", action: "create", description: "Create new users", category: "write" },
-  { id: "perm-users-read", name: "users.read", resource: "users", action: "read", description: "View user information", category: "read" },
-  { id: "perm-users-update", name: "users.update", resource: "users", action: "update", description: "Update user information", category: "write" },
-  { id: "perm-users-delete", name: "users.delete", resource: "users", action: "delete", description: "Delete users", category: "delete" },
-  { id: "perm-users-manage", name: "users.manage", resource: "users", action: "manage", description: "Manage user roles and permissions", category: "admin" },
-  
-  // Analytics permissions
-  { id: "perm-analytics-read", name: "analytics.read", resource: "analytics", action: "read", description: "View analytics dashboard", category: "read" },
-  { id: "perm-analytics-read-own", name: "analytics.read.own", resource: "analytics", action: "read", description: "View own analytics", category: "read" },
-  { id: "perm-analytics-advanced", name: "analytics.advanced", resource: "analytics", action: "advanced", description: "View advanced analytics", category: "read" },
-  { id: "perm-analytics-team", name: "analytics.team", resource: "analytics", action: "team", description: "View team analytics", category: "read" },
-  
-  // Admin permissions
-  { id: "perm-admin-system", name: "admin.system", resource: "admin", action: "system", description: "Access system administration", category: "admin" },
-  { id: "perm-admin-audit", name: "admin.audit", resource: "admin", action: "audit", description: "View audit logs", category: "admin" },
-  { id: "perm-admin-backup", name: "admin.backup", resource: "admin", action: "backup", description: "Create system backups", category: "admin" },
-  { id: "perm-admin-restore", name: "admin.restore", resource: "admin", action: "restore", description: "Restore system backups", category: "admin" },
-  { id: "perm-admin-settings", name: "admin.settings", resource: "admin", action: "settings", description: "Manage system settings", category: "admin" },
-]
+export const DEFAULT_ROLES: Role[] = DATABASE_DEFAULT_ROLES
+
+export const DEFAULT_PERMISSIONS: Permission[] = DATABASE_DEFAULT_PERMISSIONS
 
 // ==================== DEFAULT ACCESS SCOPES ====================
 
@@ -326,7 +128,16 @@ export const DEFAULT_ACCESS_SCOPES: AccessScope[] = [
     key: "team-operations",
     description: "Manage user accounts, departments, and team-level analytics.",
     resources: ["users", "departments", "analytics"],
-    defaultPermissions: ["users.create", "users.read", "users.update", "analytics.team"],
+    defaultPermissions: [
+      "users.create",
+      "users.read",
+      "users.update",
+      "departments.read",
+      "departments.update",
+      "departments.members.read",
+      "departments.members.manage",
+      "analytics.team",
+    ],
     isSystem: true,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -337,7 +148,14 @@ export const DEFAULT_ACCESS_SCOPES: AccessScope[] = [
     key: "delivery-engineering",
     description: "Access to engineering workflow entries, imports, and exports.",
     resources: ["entries", "analytics"],
-    defaultPermissions: ["entries.create", "entries.read", "entries.update", "entries.export", "entries.import", "analytics.advanced"],
+    defaultPermissions: [
+      "entries.create",
+      "entries.read",
+      "entries.update",
+      "entries.export",
+      "entries.import",
+      "analytics.advanced",
+    ],
     isSystem: true,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
@@ -449,6 +267,7 @@ export interface AuthState {
 }
 
 export interface AuthContextType extends AuthState {
+  isInitialized: boolean
   login: (email: string, password: string) => Promise<void>
   logout: () => void
   register: (userData: Omit<User, "id" | "createdAt" | "updatedAt"> & { password: string }) => Promise<void>
@@ -478,15 +297,40 @@ export const ROLE_HIERARCHY: RoleHierarchy = {
   programmer: 3,
   manager: 4,
   admin: 5,
+  "system-admin": 5,
 }
-
-// ==================== ROLE-BASED CUSTOM QUESTIONS ====================
 
 export interface CustomQuestion {
   id: string
   key: string // Field key for storage
   label: string
-  type: "text" | "textarea" | "select" | "multiselect" | "checkbox" | "number" | "date"
+  type:
+    | "text"
+    | "textarea"
+    | "email"
+    | "url"
+    | "phone"
+    | "select"
+    | "multiselect"
+    | "checkbox"
+    | "number"
+    | "date"
+    | "time"
+    | "datetime"
+    | "daterange"
+    | "duration"
+    | "priority"
+    | "status"
+    | "radio"
+    | "tags"
+    | "rating"
+    | "slider"
+    | "nps"
+    | "file"
+    | "image"
+    | "rich-text"
+    | "currency"
+    | "percentage"
   required: boolean
   placeholder?: string
   options?: string[] // For select/multiselect types
@@ -494,12 +338,13 @@ export interface CustomQuestion {
     min?: number
     max?: number
     pattern?: string
-    custom?: (value: any) => string | null
+    custom?: (value: unknown) => string | null
   }
-  defaultValue?: any
+  defaultValue?: unknown
   description?: string
   category?: string // For grouping questions
   order: number // Display order
+  metadata?: unknown
 }
 
 export interface RoleQuestionSet {
@@ -518,7 +363,7 @@ export interface QuestionResponse {
   questionLabel: string
   questionType: CustomQuestion["type"]
   questionCategory?: string
-  value: any
+  value: unknown
   timestamp: string
 }
 
@@ -596,9 +441,15 @@ export const DEFAULT_QUESTION_SETS: RoleQuestionSet[] = [
         type: "multiselect",
         required: false,
         options: [
-          "Login Problems", "Software Installation", "Network Connectivity", 
-          "Password Reset", "Hardware Issues", "Account Configuration", 
-          "Email Issues", "System Errors", "Other"
+          "Login Problems",
+          "Software Installation",
+          "Network Connectivity",
+          "Password Reset",
+          "Hardware Issues",
+          "Account Configuration",
+          "Email Issues",
+          "System Errors",
+          "Other",
         ],
         description: "Select the most common issues you resolved today",
         category: "Support",
@@ -691,9 +542,15 @@ export const DEFAULT_QUESTION_SETS: RoleQuestionSet[] = [
         type: "multiselect",
         required: false,
         options: [
-          "Frontend (React/Vue/Angular)", "Backend (Node.js/Python/Java)", 
-          "Database (SQL/NoSQL)", "API Development", "Mobile Development",
-          "DevOps/CI/CD", "Testing", "Documentation", "Other"
+          "Frontend (React/Vue/Angular)",
+          "Backend (Node.js/Python/Java)",
+          "Database (SQL/NoSQL)",
+          "API Development",
+          "Mobile Development",
+          "DevOps/CI/CD",
+          "Testing",
+          "Documentation",
+          "Other",
         ],
         description: "Select technologies you worked with today",
         category: "Technical",
@@ -785,9 +642,15 @@ export const DEFAULT_QUESTION_SETS: RoleQuestionSet[] = [
         type: "multiselect",
         required: false,
         options: [
-          "Functional Testing", "Regression Testing", "Performance Testing",
-          "Security Testing", "Usability Testing", "API Testing",
-          "Integration Testing", "Unit Testing", "Exploratory Testing"
+          "Functional Testing",
+          "Regression Testing",
+          "Performance Testing",
+          "Security Testing",
+          "Usability Testing",
+          "API Testing",
+          "Integration Testing",
+          "Unit Testing",
+          "Exploratory Testing",
         ],
         description: "Select types of testing performed today",
         category: "Testing",
@@ -856,9 +719,16 @@ export const DEFAULT_QUESTION_SETS: RoleQuestionSet[] = [
         type: "multiselect",
         required: false,
         options: [
-          "UI/UX Designs", "Marketing Materials", "Brand Assets",
-          "Social Media Graphics", "Print Design", "Logo Design",
-          "Web Banners", "Infographics", "Presentations", "Other"
+          "UI/UX Designs",
+          "Marketing Materials",
+          "Brand Assets",
+          "Social Media Graphics",
+          "Print Design",
+          "Logo Design",
+          "Web Banners",
+          "Infographics",
+          "Presentations",
+          "Other",
         ],
         description: "Select types of design work completed",
         category: "Design",
@@ -895,8 +765,15 @@ export const DEFAULT_QUESTION_SETS: RoleQuestionSet[] = [
         type: "multiselect",
         required: false,
         options: [
-          "Adobe Photoshop", "Adobe Illustrator", "Figma", "Sketch",
-          "Adobe XD", "InDesign", "After Effects", "Canva", "Other"
+          "Adobe Photoshop",
+          "Adobe Illustrator",
+          "Figma",
+          "Sketch",
+          "Adobe XD",
+          "InDesign",
+          "After Effects",
+          "Canva",
+          "Other",
         ],
         description: "Select design tools used today",
         category: "Technical",

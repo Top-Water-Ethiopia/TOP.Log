@@ -24,13 +24,13 @@ import {
   CheckCircle
 } from "lucide-react"
 import { useAuth } from "@/contexts/auth-context"
-import { useRBAC } from "@/hooks/use-rbac.tsx"
+import { useRBAC } from "@/hooks/use-rbac"
 import { validatePassword } from "@/lib/rbac/utils"
 import { toast } from "sonner"
 
 export function UserProfileDialog({ onClose }: { onClose: () => void }) {
   const { user, updateProfile, changePassword, isLoading, error, clearError } = useAuth()
-  const { user: rbacUser } = useRBAC()
+  const { userInfo: rbacUser } = useRBAC()
   
   const [activeTab, setActiveTab] = useState("profile")
   const [isEditingProfile, setIsEditingProfile] = useState(false)

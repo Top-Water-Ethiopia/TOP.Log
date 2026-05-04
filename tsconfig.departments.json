@@ -1,0 +1,21 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true
+  },
+  "include": [],
+  "files": [
+    "next-env.d.ts",
+    "app/departments/page.tsx",
+    "app/departments/[departmentId]/page.tsx",
+    "app/api/departments/route.ts",
+    "app/api/departments/[departmentId]/members/route.ts",
+    "app/api/departments/[departmentId]/entries/route.ts",
+    "contexts/supabase-auth-context.tsx"
+  ],
+  "exclude": [
+    "node_modules",
+    "scripts/**",
+    "lib/test-supabase.ts"
+  ]
+}

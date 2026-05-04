@@ -4,7 +4,7 @@ import type React from "react"
 
 import { useState, useEffect } from "react"
 import { Button } from "@/components/ui/button"
-import { useCaptainLog } from "@/contexts/captain-log-context"
+import { useCaptainLog } from "@/contexts/supabase-log-context"
 import { ArrowLeft, Save } from "lucide-react"
 import { TemplateDialog } from "@/components/template-dialog"
 import type { EntryTemplate } from "@/lib/templates"
@@ -79,18 +79,30 @@ export function EntryForm({ date, onSave, onCancel }: EntryFormProps) {
       if (existingEntry) {
         // Update existing entry
         await updateEntry(existingEntry.id, {
+          department_id: existingEntry.department_id,
+          metadata: existingEntry.metadata,
+          objectives: existingEntry.objectives,
+          keyResults: existingEntry.keyResults,
+          challenges: existingEntry.challenges,
           ...formData,
           date,
+          customResponses: existingEntry.customResponses || [],
         })
       } else {
         // Create new entry
+        const now = new Date().toISOString()
         await addEntry({
           date,
+          department_id: null,
+          metadata: null,
           ...formData,
           // Provide defaults for new fields (backward compatibility)
           objectives: "",
           keyResults: "",
           challenges: "",
+          createdAt: now,
+          updatedAt: now,
+          customResponses: [],
         })
       }
 
@@ -150,7 +162,7 @@ export function EntryForm({ date, onSave, onCancel }: EntryFormProps) {
       <div className="flex items-center justify-between">
         <div>
           <h2 className="text-2xl font-semibold text-foreground">Log Entry</h2>
-          <p className="text-sm text-muted-foreground mt-1">{formatDate(date)}</p>
+          <p className="text-sm text-muted-foreground mt-2">{formatDate(date)}</p>
         </div>
         <div className="flex gap-2">
           <TemplateDialog onSelectTemplate={handleApplyTemplate} />
@@ -174,9 +186,9 @@ export function EntryForm({ date, onSave, onCancel }: EntryFormProps) {
               value={formData[field.id as keyof typeof formData]}
               onChange={(e) => handleChange(field.id, e.target.value)}
               placeholder={field.placeholder}
-              className="w-full px-3 py-2 border border-input rounded-md bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 min-h-24 resize-none"
+              className="w-full px-4 py-4 border border-input rounded-md bg-background text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-1 min-h-24 resize-none"
             />
-            <div className="flex justify-end mt-1">
+            <div className="flex justify-end mt-2">
               <span className={`text-xs ${formData[field.id as keyof typeof formData].length > CHARACTER_LIMITS[field.id as keyof typeof CHARACTER_LIMITS] * 0.9 ? 'text-destructive' : formData[field.id as keyof typeof formData].length > CHARACTER_LIMITS[field.id as keyof typeof CHARACTER_LIMITS] * 0.8 ? 'text-orange-500' : 'text-muted-foreground'}
               `}>
                 {formData[field.id as keyof typeof formData].length}/{CHARACTER_LIMITS[field.id as keyof typeof CHARACTER_LIMITS]}
@@ -186,7 +198,7 @@ export function EntryForm({ date, onSave, onCancel }: EntryFormProps) {
         ))}
 
         {/* Submit Buttons */}
-        <div className="flex gap-3 pt-6 border-t border-border">
+        <div className="flex gap-4 pt-6 border-t border-border">
           <Button type="button" variant="outline" onClick={onCancel} disabled={isSubmitting}>
             Discard
           </Button>

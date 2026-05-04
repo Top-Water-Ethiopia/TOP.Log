@@ -72,11 +72,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         const usersWithPassword = [...loadedUsers, { ...adminUser, password: hashedPassword }]
         setUsers(usersWithPassword)
         saveToStorage("USERS", usersWithPassword)
-        
-        toast.info("Default admin user created", {
-          description: "Email: admin@captains-log.local, Password: admin123",
-          duration: 10000,
-        })
       } else {
         setUsers(loadedUsers)
       }
@@ -327,6 +322,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error("Not authenticated")
     }
 
+    const userId = authState.user.id
+
     setAuthState(prev => ({ ...prev, isLoading: true, error: null }))
 
     try {
@@ -343,7 +340,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (updates.email && updates.email !== authState.user.email) {
         const existingUser = users.find(u => 
           u.email.toLowerCase() === updates.email!.toLowerCase() && 
-          u.id !== authState.user.id
+          u.id !== userId
         )
         if (existingUser) {
           throw new Error("Email already exists")
@@ -358,7 +355,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       const updatedUsers = users.map(u => 
-        u.id === authState.user.id ? updatedUser : u
+        u.id === userId ? updatedUser : u
       )
       setUsers(updatedUsers)
       saveToStorage("USERS", updatedUsers)
@@ -386,6 +383,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error("Not authenticated")
     }
 
+    const userId = authState.user.id
+
     setAuthState(prev => ({ ...prev, isLoading: true, error: null }))
 
     try {
@@ -396,7 +395,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
 
       // Get user with password
-      const userWithPassword = users.find(u => u.id === authState.user.id) as any
+      const userWithPassword = users.find(u => u.id === userId) as any
       
       if (userWithPassword?.password) {
         // Verify old password
@@ -410,7 +409,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         
         // Update user password
         const updatedUsers = users.map(u => 
-          u.id === authState.user.id 
+          u.id === userId 
             ? { ...u, password: hashedNewPassword, updatedAt: new Date().toISOString() }
             : u
         )
@@ -422,7 +421,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       toast.success("Password changed successfully")
 
       // Create audit log
-      const auditLog = createAuthAuditLog("PASSWORD_CHANGE", authState.user.id)
+      const auditLog = createAuthAuditLog("PASSWORD_CHANGE", userId)
       console.log("Audit log:", auditLog)
 
     } catch (error) {
@@ -465,6 +464,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const contextValue: AuthContextType = {
     ...authState,
+    isInitialized,
     login,
     logout,
     register,

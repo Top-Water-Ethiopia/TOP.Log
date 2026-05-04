@@ -1,5 +1,6 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "react-day-picker/style.css";
 
 @custom-variant dark (&:is(.dark *));
 
@@ -12,6 +13,7 @@
   --popover-foreground: oklch(0.15 0.02 220);
   /* TOP Brand: #0b72b5 */
   --primary: oklch(0.5 0.13 240);
+  --primary-hover: oklch(0.58 0.18 240);
   --primary-foreground: oklch(0.98 0.001 280);
   --secondary: oklch(0.92 0.01 220);
   /* TOP Brand: #1c3c6d */
@@ -56,6 +58,7 @@
   --popover-foreground: oklch(0.93 0.01 220);
   /* TOP Brand: #0b72b5 (lightened for dark mode) */
   --primary: oklch(0.65 0.14 240);
+  --primary-hover: oklch(0.72 0.16 240);
   --primary-foreground: oklch(0.15 0.02 220);
   --secondary: oklch(0.25 0.02 220);
   --secondary-foreground: oklch(0.93 0.01 220);
@@ -90,7 +93,9 @@
 }
 
 @theme inline {
-  --font-sans: "Geist", "Geist Fallback";
+  --font-sans:
+    var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial,
+    "Apple Color Emoji", "Segoe UI Emoji";
   --font-mono: "Geist Mono", "Geist Mono Fallback";
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -137,4 +142,18 @@
   body {
     @apply bg-background text-foreground;
   }
+}
+
+/* react-day-picker: constrain day button backgrounds to exact size */
+.rdp-day {
+  @apply h-9! w-9! rounded-md! p-0! font-normal!;
+}
+.rdp-day:hover:not(.rdp-selected):not(.rdp-disabled) {
+  @apply bg-accent! text-accent-foreground!;
+}
+.rdp-day.rdp-selected {
+  @apply bg-primary! text-primary-foreground!;
+}
+.rdp-day.rdp-today:not(.rdp-selected) {
+  @apply bg-accent! text-accent-foreground!;
 }

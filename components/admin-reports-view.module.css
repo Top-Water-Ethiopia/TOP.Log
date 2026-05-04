@@ -1,0 +1,499 @@
+/* Fortune 500 Standard Admin Reports Calendar Styles */
+
+/* Professional color palette */
+:root {
+  --primary-50: #f0f9ff;
+  --primary-100: #e0f2fe;
+  --primary-200: #bae6fd;
+  --primary-300: #7dd3fc;
+  --primary-400: #38bdf8;
+  --primary-500: #0ea5e9;
+  --primary-600: #0284c7;
+  --primary-700: #0369a1;
+  --primary-800: #075985;
+  --primary-900: #0c4a6e;
+  --primary-950: #082f49;
+
+  --neutral-50: #fafafa;
+  --neutral-100: #f5f5f5;
+  --neutral-200: #e5e5e5;
+  --neutral-300: #d4d4d4;
+  --neutral-400: #a3a3a3;
+  --neutral-500: #737373;
+  --neutral-600: #525252;
+  --neutral-700: #404040;
+  --neutral-800: #262626;
+  --neutral-900: #171717;
+  --neutral-950: #0a0a0a;
+
+  --success-50: #f0fdf4;
+  --success-200: #bbf7d0;
+  --success-500: #22c55e;
+  --success-600: #16a34a;
+
+  --warning-50: #fffbeb;
+  --warning-500: #f59e0b;
+
+  --error-50: #fef2f2;
+  --error-500: #ef4444;
+}
+
+/* Enterprise-grade scrollbar styling */
+.calendarContainer {
+  scrollbar-width: thin;
+  scrollbar-color: var(--neutral-300) transparent;
+}
+
+.calendarContainer::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+.calendarContainer::-webkit-scrollbar-track {
+  background: transparent;
+  border-radius: 3px;
+}
+
+.calendarContainer::-webkit-scrollbar-thumb {
+  background: var(--neutral-300);
+  border-radius: 3px;
+  transition: background-color 0.2s ease;
+}
+
+.calendarContainer::-webkit-scrollbar-thumb:hover {
+  background: var(--neutral-400);
+}
+
+/* Premium calendar header styling */
+.calendarHeader {
+  background: linear-gradient(135deg, var(--primary-50) 0%, var(--primary-100) 100%);
+  border-bottom: 1px solid var(--primary-200);
+  padding: 1.5rem 2rem;
+  position: relative;
+  overflow: hidden;
+}
+
+.calendarHeader::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.05) 100%);
+  pointer-events: none;
+}
+
+.calendarTitle {
+  font-size: 1.875rem;
+  font-weight: 700;
+  color: var(--primary-900);
+  margin: 0;
+  position: relative;
+  z-index: 1;
+}
+
+.calendarSubtitle {
+  font-size: 0.875rem;
+  color: var(--primary-700);
+  margin: 0.5rem 0 0 0;
+  position: relative;
+  z-index: 1;
+}
+
+/* Enhanced day cell styling */
+.dayCell {
+  min-height: 120px;
+  padding: 0.5rem;
+  position: relative;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  border-radius: 8px;
+  margin: 2px;
+}
+
+.dayCell:hover {
+  background: var(--neutral-50);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+}
+
+/* Weekend styling */
+.weekend {
+  background: linear-gradient(135deg, var(--neutral-50) 0%, var(--neutral-100) 100%);
+}
+
+/* Today's date styling */
+.today {
+  background: linear-gradient(135deg, var(--primary-100) 0%, var(--primary-200) 100%);
+  border: 2px solid var(--primary-500);
+  border-radius: 12px;
+  box-shadow: 0 0 0 4px rgba(14, 165, 233, 0.1);
+  position: relative;
+}
+
+.today::before {
+  content: '';
+  position: absolute;
+  top: -2px;
+  left: -2px;
+  right: -2px;
+  bottom: -2px;
+  background: linear-gradient(135deg, var(--primary-400), var(--primary-600));
+  border-radius: 12px;
+  z-index: -1;
+  opacity: 0.1;
+}
+
+/* Day with entries indicator */
+.dayWithEntries {
+  background: linear-gradient(135deg, var(--success-50) 0%, rgba(34, 197, 94, 0.05) 100%);
+  border: 1px solid var(--success-200);
+}
+
+.dayWithEntries::after {
+  content: '';
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 6px;
+  height: 6px;
+  background: var(--success-500);
+  border-radius: 50%;
+  box-shadow: 0 0 8px rgba(34, 197, 94, 0.4);
+}
+
+/* Premium event card styling */
+.eventCard {
+  border-radius: 10px;
+  padding: 0.5rem 0.75rem;
+  margin-bottom: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.2;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  backdrop-filter: blur(10px);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1), 0 1px 3px rgba(0, 0, 0, 0.08);
+}
+
+.eventCard::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background: linear-gradient(135deg, rgba(255,255,255,0.1) 0%, rgba(255,255,255,0.05) 100%);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+
+.eventCard:hover {
+  transform: translateY(-2px) scale(1.02);
+  box-shadow: 0 8px 25px rgba(0, 0, 0, 0.15), 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.eventCard:hover::before {
+  opacity: 1;
+}
+
+/* Admin event styling */
+.adminEvent {
+  background: linear-gradient(135deg, #4f46e5 0%, #6366f1 50%, #7c3aed 100%);
+  color: white;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+.adminEvent::after {
+  content: '★';
+  position: absolute;
+  top: 2px;
+  right: 6px;
+  font-size: 0.6rem;
+  opacity: 0.8;
+}
+
+/* Regular user event styling */
+.regularEvent {
+  background: linear-gradient(135deg, #2563eb 0%, #3b82f6 50%, #06b6d4 100%);
+  color: white;
+  text-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+}
+
+/* High activity event styling */
+.highActivityEvent {
+  background: linear-gradient(135deg, #dc2626 0%, #ef4444 50%, #f97316 100%);
+  animation: pulse 2s infinite;
+}
+
+/* Recent event indicator */
+.recentEventIndicator {
+  position: relative;
+}
+
+.recentEventIndicator::after {
+  content: '';
+  position: absolute;
+  top: -2px;
+  right: -2px;
+  width: 8px;
+  height: 8px;
+  background: var(--warning-500);
+  border-radius: 50%;
+  box-shadow: 0 0 10px rgba(245, 158, 11, 0.6);
+  animation: ping 2s cubic-bezier(0, 0, 0.2, 1) infinite;
+}
+
+@keyframes ping {
+  75%, 100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+
+/* Premium toolbar styling */
+.toolbar {
+  background: linear-gradient(135deg, var(--neutral-50) 0%, var(--neutral-100) 100%);
+  border-bottom: 1px solid var(--neutral-200);
+  padding: 1rem 1.5rem;
+  border-radius: 12px 12px 0 0;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.toolbarTitle {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--neutral-900);
+  margin: 0;
+}
+
+/* Enhanced navigation buttons */
+.navButton {
+  background: white;
+  border: 1px solid var(--neutral-300);
+  border-radius: 8px;
+  padding: 0.5rem;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+
+.navButton:hover {
+  background: var(--primary-50);
+  border-color: var(--primary-300);
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(14, 165, 233, 0.2);
+}
+
+/* Premium view selector */
+.viewSelector {
+  background: white;
+  border: 1px solid var(--neutral-300);
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  transition: all 0.2s ease;
+}
+
+.viewSelector:hover {
+  border-color: var(--primary-300);
+  box-shadow: 0 2px 8px rgba(14, 165, 233, 0.15);
+}
+
+/* Month header styling */
+.monthHeader {
+  background: linear-gradient(135deg, var(--primary-50) 0%, var(--primary-100) 100%);
+  border-bottom: 2px solid var(--primary-200);
+  padding: 1rem;
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--primary-900);
+  text-align: center;
+}
+
+/* Filter panel styling */
+.filterPanel {
+  background: linear-gradient(135deg, var(--neutral-50) 0%, var(--neutral-100) 100%);
+  border: 1px solid var(--neutral-200);
+  border-radius: 12px;
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+}
+
+.filterTitle {
+  font-size: 1.125rem;
+  font-weight: 600;
+  color: var(--neutral-900);
+  margin: 0 0 1rem 0;
+}
+
+/* Loading state styling */
+.loadingState {
+  background: linear-gradient(135deg, var(--primary-50) 0%, var(--primary-100) 100%);
+  border: 2px dashed var(--primary-300);
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem;
+  text-align: center;
+}
+
+.loadingSpinner {
+  color: var(--primary-600);
+  margin-bottom: 1rem;
+}
+
+.loadingTitle {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--primary-900);
+  margin: 0 0 0.5rem 0;
+}
+
+.loadingSubtitle {
+  font-size: 0.875rem;
+  color: var(--primary-700);
+  margin: 0;
+}
+
+/* Empty state styling */
+.emptyState {
+  background: linear-gradient(135deg, var(--neutral-50) 0%, var(--neutral-100) 100%);
+  border: 2px dashed var(--neutral-300);
+  border-radius: 16px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 3rem;
+  text-align: center;
+}
+
+.emptyIcon {
+  color: var(--neutral-400);
+  margin-bottom: 1rem;
+}
+
+.emptyTitle {
+  font-size: 1.25rem;
+  font-weight: 600;
+  color: var(--neutral-900);
+  margin: 0 0 0.5rem 0;
+}
+
+.emptySubtitle {
+  font-size: 0.875rem;
+  color: var(--neutral-600);
+  margin: 0 0 1.5rem 0;
+  max-width: 28rem;
+}
+
+/* Responsive design enhancements */
+@media (max-width: 768px) {
+  .calendarHeader {
+    padding: 1rem;
+  }
+
+  .calendarTitle {
+    font-size: 1.5rem;
+  }
+
+  .toolbar {
+    padding: 0.75rem 1rem;
+    flex-direction: column;
+    gap: 1rem;
+  }
+
+  .filterPanel {
+    padding: 1rem;
+  }
+
+  .dayCell {
+    min-height: 80px;
+    padding: 0.25rem;
+  }
+
+  .eventCard {
+    font-size: 0.7rem;
+    padding: 0.375rem 0.5rem;
+  }
+}
+
+/* Animation keyframes */
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.animateSlideIn {
+  animation: slideIn 0.3s ease-out;
+}
+
+.animateFadeIn {
+  animation: fadeIn 0.4s ease-out;
+}
+
+/* Accessibility improvements */
+@media (prefers-reduced-motion: reduce) {
+  .eventCard,
+  .navButton,
+  .viewSelector,
+  .dayCell {
+    transition: none;
+  }
+
+  .recentEventIndicator::after,
+  .highActivityEvent {
+    animation: none;
+  }
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .eventCard {
+    border: 2px solid;
+  }
+
+  .today {
+    border: 3px solid;
+  }
+}
+
+/* Focus states for keyboard navigation */
+.eventCard:focus,
+.navButton:focus,
+.viewSelector:focus {
+  outline: 2px solid var(--primary-500);
+  outline-offset: 2px;
+}
+
+/* Print styles */
+@media print {
+  .calendarContainer {
+    box-shadow: none;
+  }
+
+  .eventCard {
+    break-inside: avoid;
+    border: 1px solid #000;
+  }
+}

@@ -2,7 +2,7 @@
 
 import { useMemo } from "react"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { useCaptainLog } from "@/contexts/captain-log-context"
+import { useCaptainLog } from "@/contexts/supabase-log-context"
 import { Calendar, TrendingUp, CheckCircle, AlertCircle, Code, Zap, Monitor, Award, Construction, Search, Wrench, Megaphone, PartyPopper } from "lucide-react"
 import { Progress } from "@/components/ui/progress"
 

@@ -1,4 +1,4 @@
-import type { CaptainLogEntry } from "@/contexts/captain-log-context"
+import type { CaptainLogEntry } from "@/contexts/supabase-log-context"
 
 /**
  * Export utilities for TOP Log entries

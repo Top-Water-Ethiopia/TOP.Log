@@ -1,10 +1,10 @@
 "use client"
 
 import { useState } from "react"
-import { useCaptainLog } from "@/contexts/captain-log-context"
-import { useAuth } from "@/contexts/auth-context"
+import { useCaptainLog } from "@/contexts/supabase-log-context"
 import { useRBAC } from "@/hooks/use-rbac"
 import { UserManagementDialog } from "./user-management-dialog"
+import { SupabaseUserManagement } from "./supabase-user-management"
 import { CustomQuestionsManager } from "./custom-questions-manager"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
@@ -19,10 +19,8 @@ import {
   Activity,
   FileText,
   AlertCircle,
-  CheckCircle2,
   TrendingUp,
   Users,
-  Shield,
   Settings,
 } from "lucide-react"
 import { toast } from "sonner"
@@ -32,8 +30,7 @@ import { toast } from "sonner"
  * Provides insights, metrics, and administrative controls
  */
 export function AdminDashboard({ onClose }: { onClose: () => void }) {
-  const { entries, auditLogs, exportData, importData, batchDelete, clearError, error } = useCaptainLog()
-  const { user } = useAuth()
+  const { entries, auditLogs, exportData, importData, batchDelete } = useCaptainLog()
   const { canManageUsers, canImportData, canExportData, isAdmin } = useRBAC()
   
   const [selectedTab, setSelectedTab] = useState("overview")
@@ -52,7 +49,7 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
       document.body.removeChild(a)
       URL.revokeObjectURL(url)
       toast.success("Data exported successfully")
-    } catch (err) {
+    } catch {
       toast.error("Failed to export data")
     }
   }
@@ -67,7 +64,7 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
         try {
           const text = await file.text()
           await importData(text)
-        } catch (err) {
+        } catch {
           toast.error("Failed to import data")
         }
       }
@@ -80,7 +77,7 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
       try {
         const ids = entries.map((e) => e.id)
         await batchDelete(ids)
-      } catch (err) {
+      } catch {
         toast.error("Failed to clear data")
       }
     }
@@ -115,22 +112,28 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
 
         <div className="p-6">
           <Tabs value={selectedTab} onValueChange={setSelectedTab}>
-            <TabsList className="grid w-full grid-cols-5">
-              <TabsTrigger value="overview">Overview</TabsTrigger>
-              <TabsTrigger value="data">
-                <Database className="mr-2 h-4 w-4" />
-                Data Management
+            <TabsList className="flex flex-wrap gap-2 h-auto p-1">
+              <TabsTrigger value="overview" className="flex items-center gap-2">
+                <Activity className="h-4 w-4" />
+                Overview
               </TabsTrigger>
-              <TabsTrigger value="audit">Audit Log</TabsTrigger>
+              <TabsTrigger value="data" className="flex items-center gap-2">
+                <Database className="h-4 w-4" />
+                Data
+              </TabsTrigger>
+              <TabsTrigger value="audit" className="flex items-center gap-2">
+                <FileText className="h-4 w-4" />
+                Audit Log
+              </TabsTrigger>
               {canManageUsers && (
-                <TabsTrigger value="users">
-                  <Users className="mr-2 h-4 w-4" />
+                <TabsTrigger value="users" className="flex items-center gap-2">
+                  <Users className="h-4 w-4" />
                   Users
                 </TabsTrigger>
               )}
               {canManageUsers && (
-                <TabsTrigger value="questions">
-                  <Settings className="mr-2 h-4 w-4" />
+                <TabsTrigger value="questions" className="flex items-center gap-2">
+                  <Settings className="h-4 w-4" />
                   Questions
                 </TabsTrigger>
               )}
@@ -220,7 +223,7 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
                             </span>
                           </div>
                           <div className="mt-2 text-sm">
-                            <p className="font-mono text-xs text-muted-foreground">Entity ID: {log.entityId}</p>
+                            <p className="font-mono text-xs text-muted-foreground">Entity ID: {log.entity_id}</p>
                             {log.changes && Object.keys(log.changes).length > 0 && (
                               <details className="mt-2">
                                 <summary className="cursor-pointer text-xs font-medium">View Changes</summary>
@@ -281,69 +284,7 @@ export function AdminDashboard({ onClose }: { onClose: () => void }) {
 
             {canManageUsers && (
             <TabsContent value="users" className="space-y-4">
-              <Card>
-                <CardHeader>
-                  <CardTitle>User Management</CardTitle>
-                  <CardDescription>Manage user accounts, roles, and permissions</CardDescription>
-                </CardHeader>
-                <CardContent>
-                  <div className="space-y-4">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm text-muted-foreground">
-                        Manage system users and their access levels
-                      </p>
-                      <Button onClick={() => setShowUserManagement(true)}>
-                        <Users className="mr-2 h-4 w-4" />
-                        Manage Users
-                      </Button>
-                    </div>
-                    
-                    <div className="grid gap-4 md:grid-cols-2">
-                      <div className="rounded-lg border p-4">
-                        <h4 className="mb-2 font-semibold">User Roles</h4>
-                        <div className="space-y-2 text-sm">
-                          <div className="flex items-center justify-between">
-                            <Badge variant="destructive">Admin</Badge>
-                            <span className="text-muted-foreground">Full access</span>
-                          </div>
-                          <div className="flex items-center justify-between">
-                            <Badge variant="default">Manager</Badge>
-                            <span className="text-muted-foreground">Team management</span>
-                          </div>
-                          <div className="flex items-center justify-between">
-                            <Badge variant="secondary">User</Badge>
-                            <span className="text-muted-foreground">Standard access</span>
-                          </div>
-                          <div className="flex items-center justify-between">
-                            <Badge variant="outline">Viewer</Badge>
-                            <span className="text-muted-foreground">Read-only</span>
-                          </div>
-                        </div>
-                      </div>
-                      
-                      <div className="rounded-lg border p-4">
-                        <h4 className="mb-2 font-semibold">Current Session</h4>
-                        <div className="space-y-2 text-sm">
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">Logged in as:</span>
-                            <span className="font-medium">{user?.name}</span>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">Role:</span>
-                            <Badge variant={user?.role === "admin" ? "destructive" : "secondary"}>
-                              {user?.role}
-                            </Badge>
-                          </div>
-                          <div className="flex justify-between">
-                            <span className="text-muted-foreground">Can manage users:</span>
-                            <span>{canManageUsers ? "Yes" : "No"}</span>
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </CardContent>
-              </Card>
+              <SupabaseUserManagement />
             </TabsContent>
           )}
           {canManageUsers && (

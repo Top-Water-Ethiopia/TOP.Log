@@ -2,25 +2,16 @@
 
 import { useState, useEffect } from "react"
 import { useAuth } from "@/contexts/auth-context"
-import { useRBAC } from "@/hooks/use-rbac.tsx"
+import { useRBAC } from "@/hooks/use-rbac"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Badge } from "@/components/ui/badge"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { ScrollArea } from "@/components/ui/scroll-area"
-import { Alert, AlertDescription } from "@/components/ui/alert"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table"
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import {
   Dialog,
   DialogContent,
@@ -28,52 +19,52 @@ import {
   DialogFooter,
   DialogHeader,
   DialogTitle,
-  DialogTrigger,
 } from "@/components/ui/dialog"
-import {
-  Users,
-  UserPlus,
-  Edit,
-  Trash2,
-  Shield,
-  Mail,
-  Calendar,
-  Search,
-  Filter,
-  RefreshCw,
-  AlertCircle,
-  CheckCircle2,
-  Eye,
-  EyeOff,
-} from "lucide-react"
+import { Users, UserPlus, Trash2, Search, Filter, Eye, EyeOff } from "lucide-react"
 import { toast } from "sonner"
 import type { User, Role } from "@/lib/rbac/types"
-import { loadFromStorage, saveToStorage, generateId, isValidEmail, validatePassword, hashPassword } from "@/lib/rbac/utils"
+import {
+  loadFromStorage,
+  saveToStorage,
+  generateId,
+  isValidEmail,
+  validatePassword,
+  hashPassword,
+} from "@/lib/rbac/utils"
 
 export function UserManagementDialog({ onClose }: { onClose: () => void }) {
   const { user: currentUser } = useAuth()
   const { getAssignableRoles, canManageUser } = useRBAC()
-  
+
   const [users, setUsers] = useState<User[]>([])
-  const [roles, setRoles] = useState<Role[]>([])
-  const [isLoading, setIsLoading] = useState(true)
+  const [, setRoles] = useState<Role[]>([])
+  const [, setIsLoading] = useState(true)
   const [searchTerm, setSearchTerm] = useState("")
   const [roleFilter, setRoleFilter] = useState<string>("all")
   const [showCreateUser, setShowCreateUser] = useState(false)
-  const [editingUser, setEditingUser] = useState<User | null>(null)
   const [showPassword, setShowPassword] = useState(false)
-  
+
   // Create user form state
   const [createUserForm, setCreateUserForm] = useState({
     name: "",
     email: "",
     password: "",
-    role: "user" as const,
+    confirmPassword: "",
+    role: "viewer" as
+      | "admin"
+      | "system-admin"
+      | "manager"
+      | "programmer"
+      | "qa"
+      | "tech-support"
+      | "graphic-designer"
+      | "viewer",
     department: "",
     isActive: true,
   })
-  
+
   const [formErrors, setFormErrors] = useState<Record<string, string>>({})
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false)
 
   // Load data
   useEffect(() => {
@@ -90,15 +81,17 @@ export function UserManagementDialog({ onClose }: { onClose: () => void }) {
         setIsLoading(false)
       }
     }
-    
+
     loadData()
   }, [])
 
   // Filter users
-  const filteredUsers = users.filter(user => {
-    const matchesSearch = user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         (user.department?.toLowerCase().includes(searchTerm.toLowerCase()) || false)
+  const filteredUsers = users.filter((user) => {
+    const matchesSearch =
+      user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      user.email.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      user.department?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      false
     const matchesRole = roleFilter === "all" || user.role === roleFilter
     return matchesSearch && matchesRole
   })
@@ -114,7 +107,7 @@ export function UserManagementDialog({ onClose }: { onClose: () => void }) {
       errors.email = "Email is required"
     } else if (!isValidEmail(createUserForm.email)) {
       errors.email = "Invalid email format"
-    } else if (users.some(u => u.email.toLowerCase() === createUserForm.email.toLowerCase())) {
+    } else if (users.some((u) => u.email.toLowerCase() === createUserForm.email.toLowerCase())) {
       errors.email = "Email already exists"
     }
 
@@ -127,6 +120,12 @@ export function UserManagementDialog({ onClose }: { onClose: () => void }) {
       }
     }
 
+    if (!createUserForm.confirmPassword) {
+      errors.confirmPassword = "Please confirm your password"
+    } else if (createUserForm.password !== createUserForm.confirmPassword) {
+      errors.confirmPassword = "Passwords do not match"
+    }
+
     setFormErrors(errors)
     return Object.keys(errors).length === 0
   }
@@ -136,7 +135,7 @@ export function UserManagementDialog({ onClose }: { onClose: () => void }) {
 
     try {
       const hashedPassword = await hashPassword(createUserForm.password)
-      
+
       const newUser: User & { password: string } = {
         id: generateId(),
         name: createUserForm.name.trim(),
@@ -161,11 +160,14 @@ export function UserManagementDialog({ onClose }: { onClose: () => void }) {
         name: "",
         email: "",
         password: "",
-        role: "user",
+        confirmPassword: "",
+        role: "viewer",
         department: "",
         isActive: true,
       })
       setFormErrors({})
+      setShowPassword(false)
+      setShowConfirmPassword(false)
       setShowCreateUser(false)
 
       toast.success("User created successfully")
@@ -175,26 +177,26 @@ export function UserManagementDialog({ onClose }: { onClose: () => void }) {
     }
   }
 
-  const handleUpdateUserRole = async (user: User, newRole: string) => {
+  const handleUpdateUserRole = async (user: User, newRole: Role["name"]) => {
     if (!currentUser || !canManageUser(user)) {
       toast.error("Insufficient permissions to manage this user")
       return
     }
 
     try {
-      const updatedUsers = users.map(u => 
-        u.id === user.id 
-          ? { 
-              ...u, 
-              role: newRole as any, 
+      const updatedUsers = users.map((u) =>
+        u.id === user.id
+          ? ({
+              ...u,
+              role: newRole as typeof u.role,
               updatedAt: new Date().toISOString(),
               metadata: {
                 ...u.metadata,
                 updatedBy: currentUser.id,
                 roleChangedAt: new Date().toISOString(),
                 previousRole: u.role,
-              }
-            }
+              },
+            } as typeof u)
           : u
       )
 
@@ -219,17 +221,17 @@ export function UserManagementDialog({ onClose }: { onClose: () => void }) {
     }
 
     try {
-      const updatedUsers = users.map(u => 
-        u.id === user.id 
-          ? { 
-              ...u, 
-              isActive: !u.isActive, 
+      const updatedUsers = users.map((u) =>
+        u.id === user.id
+          ? {
+              ...u,
+              isActive: !u.isActive,
               updatedAt: new Date().toISOString(),
               metadata: {
                 ...u.metadata,
                 updatedBy: currentUser.id,
                 statusChangedAt: new Date().toISOString(),
-              }
+              },
             }
           : u
       )
@@ -254,12 +256,18 @@ export function UserManagementDialog({ onClose }: { onClose: () => void }) {
       return
     }
 
+    // Prevent deleting admin accounts
+    if (user.role === "admin") {
+      toast.error("You cannot delete admin accounts")
+      return
+    }
+
     if (!confirm(`Are you sure you want to delete ${user.name}? This action cannot be undone.`)) {
       return
     }
 
     try {
-      const updatedUsers = users.filter(u => u.id !== user.id)
+      const updatedUsers = users.filter((u) => u.id !== user.id)
       setUsers(updatedUsers)
       saveToStorage("USERS", updatedUsers)
       toast.success("User deleted successfully")
@@ -271,31 +279,33 @@ export function UserManagementDialog({ onClose }: { onClose: () => void }) {
 
   const getRoleBadgeVariant = (roleName: string) => {
     switch (roleName) {
-      case "admin": return "destructive"
-      case "manager": return "default"
-      case "user": return "secondary"
-      case "viewer": return "outline"
-      default: return "outline"
+      case "admin":
+        return "destructive"
+      case "manager":
+        return "default"
+      case "user":
+        return "secondary"
+      case "viewer":
+        return "outline"
+      default:
+        return "outline"
     }
   }
 
   const assignableRoles = getAssignableRoles()
 
   return (
-    <div className="fixed inset-0 z-50 bg-background/80 backdrop-blur-sm">
-      <div className="fixed inset-4 overflow-auto rounded-lg border bg-background shadow-lg md:inset-auto md:left-1/2 md:top-1/2 md:w-full md:max-w-6xl md:-translate-x-1/2 md:-translate-y-1/2 md:h-[80vh]">
-        <div className="sticky top-0 z-10 border-b bg-background p-6">
+    <div className="bg-background/80 fixed inset-0 z-50 backdrop-blur-sm">
+      <div className="bg-background fixed inset-4 overflow-auto rounded-lg border shadow-lg md:inset-auto md:top-1/2 md:left-1/2 md:h-[80vh] md:w-full md:max-w-6xl md:-translate-x-1/2 md:-translate-y-1/2">
+        <div className="bg-background sticky top-0 z-10 border-b p-6">
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-2xl font-bold">User Management</h2>
-              <p className="text-sm text-muted-foreground">Manage users, roles, and permissions</p>
+              <p className="text-muted-foreground text-sm">Manage users, roles, and permissions</p>
             </div>
             <div className="flex gap-2">
-              <Button
-                onClick={() => setShowCreateUser(true)}
-                disabled={!assignableRoles.length}
-              >
-                <UserPlus className="h-4 w-4 mr-2" />
+              <Button onClick={() => setShowCreateUser(true)} disabled={!assignableRoles.length}>
+                <UserPlus className="mr-2 h-4 w-4" />
                 Add User
               </Button>
               <Button onClick={onClose} variant="outline">
@@ -307,9 +317,9 @@ export function UserManagementDialog({ onClose }: { onClose: () => void }) {
 
         <div className="p-6">
           {/* Filters */}
-          <div className="flex gap-4 mb-6">
+          <div className="mb-6 flex gap-4">
             <div className="relative flex-1">
-              <Search className="absolute left-3 top-3 h-4 w-4 text-muted-foreground" />
+              <Search className="text-muted-foreground absolute top-3 left-3 h-4 w-4" />
               <Input
                 placeholder="Search users..."
                 value={searchTerm}
@@ -319,7 +329,7 @@ export function UserManagementDialog({ onClose }: { onClose: () => void }) {
             </div>
             <Select value={roleFilter} onValueChange={setRoleFilter}>
               <SelectTrigger className="w-[180px]">
-                <Filter className="h-4 w-4 mr-2" />
+                <Filter className="mr-2 h-4 w-4" />
                 <SelectValue placeholder="Filter by role" />
               </SelectTrigger>
               <SelectContent>
@@ -339,9 +349,7 @@ export function UserManagementDialog({ onClose }: { onClose: () => void }) {
                 <Users className="h-5 w-5" />
                 Users ({filteredUsers.length})
               </CardTitle>
-              <CardDescription>
-                Manage user accounts and assign roles
-              </CardDescription>
+              <CardDescription>Manage user accounts and assign roles</CardDescription>
             </CardHeader>
             <CardContent>
               <ScrollArea className="h-[400px]">
@@ -364,12 +372,16 @@ export function UserManagementDialog({ onClose }: { onClose: () => void }) {
                             <Avatar className="h-8 w-8">
                               <AvatarImage src={user.avatar} />
                               <AvatarFallback>
-                                {user.name.split(" ").map(n => n[0]).join("").toUpperCase()}
+                                {user.name
+                                  .split(" ")
+                                  .map((n) => n[0])
+                                  .join("")
+                                  .toUpperCase()}
                               </AvatarFallback>
                             </Avatar>
                             <div>
                               <div className="font-medium">{user.name}</div>
-                              <div className="text-sm text-muted-foreground">{user.email}</div>
+                              <div className="text-muted-foreground text-sm">{user.email}</div>
                             </div>
                           </div>
                         </TableCell>
@@ -377,28 +389,22 @@ export function UserManagementDialog({ onClose }: { onClose: () => void }) {
                           {canManageUser(user) && assignableRoles.length > 0 ? (
                             <Select
                               value={user.role}
-                              onValueChange={(newRole) => handleUpdateUserRole(user, newRole)}
+                              onValueChange={(newRole) => handleUpdateUserRole(user, newRole as Role["name"])}
                               disabled={user.id === currentUser?.id}
                             >
                               <SelectTrigger className="w-[120px]">
-                                <Badge variant={getRoleBadgeVariant(user.role)}>
-                                  {user.role}
-                                </Badge>
+                                <Badge variant={getRoleBadgeVariant(user.role)}>{user.role}</Badge>
                               </SelectTrigger>
                               <SelectContent>
                                 {assignableRoles.map((role) => (
                                   <SelectItem key={role.id} value={role.name}>
-                                    <Badge variant={getRoleBadgeVariant(role.name)}>
-                                      {role.name}
-                                    </Badge>
+                                    <Badge variant={getRoleBadgeVariant(role.name)}>{role.name}</Badge>
                                   </SelectItem>
                                 ))}
                               </SelectContent>
                             </Select>
                           ) : (
-                            <Badge variant={getRoleBadgeVariant(user.role)}>
-                              {user.role}
-                            </Badge>
+                            <Badge variant={getRoleBadgeVariant(user.role)}>{user.role}</Badge>
                           )}
                         </TableCell>
                         <TableCell>{user.department || "-"}</TableCell>
@@ -409,9 +415,7 @@ export function UserManagementDialog({ onClose }: { onClose: () => void }) {
                           </div>
                         </TableCell>
                         <TableCell>
-                          <div className="text-sm">
-                            {new Date(user.createdAt).toLocaleDateString()}
-                          </div>
+                          <div className="text-sm">{new Date(user.createdAt).toLocaleDateString()}</div>
                         </TableCell>
                         <TableCell>
                           <div className="flex items-center gap-2">
@@ -423,17 +427,14 @@ export function UserManagementDialog({ onClose }: { onClose: () => void }) {
                                   onClick={() => handleToggleUserStatus(user)}
                                   disabled={user.id === currentUser?.id}
                                 >
-                                  {user.isActive ? (
-                                    <EyeOff className="h-4 w-4" />
-                                  ) : (
-                                    <Eye className="h-4 w-4" />
-                                  )}
+                                  {user.isActive ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                                 </Button>
                                 <Button
                                   variant="destructive"
                                   size="sm"
                                   onClick={() => handleDeleteUser(user)}
-                                  disabled={user.id === currentUser?.id}
+                                  disabled={user.id === currentUser?.id || user.role === "admin"}
+                                  title={user.role === "admin" ? "Cannot delete admin accounts" : "Delete user"}
                                 >
                                   <Trash2 className="h-4 w-4" />
                                 </Button>
@@ -466,12 +467,10 @@ export function UserManagementDialog({ onClose }: { onClose: () => void }) {
                   <Input
                     id="name"
                     value={createUserForm.name}
-                    onChange={(e) => setCreateUserForm(prev => ({ ...prev, name: e.target.value }))}
+                    onChange={(e) => setCreateUserForm((prev) => ({ ...prev, name: e.target.value }))}
                     placeholder="Enter full name"
                   />
-                  {formErrors.name && (
-                    <p className="text-sm text-destructive">{formErrors.name}</p>
-                  )}
+                  {formErrors.name && <p className="text-destructive text-sm">{formErrors.name}</p>}
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="email">Email</Label>
@@ -479,21 +478,29 @@ export function UserManagementDialog({ onClose }: { onClose: () => void }) {
                     id="email"
                     type="email"
                     value={createUserForm.email}
-                    onChange={(e) => setCreateUserForm(prev => ({ ...prev, email: e.target.value }))}
+                    onChange={(e) => setCreateUserForm((prev) => ({ ...prev, email: e.target.value }))}
                     placeholder="Enter email"
                   />
-                  {formErrors.email && (
-                    <p className="text-sm text-destructive">{formErrors.email}</p>
-                  )}
+                  {formErrors.email && <p className="text-destructive text-sm">{formErrors.email}</p>}
                 </div>
               </div>
-              
+
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-2">
                   <Label htmlFor="role">Role</Label>
                   <Select
                     value={createUserForm.role}
-                    onValueChange={(value) => setCreateUserForm(prev => ({ ...prev, role: value as any }))}
+                    onValueChange={(
+                      value:
+                        | "admin"
+                        | "system-admin"
+                        | "manager"
+                        | "programmer"
+                        | "qa"
+                        | "tech-support"
+                        | "graphic-designer"
+                        | "viewer"
+                    ) => setCreateUserForm((prev) => ({ ...prev, role: value }))}
                   >
                     <SelectTrigger>
                       <SelectValue />
@@ -512,7 +519,7 @@ export function UserManagementDialog({ onClose }: { onClose: () => void }) {
                   <Input
                     id="department"
                     value={createUserForm.department}
-                    onChange={(e) => setCreateUserForm(prev => ({ ...prev, department: e.target.value }))}
+                    onChange={(e) => setCreateUserForm((prev) => ({ ...prev, department: e.target.value }))}
                     placeholder="Enter department"
                   />
                 </div>
@@ -525,35 +532,50 @@ export function UserManagementDialog({ onClose }: { onClose: () => void }) {
                     id="password"
                     type={showPassword ? "text" : "password"}
                     value={createUserForm.password}
-                    onChange={(e) => setCreateUserForm(prev => ({ ...prev, password: e.target.value }))}
+                    onChange={(e) => setCreateUserForm((prev) => ({ ...prev, password: e.target.value }))}
                     placeholder="Enter password"
                   />
                   <Button
                     type="button"
                     variant="ghost"
                     size="sm"
-                    className="absolute right-1 top-1 h-8 w-8 p-0"
+                    className="absolute top-1 right-1 h-8 w-8 p-0"
                     onClick={() => setShowPassword(!showPassword)}
                   >
-                    {showPassword ? (
-                      <EyeOff className="h-4 w-4" />
-                    ) : (
-                      <Eye className="h-4 w-4" />
-                    )}
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </Button>
                 </div>
-                {formErrors.password && (
-                  <p className="text-sm text-destructive">{formErrors.password}</p>
-                )}
+                {formErrors.password && <p className="text-destructive text-sm">{formErrors.password}</p>}
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="confirmPassword">Confirm Password</Label>
+                <div className="relative">
+                  <Input
+                    id="confirmPassword"
+                    type={showConfirmPassword ? "text" : "password"}
+                    value={createUserForm.confirmPassword}
+                    onChange={(e) => setCreateUserForm((prev) => ({ ...prev, confirmPassword: e.target.value }))}
+                    placeholder="Confirm password"
+                  />
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="absolute top-1 right-1 h-8 w-8 p-0"
+                    onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                  >
+                    {showConfirmPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </Button>
+                </div>
+                {formErrors.confirmPassword && <p className="text-destructive text-sm">{formErrors.confirmPassword}</p>}
               </div>
             </div>
             <DialogFooter>
               <Button variant="outline" onClick={() => setShowCreateUser(false)}>
                 Cancel
               </Button>
-              <Button onClick={handleCreateUser}>
-                Create User
-              </Button>
+              <Button onClick={handleCreateUser}>Create User</Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
