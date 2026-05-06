@@ -10,6 +10,7 @@ export interface Database {
           name: string
           description: string | null
           code: string | null
+          slug: string | null
           is_active: boolean
           created_at: string
           created_by: string | null
@@ -22,6 +23,7 @@ export interface Database {
           name: string
           description?: string | null
           code?: string | null
+          slug?: string | null
           is_active?: boolean
           created_at?: string
           created_by?: string | null
@@ -34,6 +36,7 @@ export interface Database {
           name?: string
           description?: string | null
           code?: string | null
+          slug?: string | null
           is_active?: boolean
           created_at?: string
           created_by?: string | null

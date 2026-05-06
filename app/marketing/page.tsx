@@ -4,15 +4,29 @@ import { useEffect, useMemo, useRef, useState } from "react"
 import { useMarketingDashboard } from "@/contexts/marketing-dashboard-context"
 import { Button } from "@/components/ui/button"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
+import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts"
+import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart"
 
 type KpiState =
   | { status: "loading" }
   | { status: "error"; message: string }
   | { status: "loaded"; value: number; windowLabel: string }
 
+type OutcomesState =
+  | { status: "loading" }
+  | { status: "error"; message: string }
+  | {
+      status: "loaded"
+      totals: { total: number; success: number; failed: number; missing: number }
+      rates: { successRate: number; missingRate: number }
+      reasons: Record<string, number>
+      windowLabel: string
+    }
+
 export default function MarketingDashboardHome() {
   const { marketingDepartmentName } = useMarketingDashboard()
   const [kpi, setKpi] = useState<KpiState>({ status: "loading" })
+  const [outcomes, setOutcomes] = useState<OutcomesState>({ status: "loading" })
 
   const router = useRouter()
   const pathname = usePathname()
@@ -57,6 +71,46 @@ export default function MarketingDashboardHome() {
     }
   }
 
+  const outcomesRequestIdRef = useRef(0)
+  const outcomesAbortRef = useRef<AbortController | null>(null)
+
+  const loadOutcomes = async (url: string, label: string) => {
+    const requestId = ++outcomesRequestIdRef.current
+    try {
+      setOutcomes({ status: "loading" })
+      outcomesAbortRef.current?.abort()
+      const ac = new AbortController()
+      outcomesAbortRef.current = ac
+
+      const res = await fetch(url, { signal: ac.signal })
+      const json = await res.json().catch(() => ({}))
+      if (requestId !== outcomesRequestIdRef.current) return
+      if (!res.ok) {
+        setOutcomes({ status: "error", message: json?.message || json?.error || "Failed to load outcome stats" })
+        return
+      }
+
+      const totals = json?.totals || {}
+      const rates = json?.rates || {}
+      const reasons = json?.reasons || {}
+      setOutcomes({
+        status: "loaded",
+        totals: {
+          total: Number(totals.total || 0),
+          success: Number(totals.success || 0),
+          failed: Number(totals.failed || 0),
+          missing: Number(totals.missing || 0),
+        },
+        rates: { successRate: Number(rates.successRate || 0), missingRate: Number(rates.missingRate || 0) },
+        reasons: typeof reasons === "object" && reasons ? (reasons as Record<string, number>) : {},
+        windowLabel: label,
+      })
+    } catch {
+      if (requestId !== outcomesRequestIdRef.current) return
+      setOutcomes({ status: "error", message: "Failed to load outcome stats" })
+    }
+  }
+
   useEffect(() => {
     const sp = new URLSearchParams()
     if (isCustom) {
@@ -67,6 +121,9 @@ export default function MarketingDashboardHome() {
     }
     const url = `/api/marketing/kpis/agent-calls?${sp.toString()}`
     load(url, windowLabel)
+
+    const outcomesUrl = `/api/marketing/kpis/agent-contact-outcomes?${sp.toString()}`
+    loadOutcomes(outcomesUrl, windowLabel)
   }, [preset, dateFrom, dateTo, isCustom, windowLabel])
 
   const setUrlParams = (next: Record<string, string | null>) => {
@@ -170,13 +227,120 @@ export default function MarketingDashboardHome() {
               <div className="text-3xl font-semibold tabular-nums">{kpi.value}</div>
               <div className="text-muted-foreground text-xs">
                 {kpi.value === 0
-                  ? "No agent calls recorded in this period."
-                  : `Total agent calls for ${kpi.windowLabel}.`}
+                  ? "No agent contacts recorded in this period."
+                  : `Total agent contacts for ${kpi.windowLabel}.`}
               </div>
             </div>
           )}
         </div>
       </section>
+
+      <section className="rounded-lg border p-4">
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <div className="text-sm font-medium">Contact outcomes ({windowLabel})</div>
+            <div className="text-muted-foreground mt-1 text-xs">
+              Missing is “no valid answer recorded”. Reasons are multi-select: a contact can count toward multiple reasons.
+            </div>
+          </div>
+          {outcomes.status === "error" ? (
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const sp = new URLSearchParams()
+                if (isCustom) {
+                  if (dateFrom) sp.set("dateFrom", dateFrom)
+                  if (dateTo) sp.set("dateTo", dateTo)
+                } else {
+                  sp.set("preset", preset)
+                }
+                loadOutcomes(`/api/marketing/kpis/agent-contact-outcomes?${sp.toString()}`, windowLabel)
+              }}
+            >
+              Retry
+            </Button>
+          ) : null}
+        </div>
+
+        <div className="mt-4">
+          {outcomes.status === "loading" ? (
+            <div className="h-8 w-40 animate-pulse rounded bg-muted" />
+          ) : outcomes.status === "error" ? (
+            <div className="text-sm text-destructive">{outcomes.message}</div>
+          ) : (
+            <div className="space-y-4">
+              <div className="grid gap-3 sm:grid-cols-4">
+                <div className="rounded-md border p-3">
+                  <div className="text-muted-foreground text-xs">Success</div>
+                  <div className="text-xl font-semibold tabular-nums">{outcomes.totals.success}</div>
+                </div>
+                <div className="rounded-md border p-3">
+                  <div className="text-muted-foreground text-xs">Failed</div>
+                  <div className="text-xl font-semibold tabular-nums">{outcomes.totals.failed}</div>
+                </div>
+                <div className="rounded-md border p-3">
+                  <div className="text-muted-foreground text-xs">Missing</div>
+                  <div className="text-xl font-semibold tabular-nums">{outcomes.totals.missing}</div>
+                </div>
+                <div className="rounded-md border p-3">
+                  <div className="text-muted-foreground text-xs">Success rate</div>
+                  <div className="text-xl font-semibold tabular-nums">{Math.round(outcomes.rates.successRate * 100)}%</div>
+                  <div className="text-muted-foreground text-[11px]">Excludes missing</div>
+                </div>
+              </div>
+
+              <OutcomeReasonsChart reasons={outcomes.reasons} failed={outcomes.totals.failed} />
+            </div>
+          )}
+        </div>
+      </section>
+    </div>
+  )
+}
+
+const reasonsChartConfig: ChartConfig = {
+  count: { label: "Count", color: "hsl(var(--chart-1))" },
+}
+
+function OutcomeReasonsChart({ reasons, failed }: { reasons: Record<string, number>; failed: number }) {
+  const data = Object.entries(reasons || {})
+    .filter(([, n]) => Number(n) > 0)
+    .sort((a, b) => Number(b[1]) - Number(a[1]))
+    .slice(0, 8)
+    .map(([reason, n]) => ({
+      reason,
+      count: Number(n),
+      percentOfFailed: failed > 0 ? Math.round((Number(n) / failed) * 100) : 0,
+    }))
+
+  if (data.length === 0) {
+    return <div className="text-muted-foreground text-sm">No failure reasons recorded in this period.</div>
+  }
+
+  return (
+    <div className="space-y-2">
+      <div className="text-sm font-medium">Failure reasons</div>
+      <div className="text-muted-foreground text-xs">% of failed contacts selecting each reason (multi-select allowed)</div>
+      <ChartContainer config={reasonsChartConfig} className="h-[280px] w-full">
+        <BarChart data={data} margin={{ left: 8, right: 8 }}>
+          <CartesianGrid vertical={false} />
+          <XAxis dataKey="reason" tickLine={false} axisLine={false} interval={0} height={60} />
+          <YAxis allowDecimals={false} />
+          <ChartTooltip
+            content={
+              <ChartTooltipContent
+                formatter={(value, name, item) => {
+                  const v = Number(value)
+                  const pct = (item?.payload as any)?.percentOfFailed
+                  return [`${v} (${pct}%)`, name]
+                }}
+              />
+            }
+          />
+          <Bar dataKey="count" fill="var(--color-count)" radius={4} />
+        </BarChart>
+      </ChartContainer>
     </div>
   )
 }
