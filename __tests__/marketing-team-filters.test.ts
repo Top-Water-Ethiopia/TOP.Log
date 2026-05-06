@@ -5,6 +5,7 @@ import {
   indexTeamMember,
   matchesTeamSearch,
   normalizeE164,
+  normalizeE164Prefix,
 } from "@/lib/marketing/team-filters"
 
 describe("marketing team filters - phone normalization & matching", () => {
@@ -13,6 +14,12 @@ describe("marketing team filters - phone normalization & matching", () => {
     expect(normalizeE164("+251-911-234-567")).toBe("+251911234567")
     expect(normalizeE164("251911234567")).toBeNull()
     expect(normalizeE164("+000123")).toBeNull()
+  })
+
+  test("normalizeE164Prefix allows partial + prefixes", () => {
+    expect(normalizeE164Prefix("+251 911")).toBe("+251911")
+    expect(normalizeE164Prefix("+000123")).toBeNull()
+    expect(normalizeE164Prefix("251911")).toBeNull()
   })
 
   test("ET local 09XXXXXXXX converts to +2519XXXXXXXX", () => {
@@ -27,7 +34,7 @@ describe("marketing team filters - phone normalization & matching", () => {
     expect(convert09ToE164IfApplicable(qDigits, qRaw)).toBeNull()
   })
 
-  test("matches +251... when user types 09...", () => {
+  test("09 prefix matches via ET conversion (prefix mode, not digits rule)", () => {
     const member = indexTeamMember({
       userId: "u1",
       name: "Alice",
@@ -132,7 +139,7 @@ describe("marketing team filters - phone normalization & matching", () => {
     expect(matchesTeamSearch({ member, query: "12345" })).toBe(true)
   })
 
-  test("matches by name OR phone", () => {
+  test("multiple tokens require all to match (AND across tokens)", () => {
     const member = indexTeamMember({
       userId: "u1",
       name: "Alice",
@@ -141,8 +148,58 @@ describe("marketing team filters - phone normalization & matching", () => {
       roleLabel: "Sales Promoter",
     })
 
-    expect(matchesTeamSearch({ member, query: "ali" })).toBe(true)
-    expect(matchesTeamSearch({ member, query: "0911234567" })).toBe(true)
+    expect(matchesTeamSearch({ member, query: "alice 91123" })).toBe(true)
+    expect(matchesTeamSearch({ member, query: "alice wrongtoken" })).toBe(false)
+  })
+
+  test("mixed query matches by name (phone fallback not required)", () => {
+    const member = indexTeamMember({
+      userId: "u1",
+      name: "Alice",
+      phoneVisible: true,
+      phoneRaw: "+251911234567",
+      roleLabel: "Sales Promoter",
+    })
+
+    expect(matchesTeamSearch({ member, query: "alice 78" })).toBe(true)
+  })
+
+  test("07/09 local prefix guards: 07 and 09 alone do not phone-match", () => {
+    const member07 = indexTeamMember({
+      userId: "u7",
+      name: "Bob",
+      phoneVisible: true,
+      phoneRaw: "+251711234567",
+      roleLabel: "Sales Promoter",
+    })
+
+    expect(matchesTeamSearch({ member: member07, query: "07" })).toBe(false)
+    expect(matchesTeamSearch({ member: member07, query: "071" })).toBe(true)
+
+    const member09 = indexTeamMember({
+      userId: "u9",
+      name: "Alice",
+      phoneVisible: true,
+      phoneRaw: "+251911234567",
+      roleLabel: "Sales Promoter",
+    })
+
+    expect(matchesTeamSearch({ member: member09, query: "09" })).toBe(false)
+    expect(matchesTeamSearch({ member: member09, query: "091" })).toBe(true)
+  })
+
+  test("251 prefix guard: 2519 alone does not prefix-match", () => {
+    const member = indexTeamMember({
+      userId: "u1",
+      name: "Alice",
+      phoneVisible: true,
+      phoneRaw: "+251911234567",
+      roleLabel: "Sales Promoter",
+    })
+
+    expect(matchesTeamSearch({ member, query: "251" })).toBe(true)
+    expect(matchesTeamSearch({ member, query: "2519" })).toBe(true)
+    expect(matchesTeamSearch({ member, query: "25191" })).toBe(true)
   })
 
   test("name matching is case-insensitive", () => {

@@ -13,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select"
-import { indexTeamMember, matchesTeamSearch } from "@/lib/marketing/team-filters"
+import { evaluateTeamSearch, indexTeamMember } from "@/lib/marketing/team-filters"
 
 type TeamMember = {
   userId: string
@@ -45,6 +45,10 @@ function useDebouncedValue<T>(value: T, delayMs: number): T {
     return () => clearTimeout(handle)
   }, [value, delayMs])
   return debounced
+}
+
+function digitsOnly(s: string): string {
+  return s.replace(/\D/g, "")
 }
 
 function PhoneCell({ phone, phoneVisible }: { phone: string | null; phoneVisible: boolean }) {
@@ -147,33 +151,56 @@ export default function MarketingTeamPage() {
   const filtered = useMemo(() => {
     const roleKeyWanted = selectedRoleKey
 
-    const list = indexed.filter((m) => {
-      const roleMatch = roleKeyWanted === "all" || m._roleKey === roleKeyWanted
-      if (!roleMatch) return false
+    const scored = indexed
+      .map((m) => {
+        const indexedMember = indexTeamMember({
+          userId: m.userId,
+          name: m.name,
+          phoneVisible: m.phoneVisible,
+          phoneRaw: m.phoneRaw,
+          roleLabel: m._roleLabel,
+        })
 
-      const indexedMember = indexTeamMember({
-        userId: m.userId,
-        name: m.name,
-        phoneVisible: m.phoneVisible,
-        phoneRaw: m.phoneRaw,
-        roleLabel: m._roleLabel,
+        const result = evaluateTeamSearch({ member: indexedMember, query: debouncedQ, minPhoneDigits: 5 })
+        return { m, result }
       })
-      return matchesTeamSearch({ member: indexedMember, query: debouncedQ, minPhoneDigits: 5 })
-    })
+      .filter(({ m, result }) => {
+        const roleMatch = roleKeyWanted === "all" || m._roleKey === roleKeyWanted
+        if (!roleMatch) return false
+        return result.matches
+      })
 
-    // Stable deterministic sort (roleLabel, name, userId)
-    return list.slice().sort((a, b) => {
-      const roleA = (a._roleLabel ?? "").toLowerCase()
-      const roleB = (b._roleLabel ?? "").toLowerCase()
-      const nameA = (a.name ?? "").toLowerCase()
-      const nameB = (b.name ?? "").toLowerCase()
-      return (
-        roleA.localeCompare(roleB) ||
-        nameA.localeCompare(nameB) ||
-        a.userId.localeCompare(b.userId)
-      )
-    })
+    return scored
+      .slice()
+      .sort((a, b) => {
+        if (a.result.score !== b.result.score) return b.result.score - a.result.score
+        const roleA = (a.m._roleLabel ?? "").toLowerCase()
+        const roleB = (b.m._roleLabel ?? "").toLowerCase()
+        const nameA = (a.m.name ?? "").toLowerCase()
+        const nameB = (b.m.name ?? "").toLowerCase()
+        return (
+          roleA.localeCompare(roleB) ||
+          nameA.localeCompare(nameB) ||
+          a.m.userId.localeCompare(b.m.userId)
+        )
+      })
+      .map(({ m }) => m)
   }, [indexed, debouncedQ, selectedRoleKey])
+
+  const hint = useMemo(() => {
+    // Show hint only if query is digits-only (prevents hint for mixed queries like "alice 78")
+    // AND there are no results (avoids showing hint while results exist).
+    const qRaw = debouncedQ.trim().replace(/\s+/g, " ")
+    const qNoSpaces = qRaw.replace(/\s+/g, "")
+    const isDigitsOnly = /^\d+$/.test(qNoSpaces)
+    if (!isDigitsOnly) return null
+
+    const qDigits = digitsOnly(qRaw)
+    if (qDigits.length > 0 && qDigits.length < 5 && filtered.length === 0) {
+      return "Enter at least 5 digits to search by phone number."
+    }
+    return null
+  }, [debouncedQ, filtered.length])
 
   return (
     <div className="space-y-4">
@@ -262,6 +289,11 @@ export default function MarketingTeamPage() {
               <span className="ml-2">Filtering applies to the first 100 loaded members.</span>
             )}
           </div>
+          {hint && (
+            <div className="text-muted-foreground text-xs">
+              {hint}
+            </div>
+          )}
 
           {filtered.length === 0 ? (
             <div className="rounded-lg border p-6 text-center">
