@@ -269,6 +269,7 @@ export type Database = {
           name: string
           parent_id: string | null
           path: string
+          slug: string | null
           updated_at: string
           updated_by: string | null
         }
@@ -283,6 +284,7 @@ export type Database = {
           name: string
           parent_id?: string | null
           path?: string
+          slug?: string | null
           updated_at?: string
           updated_by?: string | null
         }
@@ -297,6 +299,7 @@ export type Database = {
           name?: string
           parent_id?: string | null
           path?: string
+          slug?: string | null
           updated_at?: string
           updated_by?: string | null
         }
