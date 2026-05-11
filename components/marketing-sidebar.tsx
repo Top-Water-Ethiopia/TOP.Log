@@ -2,6 +2,7 @@
 
 import Link from "next/link"
 import { usePathname } from "next/navigation"
+import { useEffect, useState } from "react"
 import {
   Sidebar,
   SidebarContent,
@@ -11,19 +12,42 @@ import {
   SidebarMenuItem,
   SidebarMenuButton,
 } from "@/components/ui/sidebar"
-import { LayoutDashboard, Users, FileText, ClipboardList, Settings, LineChart } from "lucide-react"
+import { LayoutDashboard, Users, ClipboardList, Settings, LineChart } from "lucide-react"
 
 const NAV_ITEMS = [
   { name: "Dashboard", icon: LayoutDashboard, path: "/marketing" },
-  { name: "Team", icon: Users, path: "/marketing/team" },
   { name: "Logs", icon: ClipboardList, path: "/marketing/logs" },
-  { name: "Reports", icon: FileText, path: "/marketing/reports" },
+  { name: "Team", icon: Users, path: "/marketing/team" },
+  { name: "Agents", icon: Users, path: "/marketing/agents", gated: true },
   { name: "Insights", icon: LineChart, path: "/marketing/insights" },
-  { name: "Settings", icon: Settings, path: "/marketing/settings" },
+  { name: "Setting", icon: Settings, path: "/marketing/settings" },
 ]
 
 export function MarketingSidebar() {
   const pathname = usePathname()
+  const [canManageAgents, setCanManageAgents] = useState<boolean>(false)
+  const [loaded, setLoaded] = useState(false)
+
+  useEffect(() => {
+    let mounted = true
+    const run = async () => {
+      try {
+        const res = await fetch("/api/marketing/agents/can-manage", { method: "GET" })
+        if (!mounted) return
+        setCanManageAgents(res.ok)
+      } catch {
+        if (!mounted) return
+        setCanManageAgents(false)
+      } finally {
+        if (!mounted) return
+        setLoaded(true)
+      }
+    }
+    void run()
+    return () => {
+      mounted = false
+    }
+  }, [])
 
   const isActive = (path: string) => {
     if (path === "/marketing") return pathname === "/marketing"
@@ -36,7 +60,7 @@ export function MarketingSidebar() {
         <SidebarGroup>
           <SidebarGroupLabel>Marketing</SidebarGroupLabel>
           <SidebarMenu>
-            {NAV_ITEMS.map((item) => {
+            {NAV_ITEMS.filter((item: any) => !item.gated || (loaded && canManageAgents)).map((item: any) => {
               const Icon = item.icon
               return (
                 <SidebarMenuItem key={item.path}>
@@ -55,4 +79,3 @@ export function MarketingSidebar() {
     </Sidebar>
   )
 }
-
