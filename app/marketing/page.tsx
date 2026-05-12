@@ -7,6 +7,8 @@ import { Button } from "@/components/ui/button"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { Bar, BarChart, CartesianGrid, XAxis, YAxis } from "recharts"
 import { ChartContainer, ChartTooltip, ChartTooltipContent, type ChartConfig } from "@/components/ui/chart"
+import { formatKpiDurationFromMinutes } from "@/lib/marketing-kpis/formatting/format-kpi-duration"
+import { formatKpiNumber } from "@/lib/marketing-kpis/formatting/format-kpi-number"
 
 type KpiState =
   | { status: "loading" }
@@ -399,10 +401,22 @@ export default function MarketingDashboardHome() {
               <div className="text-sm text-destructive">{callMinutes.message}</div>
             ) : (
               <div className="space-y-1">
-                <div className="text-3xl font-semibold tabular-nums">{callMinutes.value}</div>
-                <div className="text-muted-foreground text-xs">
-                  {callMinutes.value === 0 ? "No call minutes recorded in this period." : `${callMinutes.value} minutes for ${callMinutes.windowLabel}.`}
-                </div>
+                {(() => {
+                  const duration = formatKpiDurationFromMinutes(callMinutes.value)
+                  const preciseMinutes = formatKpiNumber(callMinutes.value, { maximumFractionDigits: 2 })
+                  return (
+                    <>
+                      <div className="text-3xl font-semibold tabular-nums">{duration.headline}</div>
+                      <div className="text-muted-foreground text-xs">
+                        {duration.isValid
+                          ? callMinutes.value === 0
+                            ? "No call minutes recorded in this period."
+                            : `${preciseMinutes} total minutes for ${callMinutes.windowLabel}.`
+                          : "Unavailable"}
+                      </div>
+                    </>
+                  )
+                })()}
               </div>
             )}
           </div>
