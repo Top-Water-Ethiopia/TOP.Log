@@ -46,6 +46,7 @@ interface ReportPreview {
 
 interface LogReportPreviewPanelProps {
   canAccessAdmin: boolean
+  closeHref?: string
   reportId?: string
 }
 
@@ -103,7 +104,7 @@ function renderResponseValue(response: CustomResponse) {
   return formatResponseValue(value)
 }
 
-export function LogReportPreviewPanel({ canAccessAdmin, reportId }: LogReportPreviewPanelProps) {
+export function LogReportPreviewPanel({ canAccessAdmin, closeHref, reportId }: LogReportPreviewPanelProps) {
   const router = useRouter()
   const { state, isCursorExpired } = useLogsPageState()
   const prevCursorRef = useRef(state.nextCursorDate)
@@ -209,7 +210,12 @@ export function LogReportPreviewPanel({ canAccessAdmin, reportId }: LogReportPre
       open={!!reportId}
       onOpenChange={(open) => {
         if (!open) {
-          const closeHref = buildLogsPageHrefFromState({
+          if (closeHref) {
+            router.replace(closeHref)
+            return
+          }
+
+          const fallbackCloseHref = buildLogsPageHrefFromState({
             date: state.date || "",
             departmentId: state.departmentId || "",
             month: state.month,
@@ -222,7 +228,7 @@ export function LogReportPreviewPanel({ canAccessAdmin, reportId }: LogReportPre
             professionRoleId: state.professionRoleId || "",
             entryKind: state.entryKind || "",
           })
-          router.replace(closeHref)
+          router.replace(fallbackCloseHref)
         }
       }}
       title={report?.profile?.name || "Report preview"}
