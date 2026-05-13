@@ -24,6 +24,7 @@ import { createClient } from "@/lib/supabase/server"
 import type { ScopeEntryKind } from "@/hooks/use-entry-kinds"
 
 export const revalidate = 60
+export const dynamic = "force-dynamic"
 
 type MarketingLogsPageProps = {
   searchParams: Promise<LogsWorkspaceSearchParams>

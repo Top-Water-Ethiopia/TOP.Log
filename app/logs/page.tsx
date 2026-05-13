@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation"
 export const revalidate = 60 // Cache for 60 seconds
+export const dynamic = "force-dynamic"
 import Link from "next/link"
 import { Plus } from "lucide-react"
 import { createClient } from "@/lib/supabase/server"
