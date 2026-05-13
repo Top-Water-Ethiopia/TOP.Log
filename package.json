@@ -21,7 +21,8 @@
   "scripts": {
     "dev": "next dev",
     "build": "BROWSERSLIST_IGNORE_OLD_DATA=true BASELINE_BROWSER_MAPPING_IGNORE_OLD_DATA=true next build --webpack",
-    "start": "next start",
+    "start": "node --trace-deprecation node_modules/.bin/next start -p 5002",
+    "start:default": "next start",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write \"**/*.{js,jsx,ts,tsx,json,css,md}\"",
