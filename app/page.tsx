@@ -6,6 +6,8 @@ import { getInitialRoleQuestions } from "@/lib/initial-data"
 import { PageSkeleton } from "@/components/page-skeleton"
 import { ErrorBoundary } from "@/components/error-boundary"
 
+export const dynamic = "force-dynamic"
+
 /**
  * Home page with optimized authentication and routing logic
  * Features: Parallel queries, caching, enhanced UX, error boundaries
